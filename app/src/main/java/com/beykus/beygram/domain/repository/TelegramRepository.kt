@@ -1,0 +1,54 @@
+package com.beykus.beygram.domain.repository
+
+import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.TelegramConnectionState
+import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.ProfileState
+import com.beykus.beygram.domain.model.ProfileEdit
+import kotlinx.coroutines.flow.StateFlow
+
+interface TelegramRepository : ConversationRepository, NotificationRepository {
+    /** Текущее состояние авторизации. Обновляется реактивно при каждом ответе TDLib. */
+    val authState: StateFlow<AuthState>
+
+    /** Список чатов. Обновляется реактивно по мере получения обновлений от TDLib. */
+    val chats: StateFlow<List<ChatPreview>>
+
+    val connectionState: StateFlow<TelegramConnectionState>
+    val myProfile: StateFlow<ProfileState>
+    val bioLengthLimit: StateFlow<Int>
+    fun observeChatInfo(chatId: Long): StateFlow<ProfileState>
+    fun refreshChatInfo(chatId: Long)
+    fun refreshMyProfile()
+    suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit>
+    suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit>
+
+    /** Инициирует процесс авторизации (отправляет параметры TDLib). */
+    fun startAuthorization()
+
+    /** Отправляет номер телефона; результат придёт через [authState]. */
+    fun submitPhoneNumber(phone: String)
+
+    /** Отправляет проверочный код; результат придёт через [authState]. */
+    fun submitCode(code: String)
+
+    /** Повторно запрашивает SMS/код без смены экрана. */
+    fun resendCode()
+
+    /** Отправляет облачный пароль (2FA); результат придёт через [authState]. */
+    fun submitPassword(password: String)
+
+    /** Сбрасывает ошибку обратно в [AuthState.WaitingForPhone]. */
+    fun resetError()
+
+    /** Reopen the transport while preserving an in-flight authorization request. */
+    fun reconnect()
+
+    fun addProxy(server: String, port: Int, isMtproto: Boolean, username: String, password: String, secret: String)
+
+    fun observeFile(fileId: Int): StateFlow<MediaFileState>
+    fun downloadFile(fileId: Int)
+}

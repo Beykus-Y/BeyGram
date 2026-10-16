@@ -1,0 +1,71 @@
+package com.beykus.beygram.data.tdlib
+
+import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageMedia
+import org.drinkless.tdlib.TdApi
+
+internal fun TdApi.File.toMediaFileState() = MediaFileState(
+    id = id,
+    size = maxOf(size, expectedSize),
+    localPath = local?.takeIf { it.isDownloadingCompleted }?.path?.takeIf { it.isNotBlank() },
+    downloadedBytes = local?.downloadedSize ?: 0,
+    isDownloading = local?.isDownloadingActive == true,
+    uploadedBytes = remote?.uploadedSize ?: 0,
+    isUploading = remote?.isUploadingActive == true
+)
+
+internal class TdMediaMapper(private val files: MediaFileStore) {
+    private fun register(file: TdApi.File): Int {
+        files.register(file.toMediaFileState())
+        return file.id
+    }
+    private fun thumbnail(thumb: TdApi.Thumbnail?): Int? = thumb?.file?.let(::register)
+
+    fun media(content: TdApi.MessageContent): MessageMedia? = when (content) {
+        is TdApi.MessagePhoto -> {
+            val sizes = content.photo.sizes.orEmpty().filter { it.photo != null }
+            val full = sizes.maxByOrNull { it.width.toLong() * it.height }
+            val preview = sizes.filter { maxOf(it.width, it.height) >= 240 }.minByOrNull { it.width.toLong() * it.height }
+                ?: sizes.minByOrNull { it.width.toLong() * it.height }
+            full?.let { MessageMedia(MediaKind.Photo, register(it.photo), preview?.photo?.let(::register), "Фото.jpg", "image/jpeg", it.width, it.height, hasSpoiler = content.hasSpoiler, isSecret = content.isSecret) }
+        }
+        is TdApi.MessageVideo -> content.video.let {
+            MessageMedia(MediaKind.Video, register(it.video), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "video/mp4" }, it.width, it.height, it.duration, content.hasSpoiler, content.isSecret)
+        }
+        is TdApi.MessageAnimation -> content.animation.let {
+            MessageMedia(MediaKind.Animation, register(it.animation), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "video/mp4" }, it.width, it.height, it.duration, content.hasSpoiler)
+        }
+        is TdApi.MessageDocument -> content.document.let {
+            MessageMedia(MediaKind.Document, register(it.document), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "application/octet-stream" })
+        }
+        is TdApi.MessageAudio -> content.audio.let {
+            MessageMedia(MediaKind.Audio, register(it.audio), thumbnail(it.albumCoverThumbnail), it.fileName.orEmpty().ifBlank { it.title.orEmpty() }, it.mimeType.orEmpty().ifBlank { "audio/mpeg" }, durationSeconds = it.duration)
+        }
+        is TdApi.MessageVoiceNote -> content.voiceNote.let {
+            MessageMedia(MediaKind.Audio, register(it.voice), fileName = "Голосовое сообщение.ogg", mimeType = it.mimeType.orEmpty().ifBlank { "audio/ogg" }, durationSeconds = it.duration)
+        }
+        is TdApi.MessageVideoNote -> content.videoNote.let {
+            MessageMedia(MediaKind.Video, register(it.video), thumbnail(it.thumbnail), "Видеосообщение.mp4", "video/mp4", it.length, it.length, it.duration, isSecret = content.isSecret)
+        }
+        is TdApi.MessageSticker -> content.sticker.let {
+            val mime = when (it.format) {
+                is TdApi.StickerFormatWebm -> "video/webm"
+                is TdApi.StickerFormatTgs -> "application/x-tgsticker"
+                else -> "image/webp"
+            }
+            MessageMedia(MediaKind.Sticker, register(it.sticker), thumbnail(it.thumbnail), "Стикер", mime, it.width, it.height)
+        }
+        else -> null
+    }
+
+    fun caption(content: TdApi.MessageContent): String = when (content) {
+        is TdApi.MessagePhoto -> content.caption?.text.orEmpty()
+        is TdApi.MessageVideo -> content.caption?.text.orEmpty()
+        is TdApi.MessageAnimation -> content.caption?.text.orEmpty()
+        is TdApi.MessageDocument -> content.caption?.text.orEmpty()
+        is TdApi.MessageAudio -> content.caption?.text.orEmpty()
+        is TdApi.MessageVoiceNote -> content.caption?.text.orEmpty()
+        else -> ""
+    }
+}
