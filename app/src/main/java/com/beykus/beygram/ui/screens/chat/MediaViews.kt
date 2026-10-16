@@ -68,6 +68,7 @@ internal fun MediaKind.label(): String = when (this) {
     MediaKind.Sticker -> "Стикер"
     MediaKind.Audio -> "Аудио"
     MediaKind.Document -> "Файл"
+    MediaKind.Voice -> "Голосовое"
 }
 
 internal fun formatMediaSize(bytes: Long): String = when {
@@ -76,7 +77,7 @@ internal fun formatMediaSize(bytes: Long): String = when {
     else -> ""
 }
 
-private fun duration(seconds: Int) = "%d:%02d".format(seconds / 60, seconds % 60)
+internal fun duration(seconds: Int) = "%d:%02d".format(seconds / 60, seconds % 60)
 
 @Composable
 internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: Boolean = false, maxDimension: Int = 1024) {
@@ -116,7 +117,8 @@ internal fun MediaPreview(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onOpen: () -> Unit,
-    onLongPress: (() -> Unit)? = null
+    onLongPress: (() -> Unit)? = null,
+    onPlayed: () -> Unit = {}
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -127,6 +129,10 @@ internal fun MediaPreview(
     val imageFile = if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
     LaunchedEffect(thumbId, revealed) {
         if (revealed && isVisual && (thumbId != media.fileId || !media.isSecret && media.mimeType.startsWith("image/") && file.size <= 300_000)) downloadFile(thumbId)
+    }
+    if (media.kind == MediaKind.Voice) {
+        VoiceBubble(media, file, downloadFile, onPlayed, onLongPress)
+        return
     }
     if (isVisual) {
         val ratio = if (media.width > 0 && media.height > 0) media.width.toFloat() / media.height else 1.5f
@@ -206,7 +212,7 @@ internal fun MediaViewer(media: MessageMedia, observeFile: (Int) -> StateFlow<Me
                     }
                     media.mimeType.startsWith("image/") -> ZoomableImage(path)
                     media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") -> LocalVideo(path, media.kind == MediaKind.Animation, onViewed)
-                    media.kind == MediaKind.Audio -> LocalAudio(path, onViewed)
+                    media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> LocalAudio(path, onViewed)
                     else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(formatMediaSize(file.size), color = Color.LightGray)
                         TextButton(onClick = { openExternal(path) }) { Text("Открыть файл") }

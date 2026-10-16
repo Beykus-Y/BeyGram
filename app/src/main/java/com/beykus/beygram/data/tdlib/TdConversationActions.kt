@@ -120,5 +120,5 @@ internal class TdConversationActions(
 }
 
 internal fun ChatMessage.preview(): String = text.ifBlank { when (media?.kind) {
-    MediaKind.Photo -> "Фото"; MediaKind.Video -> "Видео"; MediaKind.Animation -> "GIF"; MediaKind.Audio -> "Аудио"; MediaKind.Document -> "Файл"; MediaKind.Sticker -> "Стикер"; null -> "Сообщение"
+    MediaKind.Photo -> "Фото"; MediaKind.Video -> "Видео"; MediaKind.Animation -> "GIF"; MediaKind.Audio -> "Аудио"; MediaKind.Document -> "Файл"; MediaKind.Voice -> "Голосовое"; MediaKind.Sticker -> "Стикер"; null -> "Сообщение"
 } }.take(180)
