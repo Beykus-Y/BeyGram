@@ -84,8 +84,10 @@ jobs:
         # Optional. Without these secrets the APKs are built with empty credentials
         # and TDLib cannot sign in.
         env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          # Pull requests build with empty credentials, as before, so their workflow
+          # code cannot read these secrets.
+          TELEGRAM_API_ID: ${{ github.event_name != 'pull_request' && secrets.TELEGRAM_API_ID || '' }}
+          TELEGRAM_API_HASH: ${{ github.event_name != 'pull_request' && secrets.TELEGRAM_API_HASH || '' }}
         run: |
           {
             echo "telegramApiId=${TELEGRAM_API_ID:-0}"
@@ -126,8 +128,16 @@ jobs:
               --key-pass env:KEY_PASSWORD \
               --out "$release_out" \
               "$RUNNER_TEMP/aligned.apk"
-            # Report the signer so the signature can be checked from the check run.
-            "$build_tools/apksigner" verify --print-certs "$release_out" 2>&1 | sed 's/^/::notice::/'
+            # Report the signer so the signature can be checked from the check run, and
+            # fail here if the key is not the pinned release key, not only at publish time.
+            "$build_tools/apksigner" verify --print-certs "$release_out" > "$RUNNER_TEMP/signer.txt" 2>&1
+            sed 's/^/::notice::/' "$RUNNER_TEMP/signer.txt"
+            signers=$(grep -c 'certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" || true)
+            digest=$(grep -m1 'Signer #1 certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" | awk '{print $NF}' || true)
+            if [ "$signers" != "1" ] || [ "$digest" != "$RELEASE_SIGNER_SHA256" ]; then
+              echo "::error::Main build is signed with digest '${digest:-none}', not the pinned release key. If the keystore was rotated, update RELEASE_SIGNER_SHA256 in a reviewed PR." >&2
+              exit 1
+            fi
           elif [ "$REQUIRE_SIGNING" = "true" ]; then
             echo "::error::Refusing to store an unsigned main release APK. Set the ANDROID_KEYSTORE_* secrets." >&2
             exit 1
@@ -263,7 +273,17 @@ jobs:
           tag="v$VERSION"
           # An existing tag must point at this commit, or --clobber would swap the APK
           # of a release built from another commit.
-          tag_sha=$(gh api --method GET "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null || true)
+          tag_err="$RUNNER_TEMP/tag.err"
+          if tag_sha=$(gh api --method GET "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>"$tag_err"); then
+            :
+          elif grep -qE 'HTTP (404|422)' "$tag_err"; then
+            # No such tag yet, so there is nothing to replace.
+            tag_sha=""
+          else
+            cat "$tag_err" >&2
+            echo "::error::Could not read tag $tag, so it cannot be checked against ${GITHUB_SHA::7}. Refusing to publish." >&2
+            exit 1
+          fi
           if [ -n "$tag_sha" ] && [ "$tag_sha" != "$GITHUB_SHA" ]; then
             echo "::error::Tag $tag points to ${tag_sha::7}, not ${GITHUB_SHA::7}. Refusing to replace its APK." >&2
             exit 1
