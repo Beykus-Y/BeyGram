@@ -1,19 +1,29 @@
 name: Android release
 
+# Flow:
+# 1. A push to main builds the APKs once and stores the signed prod release APK
+#    as a workflow artifact named after the commit.
+# 2. Publishing (a v*.*.*.* tag, or a manual run with publish: true) does not build
+#    anything. It takes the artifact of the successful main build of the same commit,
+#    checks its signature and attaches it to the GitHub release.
+# Without a main build of that commit, publishing fails.
+
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*.*.*.*"
   pull_request:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, four numeric parts, e.g. 0.0.0.1"
+        description: "Release version, four numeric parts, e.g. 0.0.0.1. Used only when publish is true."
         required: true
         default: "0.0.0.1"
         type: string
       publish:
-        description: "Create or update the GitHub release with the APKs"
+        description: "Publish the signed APK from the main build of the selected commit"
         required: true
         default: false
         type: boolean
@@ -21,47 +31,31 @@ on:
 permissions:
   contents: read
 
+env:
+  # SHA-256 of the release signing certificate, from apksigner's "Signer #1 certificate
+  # SHA-256 digest" line for the v0.0.0.2 release APK. Publishing refuses any other key.
+  # Rotating the keystore means updating this value in a reviewed PR.
+  RELEASE_SIGNER_SHA256: e7b9e482b2c2feacda9edcef17f960576ed94e94ff8cf7991f89a16e33bf436d
+
 concurrency:
-  group: android-release-${{ github.ref }}
+  # Keyed by event, ref and commit: a pending run in a shared group is replaced by a newer
+  # one, so unrelated pushes or a tag and a manual publish of one commit must not share it.
+  group: android-release-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
   build:
     name: Build APKs
+    # Tags never build: publishing reuses the main build of the tagged commit.
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && !inputs.publish)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      publish: ${{ steps.version.outputs.publish }}
     steps:
       - name: Check out
         uses: actions/checkout@v4
-
-      - name: Resolve version
-        id: version
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          INPUT_VERSION: ${{ inputs.version }}
-          INPUT_PUBLISH: ${{ inputs.publish }}
-        run: |
-          if [ "$EVENT_NAME" = "push" ]; then
-            version="${REF_NAME#v}"
-            publish="true"
-          elif [ "$EVENT_NAME" = "pull_request" ]; then
-            # Build check only. 0.0.0.0 is not a release version.
-            version="0.0.0.0"
-            publish="false"
-          else
-            version="$INPUT_VERSION"
-            publish="$INPUT_PUBLISH"
-          fi
-          if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
-            echo "Version must have four numeric parts, got: $version" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -90,8 +84,10 @@ jobs:
         # Optional. Without these secrets the APKs are built with empty credentials
         # and TDLib cannot sign in.
         env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          # Pull requests build with empty credentials, as before, so their workflow
+          # code cannot read these secrets.
+          TELEGRAM_API_ID: ${{ github.event_name != 'pull_request' && secrets.TELEGRAM_API_ID || '' }}
+          TELEGRAM_API_HASH: ${{ github.event_name != 'pull_request' && secrets.TELEGRAM_API_HASH || '' }}
         run: |
           {
             echo "telegramApiId=${TELEGRAM_API_ID:-0}"
@@ -102,22 +98,25 @@ jobs:
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease
 
       - name: Collect and sign APKs
-        id: apks
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          PUBLISH: ${{ steps.version.outputs.publish }}
+          # Signing secrets are only exposed to pushes, not to pull requests, which
+          # run workflow code from the branch under review.
+          KEYSTORE_BASE64: ${{ github.event_name == 'push' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          KEYSTORE_PASSWORD: ${{ github.event_name == 'push' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          KEY_ALIAS: ${{ github.event_name == 'push' && secrets.ANDROID_KEY_ALIAS || '' }}
+          KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.ANDROID_KEY_PASSWORD || '' }}
+          # Only the main build feeds releases, so it must be signed.
+          REQUIRE_SIGNING: ${{ github.event_name == 'push' }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/apks"
-          mkdir -p "$out"
-          cp app/build/outputs/apk/dev/debug/app-dev-debug.apk "$out/BeyGram-$VERSION-dev-debug.apk"
+          mkdir -p "$out/dev-debug" "$out/prod-release"
+          # The dev debug APK is signed with the runner's debug key. It is kept as
+          # a workflow artifact only and is never published.
+          cp app/build/outputs/apk/dev/debug/app-dev-debug.apk "$out/dev-debug/BeyGram-dev-debug.apk"
 
           release_in=app/build/outputs/apk/prod/release/app-prod-release-unsigned.apk
-          release_out="$out/BeyGram-$VERSION-prod-release.apk"
+          release_out="$out/prod-release/BeyGram-prod-release.apk"
           if [ -n "$KEYSTORE_BASE64" ]; then
             build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
@@ -129,57 +128,190 @@ jobs:
               --key-pass env:KEY_PASSWORD \
               --out "$release_out" \
               "$RUNNER_TEMP/aligned.apk"
-            echo "signed=true" >> "$GITHUB_OUTPUT"
-            # Report the signer so the signature can be checked from the check run.
-            "$build_tools/apksigner" verify --print-certs "$release_out" 2>&1 | sed 's/^/::notice::/'
-          else
-            if [ "$PUBLISH" = "true" ]; then
-              echo "::error::Refusing to publish an unsigned release APK. Set the ANDROID_KEYSTORE_* secrets." >&2
+            # Report the signer so the signature can be checked from the check run, and
+            # fail here if the key is not the pinned release key, not only at publish time.
+            "$build_tools/apksigner" verify --print-certs "$release_out" > "$RUNNER_TEMP/signer.txt" 2>&1
+            sed 's/^/::notice::/' "$RUNNER_TEMP/signer.txt"
+            signers=$(grep -c 'certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" || true)
+            digest=$(grep -m1 'Signer #1 certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" | awk '{print $NF}' || true)
+            if [ "$signers" != "1" ] || [ "$digest" != "$RELEASE_SIGNER_SHA256" ]; then
+              echo "::error::Main build is signed with digest '${digest:-none}', not the pinned release key. If the keystore was rotated, update RELEASE_SIGNER_SHA256 in a reviewed PR." >&2
               exit 1
             fi
+          elif [ "$REQUIRE_SIGNING" = "true" ]; then
+            echo "::error::Refusing to store an unsigned main release APK. Set the ANDROID_KEYSTORE_* secrets." >&2
+            exit 1
+          else
             cp "$release_in" "$release_out"
-            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release APK is unsigned; it is not publishable."
           fi
-          echo "::notice::release APK signed=$(grep -q '^signed=true' "$GITHUB_OUTPUT" && echo true || echo false)"
           echo "APKs prepared in $out:"
-          ls -l "$out" | sed 's/^/::notice::/' 
+          find "$out" -name '*.apk' -exec ls -l {} + | sed 's/^/::notice::/'
 
-      - name: Upload APKs
+      - name: Upload prod release APK
         uses: actions/upload-artifact@v4
         with:
-          name: beygram-${{ steps.version.outputs.version }}
-          path: ${{ runner.temp }}/apks/*.apk
+          name: beygram-prod-release-${{ github.sha }}
+          path: ${{ runner.temp }}/apks/prod-release/BeyGram-prod-release.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
-  release:
-    name: Publish GitHub release
-    needs: build
-    if: needs.build.outputs.publish == 'true'
+      - name: Upload dev debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: beygram-dev-debug-${{ github.sha }}
+          path: ${{ runner.temp }}/apks/dev-debug/BeyGram-dev-debug.apk
+          if-no-files-found: error
+          retention-days: 90
+
+  manual-publish-from-branch:
+    # Manual publishing is refused outside main, so the run fails instead of passing silently.
+    name: Refuse manual publish outside main
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref != 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
+    steps:
+      - name: Refuse
+        run: |
+          echo "::error::Manual publishing runs only from main. Run the workflow from main with publish set to true." >&2
+          exit 1
+
+  publish:
+    name: Publish GitHub release
+    # Manual publishing runs only from main, so the workflow file it runs is the reviewed one.
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    # Leaves room for the wait for a main build still running on this commit.
+    timeout-minutes: 60
     permissions:
       contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Download APKs
-        uses: actions/download-artifact@v4
-        with:
-          name: beygram-${{ needs.build.outputs.version }}
-          path: apks
+      - name: Resolve version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            version="${REF_NAME#v}"
+          else
+            version="$INPUT_VERSION"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+            echo "Version must have four numeric parts, got: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Find the successful main build of this commit
+        id: run
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # gh api sends POST when fields are given, so the method is explicit.
+          runs_url="repos/$GITHUB_REPOSITORY/actions/workflows/android-release.yml/runs"
+          run_id=""
+          # Wait up to about 45 minutes while a main build of this commit is queued or running.
+          for attempt in $(seq 1 90); do
+            # A failed request is retried at the next check instead of ending the step.
+            if ! runs=$(gh api --method GET "$runs_url" -f head_sha="$SHA" -f per_page=50 \
+              --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main")]'); then
+              echo "::warning::Could not list the workflow runs for ${SHA::7}; retrying (check $attempt)."
+              sleep 30
+              continue
+            fi
+            run_id=$(echo "$runs" | jq -r 'map(select(.conclusion == "success")) | .[0].id // empty')
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            pending=$(echo "$runs" | jq 'map(select(.status != "completed")) | length')
+            total=$(echo "$runs" | jq 'length')
+            # Give a just-pushed main build about five minutes to appear before giving up.
+            if [ "$pending" = "0" ] && { [ "$total" != "0" ] || [ "$attempt" -ge 10 ]; }; then
+              break
+            fi
+            echo "::notice::The main build of ${SHA::7} is still running; waiting (check $attempt)."
+            sleep 30
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::No successful build on main for commit ${SHA::7}. If the main build failed, fix it and merge the commit to main again. If it has not run yet, run this workflow manually with publish set to true from main once that build passes." >&2
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "::notice::Using main build run $run_id for commit ${SHA::7}"
+
+      - name: Download the prod release APK
+        env:
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+          ARTIFACT: beygram-prod-release-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if ! gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir apks; then
+            echo "::error::Artifact $ARTIFACT is missing or expired. Artifacts are kept up to 90 days, and a repository retention setting can make that shorter. Merge the commit to main again to rebuild it." >&2
+            exit 1
+          fi
+
+      - name: Verify signature and name the release APK
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          apk=apks/BeyGram-prod-release.apk
+          if [ ! -f "$apk" ]; then
+            echo "::error::Expected $apk in the artifact." >&2
+            exit 1
+          fi
+          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          if ! "$build_tools/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/signer.txt" 2>&1; then
+            sed 's/^/::error::/' "$RUNNER_TEMP/signer.txt"
+            echo "::error::Refusing to publish an APK that does not verify. Set the ANDROID_KEYSTORE_* secrets and merge to main again." >&2
+            exit 1
+          fi
+          sed 's/^/::notice::/' "$RUNNER_TEMP/signer.txt"
+          # Only the pinned release key is accepted: exactly one signer, with the expected digest.
+          signers=$(grep -c 'certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" || true)
+          digest=$(grep -m1 'Signer #1 certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" | awk '{print $NF}' || true)
+          if [ "$signers" != "1" ] || [ "$digest" != "$RELEASE_SIGNER_SHA256" ]; then
+            echo "::error::APK signer digest '${digest:-none}' ($signers signer(s)) is not the pinned release key. Refusing to publish." >&2
+            exit 1
+          fi
+          mv "$apk" "apks/BeyGram-$VERSION-prod-release.apk"
 
       - name: Create or update release
         env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.build.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           tag="v$VERSION"
+          # An existing tag must point at this commit, or --clobber would swap the APK
+          # of a release built from another commit.
+          tag_err="$RUNNER_TEMP/tag.err"
+          if tag_sha=$(gh api --method GET "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>"$tag_err"); then
+            :
+          elif grep -qE 'HTTP (404|422)' "$tag_err"; then
+            # No such tag yet, so there is nothing to replace.
+            tag_sha=""
+          else
+            cat "$tag_err" >&2
+            echo "::error::Could not read tag $tag, so it cannot be checked against ${GITHUB_SHA::7}. Refusing to publish." >&2
+            exit 1
+          fi
+          if [ -n "$tag_sha" ] && [ "$tag_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $tag points to ${tag_sha::7}, not ${GITHUB_SHA::7}. Refusing to replace its APK." >&2
+            exit 1
+          fi
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "BeyGram $VERSION" \
               --notes "Android APKs built from ${GITHUB_SHA::7}."
           fi
-          # The dev debug APK is signed with the runner's debug key, so it is
-          # kept as a workflow artifact and not published.
           gh release upload "$tag" "apks/BeyGram-$VERSION-prod-release.apk" --repo "$GITHUB_REPOSITORY" --clobber
