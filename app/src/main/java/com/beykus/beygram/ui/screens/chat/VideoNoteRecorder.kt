@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.SystemClock
 import android.util.Rational
 import android.view.Surface
+import android.view.ViewGroup
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
@@ -56,6 +57,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 
 private const val MAX_DURATION_MS = 60_000L
 private const val MIN_DURATION_SECONDS = 1
@@ -194,7 +196,9 @@ internal class VideoNoteRecorder(
 
     private fun startRecording() {
         val capture = videoCapture ?: return
-        val current = VideoTake(File(context.cacheDir, "video-note-${System.currentTimeMillis()}.mp4"))
+        // Файл лежит в uploads, как и вложения: кэш система может очистить до отправки, а поставленное в очередь сообщение тогда сломается.
+        val directory = File(context.filesDir, "uploads").resolve(UUID.randomUUID().toString()).apply { mkdirs() }
+        val current = VideoTake(directory.resolve("video-note.mp4"))
         take = current
         try {
             current.recording = capture.output
@@ -205,7 +209,7 @@ internal class VideoNoteRecorder(
                 }
         } catch (_: Exception) {
             take = null
-            current.file.delete()
+            current.file.parentFile?.deleteRecursively()
             fail("Не удалось начать запись")
         }
     }
@@ -217,7 +221,7 @@ internal class VideoNoteRecorder(
         }
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
         if (current.discard || seconds < MIN_DURATION_SECONDS || event.hasError()) {
-            current.file.delete()
+            current.file.parentFile?.deleteRecursively()
             if (!current.discard && seconds >= MIN_DURATION_SECONDS) onError("Не удалось сохранить кружок")
             return
         }
@@ -259,15 +263,21 @@ internal fun VideoNoteRecordButton(recorder: VideoNoteRecorder, enabled: Boolean
                     val down = awaitFirstDown()
                     currentOnPress()
                     var dragged = 0f
-                    var pressed = true
-                    while (pressed) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        dragged = change.position.x - down.position.x
-                        recorder.onDrag(dragged < -cancelPx)
-                        pressed = change.pressed
+                    var finished = false
+                    try {
+                        var pressed = true
+                        while (pressed) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            dragged = change.position.x - down.position.x
+                            recorder.onDrag(dragged < -cancelPx)
+                            pressed = change.pressed
+                        }
+                        finished = true
+                    } finally {
+                        // Жест, прерванный извне (например, сменой enabled), отменяет запись, а не оставляет её до лимита.
+                        recorder.release(cancel = !finished || dragged < -cancelPx)
                     }
-                    recorder.release(cancel = dragged < -cancelPx)
                 }
             },
         contentAlignment = Alignment.Center
@@ -308,7 +318,8 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
                 drawArc(palette.danger, startAngle = -90f, sweepAngle = 360f * progress, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
             }
             Box(Modifier.size(220.dp).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.TopCenter) {
-                AndroidView(factory = { recorder.previewView }, modifier = Modifier.fillMaxSize())
+                // PreviewView переиспользуется между записями: снимаем его со старого контейнера, иначе addView упадёт.
+                AndroidView(factory = { recorder.previewView.also { (it.parent as? ViewGroup)?.removeView(it) } }, modifier = Modifier.fillMaxSize())
                 Row(
                     Modifier.padding(top = 10.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically

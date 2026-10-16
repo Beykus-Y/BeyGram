@@ -108,7 +108,9 @@ fun ChatScreen(
         onFinished = { media -> scope.launch { conversation.sendMedia(chat.id, media, "", replyId).onSuccess { replyId = null }.onFailure { error = it.message ?: "Не удалось отправить кружок" } } },
         onError = { error = it }
     )
-    val videoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    val videoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (!granted.values.all { it }) error = "Для кружков нужны камера и микрофон"
+    }
     fun startVideoNote() { if (videoNoteAllowed(context)) videoNote.press() else videoPermissions.launch(videoNotePermissions) }
     val messages = history.messages
     val currentMessages by rememberUpdatedState(messages)
