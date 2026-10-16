@@ -82,7 +82,8 @@ fun ChatScreen(
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
-    val typingNames by conversation.observeTyping(chat.id).collectAsStateWithLifecycle()
+    val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
+    val typingNames by typingFlow.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()

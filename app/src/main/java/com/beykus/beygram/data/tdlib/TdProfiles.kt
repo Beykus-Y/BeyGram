@@ -47,8 +47,9 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     fun observe(chatId: Long): StateFlow<ProfileState> = synchronized(lock) {
         details.getOrPut(chatId) { MutableStateFlow(ProfileState(info = chatInfo(chatId))) }.asStateFlow()
     }
-    /** Names of people who are typing in the chat now; each name expires on its own if TDLib sends no cancel. */
-    fun observeTyping(chatId: Long): StateFlow<List<String>> = typingFlows.getOrPut(chatId) { MutableStateFlow(emptyList()) }.asStateFlow()
+    /** Names of people typing in the chat now. The same flow instance comes back on every call, so collectors are not restarted. */
+    fun observeTyping(chatId: Long): StateFlow<List<String>> = typingFlow(chatId)
+    private fun typingFlow(chatId: Long): MutableStateFlow<List<String>> = typingFlows.getOrPut(chatId) { MutableStateFlow(emptyList()) }
     fun handle(update: TdApi.Object) = synchronized(lock) {
         when (update) {
             is TdApi.UpdateUser -> users[update.user.id] = update.user
@@ -148,27 +149,34 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     }
     private fun updateTyping(update: TdApi.UpdateChatAction) {
         val sender = update.senderId
+        // TDLib не присылает собственный набор. Апдейты не отбрасываем, пока myId не загружен: иначе при сбое GetMe чужой набор пропал бы.
         if (sender is TdApi.MessageSenderUser && sender.userId == myId) return
+        // Темы форума не различаем: строка набора общая для всего чата.
         val key = when (sender) {
             is TdApi.MessageSenderUser -> "u${sender.userId}"
             is TdApi.MessageSenderChat -> "c${sender.chatId}"
             else -> return
         }
         val typists = typingBy.getOrPut(update.chatId) { mutableMapOf() }
+        typists.remove(key)?.expiry?.cancel()
         if (update.action is TdApi.ChatActionTyping) {
-            typists[key] = Typist(typingName(update.senderId), System.currentTimeMillis() + TYPING_TIMEOUT_MS)
-            scope.launch { delay(TYPING_TIMEOUT_MS); synchronized(lock) { publishTyping(update.chatId) } }
-        } else {
-            typists.remove(key)
+            val typist = Typist(sender)
+            typists[key] = typist
+            typist.expiry = scope.launch {
+                delay(TYPING_TIMEOUT_MS)
+                synchronized(lock) {
+                    val current = typingBy[update.chatId]
+                    if (current != null && current[key] === typist) current.remove(key)
+                    publishTyping(update.chatId)
+                }
+            }
         }
         publishTyping(update.chatId)
     }
     private fun publishTyping(chatId: Long) {
-        val now = System.currentTimeMillis()
         val typists = typingBy[chatId]
-        typists?.values?.removeAll { it.expiresAt <= now }
-        val names = typists?.values?.map { it.name }.orEmpty()
-        typingFlows.getOrPut(chatId) { MutableStateFlow(emptyList()) }.value = names
+        if (typists != null && typists.isEmpty()) typingBy.remove(chatId)
+        typingFlow(chatId).value = typists?.values?.map { typingName(it.sender) }.orEmpty()
     }
     private fun typingName(sender: TdApi.MessageSender): String {
         val name = when (sender) {
@@ -226,7 +234,10 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
 
 private const val TYPING_TIMEOUT_MS = 6_000L
 
-private class Typist(val name: String, val expiresAt: Long)
+private class Typist(val sender: TdApi.MessageSender) {
+    /** Срок набора: новое действие или отмена отменяют прежний таймер. */
+    var expiry: Job? = null
+}
 
 private fun Throwable.profileError(): String = when {
     this is TimeoutCancellationException -> "Сервер не ответил вовремя. Обновите сведения и проверьте, сохранились ли изменения."

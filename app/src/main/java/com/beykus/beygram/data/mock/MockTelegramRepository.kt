@@ -46,7 +46,8 @@ class MockTelegramRepository : TelegramRepository {
     override val bioLengthLimit = MutableStateFlow(70).asStateFlow()
     override fun refreshMyProfile() = Unit
     override fun refreshChatInfo(chatId: Long) = Unit
-    override fun observeTyping(chatId: Long): StateFlow<List<String>> = MutableStateFlow(emptyList())
+    private val typing = MutableStateFlow(emptyList<String>()).asStateFlow()
+    override fun observeTyping(chatId: Long): StateFlow<List<String>> = typing
     override fun observeChatInfo(chatId: Long): StateFlow<ProfileState> = MutableStateFlow(ProfileState(info = _chats.value.firstOrNull { it.id == chatId }?.let {
         ProfileInfo(it.id, it.title, kind = if (it.isGroup) ProfileKind.Group else ProfileKind.Person)
     })).asStateFlow()

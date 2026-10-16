@@ -27,6 +27,11 @@ class ChatPresenceTest {
         assertEquals("Личный чат", chatPresenceLine(chat(false), ProfileInfo(2L, "Анна")))
     }
 
+    @Test fun botAndDeletedAccountKeepTheirLabels() {
+        assertEquals("бот", chatPresenceLine(chat(false), ProfileInfo(3L, "Помощник", status = "Бот")))
+        assertEquals("удалённый аккаунт", chatPresenceLine(chat(false), ProfileInfo(4L, "Аноним", status = "Удалённый аккаунт")))
+    }
+
     @Test fun typingNamesKeepTheOrderTheyStartedIn() {
         assertEquals("Дима печатает…", typingLabel(listOf("Дима")))
         assertEquals("Анна и Дима печатают…", typingLabel(listOf("Анна", "Дима")))
