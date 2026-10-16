@@ -7,6 +7,8 @@ import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
 
+private const val SEARCH_PAGE_SIZE = 50
+
 internal class TdConversationActions(
     client: () -> Client, private val history: MessageHistoryStore,
     private val map: (TdApi.Message) -> ChatMessage
@@ -90,6 +92,12 @@ internal class TdConversationActions(
         val chat = request(TdApi.GetChat(chatId))
         val page = conversationResult { request(TdApi.GetChatHistory(chatId, messageId, -15, 40, false)) }.getOrNull()
         MessageContext(chatId, chat.title, messageId, (page?.messages.orEmpty().toList() + target).distinctBy { it.id }.sortedBy { it.id }.map(map))
+    }
+
+    /** Поиск по тексту внутри одного чата: TDLib отдаёт новые сообщения первыми, дальше страницы идут через nextFromMessageId. */
+    suspend fun search(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
+        val found = request(TdApi.SearchChatMessages(chatId, null, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
+        MessageSearchPage(found.messages.orEmpty().map(map), found.nextFromMessageId)
     }
 
     fun hydrateReply(message: TdApi.Message) {

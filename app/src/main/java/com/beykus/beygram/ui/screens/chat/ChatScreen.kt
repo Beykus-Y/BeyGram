@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.*
@@ -79,6 +80,13 @@ fun ChatScreen(
     var contextChatId by rememberSaveable(chat.id) { mutableStateOf(0L) }
     var contextMessageId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var highlighted by remember { mutableStateOf<Long?>(null) }
+    var searching by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var searchQuery by rememberSaveable(chat.id) { mutableStateOf("") }
+    var searchResults by remember(chat.id) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    var searchNextId by remember(chat.id) { mutableLongStateOf(0L) }
+    var searchBusy by remember(chat.id) { mutableStateOf(false) }
+    var searchError by remember(chat.id) { mutableStateOf<String?>(null) }
+    fun closeSearch() { searching = false; searchQuery = "" }
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
@@ -114,21 +122,22 @@ fun ChatScreen(
         capabilities = result.getOrNull()
         capabilitiesError = result.exceptionOrNull()?.message
     }
-    BackHandler(enabled = actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active) {
+    BackHandler(enabled = searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active) {
         when {
+            searching -> closeSearch()
             deleting -> { deleting = false; deleteError = null }
             actionMessage != null -> closeActions()
             editMessage != null -> closeEdit()
             else -> attachments.discardAll()
         }
     }
-    BackHandler(enabled = actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active, onBack = onBack)
+    BackHandler(enabled = actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching, onBack = onBack)
 
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
     LaunchedEffect(chat.id, lifecycle, conversation) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             snapshotFlow {
-                if (!window.isWindowFocused) emptyList() else {
+                if (!window.isWindowFocused || searching) emptyList() else {
                     val layout = listState.layoutInfo
                     val eligible = currentMessages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id }
                     layout.visibleItemsInfo.filter { item ->
@@ -149,6 +158,34 @@ fun ChatScreen(
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = reply.messageId }
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
     }
+    // Results refresh after a short pause in typing; a new query replaces the pending request.
+    LaunchedEffect(searching, searchQuery) {
+        searchResults = emptyList(); searchNextId = 0L; searchError = null
+        val needle = searchQuery.trim()
+        searchBusy = searching && needle.isNotEmpty()
+        if (!searching || needle.isEmpty()) return@LaunchedEffect
+        delay(300)
+        conversation.searchMessages(chat.id, needle, 0L)
+            .onSuccess { page -> searchResults = page.messages; searchNextId = page.nextFromMessageId }
+            .onFailure { searchError = it.message ?: "Не удалось выполнить поиск" }
+        searchBusy = false
+    }
+    fun loadMoreResults() {
+        val needle = searchQuery.trim()
+        scope.launch {
+            searchBusy = true
+            conversation.searchMessages(chat.id, needle, searchNextId)
+                .onSuccess { page -> if (searchQuery.trim() == needle) { searchResults = searchResults + page.messages; searchNextId = page.nextFromMessageId } }
+                .onFailure { searchError = it.message ?: "Не удалось выполнить поиск" }
+            searchBusy = false
+        }
+    }
+    fun openSearchResult(message: ChatMessage) {
+        val index = messages.asReversed().indexOfFirst { it.id == message.id }
+        closeSearch()
+        if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = message.id }
+        else { contextChatId = chat.id; contextMessageId = message.id }
+    }
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (actionMessage != null) MessageActionsBar(
@@ -158,7 +195,8 @@ fun ChatScreen(
             onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText("Сообщение", actionMessage.text)); closeActions() },
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
-        ) else ChatTopBar(chat, chatPresenceLine(chat, info), onBack, onChatInfo, observeFile, onDownloadFile)
+        ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
+        else ChatTopBar(chat, chatPresenceLine(chat, info), onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -187,6 +225,8 @@ fun ChatScreen(
             Spacer(Modifier.width(6.dp))
             Text("К последним", color = palette.accentInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
+        if (searching) ChatSearchResults(searchQuery, searchResults, searchBusy, searchError, hasMore = searchNextId != 0L,
+            onOpen = ::openSearchResult, onMore = ::loadMoreResults)
         }
         error?.let { failure -> Row(Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(failure, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -205,7 +245,7 @@ fun ChatScreen(
                 } })
         } else if (editMessage != null) {
             EditBanner(editMessage.text.ifBlank { editMessage.summary() }, editMessage.media != null, editText.codePointCount(0, editText.length), editLimit, editError, onClose = ::closeEdit)
-        } else {
+        } else if (!searching) {
             AttachmentPanel(attachments, draft, limits.caption)
             if (replyId != null) Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
@@ -225,8 +265,8 @@ fun ChatScreen(
             attachments.active -> attachments.pending.isNotEmpty() && !attachments.importing
             else -> fieldText.isNotBlank()
         }
-        if (!deleting && typingNames.isNotEmpty()) TypingRow(typingNames)
-        if (!deleting) Row(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
+        if (!deleting && !searching && typingNames.isNotEmpty()) TypingRow(typingNames)
+        if (!deleting && !searching) Row(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!editing) AttachmentButton(attachments, enabled = !sending)
             else Spacer(Modifier.width(8.dp))
             TextField(fieldText, { if (editing) editText = it else draft = it }, enabled = !busy, modifier = Modifier.weight(1f).defaultMinSize(minHeight = 40.dp),
@@ -266,7 +306,7 @@ fun ChatScreen(
 }
 
 @Composable
-private fun ChatTopBar(chat: ChatPreview, presence: String, onBack: () -> Unit, onInfo: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
+private fun ChatTopBar(chat: ChatPreview, presence: String, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -277,6 +317,7 @@ private fun ChatTopBar(chat: ChatPreview, presence: String, onBack: () -> Unit, 
                 Text(chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(presence, color = palette.textSecondary, fontSize = 13.sp)
             }
+            IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, "Поиск в чате", tint = palette.textSecondary) }
         }
         HorizontalDivider(color = palette.divider)
     }

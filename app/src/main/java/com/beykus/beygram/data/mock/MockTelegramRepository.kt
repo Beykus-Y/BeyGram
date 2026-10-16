@@ -21,6 +21,7 @@ import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.MessageLimits
 import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.domain.model.MessageContext
+import com.beykus.beygram.domain.model.MessageSearchPage
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.TelegramNotifications
@@ -188,6 +189,8 @@ class MockTelegramRepository : TelegramRepository {
         return Result.success(Unit)
     }
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = Result.success(MessageContext(chatId, "Чат", messageId, messagesByChatId[chatId].orEmpty().toList()))
+    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> =
+        Result.success(MessageSearchPage(messagesByChatId[chatId].orEmpty().filter { it.text.contains(query, ignoreCase = true) }, 0L))
     private fun reply(chatId: Long, id: Long?) = messagesByChatId[chatId]?.firstOrNull { it.id == id }?.let { MessageReply(chatId, it.id, it.text, "Собеседник") }
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = fileStates.getOrPut(fileId) { MutableStateFlow(MediaFileState(fileId)) }.asStateFlow()
     override fun downloadFile(fileId: Int) = Unit
