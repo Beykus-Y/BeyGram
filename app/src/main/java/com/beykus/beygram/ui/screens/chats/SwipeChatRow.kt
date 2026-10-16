@@ -30,12 +30,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.offset
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.domain.model.ChatPreview
@@ -43,7 +42,6 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 /** Кнопка за правым краем строки чата: подпись, иконка, цвета и операция, которая возвращает успех. */
 internal data class ChatSwipeAction(
@@ -141,7 +139,7 @@ internal fun SwipeChatRow(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .offset { IntOffset(swipeOffset.value.roundToInt(), 0) }
+                .graphicsLayer { translationX = swipeOffset.value }
                 .background(palette.screen)
                 .draggable(
                     state = dragState,
