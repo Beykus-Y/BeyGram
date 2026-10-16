@@ -15,6 +15,14 @@ internal fun TdApi.File.toMediaFileState() = MediaFileState(
     isUploading = remote?.isUploadingActive == true
 )
 
+/** TDLib присылает волну 5-битными значениями (0…31), записанными подряд, младшие биты первыми. */
+internal fun decodeVoiceWaveform(bytes: ByteArray): List<Int> = List(bytes.size * 8 / 5) { index ->
+    val bit = index * 5
+    val low = bytes[bit / 8].toInt() and 0xFF
+    val high = bytes.getOrElse(bit / 8 + 1) { 0.toByte() }.toInt() and 0xFF
+    ((low or (high shl 8)) shr (bit % 8)) and 0x1F
+}
+
 internal class TdMediaMapper(private val files: MediaFileStore) {
     private fun register(file: TdApi.File): Int {
         files.register(file.toMediaFileState())
@@ -43,7 +51,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             MessageMedia(MediaKind.Audio, register(it.audio), thumbnail(it.albumCoverThumbnail), it.fileName.orEmpty().ifBlank { it.title.orEmpty() }, it.mimeType.orEmpty().ifBlank { "audio/mpeg" }, durationSeconds = it.duration)
         }
         is TdApi.MessageVoiceNote -> content.voiceNote.let {
-            MessageMedia(MediaKind.Audio, register(it.voice), fileName = "Голосовое сообщение.ogg", mimeType = it.mimeType.orEmpty().ifBlank { "audio/ogg" }, durationSeconds = it.duration)
+            MessageMedia(MediaKind.Voice, register(it.voice), fileName = "Голосовое сообщение.ogg", mimeType = it.mimeType.orEmpty().ifBlank { "audio/ogg" }, durationSeconds = it.duration, waveform = decodeVoiceWaveform(it.waveform ?: ByteArray(0)))
         }
         is TdApi.MessageVideoNote -> content.videoNote.let {
             MessageMedia(MediaKind.Video, register(it.video), thumbnail(it.thumbnail), "Видеосообщение.mp4", "video/mp4", it.length, it.length, it.duration, isSecret = content.isSecret)
