@@ -17,6 +17,8 @@ data class ProfileInfo(
     val bio: String = "",
     val status: String = "",
     val memberCount: Int? = null,
+    /** Участники, онлайн прямо сейчас; TDLib присылает число только для открытого чата. */
+    val onlineMemberCount: Int? = null,
     val isSelf: Boolean = false,
     val isPremium: Boolean = false,
     val isVerified: Boolean = false
