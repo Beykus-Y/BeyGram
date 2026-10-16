@@ -71,8 +71,10 @@ class MihomoProxyService : Service() {
                 MihomoRuntimeDiagnostics.event("service", "profile initialized")
                 core = bridge
                 bridge.startProxyListener()
-                _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.RUNNING)
-                MihomoRuntimeDiagnostics.event("service", "state=RUNNING")
+                // A stop requested meanwhile keeps its STOPPING state, so RUNNING is set only over STARTING.
+                if (_runtimeState.compareAndSet(ProxyRuntimeState(ProxyRuntimeStatus.STARTING), ProxyRuntimeState(ProxyRuntimeStatus.RUNNING))) {
+                    MihomoRuntimeDiagnostics.event("service", "state=RUNNING")
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
