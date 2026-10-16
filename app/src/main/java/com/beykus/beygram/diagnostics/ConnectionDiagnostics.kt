@@ -10,6 +10,7 @@ import android.os.PowerManager
 import androidx.core.content.FileProvider
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.domain.model.TelegramConnectionState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -29,6 +30,20 @@ suspend fun createConnectionDiagnostics(context: Context, connection: TelegramCo
     withContext(Dispatchers.IO) {
         val report = DiagnosticsRedactor.redact(buildDiagnosticsReport(context, connection, ConnectionEventLog.shared.snapshot()))
         writeDiagnosticsFile(context, report, System.currentTimeMillis())
+    }
+
+/**
+ * Собирает отчёт и открывает «Поделиться». Возвращает текст ошибки для экрана или null.
+ * Используется и в настройках, и на экране входа, где аккаунта ещё нет.
+ */
+suspend fun shareConnectionDiagnosticsOrError(context: Context, connection: TelegramConnectionState): String? =
+    try {
+        shareConnectionDiagnostics(context, createConnectionDiagnostics(context, connection))
+        null
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        "Не удалось подготовить логи (${failure.javaClass.simpleName})"
     }
 
 /** Открывает системное «Поделиться» для уже записанного отчёта. */

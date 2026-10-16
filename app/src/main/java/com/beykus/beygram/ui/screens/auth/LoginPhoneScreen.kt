@@ -16,15 +16,19 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.launch
+import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
 import com.beykus.beygram.ui.components.ProxySettingsDialog
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.TelegramConnectionState
@@ -52,6 +56,10 @@ fun LoginPhoneScreen(
     val requestWaitingForNetwork = authState == AuthState.ConnectionTimeout
     val canContinue = phone.count { it.isDigit() } >= 11 && !isLoading && !requestWaitingForNetwork
     val palette = beyGramPalette()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var sharingLogs by remember { mutableStateOf(false) }
+    var shareLogsError by remember { mutableStateOf<String?>(null) }
 
     AuthScaffold(
         title = "Номер телефона",
@@ -135,6 +143,21 @@ fun LoginPhoneScreen(
                 Text("Переподключиться")
             }
         }
+        // Доступно до входа: отчёт не содержит введённый номер (см. DiagnosticsRedactor).
+        TextButton(
+            enabled = !sharingLogs,
+            onClick = {
+                scope.launch {
+                    sharingLogs = true; shareLogsError = null
+                    try { shareLogsError = shareConnectionDiagnosticsOrError(context, connectionState) }
+                    finally { sharingLogs = false }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (sharingLogs) "Собираем логи…" else "Поделиться логами")
+        }
+        shareLogsError?.let { Text(text = it, color = palette.danger, fontSize = 13.sp) }
     }
 
     if (showProxyDialog) ProxySettingsDialog(

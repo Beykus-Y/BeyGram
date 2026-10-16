@@ -22,11 +22,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import com.beykus.beygram.diagnostics.createConnectionDiagnostics
 import com.beykus.beygram.diagnostics.diagnosticsLabel
-import com.beykus.beygram.diagnostics.shareConnectionDiagnostics
+import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.notifications.TelegramNotificationService
@@ -109,9 +107,7 @@ fun NotificationSettingsScreen(runtime: NotificationRuntime, connectionState: Te
             OutlinedButton(enabled = !sharing, onClick = {
                 scope.launch {
                     sharing = true; shareError = null
-                    try { shareConnectionDiagnostics(context, createConnectionDiagnostics(context, connectionState)) }
-                    catch (cancelled: CancellationException) { throw cancelled }
-                    catch (failure: Exception) { shareError = "Не удалось подготовить логи (${failure.javaClass.simpleName})" }
+                    try { shareError = shareConnectionDiagnosticsOrError(context, connectionState) }
                     finally { sharing = false }
                 }
             }) { Text(if (sharing) "Собираем логи…" else "Поделиться логами") }
