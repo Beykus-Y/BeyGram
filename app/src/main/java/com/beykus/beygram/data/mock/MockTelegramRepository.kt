@@ -10,7 +10,11 @@ import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileKind
+import com.beykus.beygram.domain.model.CallHistoryPage
+import com.beykus.beygram.domain.model.CallRecord
+import com.beykus.beygram.domain.model.CallStatus
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.orderedArchivedChats
 import com.beykus.beygram.domain.model.orderedMainChats
 import com.beykus.beygram.domain.model.TelegramConnectionState
@@ -67,6 +71,30 @@ class MockTelegramRepository : TelegramRepository {
         return Result.success(Unit)
     }
 
+    private val mockContacts = mutableListOf(
+        ContactPreview(5L, "Насальникова", "+7 900 000-00-05", null, 0xFF2F8A7B),
+        ContactPreview(7L, "Анна Смирнова", "@anna_s", null, 0xFFC2593F),
+        ContactPreview(8L, "Дима Лебедев", "+7 900 000-00-08", null, 0xFF3A78C2)
+    )
+    private var nextContactId = 9L
+    override suspend fun loadContacts(): Result<List<ContactPreview>> = Result.success(mockContacts.sortedBy { it.title.lowercase() })
+    override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> {
+        val title = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ")
+        if (title.isBlank()) return Result.failure(IllegalStateException("Введите имя"))
+        mockContacts += ContactPreview(nextContactId++, title, phone, null, 0xFF5B4BC4)
+        return Result.success(Unit)
+    }
+    override suspend fun openPrivateChat(userId: Long): Result<Long> =
+        if ((_chats.value + _archivedChats.value).any { it.id == userId }) Result.success(userId) else Result.failure(IllegalStateException("Чат недоступен"))
+    private val mockCalls = run {
+        val now = System.currentTimeMillis() / 1000
+        listOf(
+            CallRecord(9001L, 5L, "Насальникова", null, 0xFF2F8A7B, isVideo = false, isOutgoing = false, status = CallStatus.Answered, durationSeconds = 754, dateSeconds = now - 3_600),
+            CallRecord(9002L, 2L, "Android Dev", null, 0xFF14B8A6, isVideo = true, isOutgoing = true, status = CallStatus.NoAnswer, durationSeconds = 0, dateSeconds = now - 7_200),
+            CallRecord(9003L, 3L, "Product Notes", null, 0xFF8B5CF6, isVideo = false, isOutgoing = false, status = CallStatus.Missed, durationSeconds = 0, dateSeconds = now - 86_400)
+        )
+    }
+    override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = Result.success(CallHistoryPage(mockCalls, ""))
     private val profileState = MutableStateFlow(ProfileState(info = ProfileInfo(1, "Beykus", firstName = "Beykus", isSelf = true)))
     override val myProfile = profileState.asStateFlow()
     override val bioLengthLimit = MutableStateFlow(70).asStateFlow()
