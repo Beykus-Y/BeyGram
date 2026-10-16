@@ -163,8 +163,8 @@ private fun RevealButton(action: ChatSwipeAction, onClick: () -> Unit) {
         modifier = Modifier
             .width(revealButtonWidth)
             .fillMaxHeight()
-            .background(action.container)
             .alpha(if (action.enabled) 1f else 0.4f)
+            .background(action.container)
             .clickable(enabled = action.enabled, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
