@@ -4,6 +4,9 @@ import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.CallRecord
 import com.beykus.beygram.domain.model.CallStatus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 
@@ -13,14 +16,15 @@ private const val CALL_PAGE_SIZE = 50
 internal class TdCallHistory(private val client: () -> Client, private val profiles: TdProfiles) {
     private val requests = TdRequests(client)
 
-    suspend fun page(offset: String): CallHistoryPage {
+    suspend fun page(offset: String): CallHistoryPage = coroutineScope {
         val found = requests(TdApi.SearchCallMessages(offset, CALL_PAGE_SIZE, false))
         val messages = found.messages.orEmpty().filter { it.content is TdApi.MessageCall }
-        val chats = mutableMapOf<Long, TdApi.Chat?>()
-        for (message in messages) {
-            if (message.chatId !in chats) chats[message.chatId] = chatOrNull(message.chatId)
-        }
-        return CallHistoryPage(
+        // Названия чатов грузим параллельно: на одной странице их обычно несколько.
+        val chats = messages.map { it.chatId }.distinct()
+            .map { chatId -> async { chatId to chatOrNull(chatId) } }
+            .awaitAll()
+            .toMap()
+        CallHistoryPage(
             calls = messages.map { it.toRecord(chats[it.chatId]) },
             nextOffset = found.nextOffset.orEmpty()
         )
@@ -56,5 +60,8 @@ private fun TdApi.CallDiscardReason?.toStatus(duration: Int, isOutgoing: Boolean
     duration > 0 -> CallStatus.Answered
     this is TdApi.CallDiscardReasonDeclined -> CallStatus.Declined
     this is TdApi.CallDiscardReasonMissed -> if (isOutgoing) CallStatus.NoAnswer else CallStatus.Missed
+    // Звонящий сбросил вызов до ответа: для входящего это пропущенный, для исходящего — без ответа.
+    this is TdApi.CallDiscardReasonDisconnected || this is TdApi.CallDiscardReasonHungUp || this is TdApi.CallDiscardReasonEmpty ->
+        if (isOutgoing) CallStatus.NoAnswer else CallStatus.Missed
     else -> CallStatus.NoAnswer
 }

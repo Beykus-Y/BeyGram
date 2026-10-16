@@ -23,8 +23,13 @@ internal class TdRequests(private val client: () -> Client) {
     }
 }
 
-internal suspend fun <T> conversationResult(block: suspend () -> T): Result<T> = try { Result.success(block()) }
-catch (_: TimeoutCancellationException) { Result.failure(IllegalStateException("Сервер не ответил вовремя. Проверьте состояние сообщения перед повторной попыткой.")) }
+private const val MESSAGE_TIMEOUT = "Сервер не ответил вовремя. Проверьте состояние сообщения перед повторной попыткой."
+
+/** Для контактов, звонков и чатов: текст ошибки по таймауту без упоминания сообщений. */
+internal const val REQUEST_TIMEOUT = "Telegram не ответил вовремя. Попробуйте ещё раз."
+
+internal suspend fun <T> conversationResult(timeoutMessage: String = MESSAGE_TIMEOUT, block: suspend () -> T): Result<T> = try { Result.success(block()) }
+catch (_: TimeoutCancellationException) { Result.failure(IllegalStateException(timeoutMessage)) }
 catch (cancelled: CancellationException) { throw cancelled }
 catch (error: Exception) {
     val message = when {

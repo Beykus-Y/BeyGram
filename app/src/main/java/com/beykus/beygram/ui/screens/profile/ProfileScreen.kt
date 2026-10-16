@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.domain.model.*
+import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.ui.components.*
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
@@ -46,7 +48,8 @@ fun ProfileScreen(
     onBack: () -> Unit, onRefresh: () -> Unit, onEdit: () -> Unit,
     setPhoto: suspend (OutgoingMedia) -> Result<Unit>,
     isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit,
-    onNotifications: () -> Unit = {}
+    onNotifications: () -> Unit = {},
+    hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -108,6 +111,7 @@ fun ProfileScreen(
                         InfoRow(label, value)
                     }
                 }
+                if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text("Уведомления и фоновая работа", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                 if (isOwnProfile) Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.DarkMode, null, tint = palette.accent, modifier = Modifier.size(22.dp))
@@ -166,6 +170,27 @@ private fun InfoRow(label: String, value: String) {
         Text(label, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(2.dp))
         SelectionContainer { Text(value, color = palette.textPrimary, fontSize = 16.sp, lineHeight = 22.sp) }
+    }
+}
+
+/** Разделы, скрытые из нижнего меню, открываются отсюда так же, как с панели. */
+@Composable
+private fun HiddenTabsSection(hiddenTabs: List<MainTab>, onOpenTab: (MainTab) -> Unit) {
+    val palette = beyGramPalette()
+    Text("РАЗДЕЛЫ", color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
+    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+        hiddenTabs.forEachIndexed { index, tab ->
+            if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            Row(Modifier.fillMaxWidth().clickable { onOpenTab(tab) }.padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(tab.icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text(tab.title, color = palette.textPrimary, fontSize = 16.sp)
+                    Text("скрыто из нижнего меню", color = palette.textSecondary, fontSize = 12.sp)
+                }
+                Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+            }
+        }
     }
 }
 

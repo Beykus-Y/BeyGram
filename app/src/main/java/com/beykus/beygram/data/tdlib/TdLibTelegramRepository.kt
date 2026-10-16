@@ -97,15 +97,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
     private val contactBook = TdContacts({ client }, profiles)
     private val callHistory = TdCallHistory({ client }, profiles)
-    override suspend fun loadContacts(): Result<List<ContactPreview>> = conversationResult { contactBook.load() }
+    override suspend fun loadContacts(): Result<List<ContactPreview>> = conversationResult(REQUEST_TIMEOUT) { contactBook.load() }
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> =
-        conversationResult { contactBook.add(firstName, lastName, phone) }
-    override suspend fun openPrivateChat(userId: Long): Result<Long> = conversationResult {
+        conversationResult(REQUEST_TIMEOUT) { contactBook.add(firstName, lastName, phone) }
+    override suspend fun openPrivateChat(userId: Long): Result<Long> = conversationResult(REQUEST_TIMEOUT) {
         val chat = TdRequests { client }(TdApi.CreatePrivateChat(userId, false))
         handleNewChat(chat)
         chat.id
     }
-    override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = conversationResult { callHistory.page(offset) }
+    override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = conversationResult(REQUEST_TIMEOUT) { callHistory.page(offset) }
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
     private val conversationEffects = TdConversationEffects({ client }, policy)
     override val messageLimits get() = conversationActions.limits
