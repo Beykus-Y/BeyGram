@@ -16,5 +16,6 @@ enum class AppRoute {
     Contacts,
     Settings,
     NavigationSettings,
-    VpnSettings
+    Proxy,
+    ProxyConnect
 }

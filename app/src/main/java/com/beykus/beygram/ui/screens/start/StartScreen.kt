@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.components.ProxySettingsDialog
 
 @Composable
 fun StartScreen(
@@ -47,12 +46,10 @@ fun StartScreen(
     tdLibReadiness: TdLibReadiness,
     connectionState: TelegramConnectionState,
     onThemeChange: (Boolean) -> Unit,
-    onVpnSettings: () -> Unit,
-    onStartClick: () -> Unit,
-    onAddProxy: (String, Int, Boolean, String, String, String) -> Unit
+    onProxySettings: () -> Unit,
+    onStartClick: () -> Unit
 ) {
     val palette = beyGramPalette()
-    var showProxyDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -146,8 +143,7 @@ fun StartScreen(
                 TelegramConnectionState.Unknown -> "Проверяем доступность Telegram…" to palette.textSecondary
             }
             Text(connectionText, color = connectionColor, fontSize = 13.sp)
-            TextButton(onClick = { showProxyDialog = true }) { Text("Прокси для Telegram") }
-            TextButton(onClick = onVpnSettings) { Text("Mihomo proxy (dev)") }
+            TextButton(onClick = onProxySettings) { Text("Прокси для Telegram") }
         }
 
         Button(
@@ -168,10 +164,6 @@ fun StartScreen(
             )
         }
     }
-    if (showProxyDialog) ProxySettingsDialog(
-        onDismiss = { showProxyDialog = false },
-        onApply = onAddProxy
-    )
 }
 
 @Composable

@@ -8,7 +8,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -44,7 +43,9 @@ import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
-import com.beykus.beygram.ui.screens.vpn.VpnSettingsScreen
+import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
+import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
+import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
 
 @Composable
@@ -66,12 +67,17 @@ fun BeyGramApp(
             MockTelegramRepository()
         }
     }
-    val appScope = rememberCoroutineScope()
+    // Бэкенд прокси живёт в процессе: его область работы — область приложения, а не экрана.
     val vpnBackend = remember(context, repository) {
-        VpnBackend(context.applicationContext, repository.connectionState, appScope, repository::setMihomoProxyEnabled)
+        VpnBackend.getInstance(
+            context = context.applicationContext,
+            connectionState = repository.connectionState,
+            scope = (context.applicationContext as BeyGramApplication).applicationScope,
+            setTdLibProxy = repository::setMihomoProxyEnabled,
+            isTdLibProxyEnabled = repository::isMihomoProxyEnabled
+        )
     }
     DisposableEffect(repository, notificationRuntime) { notificationRuntime.attach(repository); onDispose { } }
-    DisposableEffect(vpnBackend) { onDispose { vpnBackend.shutdown() } }
 
     BeyGramAppContent(
         repository = repository,
@@ -146,7 +152,17 @@ private fun BeyGramAppContent(
         notificationsReturnRouteName = returnTo.name
         routeName = AppRoute.Notifications.name
     }
-    var vpnPreviousRoute by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
+    // Экраны прокси открываются из нескольких мест: запоминаем, куда вернуться, и какую вкладку показать.
+    var proxyReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
+    var proxyConnectTabName by rememberSaveable { mutableStateOf(ProxyConnectTab.MTPROTO.name) }
+    val openProxy: (AppRoute) -> Unit = { returnTo ->
+        proxyReturnRouteName = returnTo.name
+        routeName = AppRoute.Proxy.name
+    }
+    val openProxyConnect: (ProxyConnectTab) -> Unit = { tab ->
+        proxyConnectTabName = tab.name
+        routeName = AppRoute.ProxyConnect.name
+    }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, notificationRequest?.token) {
         val request = notificationRequest ?: return@LaunchedEffect
@@ -193,6 +209,9 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Calls || route == AppRoute.Contacts || route == AppRoute.Settings) {
         routeName = tabReturnRouteName
     }
+    BackHandler(enabled = route == AppRoute.Proxy || route == AppRoute.ProxyConnect) {
+        routeName = if (route == AppRoute.ProxyConnect) AppRoute.Proxy.name else proxyReturnRouteName
+    }
 
     when (route) {
         AppRoute.Start -> StartScreen(
@@ -200,8 +219,7 @@ private fun BeyGramAppContent(
             tdLibReadiness = tdLibReadiness,
             connectionState = connectionState,
             onThemeChange = onThemeChange,
-            onVpnSettings = { vpnPreviousRoute = AppRoute.Start.name; routeName = AppRoute.VpnSettings.name },
-            onAddProxy = repository::addProxy,
+            onProxySettings = { openProxy(AppRoute.Start) },
             onStartClick = {
                 repository.startAuthorization()
                 // Явно переходим на экран телефона, не дожидаясь LaunchedEffect
@@ -214,7 +232,7 @@ private fun BeyGramAppContent(
             authState = authState,
             connectionState = connectionState,
             onReconnect = repository::reconnect,
-            onAddProxy = repository::addProxy,
+            onProxySettings = { openProxy(AppRoute.LoginPhone) },
             onBack = {
                 repository.resetError()
                 routeName = AppRoute.Start.name
@@ -272,7 +290,6 @@ private fun BeyGramAppContent(
                 onArchive = archiveChat,
                 archiveHidden = archiveHidden,
                 onArchiveHiddenChange = onArchiveHiddenChange,
-                onVpnSettings = { vpnPreviousRoute = AppRoute.Chats.name; routeName = AppRoute.VpnSettings.name },
                 onChatClick = { chat ->
                     selectedChatId = chat.id
                     chatBackRouteName = AppRoute.Chats.name
@@ -316,7 +333,6 @@ private fun BeyGramAppContent(
                         onArchive = archiveChat,
                         archiveHidden = archiveHidden,
                         onArchiveHiddenChange = onArchiveHiddenChange,
-                        onVpnSettings = { vpnPreviousRoute = AppRoute.Chats.name; routeName = AppRoute.VpnSettings.name },
                         onChatClick = { selectedChat ->
                             selectedChatId = selectedChat.id
                             chatBackRouteName = AppRoute.Chats.name
@@ -392,7 +408,8 @@ private fun BeyGramAppContent(
         AppRoute.Settings -> MainTabsScaffold(MainTab.Settings.route.name, MainTab.Settings, tabVisibility, selectTab, tabStateHolder) {
             SettingsScreen(
                 onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
-                onNotifications = { openNotifications(AppRoute.Settings) }
+                onNotifications = { openNotifications(AppRoute.Settings) },
+                onProxy = { openProxy(AppRoute.Settings) }
             )
         }
         AppRoute.NavigationSettings -> NavigationSettingsScreen(
@@ -400,9 +417,21 @@ private fun BeyGramAppContent(
             onVisibilityChange = onTabVisibilityChange,
             onBack = { routeName = AppRoute.Settings.name }
         )
-        AppRoute.VpnSettings -> VpnSettingsScreen(vpnBackend, connectionState) {
-            routeName = vpnPreviousRoute.takeIf { runCatching { AppRoute.valueOf(it) }.isSuccess } ?: AppRoute.Chats.name
-        }
+        AppRoute.Proxy -> ProxyListScreen(
+            repository = repository,
+            vpnBackend = vpnBackend,
+            onBack = { routeName = proxyReturnRouteName },
+            onAddProxy = { openProxyConnect(ProxyConnectTab.MTPROTO) },
+            onSubscriptionServers = { openProxyConnect(ProxyConnectTab.SUBSCRIPTION) }
+        )
+
+        AppRoute.ProxyConnect -> ProxyConnectScreen(
+            repository = repository,
+            vpnBackend = vpnBackend,
+            connectionState = connectionState,
+            initialTab = ProxyConnectTab.valueOf(proxyConnectTabName),
+            onBack = { routeName = AppRoute.Proxy.name }
+        )
     }
     notificationError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { notificationError = null }, title = { androidx.compose.material3.Text("Уведомление") },
         text = { androidx.compose.material3.Text(error) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { notificationError = null }) { androidx.compose.material3.Text("Закрыть") } }) }
