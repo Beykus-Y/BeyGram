@@ -84,10 +84,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun dismissNotifications(groupId: Int, maxNotificationId: Int) = notificationFeed.dismiss(groupId, maxNotificationId)
     private val chatStates = ConcurrentHashMap<Long, MutableStateFlow<ChatPreview?>>()
     override fun observeChat(chatId: Long): StateFlow<ChatPreview?> = chatStates.computeIfAbsent(chatId) { MutableStateFlow(chatCache[it]) }.asStateFlow()
-    override suspend fun loadChat(chatId: Long): Result<Unit> = conversationResult {
+    override suspend fun loadChat(chatId: Long): Result<Unit> = requestResult {
         handleNewChat(TdRequests { client }(TdApi.GetChat(chatId))); Unit
     }
-    override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = conversationResult {
+    override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = requestResult {
         val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
         TdRequests { client }(TdApi.AddChatToList(chatId, list)); Unit
     }
@@ -97,15 +97,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
     private val contactBook = TdContacts({ client }, profiles)
     private val callHistory = TdCallHistory({ client }, profiles)
-    override suspend fun loadContacts(): Result<List<ContactPreview>> = conversationResult(REQUEST_TIMEOUT) { contactBook.load() }
+    override suspend fun loadContacts(): Result<List<ContactPreview>> = requestResult { contactBook.load() }
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> =
-        conversationResult(REQUEST_TIMEOUT) { contactBook.add(firstName, lastName, phone) }
-    override suspend fun openPrivateChat(userId: Long): Result<Long> = conversationResult(REQUEST_TIMEOUT) {
+        requestResult { contactBook.add(firstName, lastName, phone) }
+    override suspend fun openPrivateChat(userId: Long): Result<Long> = requestResult {
         val chat = TdRequests { client }(TdApi.CreatePrivateChat(userId, false))
         handleNewChat(chat)
         chat.id
     }
-    override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = conversationResult(REQUEST_TIMEOUT) { callHistory.page(offset) }
+    override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
     private val conversationEffects = TdConversationEffects({ client }, policy)
     override val messageLimits get() = conversationActions.limits

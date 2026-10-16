@@ -59,9 +59,8 @@ internal class TdCallHistory(private val client: () -> Client, private val profi
 private fun TdApi.CallDiscardReason?.toStatus(duration: Int, isOutgoing: Boolean): CallStatus = when {
     duration > 0 -> CallStatus.Answered
     this is TdApi.CallDiscardReasonDeclined -> CallStatus.Declined
-    this is TdApi.CallDiscardReasonMissed -> if (isOutgoing) CallStatus.NoAnswer else CallStatus.Missed
-    // Звонящий сбросил вызов до ответа: для входящего это пропущенный, для исходящего — без ответа.
-    this is TdApi.CallDiscardReasonDisconnected || this is TdApi.CallDiscardReasonHungUp || this is TdApi.CallDiscardReasonEmpty ->
-        if (isOutgoing) CallStatus.NoAnswer else CallStatus.Missed
+    // TDLib помечает пропущенным вызов, завершённый до начала разговора: входящий пропущен, исходящий остался без ответа.
+    this is TdApi.CallDiscardReasonMissed && !isOutgoing -> CallStatus.Missed
+    // Разрыв связи и сброс вызова не значат, что звонок пропущен, поэтому остальное показываем как «без ответа».
     else -> CallStatus.NoAnswer
 }

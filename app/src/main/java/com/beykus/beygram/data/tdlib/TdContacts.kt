@@ -2,6 +2,9 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.model.ContactPreview
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 
@@ -12,9 +15,14 @@ private const val MIN_PHONE_DIGITS = 7
 internal class TdContacts(private val client: () -> Client, private val profiles: TdProfiles) {
     private val requests = TdRequests(client)
 
-    suspend fun load(): List<ContactPreview> {
+    /** Пользователей запрашиваем параллельно: у большой адресной книги последовательные запросы заметно медленные. */
+    suspend fun load(): List<ContactPreview> = coroutineScope {
         val ids = requests(TdApi.GetContacts()).userIds
-        return ids.mapNotNull { id -> userOrNull(id)?.toContact() }.sortedBy { it.title.lowercase() }
+        ids.map { id -> async { userOrNull(id) } }
+            .awaitAll()
+            .filterNotNull()
+            .map { it.toContact() }
+            .sortedBy { it.title.lowercase() }
     }
 
     /** Если номера нет в Telegram, TDLib возвращает идентификатор 0 вместо пользователя. */
