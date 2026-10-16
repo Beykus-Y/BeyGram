@@ -250,11 +250,11 @@ internal fun MediaViewer(
                     media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> LocalAudio(path, onViewed)
                     else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(formatMediaSize(file.size), color = Color.LightGray)
-                        TextButton(onClick = { openExternal(path) }) { Text("Открыть файл") }
+                        if (exportPath != null) TextButton(onClick = { openExternal(path) }) { Text("Открыть файл") }
                     }
                 }
             }
-            if (file.localPath != null && !media.isSecret) TextButton(onClick = { openExternal(file.localPath!!) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Открыть в другом приложении") }
+            if (exportPath != null) TextButton(onClick = { openExternal(exportPath) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Открыть в другом приложении") }
             if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 if (actions != null && actions.canForward) ViewerAction("Переслать", Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
                 if (exportPath != null) ViewerAction("Сохранить", Icons.Rounded.Download) {
@@ -382,7 +382,7 @@ private fun saveToDevice(context: Context, path: String, media: MessageMedia): S
         else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_DOWNLOADS
     }
     val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(media.mimeType)?.let { ".$it" }.orEmpty()
-    val base = media.fileName.ifBlank { "BeyGram_${System.currentTimeMillis()}" }
+    val base = media.fileName.replace('/', '_').ifBlank { "BeyGram_${System.currentTimeMillis()}" }
     val values = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, if (extension.isEmpty() || base.endsWith(extension, ignoreCase = true)) base else base + extension)
         put(MediaStore.MediaColumns.MIME_TYPE, media.mimeType.ifBlank { "application/octet-stream" })
