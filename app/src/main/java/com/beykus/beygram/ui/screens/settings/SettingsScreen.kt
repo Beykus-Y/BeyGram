@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,7 +34,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Настройки приложения: нижнее меню и уведомления. */
 @Composable
-fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit) {
+fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit, onProxy: () -> Unit) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -45,6 +46,8 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit
         )
         Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
             SettingsLink(Icons.Rounded.Dashboard, "Нижнее меню", onNavigationSettings)
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsLink(Icons.Rounded.Lock, "Прокси для Telegram", onProxy)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.Notifications, "Уведомления", onNotifications)
         }

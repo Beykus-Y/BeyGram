@@ -10,6 +10,8 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.ProfileEdit
+import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.TelegramProxyDraft
 import kotlinx.coroutines.flow.StateFlow
 
 interface TelegramRepository : ConversationRepository, NotificationRepository {
@@ -70,7 +72,29 @@ interface TelegramRepository : ConversationRepository, NotificationRepository {
     /** Reopen the transport while preserving an in-flight authorization request. */
     fun reconnect()
 
-    fun addProxy(server: String, port: Int, isMtproto: Boolean, username: String, password: String, secret: String)
+    /** Прокси, сохранённые в TDLib. Служебный адрес подписки Mihomo в список не входит. */
+    suspend fun loadSavedProxies(): Result<List<SavedTelegramProxy>>
+
+    /** Сохраняет прокси в TDLib. С [enable] = true он сразу становится текущим. */
+    suspend fun addProxy(draft: TelegramProxyDraft, enable: Boolean): Result<Unit>
+
+    /** Делает сохранённый прокси текущим. */
+    suspend fun enableProxy(id: Int): Result<Unit>
+
+    /** Отключает прокси: соединение с Telegram идёт напрямую. */
+    suspend fun disableProxy(): Result<Unit>
+
+    /** Удаляет сохранённый прокси. */
+    suspend fun removeProxy(id: Int): Result<Unit>
+
+    /** Время TCP-соединения с сервером прокси, в миллисекундах. */
+    suspend fun measureProxyLatency(server: String, port: Int): Result<Long>
+
+    /** Истина, если TDLib сейчас работает через локальный listener подписки Mihomo. */
+    suspend fun isMihomoProxyEnabled(): Boolean
+
+    /** Route TDLib through BeyGram's local Mihomo SOCKS listener and restore the prior proxy on disable. */
+    suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit>
 
     fun observeFile(fileId: Int): StateFlow<MediaFileState>
     fun downloadFile(fileId: Int)

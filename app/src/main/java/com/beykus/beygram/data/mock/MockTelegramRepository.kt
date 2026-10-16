@@ -26,12 +26,17 @@ import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.TelegramNotifications
 import com.beykus.beygram.domain.model.NotificationPresentation
+import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.TelegramProxyDraft
+import com.beykus.beygram.domain.model.TelegramProxyKind
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class MockTelegramRepository : TelegramRepository {
+
+    override suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit> = Result.success(Unit)
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
     override val authState: StateFlow<AuthState> = _authState.asStateFlow()
@@ -160,7 +165,40 @@ class MockTelegramRepository : TelegramRepository {
 
     override fun reconnect() = Unit
 
-    override fun addProxy(server: String, port: Int, isMtproto: Boolean, username: String, password: String, secret: String) = Unit
+    private val savedProxies = mutableListOf<SavedTelegramProxy>()
+    private var nextProxyId = 1
+
+    override suspend fun loadSavedProxies(): Result<List<SavedTelegramProxy>> = Result.success(savedProxies.toList())
+
+    override suspend fun addProxy(draft: TelegramProxyDraft, enable: Boolean): Result<Unit> {
+        if (enable) updateSavedProxies { it.copy(enabled = false) }
+        savedProxies += SavedTelegramProxy(nextProxyId++, draft.kind, draft.server.trim(), draft.port, enabled = enable)
+        return Result.success(Unit)
+    }
+
+    override suspend fun enableProxy(id: Int): Result<Unit> {
+        if (savedProxies.none { it.id == id }) return Result.failure(IllegalStateException("Прокси не найден"))
+        updateSavedProxies { it.copy(enabled = it.id == id) }
+        return Result.success(Unit)
+    }
+
+    override suspend fun disableProxy(): Result<Unit> {
+        updateSavedProxies { it.copy(enabled = false) }
+        return Result.success(Unit)
+    }
+
+    override suspend fun removeProxy(id: Int): Result<Unit> {
+        savedProxies.removeAll { it.id == id }
+        return Result.success(Unit)
+    }
+
+    override suspend fun measureProxyLatency(server: String, port: Int): Result<Long> = Result.success(40L + port % 90)
+
+    override suspend fun isMihomoProxyEnabled(): Boolean = false
+
+    private fun updateSavedProxies(transform: (SavedTelegramProxy) -> SavedTelegramProxy) {
+        for (index in savedProxies.indices) savedProxies[index] = transform(savedProxies[index])
+    }
 
     private val historyStates = mutableMapOf<Long, MutableStateFlow<ChatHistory>>()
     private val fileStates = mutableMapOf<Int, MutableStateFlow<MediaFileState>>()
