@@ -119,7 +119,8 @@ internal class VpnBackend private constructor(
         } catch (error: TimeoutCancellationException) {
             MihomoRuntimeDiagnostics.event("backend", "start timed out")
             // The service keeps starting in its own scope after this caller gives up; stop it instead of leaving a foreground notification.
-            appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
+            // startService throws when the app is in the background; that must not replace the timeout failure below.
+            runCatching { appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP)) }
             Result.failure(IllegalStateException("Прокси не запустился вовремя. Попробуйте ещё раз."))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend start", error); Result.failure(error) }
