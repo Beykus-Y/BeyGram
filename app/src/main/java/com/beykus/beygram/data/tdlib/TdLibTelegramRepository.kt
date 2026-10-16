@@ -85,6 +85,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun loadChat(chatId: Long): Result<Unit> = conversationResult {
         handleNewChat(TdRequests { client }(TdApi.GetChat(chatId))); Unit
     }
+    override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = conversationResult {
+        val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
+        TdRequests { client }(TdApi.AddChatToList(chatId, list)); Unit
+    }
+    override suspend fun markChatRead(chatId: Long): Result<Unit> = conversationResult {
+        val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L } ?: throw IllegalStateException("Нет сообщений для отметки")
+        TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true)); Unit
+    }
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
     private val conversationEffects = TdConversationEffects({ client }, policy)
     override val messageLimits get() = conversationActions.limits
@@ -427,7 +435,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         val existing = chatCache[chatId] ?: return
         chatCache[chatId] = existing.copy(
             lastMessage = lastMessage?.toTextPreview().orEmpty(),
-            lastMessageTime = lastMessage?.toTimeString().orEmpty()
+            lastMessageTime = lastMessage?.toTimeString().orEmpty(),
+            lastMessageId = lastMessage?.id ?: 0L
         ).withPositions(positions)
         publishChats()
     }
@@ -516,6 +525,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             isMuted = notificationSettings?.muteFor?.let { it > 0 } == true,
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,
+            lastMessageId = lastMessage?.id ?: 0L,
             photo = profiles.photo(photo)
         )
     }

@@ -44,6 +44,29 @@ class MockTelegramRepository : TelegramRepository {
     override suspend fun dismissNotifications(groupId: Int, maxNotificationId: Int) = Result.success(Unit)
     override fun observeChat(chatId: Long) = MutableStateFlow((_chats.value + _archivedChats.value).firstOrNull { it.id == chatId }).asStateFlow()
     override suspend fun loadChat(chatId: Long): Result<Unit> = if ((_chats.value + _archivedChats.value).any { it.id == chatId }) Result.success(Unit) else Result.failure(IllegalStateException("Чат недоступен"))
+    override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> {
+        val archivedChat = _archivedChats.value.firstOrNull { it.id == chatId }
+        val chat = archivedChat ?: _chats.value.firstOrNull { it.id == chatId } ?: return Result.failure(IllegalStateException("Чат недоступен"))
+        if ((archivedChat != null) == archived) return Result.success(Unit)
+        if (archived) {
+            val nextArchiveOrder = (_archivedChats.value.maxOfOrNull { it.archiveOrder } ?: 0L) + 1L
+            _chats.value = orderedMainChats(_chats.value.filterNot { it.id == chatId })
+            _archivedChats.value = orderedArchivedChats(_archivedChats.value + chat.copy(order = 0L, archiveOrder = nextArchiveOrder))
+        } else {
+            val nextOrder = (_chats.value.maxOfOrNull { it.order } ?: 0L) + 1L
+            _archivedChats.value = orderedArchivedChats(_archivedChats.value.filterNot { it.id == chatId })
+            _chats.value = orderedMainChats(_chats.value + chat.copy(order = nextOrder, archiveOrder = 0L))
+        }
+        return Result.success(Unit)
+    }
+
+    override suspend fun markChatRead(chatId: Long): Result<Unit> {
+        fun List<ChatPreview>.markRead() = map { if (it.id == chatId) it.copy(unreadCount = 0) else it }
+        _chats.value = _chats.value.markRead()
+        _archivedChats.value = _archivedChats.value.markRead()
+        return Result.success(Unit)
+    }
+
     private val profileState = MutableStateFlow(ProfileState(info = ProfileInfo(1, "Beykus", firstName = "Beykus", isSelf = true)))
     override val myProfile = profileState.asStateFlow()
     override val bioLengthLimit = MutableStateFlow(70).asStateFlow()

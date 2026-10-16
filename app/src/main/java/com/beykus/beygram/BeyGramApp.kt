@@ -18,6 +18,7 @@ import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
+import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
 import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
@@ -78,6 +79,9 @@ private fun BeyGramAppContent(
     val authState by repository.authState.collectAsStateWithLifecycle()
     val chats by repository.chats.collectAsStateWithLifecycle()
     val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+    val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
+    val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
+    val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
     val connectionState by repository.connectionState.collectAsStateWithLifecycle()
     val myProfile by repository.myProfile.collectAsStateWithLifecycle()
     val bioLimit by repository.bioLengthLimit.collectAsStateWithLifecycle()
@@ -208,6 +212,8 @@ private fun BeyGramAppContent(
             downloadFile = repository::downloadFile,
             onMyProfile = { routeName = AppRoute.MyProfile.name },
             onArchiveClick = { routeName = AppRoute.Archive.name },
+            onMarkRead = markChatRead,
+            onArchive = archiveChat,
             onChatClick = { chat ->
                 selectedChatId = chat.id
                 chatBackRouteName = AppRoute.Chats.name
@@ -219,6 +225,8 @@ private fun BeyGramAppContent(
             chats = archivedChats,
             observeFile = repository::observeFile,
             downloadFile = repository::downloadFile,
+            onMarkRead = markChatRead,
+            onUnarchive = unarchiveChat,
             onBack = { routeName = AppRoute.Chats.name },
             onChatClick = { chat ->
                 selectedChatId = chat.id
@@ -243,6 +251,8 @@ private fun BeyGramAppContent(
                     downloadFile = repository::downloadFile,
                     onMyProfile = { routeName = AppRoute.MyProfile.name },
                     onArchiveClick = { routeName = AppRoute.Archive.name },
+                    onMarkRead = markChatRead,
+                    onArchive = archiveChat,
                     onChatClick = { selectedChat ->
                         selectedChatId = selectedChat.id
                         chatBackRouteName = AppRoute.Chats.name

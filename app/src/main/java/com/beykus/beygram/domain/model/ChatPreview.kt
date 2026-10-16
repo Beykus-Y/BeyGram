@@ -15,6 +15,8 @@ data class ChatPreview(
     val order: Long = 0L,
     /** TDLib archive-list position; zero means the chat is not archived. */
     val archiveOrder: Long = 0L,
+    /** Id of the last message, used to mark the chat as read; zero when unknown. */
+    val lastMessageId: Long = 0L,
     val photo: AvatarPhoto? = null
 )
 

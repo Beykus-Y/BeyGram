@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PushPin
@@ -76,12 +77,23 @@ fun ChatsScreen(
     onMyProfile: () -> Unit,
     onNotifications: () -> Unit,
     onArchiveClick: () -> Unit,
+    onMarkRead: suspend (ChatPreview) -> Boolean,
+    onArchive: suspend (ChatPreview) -> Boolean,
     onChatClick: (ChatPreview) -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedFilterName by rememberSaveable { mutableStateOf(ChatFilter.All.name) }
     val selectedFilter = ChatFilter.valueOf(selectedFilterName)
     val palette = beyGramPalette()
+    var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
+    val readAction = ChatSwipeAction(
+        label = "Прочитано", icon = Icons.Rounded.DoneAll, container = palette.surface2, content = palette.accentInk,
+        enabled = true, perform = onMarkRead
+    )
+    val archiveAction = ChatSwipeAction(
+        label = "В архив", icon = Icons.Rounded.Archive, container = palette.accent, content = palette.onAccent,
+        enabled = true, perform = onArchive
+    )
     val filteredChats = remember(query, chats, selectedFilter) {
         chats.filter { chat ->
             val matchesQuery = query.isBlank() || chat.title.contains(query, true) || chat.lastMessage.contains(query, true)
@@ -139,7 +151,16 @@ fun ChatsScreen(
                     Text("ЗАКРЕПЛЁННЫЕ", modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
                 }
                 items(pinnedChats, key = { "pinned_${it.id}" }) { chat ->
-                    ChatListItem(chat, observeFile, downloadFile, onClick = { onChatClick(chat) })
+                    SwipeChatRow(
+                        chat = chat,
+                        observeFile = observeFile,
+                        downloadFile = downloadFile,
+                        openChatId = openSwipeChatId,
+                        onOpenChange = { openSwipeChatId = it },
+                        onClick = { onChatClick(chat) },
+                        read = readAction.copy(enabled = chat.unreadCount > 0),
+                        primary = archiveAction
+                    )
                 }
             }
             if (regularChats.isEmpty() && pinnedChats.isEmpty()) {
@@ -151,7 +172,16 @@ fun ChatsScreen(
                     }
                 }
                 items(regularChats, key = { it.id }) { chat ->
-                    ChatListItem(chat, observeFile, downloadFile, onClick = { onChatClick(chat) })
+                    SwipeChatRow(
+                        chat = chat,
+                        observeFile = observeFile,
+                        downloadFile = downloadFile,
+                        openChatId = openSwipeChatId,
+                        onOpenChange = { openSwipeChatId = it },
+                        onClick = { onChatClick(chat) },
+                        read = readAction.copy(enabled = chat.unreadCount > 0),
+                        primary = archiveAction
+                    )
                 }
             }
         }
