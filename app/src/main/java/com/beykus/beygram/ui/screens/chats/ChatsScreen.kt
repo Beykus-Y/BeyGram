@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,8 +23,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,7 +59,6 @@ import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.components.beyGramTextFieldColors
 
 private enum class ChatFilter(val title: String) {
     All("Все"), Unread("Непрочитанные"), People("Личные"), Groups("Группы")
@@ -86,31 +96,22 @@ fun ChatsScreen(
     Column(
         modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().background(palette.surface).padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 12.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("BeyGram", color = palette.telegramBlue, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
-                    Text("Сообщения", color = palette.textPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.sp)
+                    Text("BEYGRAM", color = palette.accent, style = MaterialTheme.typography.labelMedium, letterSpacing = 0.8.sp)
+                    Text("Сообщения", color = palette.textPrimary, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
                 }
-                androidx.compose.material3.IconButton(onClick = onNotifications, modifier = Modifier.semantics { contentDescription = "Уведомления" }) { Text("🔔", fontSize = 22.sp, color = palette.telegramBlue) }
-                TelegramAvatar(myProfile?.initials ?: "Я", palette.telegramBlue, 44.dp, myProfile?.photo, observeFile, downloadFile,
+                androidx.compose.material3.IconButton(onClick = onNotifications, modifier = Modifier.semantics { contentDescription = "Уведомления" }) {
+                    Icon(Icons.Rounded.Notifications, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
+                }
+                Spacer(Modifier.width(4.dp))
+                TelegramAvatar(myProfile?.initials ?: "Я", palette.accent, 40.dp, myProfile?.photo, observeFile, downloadFile,
                     Modifier.semantics { contentDescription = "Мой профиль" }.clickable(onClick = onMyProfile))
             }
 
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Поиск сообщений и чатов") },
-                leadingIcon = { Text("⌕", color = palette.textSecondary, fontSize = 23.sp) },
-                trailingIcon = { if (query.isNotEmpty()) Text("×", color = palette.textSecondary, modifier = Modifier.clickable { query = "" }.padding(8.dp), fontSize = 20.sp) },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                colors = beyGramTextFieldColors()
-            )
+            Spacer(Modifier.height(14.dp))
+            SearchField(query = query, onChange = { query = it })
             Spacer(Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ChatFilter.entries.forEach { filter ->
@@ -127,15 +128,14 @@ fun ChatsScreen(
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp)) {
             if (pinnedChats.isNotEmpty()) {
                 item(key = "pinned_header") {
-                    Text("ЗАКРЕПЛЁННЫЕ", modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 9.dp), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                    Text("ЗАКРЕПЛЁННЫЕ", modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
                 }
                 items(pinnedChats, key = { "pinned_${it.id}" }) { chat ->
                     ChatListItem(chat, observeFile, downloadFile, onClick = { onChatClick(chat) })
-                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 86.dp))
                 }
                 if (regularChats.isNotEmpty()) {
                     item(key = "all_header") {
-                        Text("ВСЕ ЧАТЫ", modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 9.dp), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                        Text("ВСЕ ЧАТЫ", modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
@@ -144,7 +144,6 @@ fun ChatsScreen(
             } else {
                 items(regularChats, key = { it.id }) { chat ->
                     ChatListItem(chat, observeFile, downloadFile, onClick = { onChatClick(chat) })
-                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 86.dp))
                 }
             }
         }
@@ -152,17 +151,44 @@ fun ChatsScreen(
 }
 
 @Composable
+private fun SearchField(query: String, onChange: (String) -> Unit) {
+    val palette = beyGramPalette()
+    BasicTextField(
+        value = query,
+        onValueChange = onChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.textPrimary),
+        cursorBrush = SolidColor(palette.accent),
+        modifier = Modifier.fillMaxWidth().height(46.dp).clip(RoundedCornerShape(23.dp)).background(palette.surface2).padding(horizontal = 16.dp),
+        decorationBox = { inner ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) Text("Поиск сообщений и чатов", color = palette.textSecondary, style = MaterialTheme.typography.bodyLarge)
+                    inner()
+                }
+                if (query.isNotEmpty()) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Очистить", tint = palette.textSecondary,
+                        modifier = Modifier.size(32.dp).clip(CircleShape).clickable { onChange("") }.padding(5.dp))
+                }
+            }
+        }
+    )
+}
+
+@Composable
 private fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
-        modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(if (selected) palette.telegramBlue else palette.screen)
-            .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 9.dp),
+        modifier = Modifier.height(34.dp).clip(RoundedCornerShape(50)).background(if (selected) palette.accent else palette.surface2)
+            .clickable(onClick = onClick).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, color = if (selected) Color.White else palette.textSecondary, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, letterSpacing = 0.sp)
+        Text(title, color = if (selected) palette.onAccent else palette.textPrimary, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
         if (count != null && count > 0) {
             Spacer(Modifier.width(6.dp))
-            Text(count.toString(), color = if (selected) Color.White else palette.telegramBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(count.toString(), color = if (selected) palette.onAccent else palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -171,7 +197,7 @@ private fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: (
 private fun EmptyState(filter: ChatFilter, query: String) {
     val palette = beyGramPalette()
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 36.dp, vertical = 72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(if (query.isNotBlank()) "⌕" else "☁", color = palette.telegramBlue, fontSize = 38.sp)
+        Icon(if (query.isNotBlank()) Icons.Rounded.Search else Icons.Rounded.Cloud, contentDescription = null, tint = palette.accent, modifier = Modifier.size(44.dp))
         Spacer(Modifier.height(12.dp))
         Text(
             text = when {
@@ -190,28 +216,30 @@ private fun EmptyState(filter: ChatFilter, query: String) {
 @Composable
 private fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit) {
     val palette = beyGramPalette()
+    val unread = chat.unreadCount > 0
     Row(
-        modifier = Modifier.fillMaxWidth().background(palette.surface).clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box {
-            TelegramAvatar(chat.initials, Color(chat.avatarColorArgb), 54.dp, chat.photo, observeFile, downloadFile)
-            if (chat.unreadCount > 0) Box(modifier = Modifier.align(Alignment.BottomEnd).padding(1.dp).size(12.dp).clip(CircleShape).background(palette.telegramBlue))
-        }
+        TelegramAvatar(chat.initials, Color(chat.avatarColorArgb), 54.dp, chat.photo, observeFile, downloadFile)
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), letterSpacing = 0.sp)
-                Text(chat.lastMessageTime, color = if (chat.unreadCount > 0) palette.telegramBlue else palette.textSecondary, fontSize = 12.sp, fontWeight = if (chat.unreadCount > 0) FontWeight.SemiBold else FontWeight.Normal, letterSpacing = 0.sp)
+                Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(6.dp))
+                Text(chat.lastMessageTime, color = if (unread) palette.accent else palette.textSecondary, fontSize = 12.sp, fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal)
             }
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.height(3.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                val prefix = when { chat.isPinned -> "⌖  "; chat.isMuted -> "🔕  "; else -> "" }
-                Text(prefix + chat.lastMessage.ifBlank { if (chat.isGroup) "Группа" else "Начните общение" }, color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), letterSpacing = 0.sp)
-                if (chat.unreadCount > 0) {
+                when {
+                    chat.isPinned -> Icon(Icons.Rounded.PushPin, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
+                    chat.isMuted -> Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
+                }
+                Text(chat.lastMessage.ifBlank { if (chat.isGroup) "Группа" else "Начните общение" }, color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (unread) {
                     Spacer(Modifier.width(8.dp))
-                    Box(modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(palette.telegramBlue).padding(horizontal = 8.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
-                        Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(11.dp)).background(palette.accent).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
+                        Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

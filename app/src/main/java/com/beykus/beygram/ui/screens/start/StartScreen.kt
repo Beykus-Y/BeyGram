@@ -32,7 +32,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -101,12 +100,12 @@ fun StartScreen(
                 modifier = Modifier
                     .size(104.dp)
                     .clip(CircleShape)
-                    .background(palette.telegramBlue),
+                    .background(palette.accent),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "BG",
-                    color = Color.White,
+                    color = palette.onAccent,
                     fontSize = 34.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.sp
@@ -152,10 +151,10 @@ fun StartScreen(
         Button(
             onClick = onStartClick,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = palette.telegramBlue,
-                contentColor = Color.White
+                containerColor = palette.accent,
+                contentColor = palette.onAccent
             ),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
@@ -182,7 +181,7 @@ private fun TdLibStatusPanel(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         color = if (isReady) palette.successSurface else palette.warningSurface,
         tonalElevation = 0.dp
     ) {

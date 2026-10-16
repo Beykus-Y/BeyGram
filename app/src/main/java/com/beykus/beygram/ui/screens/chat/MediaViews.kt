@@ -17,7 +17,14 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -125,14 +132,16 @@ internal fun MediaPreview(
         val ratio = if (media.width > 0 && media.height > 0) media.width.toFloat() / media.height else 1.5f
         Box(
             Modifier.width(244.dp).height((244 / ratio).coerceIn(120f, 280f).dp)
-                .clip(RoundedCornerShape(12.dp)).background(palette.disabled)
+                .background(palette.disabled)
                 .combinedClickable(onClick = { if (!revealed) revealed = true else onOpen() }, onLongClick = onLongPress),
             contentAlignment = Alignment.Center
         ) {
             if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize(), fit = media.kind == MediaKind.Sticker)
             if (!revealed) Text("Спойлер · нажмите, чтобы открыть", color = palette.textPrimary, modifier = Modifier.padding(16.dp))
             else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
-                Text(if (media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) "▶" else "↓", color = Color.White, fontSize = 28.sp, modifier = Modifier.background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(32.dp)).padding(12.dp))
+                val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
+                Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
+                    modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
             }
             if (revealed) Text(
                 media.kind.label() + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
@@ -145,10 +154,15 @@ internal fun MediaPreview(
             )
         }
     } else {
-        Column(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(8.dp)) {
-            Text(if (media.kind == MediaKind.Audio) "♫  ${media.fileName.ifBlank { "Аудио" }}" else "↓  ${media.fileName.ifBlank { "Файл" }}", color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "", color = palette.textSecondary, fontSize = 12.sp)
-            if (file.isDownloading || file.isUploading) LinearProgressIndicator(progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+        Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(if (media.kind == MediaKind.Audio) Icons.Rounded.MusicNote else Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
+                modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(10.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if (media.kind == MediaKind.Audio) media.fileName.ifBlank { "Аудио" } else media.fileName.ifBlank { "Файл" }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "", color = palette.textSecondary, fontSize = 13.sp)
+                if (file.isDownloading || file.isUploading) LinearProgressIndicator(progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+            }
         }
     }
 }

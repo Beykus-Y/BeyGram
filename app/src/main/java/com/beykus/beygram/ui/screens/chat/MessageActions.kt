@@ -1,100 +1,130 @@
 package com.beykus.beygram.ui.screens.chat
 
-import android.content.ClipData
-import android.content.ClipboardManager
-
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.beykus.beygram.domain.model.*
-import com.beykus.beygram.domain.repository.ConversationRepository
-import kotlinx.coroutines.launch
+import androidx.compose.ui.unit.sp
+import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.MessageCapabilities
+import com.beykus.beygram.ui.components.beyGramPalette
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.width
+
+/** Replaces the chat top bar while a message is selected (long press). */
+@Composable
+internal fun MessageActionsBar(
+    capabilities: MessageCapabilities?,
+    error: String?,
+    hasText: Boolean,
+    isMedia: Boolean,
+    onClose: () -> Unit,
+    onRetry: () -> Unit,
+    onReply: () -> Unit,
+    onCopy: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Закрыть", tint = palette.textPrimary) }
+            Text("Сообщение", color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            when {
+                capabilities != null -> {
+                    if (capabilities.canReply) ActionIcon(Icons.AutoMirrored.Rounded.Reply, "Ответить", palette.accent, onReply)
+                    if (capabilities.canCopy && hasText) ActionIcon(Icons.Rounded.ContentCopy, "Копировать текст", palette.accent, onCopy)
+                    if (capabilities.canEdit) ActionIcon(Icons.Rounded.Edit, if (isMedia) "Изменить подпись" else "Редактировать", palette.accent, onEdit)
+                    if (capabilities.canDeleteForSelf || capabilities.canDeleteForAll) ActionIcon(Icons.Rounded.Delete, "Удалить", palette.danger, onDelete)
+                }
+                error != null -> TextButton(onClick = onRetry) { Text("Повторить", color = palette.accent) }
+                else -> CircularProgressIndicator(Modifier.padding(end = 14.dp).size(22.dp), color = palette.accent, strokeWidth = 2.dp)
+            }
+        }
+        error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp)) }
+        HorizontalDivider(color = palette.divider)
+    }
+}
 
 @Composable
-internal fun MessageActionsDialog(message: ChatMessage, conversation: ConversationRepository, onClose: () -> Unit, onReply: () -> Unit, onEdit: () -> Unit) {
-    var capabilities by remember(message.id) { mutableStateOf<MessageCapabilities?>(null) }
-    var error by remember(message.id) { mutableStateOf<String?>(null) }
-    var deleting by remember { mutableStateOf(false) }
-    var everyone by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf(false) }
-    var attempt by remember { mutableIntStateOf(0) }
-    val scope = rememberCoroutineScope()
-    val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
-    LaunchedEffect(message.chatId, message.id, attempt) {
-        capabilities = null; error = null
-        val result = conversation.messageCapabilities(message.chatId, message.id)
-        capabilities = result.getOrNull()
-        error = result.exceptionOrNull()?.message
+private fun ActionIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, tint: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+    IconButton(onClick = onClick) { Icon(icon, description, tint = tint) }
+}
+
+/** Inline delete confirmation shown above the input field. */
+@Composable
+internal fun DeleteConfirmPanel(
+    capabilities: MessageCapabilities,
+    everyone: Boolean,
+    busy: Boolean,
+    error: String?,
+    onChoose: (everyone: Boolean) -> Unit,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Column(Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Text("Удалить сообщение?", color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        if (capabilities.canDeleteForSelf) DeleteChoice("Только у меня", !everyone, !busy) { onChoose(false) }
+        if (capabilities.canDeleteForAll) DeleteChoice("У всех", everyone, !busy) { onChoose(true) }
+        Text("Удаление нельзя отменить.", color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+        error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.weight(1f))
+            TextButton(enabled = !busy, onClick = onCancel) { Text("Отмена", color = palette.accent, fontWeight = FontWeight.SemiBold) }
+            Spacer(Modifier.width(4.dp))
+            TextButton(enabled = !busy, onClick = onConfirm) { Text("Удалить", color = palette.danger, fontWeight = FontWeight.SemiBold) }
+        }
     }
-    val allowed = capabilities
-    AlertDialog(onDismissRequest = { if (!busy) onClose() }, title = { Text(if (deleting) "Удалить сообщение?" else "Сообщение") },
-        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-            Text(message.summary(), maxLines = 3, modifier = Modifier.padding(bottom = 12.dp))
-            if (allowed == null && error == null || busy) CircularProgressIndicator(Modifier.size(24.dp))
-            if (deleting && allowed != null) {
-                if (allowed.canDeleteForSelf) DeleteChoice("Только у меня", !everyone, !busy) { everyone = false }
-                if (allowed.canDeleteForAll) DeleteChoice("У всех участников", everyone, !busy) { everyone = true }
-                Text("Удаление нельзя отменить.", modifier = Modifier.padding(top = 12.dp))
-            } else if (allowed != null) {
-                if (allowed.canReply) TextButton(onClick = { onClose(); onReply() }) { Text("Ответить") }
-                if (allowed.canCopy && message.text.isNotBlank()) TextButton(onClick = { clipboard.setPrimaryClip(ClipData.newPlainText("Сообщение", message.text)); onClose() }) { Text("Копировать текст") }
-                if (allowed.canEdit) TextButton(onClick = { onClose(); onEdit() }) { Text(if (message.media == null) "Редактировать" else "Изменить подпись") }
-                if (allowed.canDeleteForSelf || allowed.canDeleteForAll) TextButton(onClick = { everyone = !allowed.canDeleteForSelf; deleting = true }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
-                if (!allowed.canReply && !allowed.canCopy && !allowed.canEdit && !allowed.canDeleteForSelf && !allowed.canDeleteForAll) Text("Для этого сообщения нет доступных действий")
-            }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp)) }
-            if (allowed == null && error != null) TextButton(onClick = { attempt++ }) { Text("Повторить") }
-        } },
-        dismissButton = { TextButton(onClick = { if (deleting) { deleting = false; error = null } else onClose() }, enabled = !busy) { Text(if (deleting) "Назад" else "Закрыть") } },
-        confirmButton = { if (deleting && allowed != null) TextButton(enabled = !busy, onClick = { scope.launch {
-            busy = true; error = null
-            try {
-                val result = conversation.deleteMessage(message.chatId, message.id, if (everyone) DeleteMessageScope.ForEveryone else DeleteMessageScope.ForSelf)
-                if (result.isSuccess) onClose() else error = result.exceptionOrNull()?.message
-            } finally { busy = false }
-        } }) { Text("Удалить", color = MaterialTheme.colorScheme.error) } }
-    )
 }
 
 @Composable
 private fun DeleteChoice(text: String, selected: Boolean, enabled: Boolean, onSelect: () -> Unit) {
+    val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onSelect), verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected, onClick = onSelect, enabled = enabled)
-        Text(text)
+        RadioButton(selected, onClick = onSelect, enabled = enabled, colors = RadioButtonDefaults.colors(selectedColor = palette.accent))
+        Text(text, color = palette.textPrimary, fontSize = 16.sp)
     }
 }
 
+/** Banner above the field while editing: the original text is shown and can be dismissed. */
 @Composable
-internal fun EditMessageDialog(message: ChatMessage, limit: Int, conversation: ConversationRepository, onClose: () -> Unit) {
-    var text by rememberSaveable(message.chatId, message.id) { mutableStateOf(message.text) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    val count = text.codePointCount(0, text.length)
-    AlertDialog(onDismissRequest = { if (!busy) onClose() }, title = { Text(if (message.media == null) "Редактировать сообщение" else "Редактировать подпись") },
-        text = { Column {
-            OutlinedTextField(text, { text = it }, enabled = !busy, minLines = 3, maxLines = 8, modifier = Modifier.fillMaxWidth(), isError = count > limit,
-                supportingText = { Text("$count / $limit") })
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        } },
-        dismissButton = { TextButton(enabled = !busy, onClick = onClose) { Text("Отмена") } },
-        confirmButton = { TextButton(enabled = !busy && text != message.text && count <= limit && (message.media != null || text.isNotBlank()), onClick = { scope.launch {
-            busy = true; error = null
-            try {
-                val result = conversation.editMessage(message.chatId, message.id, text)
-                if (result.isSuccess) onClose() else error = result.exceptionOrNull()?.message
-            } finally { busy = false }
-        } }) { Text("Сохранить") } }
-    )
+internal fun EditBanner(original: String, isCaption: Boolean, count: Int, limit: Int, error: String?, onClose: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.Edit, null, tint = palette.accent, modifier = Modifier.size(20.dp))
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(if (isCaption) "Редактирование подписи" else "Редактирование", color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(error ?: original, color = if (error != null) palette.danger else palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+        Text("$count / $limit", color = if (count > limit) palette.danger else palette.textSecondary, fontSize = 12.sp)
+        IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Отменить редактирование", tint = palette.textSecondary) }
+    }
 }
 
 internal fun ChatMessage.summary(): String = text.ifBlank { media?.kind?.label() ?: "Сообщение" }.take(180)
