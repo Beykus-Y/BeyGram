@@ -2,8 +2,11 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="vpn-settings.xml" />
+        <!-- The loopback SOCKS credentials are per installation; a restored copy would share them with another device. -->
+        <exclude domain="sharedpref" path="mihomo-loopback.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="vpn-settings.xml" />
+        <exclude domain="sharedpref" path="mihomo-loopback.xml" />
     </device-transfer>
 </data-extraction-rules>

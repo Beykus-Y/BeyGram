@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -65,47 +67,69 @@ internal class VpnBackend private constructor(
     private val _probeProgress = MutableStateFlow<ProbeProgress?>(null)
     val probeProgress: StateFlow<ProbeProgress?> = _probeProgress.asStateFlow()
 
+    private val restoreMutex = Mutex()
+
     init {
         networkMonitor.start()
         selector.start()
-        scope.launch(Dispatchers.IO) { restoreAfterProcessStart() }
+        scope.launch(Dispatchers.IO) { restore(switchOffOnFailure = false) }
     }
+
+    /** Called when an app screen opens: a restore that failed in the background is tried again, and a failure switches TDLib back. */
+    suspend fun restoreFromScreen() = restore(switchOffOnFailure = true)
 
     /**
      * TDLib keeps its enabled proxy across process restarts. When that proxy is BeyGram's listener, start the listener
-     * again; if that fails, switch TDLib back to its previous proxy instead of leaving it on a dead local port.
+     * again. A background start must not switch TDLib off: the system may refuse a background service start, and TDLib
+     * would then lose its proxy until the app opens, so the app screen retries instead.
      */
-    private suspend fun restoreAfterProcessStart() {
-        if (runtimeState.value.status == ProxyRuntimeStatus.RUNNING) return
-        val enabled = readTdLibProxyEnabled() ?: return
-        if (enabled) {
-            startProxy()
-                .onSuccess { refreshConnections() }
-                .onFailure {
-                    setTdLibProxy(false)
-                    MihomoRuntimeDiagnostics.event("backend", "restore failed; TDLib proxy switched off")
-                }
-            return
-        }
-        if (mihomo.profileExists()) {
-            runCatching {
-                mihomo.ensureInitialized()
-                mihomo.stopProxyListener()
-            }.onSuccess { refreshConnections() }
+    private suspend fun restore(switchOffOnFailure: Boolean) {
+        restoreMutex.withLock {
+            if (listenerInUse()) return
+            val enabled = awaitTdLibProxyState() ?: return
+            // A start or stop may have begun while TDLib was asked; that request owns the listener now.
+            if (listenerInUse()) return
+            if (enabled) {
+                startProxy()
+                    .onSuccess { refreshConnections() }
+                    .onFailure {
+                        if (switchOffOnFailure) {
+                            setTdLibProxy(false)
+                            MihomoRuntimeDiagnostics.event("backend", "restore failed; TDLib proxy switched off")
+                        } else {
+                            MihomoRuntimeDiagnostics.event("backend", "background restore failed; TDLib proxy kept")
+                        }
+                    }
+                return
+            }
+            if (mihomo.profileExists()) prepareCoreWithoutListener()
         }
     }
 
-    /**
-     * TDLib may not answer yet right after process start, and a failed read is not "proxy off", so the read is repeated.
-     * Null means TDLib never answered; its proxy is then left as it is.
-     */
-    private suspend fun readTdLibProxyEnabled(): Boolean? {
-        repeat(RESTORE_READ_ATTEMPTS) { attempt ->
+    /** Asks TDLib whether it uses BeyGram's proxy. Null means TDLib never answered, so the restore must change nothing. */
+    private suspend fun awaitTdLibProxyState(): Boolean? {
+        repeat(TDLIB_STATE_ATTEMPTS) { attempt ->
             isTdLibProxyEnabled().onSuccess { return it }
-            MihomoRuntimeDiagnostics.event("backend", "TDLib proxy state not read; attempt ${attempt + 1} failed")
-            if (attempt < RESTORE_READ_ATTEMPTS - 1) delay(RESTORE_READ_RETRY_DELAY_MS)
+            if (attempt < TDLIB_STATE_ATTEMPTS - 1) delay(TDLIB_STATE_RETRY_MILLIS)
         }
+        MihomoRuntimeDiagnostics.event("backend", "TDLib proxy state unknown; restore skipped")
         return null
+    }
+
+    /** Loads the core, so the saved node list works, while the listener stays down because TDLib does not use it. */
+    private suspend fun prepareCoreWithoutListener() {
+        runCatching {
+            mihomo.ensureInitialized()
+            // Loading the core takes a while, and a start may have begun meanwhile. Then the listener belongs to that start.
+            if (listenerInUse()) return@runCatching
+            mihomo.stopProxyListener()
+        }.onSuccess { refreshConnections() }
+    }
+
+    /** True while the listener is up or changing. A start or stop under way owns it, so a restore must leave it alone. */
+    private fun listenerInUse(): Boolean = when (runtimeState.value.status) {
+        ProxyRuntimeStatus.STARTING, ProxyRuntimeStatus.RUNNING, ProxyRuntimeStatus.STOPPING -> true
+        ProxyRuntimeStatus.STOPPED, ProxyRuntimeStatus.FAILED -> false
     }
 
     fun updateAutoSelect(enabled: Boolean) {
@@ -120,6 +144,8 @@ internal class VpnBackend private constructor(
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy start requested")
             if (!mihomo.profileExists()) throw IllegalStateException("Сначала загрузите подписку Mihomo")
+            // An earlier failure must not answer this start, so it is cleared before the intent is sent.
+            MihomoProxyService.clearFailure()
             ContextCompat.startForegroundService(appContext, Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_START))
             val state = withTimeout(30_000) {
                 MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.RUNNING || it.status == ProxyRuntimeStatus.FAILED }
@@ -278,8 +304,8 @@ internal class VpnBackend private constructor(
 
     companion object {
         private const val MAX_PARALLEL_PROBES = 4
-        private const val RESTORE_READ_ATTEMPTS = 3
-        private const val RESTORE_READ_RETRY_DELAY_MS = 5_000L
+        private const val TDLIB_STATE_ATTEMPTS = 3
+        private const val TDLIB_STATE_RETRY_MILLIS = 2_000L
 
         @Volatile private var instance: VpnBackend? = null
 

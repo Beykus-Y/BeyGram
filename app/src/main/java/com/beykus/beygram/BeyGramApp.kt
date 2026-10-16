@@ -77,6 +77,8 @@ fun BeyGramApp(
             isTdLibProxyEnabled = repository::isMihomoProxyEnabled
         )
     }
+    // A background restore that could not start the listener is retried here, where the system allows starting it.
+    LaunchedEffect(vpnBackend) { vpnBackend.restoreFromScreen() }
     DisposableEffect(repository, notificationRuntime) { notificationRuntime.attach(repository); onDispose { } }
 
     BeyGramAppContent(

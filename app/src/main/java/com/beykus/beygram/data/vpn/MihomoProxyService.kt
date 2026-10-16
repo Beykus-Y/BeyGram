@@ -14,23 +14,29 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 
 enum class ProxyRuntimeStatus { STOPPED, STARTING, RUNNING, STOPPING, FAILED }
 
 data class ProxyRuntimeState(val status: ProxyRuntimeStatus, val message: String? = null)
 
-/** Keeps Mihomo's localhost SOCKS listener alive; it does not create an Android VPN. */
+/**
+ * Keeps Mihomo's localhost SOCKS listener alive; it does not create an Android VPN.
+ *
+ * Start and stop requests run one after another: each waits until the request before it has finished. A stop also
+ * cancels a start that is still running, so no listener outlives a stop. The listener belongs to the process rather
+ * than to a service instance, so the queue and the core are process-wide too.
+ */
 class MihomoProxyService : Service() {
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var core: MihomoCoreBridge? = null
-    private var startupJob: Job? = null
+    // Newest start id received, so a failed start can stop the service once every command so far is answered.
+    private var lastStartId = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -38,9 +44,10 @@ class MihomoProxyService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         when (intent?.action) {
             ACTION_START -> startProxy()
-            ACTION_STOP -> stopProxy()
+            ACTION_STOP -> enqueueStop(startId)
             else -> stopSelf(startId)
         }
         return START_NOT_STICKY
@@ -49,71 +56,98 @@ class MihomoProxyService : Service() {
     override fun onBind(intent: Intent): IBinder? = null
 
     override fun onDestroy() {
-        // Explicit stop closes the listener before stopSelf(); process death also tears down the native core.
-        core = null
-        serviceScope.cancel()
-        _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STOPPED)
+        // The system can destroy the service while the process, and the native listener, keep running.
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        enqueueStop(startId = null)
         super.onDestroy()
     }
 
     private fun startProxy() {
-        // Every startForegroundService call needs startForeground, including the calls ignored below.
+        // Every start intent gets startForeground, including one that finds the listener already on its way.
         startForeground(NOTIFICATION_ID, buildNotification())
         val status = _runtimeState.value.status
-        if (status == ProxyRuntimeStatus.RUNNING || status == ProxyRuntimeStatus.STARTING || status == ProxyRuntimeStatus.STOPPING) return
+        if (status == ProxyRuntimeStatus.RUNNING || status == ProxyRuntimeStatus.STARTING) return
         _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STARTING)
         MihomoRuntimeDiagnostics.event("service", "start requested; profileExists=${MihomoCoreBridge(applicationContext).profileExists()}")
-        startupJob = serviceScope.launch {
-            try {
-                val bridge = MihomoCoreBridge(applicationContext)
-                if (!bridge.profileExists()) throw IllegalStateException("Сначала загрузите подписку Mihomo")
-                bridge.ensureInitialized()
-                MihomoRuntimeDiagnostics.event("service", "profile initialized")
-                core = bridge
-                bridge.startProxyListener()
-                // A stop requested meanwhile keeps its STOPPING state, so RUNNING is set only over STARTING.
-                if (_runtimeState.compareAndSet(ProxyRuntimeState(ProxyRuntimeStatus.STARTING), ProxyRuntimeState(ProxyRuntimeStatus.RUNNING))) {
+        startJob = enqueue { ticket -> runStart(ticket) }
+    }
+
+    private suspend fun runStart(ticket: Int) {
+        try {
+            coroutineContext.ensureActive()
+            val bridge = MihomoCoreBridge(applicationContext)
+            if (!bridge.profileExists()) throw IllegalStateException("Сначала загрузите подписку Mihomo")
+            bridge.ensureInitialized()
+            MihomoRuntimeDiagnostics.event("service", "profile initialized")
+            coroutineContext.ensureActive()
+            // Stored before the listener starts, so a stop that arrives during the start can still close it.
+            core = bridge
+            bridge.startProxyListener()
+            coroutineContext.ensureActive()
+            withContext(Dispatchers.Main) {
+                if (ticket == latestTicket) {
+                    _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.RUNNING)
                     MihomoRuntimeDiagnostics.event("service", "state=RUNNING")
                 }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                // Native loading can fail with an Error, not an Exception. Leave STARTING in every case.
-                runCatching { core?.stopProxyListener() }
-                core = null
-                MihomoRuntimeDiagnostics.failure("service start", error)
-                withContext(Dispatchers.Main) {
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            // Native loading can fail with an Error, not an Exception. Leave STARTING in every case.
+            runCatching { core?.stopProxyListener() }
+            core = null
+            MihomoRuntimeDiagnostics.failure("service start", error)
+            withContext(Dispatchers.Main) {
+                if (ticket == latestTicket) {
                     _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.FAILED, error.message ?: "Не удалось запустить прокси")
                     stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                    // A start that arrived meanwhile got this failure as its answer too, so stop once every command so far is answered.
+                    stopSelf(lastStartId)
                 }
             }
         }
     }
 
-    private fun stopProxy() {
-        val current = _runtimeState.value.status
-        // A stop already in progress stops the service itself; stopping it here would cancel that stop before it closes the listener.
-        if (current == ProxyRuntimeStatus.STOPPING) return
-        if (current == ProxyRuntimeStatus.STOPPED) {
-            stopSelf()
-            return
+    /**
+     * Closes the listener once the requests before this one have finished. A start that is still running is cancelled
+     * first, so it cannot publish RUNNING after the stop. [startId] is null when the system destroys the service.
+     */
+    private fun enqueueStop(startId: Int?) {
+        val status = _runtimeState.value.status
+        // Set before the stop runs, so a start that arrives meanwhile sees the listener as going down and queues behind this stop.
+        if (startId != null || status == ProxyRuntimeStatus.RUNNING || status == ProxyRuntimeStatus.STARTING) {
+            _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STOPPING)
         }
-        _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STOPPING)
-        MihomoRuntimeDiagnostics.event("service", "stop requested")
-        val startup = startupJob
-        serviceScope.launch {
-            // A start still running could open the listener after this stop, so wait for it to end, then close what it opened.
-            startup?.cancelAndJoin()
+        if (startId != null) MihomoRuntimeDiagnostics.event("service", "stop requested")
+        startJob?.cancel()
+        enqueue { ticket ->
             runCatching { core?.stopProxyListener() }
             core = null
             withContext(Dispatchers.Main) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STOPPED)
-                MihomoRuntimeDiagnostics.event("service", "state=STOPPED")
-                stopSelf()
+                // A newer request owns the state and the foreground notification now.
+                if (ticket != latestTicket) return@withContext
+                // A failure stays visible until the next request, because a start caller may still be waiting for it.
+                if (startId != null || _runtimeState.value.status != ProxyRuntimeStatus.FAILED) {
+                    _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STOPPED)
+                    MihomoRuntimeDiagnostics.event("service", "state=STOPPED")
+                }
+                if (startId != null) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(startId)
+                }
             }
         }
+    }
+
+    /** Queues [block] behind the previous request. Only the newest request, identified by its ticket, may publish state. */
+    private fun enqueue(block: suspend (ticket: Int) -> Unit): Job {
+        // Called on the main thread only, so the ticket and the last request need no lock.
+        val ticket = ++latestTicket
+        val previous = lastRequest
+        return lifecycleScope.launch {
+            previous?.join()
+            block(ticket)
+        }.also { lastRequest = it }
     }
 
     private fun buildNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -139,5 +173,22 @@ class MihomoProxyService : Service() {
         private const val NOTIFICATION_ID = 7012
         private val _runtimeState = MutableStateFlow(ProxyRuntimeState(ProxyRuntimeStatus.STOPPED))
         val runtimeState: StateFlow<ProxyRuntimeState> = _runtimeState.asStateFlow()
+
+        /**
+         * Forgets the failure of an earlier start. A start caller waits for RUNNING or FAILED, so an old FAILED would answer
+         * it before the service has read the new intent. The caller clears it before it sends the intent.
+         */
+        internal fun clearFailure() {
+            _runtimeState.update { state ->
+                if (state.status == ProxyRuntimeStatus.FAILED) ProxyRuntimeState(ProxyRuntimeStatus.STOPPED) else state
+            }
+        }
+
+        // Process-wide, like the native listener it controls. Requests are enqueued from the main thread only.
+        private val lifecycleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private var lastRequest: Job? = null
+        private var latestTicket = 0
+        private var startJob: Job? = null
+        private var core: MihomoCoreBridge? = null
     }
 }

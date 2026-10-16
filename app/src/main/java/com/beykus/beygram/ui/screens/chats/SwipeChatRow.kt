@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.beyGramPalette
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -54,6 +55,11 @@ internal data class ChatSwipeAction(
 )
 
 internal enum class SwipeTarget { Closed, Revealed, Dismissed }
+
+/** The newest drag step that writes the offset. Steps run in order on the main thread, so the last one is the final word. */
+private class DragStep {
+    var job: Job? = null
+}
 
 private const val FLING_PX_PER_SECOND = 800f
 private const val DISMISS_FRACTION = 0.6f
@@ -122,8 +128,9 @@ internal fun SwipeChatRow(
         }
     }
 
+    val lastDragStep = remember { DragStep() }
     val dragState = rememberDraggableState { delta ->
-        scope.launch { swipeOffset.snapTo((swipeOffset.value + delta).coerceIn(-rowWidth, 0f)) }
+        lastDragStep.job = scope.launch { swipeOffset.snapTo((swipeOffset.value + delta).coerceIn(-rowWidth, 0f)) }
     }
 
     Box(modifier = Modifier.fillMaxWidth().onSizeChanged { rowWidth = it.width.toFloat() }) {
@@ -146,6 +153,8 @@ internal fun SwipeChatRow(
                     orientation = Orientation.Horizontal,
                     onDragStarted = { onOpenChange(chat.id) },
                     onDragStopped = { velocity ->
+                        // The last step must land before the settle animation starts, or it would interrupt the animation.
+                        lastDragStep.job?.join()
                         settle(swipeTarget(swipeOffset.value, revealPx, rowWidth * DISMISS_FRACTION, velocity))
                     }
                 )

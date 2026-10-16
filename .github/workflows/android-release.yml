@@ -94,6 +94,11 @@ jobs:
             echo "telegramApiHash=${TELEGRAM_API_HASH:-}"
           } > secrets.properties
 
+      - name: Run unit tests
+        # JVM tests of the dev debug variant. They run before the APKs are built, so a failing test fails this job,
+        # and a failed main build cannot be published.
+        run: ./gradlew --no-daemon :app:testDevDebugUnitTest
+
       - name: Build debug and release APKs
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease
 
