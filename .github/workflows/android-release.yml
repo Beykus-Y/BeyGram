@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*.*.*.*"
+  pull_request:
   workflow_dispatch:
     inputs:
       version:
@@ -47,6 +48,10 @@ jobs:
           if [ "$EVENT_NAME" = "push" ]; then
             version="${REF_NAME#v}"
             publish="true"
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            # Build check only. 0.0.0.0 is not a release version.
+            version="0.0.0.0"
+            publish="false"
           else
             version="$INPUT_VERSION"
             publish="$INPUT_PUBLISH"
