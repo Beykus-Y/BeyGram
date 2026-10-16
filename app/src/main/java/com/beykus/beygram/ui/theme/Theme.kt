@@ -9,43 +9,27 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = TelegramBlue80,
-    secondary = MutedBlue80,
-    tertiary = AccentGreen80,
-    background = DarkAppBackground,
-    surface = DarkAppSurface,
-    surfaceVariant = Color(0xFF223140),
-    onBackground = DarkAppText,
-    onSurface = DarkAppText,
-    onSurfaceVariant = DarkAppTextMuted,
-    outlineVariant = DarkAppOutline
-)
+private val DarkColorScheme = DarkTokens.run {
+    darkColorScheme(
+        primary = accent, onPrimary = onAccent, primaryContainer = accentSoft, onPrimaryContainer = accentInk,
+        secondary = muted, tertiary = okInk, background = bg, surface = surface, surfaceVariant = surface2,
+        onBackground = text, onSurface = text, onSurfaceVariant = muted, outline = line, outlineVariant = line, error = danger,
+        surfaceContainerLowest = surface, surfaceContainerLow = surface, surfaceContainer = surface, surfaceContainerHigh = surface, surfaceContainerHighest = surface2,
+        secondaryContainer = accentSoft, onSecondaryContainer = accentInk
+    )
+}
 
-private val LightColorScheme = lightColorScheme(
-    primary = TelegramBlue40,
-    secondary = MutedBlue40,
-    tertiary = AccentGreen40,
-    background = AppBackground,
-    surface = AppSurface,
-    onBackground = AppText,
-    onSurface = AppText,
-    onSurfaceVariant = AppTextMuted,
-    outlineVariant = AppOutline
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
-)
+private val LightColorScheme = LightTokens.run {
+    lightColorScheme(
+        primary = accent, onPrimary = onAccent, primaryContainer = accentSoft, onPrimaryContainer = accentInk,
+        secondary = muted, tertiary = okInk, background = bg, surface = surface, surfaceVariant = surface2,
+        onBackground = text, onSurface = text, onSurfaceVariant = muted, outline = line, outlineVariant = line, error = danger,
+        surfaceContainerLowest = surface, surfaceContainerLow = surface, surfaceContainer = surface, surfaceContainerHigh = surface, surfaceContainerHighest = surface2,
+        secondaryContainer = accentSoft, onSecondaryContainer = accentInk
+    )
+}
 
 @Composable
 fun BeyGramTheme(

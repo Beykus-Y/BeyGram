@@ -557,10 +557,10 @@ private fun String.initials(): String =
         .joinToString("") { it.first().uppercaseChar().toString() }
         .ifEmpty { take(2).uppercase() }
 
-/** Стабильный цвет из chatId — один из семи Telegram-оттенков. */
+/** Стабильный цвет из chatId — один из шести цветов палитры чатов дизайн-системы. */
 private val CHAT_COLORS = longArrayOf(
-    0xFF2AABEE, 0xFF5F9FE0, 0xFF14B8A6,
-    0xFF8B5CF6, 0xFFEF4444, 0xFFF59E0B, 0xFF10B981
+    0xFFC2593F, 0xFF5B4BC4, 0xFF2F8A7B,
+    0xFFA9731D, 0xFF3A78C2, 0xFFB0476E
 )
 
 private fun Long.stableColor(): Long {

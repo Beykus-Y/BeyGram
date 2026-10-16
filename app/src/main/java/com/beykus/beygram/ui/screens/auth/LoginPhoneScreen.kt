@@ -19,7 +19,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -88,8 +87,9 @@ fun LoginPhoneScreen(
             ),
             isError = errorMessage != null,
             supportingText = if (errorMessage != null) {
-                { Text(text = errorMessage, color = palette.warningText) }
+                { Text(text = errorMessage, color = palette.danger) }
             } else null,
+            shape = RoundedCornerShape(14.dp),
             colors = beyGramTextFieldColors()
         )
 
@@ -102,18 +102,18 @@ fun LoginPhoneScreen(
             },
             enabled = canContinue,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(16.dp),
             contentPadding = PaddingValues(vertical = 15.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = palette.telegramBlue,
-                contentColor = Color.White,
+                containerColor = palette.accent,
+                contentColor = palette.onAccent,
                 disabledContainerColor = palette.disabled,
                 disabledContentColor = palette.textSecondary
             )
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
-                    color = Color.White,
+                    color = palette.onAccent,
                     strokeWidth = 2.dp,
                     modifier = Modifier.size(20.dp)
                 )

@@ -5,7 +5,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,17 +41,18 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Row(Modifier.fillMaxWidth().background(palette.surface).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Закрыть", tint = palette.textPrimary) }
                 Column(Modifier.weight(1f)) {
-                    Text(context?.title ?: "Оригинал ответа", color = palette.textPrimary)
-                    Text("Сообщение и контекст", color = palette.textSecondary)
+                    Text(context?.title ?: "Оригинал ответа", color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Сообщение и контекст", color = palette.textSecondary, fontSize = 13.sp)
                 }
-                TextButton(onClick = onClose) { Text("Закрыть") }
             }
+            HorizontalDivider(color = palette.divider)
             when {
                 error != null -> Column(Modifier.padding(24.dp)) {
                     Text(error.orEmpty(), color = palette.warningText)
-                    TextButton(onClick = { attempt++ }) { Text("Повторить") }
+                    TextButton(onClick = { attempt++ }) { Text("Повторить", color = palette.accent) }
                 }
                 context == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else -> LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

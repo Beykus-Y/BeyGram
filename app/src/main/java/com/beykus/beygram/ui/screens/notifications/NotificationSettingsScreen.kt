@@ -72,27 +72,27 @@ fun NotificationSettingsScreen(runtime: NotificationRuntime, onBack: () -> Unit)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar("Уведомления", onBack)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Без Google-сервисов", color = palette.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Без Google-сервисов", color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text("BeyGram получает сообщения напрямую от Telegram. Google Play Services и Firebase не используются.", color = palette.textSecondary)
             SettingToggle("Уведомления о сообщениях", "Учитывают настройки чатов в Telegram", config.enabled) { runtime.preferences.update(config.copy(enabled = it)); runtime.refresh() }
             SettingToggle("Получать в фоне", "Поддерживать подключение после закрытия экрана приложения. В шторке будет тихое постоянное уведомление.", config.background, config.enabled) { runtime.preferences.update(config.copy(background = it)) }
             SettingToggle("Показывать текст сообщения", "Секретные чаты и запрет предпросмотра в Telegram всегда скрывают содержимое", config.previews, config.enabled) { runtime.preferences.update(config.copy(previews = it)) }
-            HorizontalDivider()
+            HorizontalDivider(color = palette.divider)
             Text(if (allowed) "Разрешение Android: выдано" else "Уведомления запрещены в Android", color = if (allowed) palette.textPrimary else palette.warningText)
             Text(if (running) "Фоновое подключение работает" else "Фоновое подключение остановлено", color = palette.textSecondary)
-            if (!allowed) Button(onClick = {
+            if (!allowed) Button(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), onClick = {
                 if (Build.VERSION.SDK_INT >= 33 && !runtime.preferences.permissionAsked) { runtime.preferences.permissionAsked = true; permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
                 else open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
             }) { Text("Разрешить уведомления") }
             TextButton(onClick = { open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text("Звук и системные настройки") }
-            HorizontalDivider()
+            HorizontalDivider(color = palette.divider)
             Text(if (unrestricted) "Батарея: работа без оптимизации разрешена" else "Батарея: Android может задерживать получение сообщений во сне", color = palette.textSecondary)
             if (!unrestricted) OutlinedButton(onClick = {
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
                 if (intent.resolveActivity(context.packageManager) != null) open(intent) else open(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             }) { Text("Разрешить работу во сне") }
             Text("Постоянное подключение расходует больше батареи. После принудительной остановки приложения откройте BeyGram снова. Для Telegram по-прежнему нужен доступ к сети или работающий VPN/прокси.", color = palette.textSecondary, fontSize = 13.sp)
-            error?.let { Text(it, color = palette.warningText) }
+            error?.let { Text(it, color = palette.danger) }
         }
     }
 }
@@ -102,8 +102,8 @@ private fun SettingToggle(title: String, description: String, checked: Boolean, 
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, color = palette.textPrimary)
-            Text(description, color = palette.textSecondary, fontSize = 12.sp)
+            Text(title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(description, color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp)
         }
         Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
