@@ -158,10 +158,10 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             else -> return
         }
         val typists = typingBy.getOrPut(update.chatId) { mutableMapOf() }
-        typists.remove(key)?.expiry?.cancel()
         if (update.action is TdApi.ChatActionTyping) {
             val typist = Typist(sender)
-            typists[key] = typist
+            // put по существующему ключу сохраняет место в порядке имён, поэтому повторный набор не переставляет строку.
+            typists.put(key, typist)?.expiry?.cancel()
             typist.expiry = scope.launch {
                 delay(TYPING_TIMEOUT_MS)
                 synchronized(lock) {
@@ -170,6 +170,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                     publishTyping(update.chatId)
                 }
             }
+        } else {
+            typists.remove(key)?.expiry?.cancel()
         }
         publishTyping(update.chatId)
     }
