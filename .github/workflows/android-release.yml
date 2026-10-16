@@ -38,9 +38,9 @@ env:
   RELEASE_SIGNER_SHA256: e7b9e482b2c2feacda9edcef17f960576ed94e94ff8cf7991f89a16e33bf436d
 
 concurrency:
-  # One run per commit: a run waiting in a shared group would be replaced by a newer
-  # push, leaving that commit without an artifact.
-  group: android-release-${{ github.sha }}
+  # Keyed by event, ref and commit: a pending run in a shared group is replaced by a newer
+  # one, so unrelated pushes or a tag and a manual publish of one commit must not share it.
+  group: android-release-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -166,9 +166,10 @@ jobs:
 
   publish:
     name: Publish GitHub release
+    # Manual publishing runs only from main, so the workflow file it runs is the reviewed one.
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish)
+      (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     # Leaves room for the wait for a main build still running on this commit.
     timeout-minutes: 60
@@ -208,8 +209,13 @@ jobs:
           run_id=""
           # Wait up to about 45 minutes while a main build of this commit is queued or running.
           for attempt in $(seq 1 90); do
-            runs=$(gh api --method GET "$runs_url" -f head_sha="$SHA" -f per_page=50 \
-              --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main")]')
+            # A failed request is retried at the next check instead of ending the step.
+            if ! runs=$(gh api --method GET "$runs_url" -f head_sha="$SHA" -f per_page=50 \
+              --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main")]'); then
+              echo "::warning::Could not list the workflow runs for ${SHA::7}; retrying (check $attempt)."
+              sleep 30
+              continue
+            fi
             run_id=$(echo "$runs" | jq -r 'map(select(.conclusion == "success")) | .[0].id // empty')
             if [ -n "$run_id" ]; then
               break
