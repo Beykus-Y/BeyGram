@@ -366,8 +366,8 @@ private fun openExternalMedia(context: Context, path: String, mime: String): Str
 /** Передаёт файл через системное меню «Поделиться». Возвращает текст ошибки или null. */
 private fun shareMedia(context: Context, path: String, mime: String): String? = runCatching {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
-    val send = Intent(Intent.ACTION_SEND).setType(mime.ifBlank { "*/*" }).putExtra(Intent.EXTRA_STREAM, uri)
-        .setClipData(ClipData.newRawUri(null, uri)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    val send = Intent(Intent.ACTION_SEND).setType(mime.ifBlank { "*/*" }).putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    send.clipData = ClipData.newRawUri(null, uri)
     context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }.exceptionOrNull()?.let { "Не удалось поделиться файлом" }
 
