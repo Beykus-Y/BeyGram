@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -143,11 +144,13 @@ fun ChatsScreen(
     val pullConnection = remember(listState, archivePullThresholdPx) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                // Архив мог исчезнуть или вернуться посреди протяжки: без скрытого архива протяжки быть не должно.
+                if (!pullCanReveal) pullPx = 0f
                 if (source != NestedScrollSource.UserInput) return Offset.Zero
                 val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
                 return when {
                     available.y > 0f && pullCanReveal && atTop -> {
-                        pullPx += available.y
+                        pullPx = minOf(pullPx + available.y, archivePullThresholdPx)
                         Offset(0f, available.y)
                     }
                     available.y < 0f && pullPx > 0f -> {
@@ -167,6 +170,10 @@ fun ChatsScreen(
                 return available
             }
         }
+    }
+    // Если жест прервали системой, onPreFling не придёт: сбрасываем протяжку, когда список перестал скроллиться.
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress) pullPx = 0f
     }
 
     Column(
