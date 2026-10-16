@@ -113,6 +113,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String) = conversationActions.edit(chatId, messageId, text)
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) = conversationActions.delete(chatId, messageId, scope)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
+    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
     override fun setAppForeground(foreground: Boolean) {
         conversationEffects.setForeground(foreground)
