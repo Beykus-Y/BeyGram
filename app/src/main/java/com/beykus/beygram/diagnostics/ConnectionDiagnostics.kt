@@ -19,6 +19,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private const val DIAGNOSTICS_DIRECTORY = "diagnostics"
+private const val STALE_REPORT_AGE_MILLIS = 10 * 60 * 1000L
 
 /**
  * Собирает текстовый отчёт о подключении и кладёт его в кэш приложения.
@@ -100,8 +101,10 @@ private fun networkSummary(context: Context): String {
 
 private fun writeDiagnosticsFile(context: Context, report: String, nowMillis: Long): File {
     val directory = File(context.cacheDir, DIAGNOSTICS_DIRECTORY).apply { mkdirs() }
-    // Старые отчёты не нужны: в кэше остаётся только последний.
-    directory.listFiles()?.forEach { it.delete() }
+    // Удаляем только старые отчёты: получатель прошлого «Поделиться» мог ещё не дочитать файл.
+    directory.listFiles()
+        ?.filter { nowMillis - it.lastModified() > STALE_REPORT_AGE_MILLIS }
+        ?.forEach { it.delete() }
     val stamp = FILE_TIME.format(Instant.ofEpochMilli(nowMillis))
     return File(directory, "beygram-diagnostics-$stamp.txt").apply { writeText(report, Charsets.UTF_8) }
 }

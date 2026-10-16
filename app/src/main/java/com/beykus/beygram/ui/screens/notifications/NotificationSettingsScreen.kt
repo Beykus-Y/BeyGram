@@ -105,7 +105,7 @@ fun NotificationSettingsScreen(runtime: NotificationRuntime, connectionState: Te
             HorizontalDivider(color = palette.divider)
             Text("Диагностика подключения", color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text("Связь с Telegram: ${connectionState.diagnosticsLabel()}", color = palette.textSecondary)
-            Text("Соберёт состояние соединения, тип сети и недавние события подключения. Номера, коды, пароли и токены в файл не попадают. Файл никуда не отправляется: вы сами выбираете, куда поделиться.", color = palette.textSecondary, fontSize = 13.sp)
+            Text("Соберёт модель устройства, состояние соединения, тип сети и недавние события подключения. Номера, коды, пароли и токены в файл не попадают. Файл никуда не отправляется: вы сами выбираете, куда поделиться.", color = palette.textSecondary, fontSize = 13.sp)
             OutlinedButton(enabled = !sharing, onClick = {
                 scope.launch {
                     sharing = true; shareError = null

@@ -23,6 +23,18 @@ class DiagnosticsRedactorTest {
         assertEquals("phone: [скрыто] code=[скрыто] password: [скрыто]", redacted)
     }
 
+    @Test fun removesFormattedPhoneNumbers() {
+        val redacted = DiagnosticsRedactor.redact("phone: +7 916 123-45-67 next")
+        assertFalse(redacted.contains("916"))
+        assertFalse(redacted.contains("45-67"))
+        assertEquals("phone: [скрыто] next", redacted)
+    }
+
+    @Test fun removesBotTokenEndingWithDash() {
+        val redacted = DiagnosticsRedactor.redact("bot 123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw-")
+        assertFalse(redacted.contains("AAHdqTcvCH1"))
+    }
+
     @Test fun removesLongDigitRunsWithoutPlus() {
         assertEquals("id [номер скрыт]", DiagnosticsRedactor.redact("id 79161234567"))
     }
