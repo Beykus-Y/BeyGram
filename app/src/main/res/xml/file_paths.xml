@@ -2,4 +2,5 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="telegram_media" path="tdlib/files/" />
     <files-path name="outgoing_media" path="uploads/" />
+    <cache-path name="diagnostics" path="diagnostics/" />
 </paths>

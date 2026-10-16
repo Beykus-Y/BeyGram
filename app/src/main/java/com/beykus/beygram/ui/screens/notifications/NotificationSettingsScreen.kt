@@ -22,6 +22,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import com.beykus.beygram.diagnostics.createConnectionDiagnostics
+import com.beykus.beygram.diagnostics.diagnosticsLabel
+import com.beykus.beygram.diagnostics.shareConnectionDiagnostics
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.notifications.TelegramNotificationService
 import com.beykus.beygram.notifications.AndroidNotificationRenderer
@@ -49,9 +55,12 @@ internal fun NotificationPermissionCoordinator(runtime: NotificationRuntime) {
 }
 
 @Composable
-fun NotificationSettingsScreen(runtime: NotificationRuntime, onBack: () -> Unit) {
+fun NotificationSettingsScreen(runtime: NotificationRuntime, connectionState: TelegramConnectionState, onBack: () -> Unit) {
     val context = LocalContext.current
     val palette = beyGramPalette()
+    val scope = rememberCoroutineScope()
+    var sharing by remember { mutableStateOf(false) }
+    var shareError by remember { mutableStateOf<String?>(null) }
     val config by runtime.preferences.state.collectAsStateWithLifecycle()
     val running by runtime.serviceRunning.collectAsStateWithLifecycle()
     val error by runtime.serviceError.collectAsStateWithLifecycle()
@@ -93,6 +102,20 @@ fun NotificationSettingsScreen(runtime: NotificationRuntime, onBack: () -> Unit)
             }) { Text("Разрешить работу во сне") }
             Text("Постоянное подключение расходует больше батареи. После принудительной остановки приложения откройте BeyGram снова. Для Telegram по-прежнему нужен доступ к сети или работающий VPN/прокси.", color = palette.textSecondary, fontSize = 13.sp)
             error?.let { Text(it, color = palette.danger) }
+            HorizontalDivider(color = palette.divider)
+            Text("Диагностика подключения", color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text("Связь с Telegram: ${connectionState.diagnosticsLabel()}", color = palette.textSecondary)
+            Text("Соберёт модель устройства, состояние соединения, тип сети и недавние события подключения. Номера, коды, пароли и токены в файл не попадают. Файл никуда не отправляется: вы сами выбираете, куда поделиться.", color = palette.textSecondary, fontSize = 13.sp)
+            OutlinedButton(enabled = !sharing, onClick = {
+                scope.launch {
+                    sharing = true; shareError = null
+                    try { shareConnectionDiagnostics(context, createConnectionDiagnostics(context, connectionState)) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (failure: Exception) { shareError = "Не удалось подготовить логи (${failure.javaClass.simpleName})" }
+                    finally { sharing = false }
+                }
+            }) { Text(if (sharing) "Собираем логи…" else "Поделиться логами") }
+            shareError?.let { Text(it, color = palette.danger) }
         }
     }
 }

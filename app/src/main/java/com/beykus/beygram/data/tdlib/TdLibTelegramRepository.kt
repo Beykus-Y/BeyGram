@@ -18,6 +18,7 @@ import com.beykus.beygram.domain.model.InteractionPolicy
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.NotificationPresentation
+import com.beykus.beygram.diagnostics.ConnectionEventLog
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -125,8 +126,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // The repository and this callback live for the process lifetime. One client owns the database.
     private val networkMonitor = TelegramNetworkMonitor(context.applicationContext, authScope) { type ->
         client.send(TdApi.SetNetworkType(type), Client.ResultHandler { result ->
-            if (BuildConfig.DEBUG && result is TdApi.Error) {
-                android.util.Log.w(TelegramNetworkMonitor.TAG, "SetNetworkType failed: ${result.code}")
+            if (result is TdApi.Error) {
+                ConnectionEventLog.shared.record("SetNetworkType: ошибка ${result.code}")
+                if (BuildConfig.DEBUG) android.util.Log.w(TelegramNetworkMonitor.TAG, "SetNetworkType failed: ${result.code}")
             }
         })
     }.also { it.start() }
@@ -316,6 +318,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateMessageSendFailed -> messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
             is TdApi.UpdateDeleteMessages -> if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())
             is TdApi.UpdateConnectionState    -> {
+                ConnectionEventLog.shared.record("TDLib соединение: ${update.state.javaClass.simpleName}")
                 if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib connection: ${update.state.javaClass.simpleName}")
                 _connectionState.value = when (update.state) {
                     is TdApi.ConnectionStateReady -> TelegramConnectionState.Connected
@@ -333,6 +336,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // ---- Авторизация ---------------------------------------------------------
 
     private fun handleAuthorizationState(state: TdApi.AuthorizationState) {
+        ConnectionEventLog.shared.record("TDLib авторизация: ${state.javaClass.simpleName}")
         if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib authorization: ${state.javaClass.simpleName}")
         authTimeoutJob?.cancel()
         when (state) {

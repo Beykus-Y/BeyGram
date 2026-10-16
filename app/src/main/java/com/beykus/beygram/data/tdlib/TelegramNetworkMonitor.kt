@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.util.Log
 import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.diagnostics.ConnectionEventLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -58,6 +59,9 @@ internal class TelegramNetworkMonitor(
             mobile -> TdApi.NetworkTypeMobile()
             else -> TdApi.NetworkTypeOther()
         }
+        ConnectionEventLog.shared.record(
+            "Сеть: интернет=$internet, подтверждена=$validated, Wi-Fi=$wifi, мобильная=$mobile, VPN=$vpn"
+        )
         onNetworkChanged(type)
         if (BuildConfig.DEBUG) {
             Log.i(TAG, "Default route $route,validated=$validated; reopening TDLib connections")
