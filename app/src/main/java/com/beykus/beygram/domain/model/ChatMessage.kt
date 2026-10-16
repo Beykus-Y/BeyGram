@@ -26,7 +26,7 @@ data class ChatHistory(
 )
 
 data class MessageReply(val chatId: Long, val messageId: Long, val text: String = "Сообщение", val senderName: String = "", val isUnavailable: Boolean = false)
-data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boolean = false, val canEdit: Boolean = false, val canDeleteForSelf: Boolean = false, val canDeleteForAll: Boolean = false)
+data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boolean = false, val canEdit: Boolean = false, val canDeleteForSelf: Boolean = false, val canDeleteForAll: Boolean = false, val canForward: Boolean = false, val canSave: Boolean = false)
 enum class DeleteMessageScope { ForSelf, ForEveryone }
 data class MessageContext(val chatId: Long, val title: String, val targetId: Long, val messages: List<ChatMessage>)
 data class MessageSearchPage(val messages: List<ChatMessage>, val nextFromMessageId: Long)

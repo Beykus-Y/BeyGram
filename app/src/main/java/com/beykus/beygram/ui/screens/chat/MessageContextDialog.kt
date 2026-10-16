@@ -64,5 +64,5 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
         }
     }
     selected?.let { message -> message.media?.let { media -> MediaViewer(media, observeFile, downloadFile,
-        onViewed = { conversation.openMessageContent(message.chatId, message.id) }, onClose = { selected = null }) } }
+        onViewed = { conversation.openMessageContent(message.chatId, message.id) }, onClose = { selected = null }, canExport = false) } }
 }
