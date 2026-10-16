@@ -6,7 +6,12 @@ import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
 import android.media.AudioAttributes
+import android.content.ClipData
+import android.content.ContentValues
 import android.media.MediaPlayer
+import android.os.Environment
+import android.provider.MediaStore
+import android.webkit.MimeTypeMap
 import android.widget.ImageView
 import android.widget.MediaController
 import android.widget.VideoView
@@ -20,7 +25,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Forward
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -34,6 +44,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -57,6 +68,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
@@ -178,11 +190,25 @@ internal fun MediaPreview(
     }
 }
 
+/** Действия над сообщением чата в просмотрщике; не передаётся, если вложение открыто не из чата. */
+internal class MediaViewerActions(
+    val canForward: Boolean, val canEdit: Boolean, val canDelete: Boolean,
+    val onForward: () -> Unit, val onEdit: () -> Unit, val onDelete: () -> Unit
+)
+
+/** [canExport] разрешает сохранить файл и передать его наружу; Telegram запрещает это в защищённых чатах. */
 @Composable
-internal fun MediaViewer(media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onViewed: () -> Unit, onClose: () -> Unit) {
+internal fun MediaViewer(
+    media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onViewed: () -> Unit, onClose: () -> Unit,
+    title: String? = null, subtitle: String? = null, canExport: Boolean = true, actions: MediaViewerActions? = null
+) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var externalError by remember { mutableStateOf<String?>(null) }
+    var fileNotice by remember { mutableStateOf<String?>(null) }
+    val localPath = file.localPath
+    val exportPath = if (canExport && !media.isSecret) localPath else null
     val tgs = media.mimeType == "application/x-tgsticker"
     val previewId = media.thumbnailFileId
     val currentOnViewed by rememberUpdatedState(onViewed)
@@ -196,9 +222,13 @@ internal fun MediaViewer(media: MessageMedia, observeFile: (Int) -> StateFlow<Me
     LaunchedEffect(media.fileId) { if (!tgs) downloadFile(media.fileId) else previewId?.let(downloadFile) }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (media.isSecret) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(media.fileName.ifBlank { media.kind.label() }, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(8.dp))
-                TextButton(onClick = onClose) { Text("Закрыть", color = Color.White) }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Закрыть", tint = Color.White) }
+                Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                    Text(title ?: media.fileName.ifBlank { media.kind.label() }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+                if (exportPath != null) IconButton(onClick = { fileNotice = shareMedia(context, exportPath, media.mimeType) }) { Icon(Icons.Rounded.Share, "Поделиться", tint = Color.White) }
             }
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 val path = file.localPath
@@ -220,13 +250,31 @@ internal fun MediaViewer(media: MessageMedia, observeFile: (Int) -> StateFlow<Me
                     media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> LocalAudio(path, onViewed)
                     else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(formatMediaSize(file.size), color = Color.LightGray)
-                        TextButton(onClick = { openExternal(path) }) { Text("Открыть файл") }
+                        if (exportPath != null) TextButton(onClick = { openExternal(path) }) { Text("Открыть файл") }
                     }
                 }
             }
-            if (file.localPath != null && !media.isSecret) TextButton(onClick = { openExternal(file.localPath!!) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Открыть в другом приложении") }
+            if (exportPath != null) TextButton(onClick = { openExternal(exportPath) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Открыть в другом приложении") }
+            if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                if (actions != null && actions.canForward) ViewerAction("Переслать", Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
+                if (exportPath != null) ViewerAction("Сохранить", Icons.Rounded.Download) {
+                    scope.launch { fileNotice = withContext(Dispatchers.IO) { saveToDevice(context, exportPath, media) } }
+                }
+                if (actions != null && actions.canEdit) ViewerAction("Изменить", Icons.Rounded.Edit, onClick = actions.onEdit)
+                if (actions != null && actions.canDelete) ViewerAction("Удалить", Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
+            }
             externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp)) }
+            fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
         }
+    }
+}
+
+@Composable
+private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color(0xFFCFC4FF), onClick: () -> Unit) {
+    Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.height(4.dp))
+        Text(label, color = tint, fontSize = 12.sp)
     }
 }
 
@@ -314,3 +362,43 @@ private fun openExternalMedia(context: Context, path: String, mime: String): Str
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
     context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
 }.exceptionOrNull()?.let { "Нет приложения для открытия этого формата" }
+
+/** Передаёт файл через системное меню «Поделиться». Возвращает текст ошибки или null. */
+private fun shareMedia(context: Context, path: String, mime: String): String? = runCatching {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
+    val send = Intent(Intent.ACTION_SEND).setType(mime.ifBlank { "*/*" }).putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    send.clipData = ClipData.newRawUri(null, uri)
+    context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+}.exceptionOrNull()?.let { "Не удалось поделиться файлом" }
+
+/** Копирует файл в галерею (фото и видео) или в «Загрузки» через MediaStore; без разрешения на хранилище на API 29+. */
+private fun saveToDevice(context: Context, path: String, media: MessageMedia): String = runCatching {
+    val resolver = context.contentResolver
+    val image = media.mimeType.startsWith("image/")
+    val video = media.mimeType.startsWith("video/")
+    val (collection, folder) = when {
+        image -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_PICTURES
+        video -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_MOVIES
+        else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_DOWNLOADS
+    }
+    val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(media.mimeType)?.let { ".$it" }.orEmpty()
+    val base = media.fileName.replace('/', '_').ifBlank { "BeyGram_${System.currentTimeMillis()}" }
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, if (extension.isEmpty() || base.endsWith(extension, ignoreCase = true)) base else base + extension)
+        put(MediaStore.MediaColumns.MIME_TYPE, media.mimeType.ifBlank { "application/octet-stream" })
+        put(MediaStore.MediaColumns.RELATIVE_PATH, "$folder/BeyGram")
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+    val uri = resolver.insert(collection, values) ?: error("MediaStore не создал запись")
+    try {
+        val output = resolver.openOutputStream(uri) ?: error("Нет доступа к записи")
+        output.use { stream -> File(path).inputStream().use { input -> input.copyTo(stream) } }
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+    } catch (failure: Exception) {
+        resolver.delete(uri, null, null)
+        throw failure
+    }
+    if (image || video) "Сохранено в галерею" else "Сохранено в «Загрузки»"
+}.getOrElse { "Не удалось сохранить файл" }

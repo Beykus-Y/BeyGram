@@ -32,7 +32,8 @@ internal class TdConversationActions(
         val message = request(TdApi.GetMessage(chatId, messageId))
         MessageCapabilities(properties.canBeReplied, properties.canBeCopied && editable(message.content),
             properties.canBeEdited && message.isOutgoing && editable(message.content),
-            properties.canBeDeletedOnlyForSelf, properties.canBeDeletedForAllUsers)
+            properties.canBeDeletedOnlyForSelf, properties.canBeDeletedForAllUsers,
+            canForward = properties.canBeForwarded, canSave = properties.canBeSaved)
     }
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?): Result<Unit> = conversationResult {
@@ -84,6 +85,13 @@ internal class TdConversationActions(
         check(if (deleteScope == DeleteMessageScope.ForEveryone) properties.canBeDeletedForAllUsers else properties.canBeDeletedOnlyForSelf) { "Этот вариант удаления недоступен" }
         request(TdApi.DeleteMessages(chatId, longArrayOf(messageId), deleteScope == DeleteMessageScope.ForEveryone))
         history.delete(chatId, listOf(messageId))
+    }
+
+    /** Пересылка без копии: TDLib сам отказывает, если сообщение нельзя переслать или содержимое защищено. */
+    suspend fun forward(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit> = conversationResult {
+        check(request(TdApi.GetMessageProperties(fromChatId, messageId)).canBeForwarded) { "Это сообщение нельзя переслать" }
+        val forwarded = request(TdApi.ForwardMessages(toChatId, null, fromChatId, longArrayOf(messageId), TdApi.MessageSendOptions(), false, false))
+        check(forwarded.messages.orEmpty().any { it != null }) { "Не удалось переслать сообщение" }
     }
 
     suspend fun context(chatId: Long, messageId: Long): Result<MessageContext> = conversationResult {

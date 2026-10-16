@@ -2,6 +2,7 @@ package com.beykus.beygram.ui.screens.chat
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -60,7 +61,7 @@ import kotlinx.coroutines.launch
 @OptIn(FlowPreview::class)
 @Composable
 fun ChatScreen(
-    chat: ChatPreview, info: ProfileInfo?, history: ChatHistory, conversation: ConversationRepository,
+    chat: ChatPreview, info: ProfileInfo?, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState
 ) {
@@ -79,6 +80,10 @@ fun ChatScreen(
     var capabilitiesError by remember { mutableStateOf<String?>(null) }
     var capabilitiesAttempt by remember { mutableIntStateOf(0) }
     var selectedMediaId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    var viewerCapabilities by remember { mutableStateOf<MessageCapabilities?>(null) }
+    var forwardId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    var forwardBusy by remember { mutableStateOf(false) }
+    var forwardError by remember { mutableStateOf<String?>(null) }
     var contextChatId by rememberSaveable(chat.id) { mutableStateOf(0L) }
     var contextMessageId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var highlighted by remember { mutableStateOf<Long?>(null) }
@@ -144,6 +149,11 @@ fun ChatScreen(
         val result = conversation.messageCapabilities(chat.id, id)
         capabilities = result.getOrNull()
         capabilitiesError = result.exceptionOrNull()?.message
+    }
+    LaunchedEffect(selectedMediaId) {
+        viewerCapabilities = null
+        val id = selectedMediaId ?: return@LaunchedEffect
+        viewerCapabilities = conversation.messageCapabilities(chat.id, id).getOrNull()
     }
     BackHandler(enabled = searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active) {
         when {
@@ -331,8 +341,30 @@ fun ChatScreen(
             }
         }
     }
-    messages.firstOrNull { it.id == selectedMediaId }?.media?.let { media -> MediaViewer(media, observeFile, onDownloadFile,
-        onViewed = { selectedMediaId?.let { conversation.openMessageContent(chat.id, it) } }, onClose = { selectedMediaId = null }) }
+    messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(media, observeFile, onDownloadFile,
+        onViewed = { selectedMediaId?.let { conversation.openMessageContent(chat.id, it) } }, onClose = { selectedMediaId = null },
+        title = if (viewed.isOutgoing) "Вы" else viewed.senderName.ifBlank { chat.title }, subtitle = viewed.time,
+        canExport = viewerCapabilities?.canSave == true,
+        actions = MediaViewerActions(
+            canForward = viewerCapabilities?.canForward == true,
+            canEdit = viewerCapabilities?.canEdit == true,
+            canDelete = viewerCapabilities?.let { it.canDeleteForSelf || it.canDeleteForAll } == true,
+            onForward = { forwardId = viewed.id; selectedMediaId = null },
+            onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
+            onDelete = { deleteEveryone = viewerCapabilities?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
+        )) } }
+    forwardId?.let { id ->
+        ForwardChatDialog(chats, forwardBusy, forwardError,
+            onPick = { target -> scope.launch {
+                forwardBusy = true; forwardError = null
+                try {
+                    val result = conversation.forwardMessage(chat.id, id, target.id)
+                    if (result.isSuccess) { forwardId = null; Toast.makeText(context, "Сообщение переслано", Toast.LENGTH_SHORT).show() }
+                    else forwardError = result.exceptionOrNull()?.message ?: "Не удалось переслать сообщение"
+                } finally { forwardBusy = false }
+            } },
+            onClose = { forwardId = null; forwardError = null })
+    }
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }) }
 }
 

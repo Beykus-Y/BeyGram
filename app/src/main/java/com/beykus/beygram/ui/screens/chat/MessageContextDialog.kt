@@ -29,6 +29,12 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf<ChatMessage?>(null) }
+    var exportable by remember { mutableStateOf(false) }
+    LaunchedEffect(selected?.id) {
+        exportable = false
+        val message = selected ?: return@LaunchedEffect
+        exportable = conversation.messageCapabilities(message.chatId, message.id).getOrNull()?.canSave == true
+    }
     val palette = beyGramPalette()
     val list = rememberLazyListState()
     LaunchedEffect(chatId, targetId, attempt) {
@@ -64,5 +70,5 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
         }
     }
     selected?.let { message -> message.media?.let { media -> MediaViewer(media, observeFile, downloadFile,
-        onViewed = { conversation.openMessageContent(message.chatId, message.id) }, onClose = { selected = null }) } }
+        onViewed = { conversation.openMessageContent(message.chatId, message.id) }, onClose = { selected = null }, canExport = exportable) } }
 }

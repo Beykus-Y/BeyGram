@@ -236,6 +236,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun messageCapabilities(chatId: Long, messageId: Long) = conversationActions.capabilities(chatId, messageId)
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String) = conversationActions.edit(chatId, messageId, text)
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) = conversationActions.delete(chatId, messageId, scope)
+    override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long) = conversationActions.forward(fromChatId, messageId, toChatId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
