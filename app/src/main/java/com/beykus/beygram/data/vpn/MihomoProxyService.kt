@@ -12,8 +12,10 @@ import com.beykus.beygram.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +30,7 @@ data class ProxyRuntimeState(val status: ProxyRuntimeStatus, val message: String
 class MihomoProxyService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var core: MihomoCoreBridge? = null
+    private var startupJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -54,11 +57,13 @@ class MihomoProxyService : Service() {
     }
 
     private fun startProxy() {
-        if (_runtimeState.value.status == ProxyRuntimeStatus.RUNNING || _runtimeState.value.status == ProxyRuntimeStatus.STARTING) return
+        // Every startForegroundService call needs startForeground, including the calls ignored below.
+        startForeground(NOTIFICATION_ID, buildNotification())
+        val status = _runtimeState.value.status
+        if (status == ProxyRuntimeStatus.RUNNING || status == ProxyRuntimeStatus.STARTING || status == ProxyRuntimeStatus.STOPPING) return
         _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STARTING)
         MihomoRuntimeDiagnostics.event("service", "start requested; profileExists=${MihomoCoreBridge(applicationContext).profileExists()}")
-        startForeground(NOTIFICATION_ID, buildNotification())
-        serviceScope.launch {
+        startupJob = serviceScope.launch {
             try {
                 val bridge = MihomoCoreBridge(applicationContext)
                 if (!bridge.profileExists()) throw IllegalStateException("Сначала загрузите подписку Mihomo")
@@ -66,8 +71,10 @@ class MihomoProxyService : Service() {
                 MihomoRuntimeDiagnostics.event("service", "profile initialized")
                 core = bridge
                 bridge.startProxyListener()
-                _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.RUNNING)
-                MihomoRuntimeDiagnostics.event("service", "state=RUNNING")
+                // A stop requested meanwhile keeps its STOPPING state, so RUNNING is set only over STARTING.
+                if (_runtimeState.compareAndSet(ProxyRuntimeState(ProxyRuntimeStatus.STARTING), ProxyRuntimeState(ProxyRuntimeStatus.RUNNING))) {
+                    MihomoRuntimeDiagnostics.event("service", "state=RUNNING")
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -86,13 +93,18 @@ class MihomoProxyService : Service() {
 
     private fun stopProxy() {
         val current = _runtimeState.value.status
-        if (current == ProxyRuntimeStatus.STOPPED || current == ProxyRuntimeStatus.STOPPING) {
+        // A stop already in progress stops the service itself; stopping it here would cancel that stop before it closes the listener.
+        if (current == ProxyRuntimeStatus.STOPPING) return
+        if (current == ProxyRuntimeStatus.STOPPED) {
             stopSelf()
             return
         }
         _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STOPPING)
         MihomoRuntimeDiagnostics.event("service", "stop requested")
+        val startup = startupJob
         serviceScope.launch {
+            // A start still running could open the listener after this stop, so wait for it to end, then close what it opened.
+            startup?.cancelAndJoin()
             runCatching { core?.stopProxyListener() }
             core = null
             withContext(Dispatchers.Main) {

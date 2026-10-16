@@ -196,7 +196,7 @@ class MockTelegramRepository : TelegramRepository {
 
     override suspend fun measureProxyLatency(server: String, port: Int): Result<Long> = Result.success(40L + port % 90)
 
-    override suspend fun isMihomoProxyEnabled(): Boolean = false
+    override suspend fun isMihomoProxyEnabled(): Result<Boolean> = Result.success(false)
 
     private fun updateSavedProxies(transform: (SavedTelegramProxy) -> SavedTelegramProxy) {
         for (index in savedProxies.indices) savedProxies[index] = transform(savedProxies[index])

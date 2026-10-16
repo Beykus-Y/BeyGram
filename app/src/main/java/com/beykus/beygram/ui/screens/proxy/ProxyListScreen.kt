@@ -72,7 +72,7 @@ internal fun ProxyListScreen(
     val reload: () -> Unit = {
         scope.launch {
             saved = repository.loadSavedProxies().getOrElse { error -> message = error.message; emptyList() }
-            mihomoEnabled = repository.isMihomoProxyEnabled()
+            mihomoEnabled = repository.isMihomoProxyEnabled().getOrDefault(false)
             latency = emptyMap()
             saved.forEach { proxy ->
                 launch {

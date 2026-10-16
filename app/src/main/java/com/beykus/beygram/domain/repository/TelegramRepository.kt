@@ -90,8 +90,8 @@ interface TelegramRepository : ConversationRepository, NotificationRepository {
     /** Время TCP-соединения с сервером прокси, в миллисекундах. */
     suspend fun measureProxyLatency(server: String, port: Int): Result<Long>
 
-    /** Истина, если TDLib сейчас работает через локальный listener подписки Mihomo. */
-    suspend fun isMihomoProxyEnabled(): Boolean
+    /** Истина, если TDLib сейчас работает через локальный listener подписки Mihomo; ошибка, если TDLib не ответил. */
+    suspend fun isMihomoProxyEnabled(): Result<Boolean>
 
     /** Route TDLib through BeyGram's local Mihomo SOCKS listener and restore the prior proxy on disable. */
     suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit>
