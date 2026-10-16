@@ -268,7 +268,7 @@ private fun BeyGramAppContent(
                 EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)
             } ?: LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
         }
-        AppRoute.Notifications -> NotificationSettingsScreen(notificationRuntime, onBack = { routeName = AppRoute.Chats.name })
+        AppRoute.Notifications -> NotificationSettingsScreen(notificationRuntime, connectionState, onBack = { routeName = AppRoute.Chats.name })
     }
     notificationError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { notificationError = null }, title = { androidx.compose.material3.Text("Уведомление") },
         text = { androidx.compose.material3.Text(error) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { notificationError = null }) { androidx.compose.material3.Text("Закрыть") } }) }
