@@ -402,7 +402,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         loadChatList(TdApi.ChatListArchive())
     }
 
-    /** Ok означает, что порция загружена и можно запросить следующую; ошибка 404 — список загружен целиком. */
+    /**
+     * Ok означает, что порция загружена и можно запросить следующую. Любая ошибка останавливает загрузку;
+     * 404 означает, что список загружен целиком.
+     */
     private fun loadChatList(list: TdApi.ChatList) {
         client.send(
             TdApi.LoadChats(list, 100),
