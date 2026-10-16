@@ -15,5 +15,6 @@ enum class AppRoute {
     Calls,
     Contacts,
     Settings,
-    NavigationSettings
+    NavigationSettings,
+    VpnSettings
 }

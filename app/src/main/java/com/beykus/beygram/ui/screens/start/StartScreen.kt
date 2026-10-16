@@ -47,6 +47,7 @@ fun StartScreen(
     tdLibReadiness: TdLibReadiness,
     connectionState: TelegramConnectionState,
     onThemeChange: (Boolean) -> Unit,
+    onVpnSettings: () -> Unit,
     onStartClick: () -> Unit,
     onAddProxy: (String, Int, Boolean, String, String, String) -> Unit
 ) {
@@ -146,6 +147,7 @@ fun StartScreen(
             }
             Text(connectionText, color = connectionColor, fontSize = 13.sp)
             TextButton(onClick = { showProxyDialog = true }) { Text("Прокси для Telegram") }
+            TextButton(onClick = onVpnSettings) { Text("Mihomo proxy (dev)") }
         }
 
         Button(

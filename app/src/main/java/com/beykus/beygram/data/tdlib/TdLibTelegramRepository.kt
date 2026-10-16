@@ -35,6 +35,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
@@ -50,6 +52,35 @@ import java.util.Date
  *  - автоматический recomposition в Compose через collectAsStateWithLifecycle().
  */
 class TdLibTelegramRepository private constructor(context: Context, policy: InteractionPolicy) : TelegramRepository {
+
+    private val mihomoProxyMutex = Mutex()
+    private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences("mihomo_tdlib_proxy", Context.MODE_PRIVATE)
+    private val tdRequests = TdRequests { client }
+
+    override suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit> = mihomoProxyMutex.withLock {
+        try {
+            val proxies = tdRequests(TdApi.GetProxies()).proxies.orEmpty().toList()
+            if (enabled) {
+                val local = proxies.firstOrNull { it.proxy.server == MIHOMO_PROXY_HOST && it.proxy.port == MIHOMO_PROXY_PORT && it.proxy.type is TdApi.ProxyTypeSocks5 }
+                    ?: tdRequests(TdApi.AddProxy(TdApi.Proxy(MIHOMO_PROXY_HOST, MIHOMO_PROXY_PORT, TdApi.ProxyTypeSocks5("", "")), false, "BeyGram Mihomo"))
+                val previous = proxies.firstOrNull { it.isEnabled && it.id != local.id }?.id ?: 0
+                if (previous != 0) mihomoProxyPrefs.edit().putInt(KEY_PREVIOUS_PROXY_ID, previous).apply()
+                mihomoProxyPrefs.edit().putInt(KEY_LOCAL_PROXY_ID, local.id).apply()
+                tdRequests(TdApi.EnableProxy(local.id))
+            } else {
+                tdRequests(TdApi.DisableProxy())
+                val previousId = mihomoProxyPrefs.getInt(KEY_PREVIOUS_PROXY_ID, 0)
+                if (previousId != 0 && proxies.any { it.id == previousId }) tdRequests(TdApi.EnableProxy(previousId))
+                mihomoProxyPrefs.edit().remove(KEY_PREVIOUS_PROXY_ID).apply()
+            }
+            Result.success(Unit)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
 
     private val config = TdLibConfig.from(context)
 
@@ -590,6 +621,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     companion object {
+        private const val MIHOMO_PROXY_HOST = "127.0.0.1"
+        private const val MIHOMO_PROXY_PORT = 17891
+        private const val KEY_LOCAL_PROXY_ID = "local_proxy_id"
+        private const val KEY_PREVIOUS_PROXY_ID = "previous_proxy_id"
         private const val AUTH_REQUEST_TIMEOUT_MS = 35_000L
         @Volatile private var instance: TdLibTelegramRepository? = null
 

@@ -8,6 +8,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -42,6 +43,8 @@ import com.beykus.beygram.ui.screens.profile.EditProfileScreen
 import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
+import com.beykus.beygram.data.vpn.VpnBackend
+import com.beykus.beygram.ui.screens.vpn.VpnSettingsScreen
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
 
 @Composable
@@ -63,7 +66,12 @@ fun BeyGramApp(
             MockTelegramRepository()
         }
     }
+    val appScope = rememberCoroutineScope()
+    val vpnBackend = remember(context, repository) {
+        VpnBackend(context.applicationContext, repository.connectionState, appScope, repository::setMihomoProxyEnabled)
+    }
     DisposableEffect(repository, notificationRuntime) { notificationRuntime.attach(repository); onDispose { } }
+    DisposableEffect(vpnBackend) { onDispose { vpnBackend.shutdown() } }
 
     BeyGramAppContent(
         repository = repository,
@@ -71,6 +79,7 @@ fun BeyGramApp(
         isDarkTheme = isDarkTheme,
         onThemeChange = onThemeChange,
         notificationRuntime = notificationRuntime,
+        vpnBackend = vpnBackend,
         notificationRequest = notificationRequest,
         onNotificationHandled = onNotificationHandled
     )
@@ -83,6 +92,7 @@ private fun BeyGramAppContent(
     isDarkTheme: Boolean,
     onThemeChange: (Boolean) -> Unit,
     notificationRuntime: NotificationRuntime,
+    vpnBackend: VpnBackend,
     notificationRequest: NotificationOpenRequest?,
     onNotificationHandled: (Long) -> Unit
 ) {
@@ -136,6 +146,7 @@ private fun BeyGramAppContent(
         notificationsReturnRouteName = returnTo.name
         routeName = AppRoute.Notifications.name
     }
+    var vpnPreviousRoute by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, notificationRequest?.token) {
         val request = notificationRequest ?: return@LaunchedEffect
@@ -189,6 +200,7 @@ private fun BeyGramAppContent(
             tdLibReadiness = tdLibReadiness,
             connectionState = connectionState,
             onThemeChange = onThemeChange,
+            onVpnSettings = { vpnPreviousRoute = AppRoute.Start.name; routeName = AppRoute.VpnSettings.name },
             onAddProxy = repository::addProxy,
             onStartClick = {
                 repository.startAuthorization()
@@ -260,6 +272,7 @@ private fun BeyGramAppContent(
                 onArchive = archiveChat,
                 archiveHidden = archiveHidden,
                 onArchiveHiddenChange = onArchiveHiddenChange,
+                onVpnSettings = { vpnPreviousRoute = AppRoute.Chats.name; routeName = AppRoute.VpnSettings.name },
                 onChatClick = { chat ->
                     selectedChatId = chat.id
                     chatBackRouteName = AppRoute.Chats.name
@@ -303,6 +316,7 @@ private fun BeyGramAppContent(
                         onArchive = archiveChat,
                         archiveHidden = archiveHidden,
                         onArchiveHiddenChange = onArchiveHiddenChange,
+                        onVpnSettings = { vpnPreviousRoute = AppRoute.Chats.name; routeName = AppRoute.VpnSettings.name },
                         onChatClick = { selectedChat ->
                             selectedChatId = selectedChat.id
                             chatBackRouteName = AppRoute.Chats.name
@@ -386,6 +400,9 @@ private fun BeyGramAppContent(
             onVisibilityChange = onTabVisibilityChange,
             onBack = { routeName = AppRoute.Settings.name }
         )
+        AppRoute.VpnSettings -> VpnSettingsScreen(vpnBackend, connectionState) {
+            routeName = vpnPreviousRoute.takeIf { runCatching { AppRoute.valueOf(it) }.isSuccess } ?: AppRoute.Chats.name
+        }
     }
     notificationError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { notificationError = null }, title = { androidx.compose.material3.Text("Уведомление") },
         text = { androidx.compose.material3.Text(error) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { notificationError = null }) { androidx.compose.material3.Text("Закрыть") } }) }

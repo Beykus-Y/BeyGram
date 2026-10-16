@@ -72,6 +72,9 @@ interface TelegramRepository : ConversationRepository, NotificationRepository {
 
     fun addProxy(server: String, port: Int, isMtproto: Boolean, username: String, password: String, secret: String)
 
+    /** Route TDLib through BeyGram's local Mihomo SOCKS listener and restore the prior proxy on disable. */
+    suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit>
+
     fun observeFile(fileId: Int): StateFlow<MediaFileState>
     fun downloadFile(fileId: Int)
 }

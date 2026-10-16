@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.asStateFlow
 
 class MockTelegramRepository : TelegramRepository {
 
+    override suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit> = Result.success(Unit)
+
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
     override val authState: StateFlow<AuthState> = _authState.asStateFlow()
 

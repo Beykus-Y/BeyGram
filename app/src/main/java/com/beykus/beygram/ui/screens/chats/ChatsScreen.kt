@@ -103,6 +103,7 @@ fun ChatsScreen(
     onArchive: suspend (ChatPreview) -> Boolean,
     archiveHidden: Boolean,
     onArchiveHiddenChange: (Boolean) -> Unit,
+    onVpnSettings: () -> Unit,
     onChatClick: (ChatPreview) -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -190,6 +191,9 @@ fun ChatsScreen(
                     Icon(Icons.Rounded.Notifications, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                 }
                 Spacer(Modifier.width(4.dp))
+                androidx.compose.material3.IconButton(onClick = onVpnSettings, modifier = Modifier.semantics { contentDescription = "Mihomo proxy (dev)" }) {
+                    Text("VPN (dev)", fontSize = 10.sp, color = palette.accentInk, fontWeight = FontWeight.Bold)
+                }
                 TelegramAvatar(myProfile?.initials ?: "Я", palette.accent, 40.dp, myProfile?.photo, observeFile, downloadFile,
                     Modifier.semantics { contentDescription = "Мой профиль" }.clickable(onClick = onMyProfile))
             }
