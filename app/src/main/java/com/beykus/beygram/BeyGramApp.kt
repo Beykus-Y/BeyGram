@@ -1,6 +1,7 @@
 package com.beykus.beygram
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
@@ -8,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -19,13 +21,21 @@ import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
+import com.beykus.beygram.navigation.MainTab
+import com.beykus.beygram.navigation.MainTabPreferences
+import com.beykus.beygram.navigation.TabVisibility
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
 import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
 import com.beykus.beygram.ui.screens.archive.ArchiveScreen
+import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
+import com.beykus.beygram.ui.screens.contacts.ContactsScreen
+import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
+import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
@@ -95,7 +105,7 @@ private fun BeyGramAppContent(
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
-    // Куда вернуться из открытого чата: из архива — в архив, иначе — в список чатов.
+    // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var notificationError by remember { mutableStateOf<String?>(null) }
     // Скрытый архив остаётся скрытым после перезапуска: флаг лежит в настройках приложения.
@@ -106,11 +116,31 @@ private fun BeyGramAppContent(
         archiveHidden = hidden
         chatPreferences.edit().putBoolean("archive_hidden", hidden).apply()
     }
+    // Нижнее меню: какие разделы видны. Скрытые разделы открываются из профиля; настройка сохраняется между запусками.
+    val tabPreferences = remember(context) { MainTabPreferences(context) }
+    var tabVisibility by remember { mutableStateOf(tabPreferences.load()) }
+    val onTabVisibilityChange: (TabVisibility) -> Unit = { visibility ->
+        tabVisibility = visibility
+        tabPreferences.save(visibility)
+    }
+    val tabStateHolder = rememberSaveableStateHolder()
+    // Куда вернуться из раздела нижнего меню и из уведомлений: их открывают из разных мест.
+    var tabReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    var notificationsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    val openTab: (MainTab, AppRoute) -> Unit = { tab, returnTo ->
+        tabReturnRouteName = returnTo.name
+        routeName = tab.route.name
+    }
+    val selectTab: (MainTab) -> Unit = { tab -> openTab(tab, AppRoute.Chats) }
+    val openNotifications: (AppRoute) -> Unit = { returnTo ->
+        notificationsReturnRouteName = returnTo.name
+        routeName = AppRoute.Notifications.name
+    }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, notificationRequest?.token) {
         val request = notificationRequest ?: return@LaunchedEffect
         if (authState != AuthState.Ready) return@LaunchedEffect
-        if (request.settings) routeName = AppRoute.Notifications.name
+        if (request.settings) openNotifications(AppRoute.Chats)
         else request.chatId?.let { chatId ->
             val result = repository.loadChat(chatId)
             if (result.isSuccess) { selectedChatId = chatId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name }
@@ -148,6 +178,10 @@ private fun BeyGramAppContent(
 
     // ---- Маршрутизация -------------------------------------------------------
     val route = AppRoute.valueOf(routeName)
+    // Назад из разделов нижнего меню ведёт туда, откуда раздел открыли: в чаты или в профиль.
+    BackHandler(enabled = route == AppRoute.Calls || route == AppRoute.Contacts || route == AppRoute.Settings) {
+        routeName = tabReturnRouteName
+    }
 
     when (route) {
         AppRoute.Start -> StartScreen(
@@ -212,25 +246,27 @@ private fun BeyGramAppContent(
             )
         }
 
-        AppRoute.Chats -> ChatsScreen(
-            chats = chats,
-            archivedChats = archivedChats,
-            myProfile = myProfile.info,
-            onNotifications = { routeName = AppRoute.Notifications.name },
-            observeFile = repository::observeFile,
-            downloadFile = repository::downloadFile,
-            onMyProfile = { routeName = AppRoute.MyProfile.name },
-            onArchiveClick = { routeName = AppRoute.Archive.name },
-            onMarkRead = markChatRead,
-            onArchive = archiveChat,
-            archiveHidden = archiveHidden,
-            onArchiveHiddenChange = onArchiveHiddenChange,
-            onChatClick = { chat ->
-                selectedChatId = chat.id
-                chatBackRouteName = AppRoute.Chats.name
-                routeName = AppRoute.Chat.name
-            }
-        )
+        AppRoute.Chats -> MainTabsScaffold(MainTab.Chats.route.name, MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
+            ChatsScreen(
+                chats = chats,
+                archivedChats = archivedChats,
+                myProfile = myProfile.info,
+                onNotifications = { openNotifications(AppRoute.Chats) },
+                observeFile = repository::observeFile,
+                downloadFile = repository::downloadFile,
+                onMyProfile = { routeName = AppRoute.MyProfile.name },
+                onArchiveClick = { routeName = AppRoute.Archive.name },
+                onMarkRead = markChatRead,
+                onArchive = archiveChat,
+                archiveHidden = archiveHidden,
+                onArchiveHiddenChange = onArchiveHiddenChange,
+                onChatClick = { chat ->
+                    selectedChatId = chat.id
+                    chatBackRouteName = AppRoute.Chats.name
+                    routeName = AppRoute.Chat.name
+                }
+            )
+        }
 
         AppRoute.Archive -> ArchiveScreen(
             chats = archivedChats,
@@ -253,25 +289,27 @@ private fun BeyGramAppContent(
                 if (authState == AuthState.Ready && chat == null && selectedChatId != 0L) repository.loadChat(selectedChatId)
             }
             if (chat == null) {
-                ChatsScreen(
-                    chats = chats,
-                    archivedChats = archivedChats,
-                    myProfile = myProfile.info,
-                    onNotifications = { routeName = AppRoute.Notifications.name },
-                    observeFile = repository::observeFile,
-                    downloadFile = repository::downloadFile,
-                    onMyProfile = { routeName = AppRoute.MyProfile.name },
-                    onArchiveClick = { routeName = AppRoute.Archive.name },
-                    onMarkRead = markChatRead,
-                    onArchive = archiveChat,
-                    archiveHidden = archiveHidden,
-                    onArchiveHiddenChange = onArchiveHiddenChange,
-                    onChatClick = { selectedChat ->
-                        selectedChatId = selectedChat.id
-                        chatBackRouteName = AppRoute.Chats.name
-                        routeName = AppRoute.Chat.name
-                    }
-                )
+                MainTabsScaffold(MainTab.Chats.route.name, MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
+                    ChatsScreen(
+                        chats = chats,
+                        archivedChats = archivedChats,
+                        myProfile = myProfile.info,
+                        onNotifications = { openNotifications(AppRoute.Chats) },
+                        observeFile = repository::observeFile,
+                        downloadFile = repository::downloadFile,
+                        onMyProfile = { routeName = AppRoute.MyProfile.name },
+                        onArchiveClick = { routeName = AppRoute.Archive.name },
+                        onMarkRead = markChatRead,
+                        onArchive = archiveChat,
+                        archiveHidden = archiveHidden,
+                        onArchiveHiddenChange = onArchiveHiddenChange,
+                        onChatClick = { selectedChat ->
+                            selectedChatId = selectedChat.id
+                            chatBackRouteName = AppRoute.Chats.name
+                            routeName = AppRoute.Chat.name
+                        }
+                    )
+                }
             } else {
                 val historyFlow = remember(repository, selectedChatId) { repository.observeChatHistory(selectedChatId) }
                 val history by historyFlow.collectAsStateWithLifecycle()
@@ -309,7 +347,9 @@ private fun BeyGramAppContent(
             ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile,
                 onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
                 onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
-                onNotifications = { routeName = AppRoute.Notifications.name },
+                onNotifications = { openNotifications(AppRoute.MyProfile) },
+                hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
+                onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
                 isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
         }
         AppRoute.EditProfile -> {
@@ -317,7 +357,35 @@ private fun BeyGramAppContent(
                 EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)
             } ?: LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
         }
-        AppRoute.Notifications -> NotificationSettingsScreen(notificationRuntime, connectionState, onBack = { routeName = AppRoute.Chats.name })
+        AppRoute.Notifications -> NotificationSettingsScreen(notificationRuntime, connectionState, onBack = { routeName = notificationsReturnRouteName })
+        AppRoute.Calls -> MainTabsScaffold(MainTab.Calls.route.name, MainTab.Calls, tabVisibility, selectTab, tabStateHolder) {
+            CallsScreen(loadCalls = repository::loadCallHistory, observeFile = repository::observeFile, downloadFile = repository::downloadFile)
+        }
+        AppRoute.Contacts -> MainTabsScaffold(MainTab.Contacts.route.name, MainTab.Contacts, tabVisibility, selectTab, tabStateHolder) {
+            ContactsScreen(
+                loadContacts = repository::loadContacts,
+                addContact = repository::addContact,
+                openPrivateChat = repository::openPrivateChat,
+                observeFile = repository::observeFile,
+                downloadFile = repository::downloadFile,
+                onChatOpened = { chatId ->
+                    selectedChatId = chatId
+                    chatBackRouteName = AppRoute.Contacts.name
+                    routeName = AppRoute.Chat.name
+                }
+            )
+        }
+        AppRoute.Settings -> MainTabsScaffold(MainTab.Settings.route.name, MainTab.Settings, tabVisibility, selectTab, tabStateHolder) {
+            SettingsScreen(
+                onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
+                onNotifications = { openNotifications(AppRoute.Settings) }
+            )
+        }
+        AppRoute.NavigationSettings -> NavigationSettingsScreen(
+            visibility = tabVisibility,
+            onVisibilityChange = onTabVisibilityChange,
+            onBack = { routeName = AppRoute.Settings.name }
+        )
     }
     notificationError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { notificationError = null }, title = { androidx.compose.material3.Text("Уведомление") },
         text = { androidx.compose.material3.Text(error) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { notificationError = null }) { androidx.compose.material3.Text("Закрыть") } }) }

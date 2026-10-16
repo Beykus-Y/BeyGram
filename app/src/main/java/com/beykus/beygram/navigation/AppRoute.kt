@@ -11,5 +11,9 @@ enum class AppRoute {
     ChatInfo,
     MyProfile,
     EditProfile,
-    Notifications
+    Notifications,
+    Calls,
+    Contacts,
+    Settings,
+    NavigationSettings
 }
