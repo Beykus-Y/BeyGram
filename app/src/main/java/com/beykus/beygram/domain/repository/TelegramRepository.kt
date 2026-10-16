@@ -17,6 +17,9 @@ interface TelegramRepository : ConversationRepository, NotificationRepository {
     /** Список чатов. Обновляется реактивно по мере получения обновлений от TDLib. */
     val chats: StateFlow<List<ChatPreview>>
 
+    /** Архивные чаты. Не входят в [chats]; обновляются так же реактивно. */
+    val archivedChats: StateFlow<List<ChatPreview>>
+
     val connectionState: StateFlow<TelegramConnectionState>
     val myProfile: StateFlow<ProfileState>
     val bioLengthLimit: StateFlow<Int>

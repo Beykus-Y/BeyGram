@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Notifications
@@ -67,11 +69,13 @@ private enum class ChatFilter(val title: String) {
 @Composable
 fun ChatsScreen(
     chats: List<ChatPreview>,
+    archivedChats: List<ChatPreview>,
     myProfile: ProfileInfo?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onMyProfile: () -> Unit,
     onNotifications: () -> Unit,
+    onArchiveClick: () -> Unit,
     onChatClick: (ChatPreview) -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -127,6 +131,9 @@ fun ChatsScreen(
         }
 
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp)) {
+            if (archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()) {
+                item(key = "archive_row") { ArchiveRow(archivedChats, onClick = onArchiveClick) }
+            }
             if (pinnedChats.isNotEmpty()) {
                 item(key = "pinned_header") {
                     Text("ЗАКРЕПЛЁННЫЕ", modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
@@ -148,6 +155,42 @@ fun ChatsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val unread = archivedChats.sumOf { it.unreadCount }
+    val summary = buildString {
+        append("${archivedChats.size} ${russianPlural(archivedChats.size, "чат", "чата", "чатов")}")
+        if (unread > 0) append(" · $unread ${russianPlural(unread, "непрочитанное", "непрочитанных", "непрочитанных")}")
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(20.dp)).background(palette.surface).clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.Archive, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Архив", color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(summary, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+    }
+}
+
+private fun russianPlural(count: Int, one: String, few: String, many: String): String {
+    val lastTwo = count % 100
+    val last = count % 10
+    return when {
+        last == 1 && lastTwo != 11 -> one
+        last in 2..4 && lastTwo !in 12..14 -> few
+        else -> many
     }
 }
 
@@ -215,7 +258,7 @@ private fun EmptyState(filter: ChatFilter, query: String) {
 }
 
 @Composable
-private fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit) {
+internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit) {
     val palette = beyGramPalette()
     val unread = chat.unreadCount > 0
     Row(

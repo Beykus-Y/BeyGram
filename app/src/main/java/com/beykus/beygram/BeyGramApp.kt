@@ -21,6 +21,7 @@ import com.beykus.beygram.navigation.AppRoute
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
 import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
+import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
@@ -76,6 +77,7 @@ private fun BeyGramAppContent(
     // ---- Реактивное состояние ------------------------------------------------
     val authState by repository.authState.collectAsStateWithLifecycle()
     val chats by repository.chats.collectAsStateWithLifecycle()
+    val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
     val connectionState by repository.connectionState.collectAsStateWithLifecycle()
     val myProfile by repository.myProfile.collectAsStateWithLifecycle()
     val bioLimit by repository.bioLengthLimit.collectAsStateWithLifecycle()
@@ -88,6 +90,8 @@ private fun BeyGramAppContent(
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
+    // Куда вернуться из открытого чата: из архива — в архив, иначе — в список чатов.
+    var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var notificationError by remember { mutableStateOf<String?>(null) }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, notificationRequest?.token) {
@@ -96,7 +100,7 @@ private fun BeyGramAppContent(
         if (request.settings) routeName = AppRoute.Notifications.name
         else request.chatId?.let { chatId ->
             val result = repository.loadChat(chatId)
-            if (result.isSuccess) { selectedChatId = chatId; routeName = AppRoute.Chat.name }
+            if (result.isSuccess) { selectedChatId = chatId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name }
             else notificationError = result.exceptionOrNull()?.message ?: "Не удалось открыть чат"
         }
         onNotificationHandled(request.token)
@@ -197,13 +201,28 @@ private fun BeyGramAppContent(
 
         AppRoute.Chats -> ChatsScreen(
             chats = chats,
+            archivedChats = archivedChats,
             myProfile = myProfile.info,
             onNotifications = { routeName = AppRoute.Notifications.name },
             observeFile = repository::observeFile,
             downloadFile = repository::downloadFile,
             onMyProfile = { routeName = AppRoute.MyProfile.name },
+            onArchiveClick = { routeName = AppRoute.Archive.name },
             onChatClick = { chat ->
                 selectedChatId = chat.id
+                chatBackRouteName = AppRoute.Chats.name
+                routeName = AppRoute.Chat.name
+            }
+        )
+
+        AppRoute.Archive -> ArchiveScreen(
+            chats = archivedChats,
+            observeFile = repository::observeFile,
+            downloadFile = repository::downloadFile,
+            onBack = { routeName = AppRoute.Chats.name },
+            onChatClick = { chat ->
+                selectedChatId = chat.id
+                chatBackRouteName = AppRoute.Archive.name
                 routeName = AppRoute.Chat.name
             }
         )
@@ -217,13 +236,16 @@ private fun BeyGramAppContent(
             if (chat == null) {
                 ChatsScreen(
                     chats = chats,
+                    archivedChats = archivedChats,
                     myProfile = myProfile.info,
                     onNotifications = { routeName = AppRoute.Notifications.name },
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
                     onMyProfile = { routeName = AppRoute.MyProfile.name },
+                    onArchiveClick = { routeName = AppRoute.Archive.name },
                     onChatClick = { selectedChat ->
                         selectedChatId = selectedChat.id
+                        chatBackRouteName = AppRoute.Chats.name
                         routeName = AppRoute.Chat.name
                     }
                 )
@@ -244,7 +266,7 @@ private fun BeyGramAppContent(
                     conversation = repository,
                     observeFile = repository::observeFile,
                     onDownloadFile = repository::downloadFile,
-                    onBack = { routeName = AppRoute.Chats.name },
+                    onBack = { routeName = chatBackRouteName },
                     onChatInfo = { routeName = AppRoute.ChatInfo.name },
                     connectionState = connectionState
                 )

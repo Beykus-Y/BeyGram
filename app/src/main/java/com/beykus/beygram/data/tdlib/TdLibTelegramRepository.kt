@@ -12,6 +12,7 @@ import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.orderedArchivedChats
 import com.beykus.beygram.domain.model.orderedMainChats
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.InteractionPolicy
@@ -57,6 +58,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private val _chats = MutableStateFlow<List<ChatPreview>>(emptyList())
     override val chats: StateFlow<List<ChatPreview>> = _chats.asStateFlow()
+
+    private val _archivedChats = MutableStateFlow<List<ChatPreview>>(emptyList())
+    override val archivedChats: StateFlow<List<ChatPreview>> = _archivedChats.asStateFlow()
 
     private val _connectionState = MutableStateFlow(TelegramConnectionState.Unknown)
     override val connectionState: StateFlow<TelegramConnectionState> = _connectionState.asStateFlow()
@@ -290,7 +294,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateChatLastMessage    -> handleChatLastMessage(update.chatId, update.lastMessage, update.positions)
             is TdApi.UpdateChatPosition -> handleChatPosition(update.chatId, update.position)
             is TdApi.UpdateChatDraftMessage -> {
-                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.withMainPosition(update.positions) }
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.withPositions(update.positions) }
                 publishChats()
             }
             is TdApi.UpdateChatReadInbox -> {
@@ -390,13 +394,22 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // ---- Чаты ----------------------------------------------------------------
 
     /**
-     * Запрашиваем у TDLib список чатов (основной список, лимит 100).
-     * TDLib будет присылать [TdApi.UpdateNewChat] для каждого чата.
+     * Запрашиваем у TDLib основной список и архив. TDLib присылает чаты порциями
+     * через [TdApi.UpdateNewChat] и [TdApi.UpdateChatPosition].
      */
     private fun loadChats() {
+        loadChatList(TdApi.ChatListMain())
+        loadChatList(TdApi.ChatListArchive())
+    }
+
+    /**
+     * Ok означает, что порция загружена и можно запросить следующую. Любая ошибка останавливает загрузку;
+     * 404 означает, что список загружен целиком.
+     */
+    private fun loadChatList(list: TdApi.ChatList) {
         client.send(
-            TdApi.LoadChats(TdApi.ChatListMain(), 100),
-            Client.ResultHandler { /* LoadChats не возвращает полезного ответа */ }
+            TdApi.LoadChats(list, 100),
+            Client.ResultHandler { result -> if (result is TdApi.Ok) loadChatList(list) }
         )
     }
 
@@ -415,19 +428,28 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         chatCache[chatId] = existing.copy(
             lastMessage = lastMessage?.toTextPreview().orEmpty(),
             lastMessageTime = lastMessage?.toTimeString().orEmpty()
-        ).withMainPosition(positions)
+        ).withPositions(positions)
         publishChats()
     }
 
-    private fun ChatPreview.withMainPosition(positions: Array<TdApi.ChatPosition>): ChatPreview {
+    /** Позиции чата в основном списке и в архиве; нет позиции в списке — чат там не показывается. */
+    private fun ChatPreview.withPositions(positions: Array<TdApi.ChatPosition>): ChatPreview {
         val main = positions.firstOrNull { it.list is TdApi.ChatListMain }
-        return copy(order = main?.order ?: 0L, isPinned = main?.isPinned == true)
+        val archive = positions.firstOrNull { it.list is TdApi.ChatListArchive }
+        return copy(
+            order = main?.order ?: 0L,
+            isPinned = main?.isPinned == true,
+            archiveOrder = archive?.order ?: 0L
+        )
     }
 
     private fun handleChatPosition(chatId: Long, position: TdApi.ChatPosition) {
-        if (position.list !is TdApi.ChatListMain) return
         val existing = chatCache[chatId] ?: return
-        chatCache[chatId] = existing.copy(order = position.order, isPinned = position.isPinned)
+        chatCache[chatId] = when (position.list) {
+            is TdApi.ChatListMain -> existing.copy(order = position.order, isPinned = position.isPinned)
+            is TdApi.ChatListArchive -> existing.copy(archiveOrder = position.order)
+            else -> return
+        }
         publishChats()
     }
 
@@ -469,6 +491,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     /** Main-list ordering comes from Telegram, including pins and draft activity. */
     private fun publishChats() {
         _chats.value = orderedMainChats(chatCache.values)
+        _archivedChats.value = orderedArchivedChats(chatCache.values)
         chatStates.forEach { (id, flow) -> flow.value = chatCache[id] }
     }
 
@@ -479,6 +502,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun TdApi.Chat.toChatPreview(): ChatPreview? {
         val chatTitle = title.ifBlank { return null }
         val mainPosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListMain }
+        val archivePosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListArchive }
         return ChatPreview(
             id = id,
             title = chatTitle,
@@ -491,6 +515,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             isPinned = mainPosition?.isPinned == true,
             isMuted = notificationSettings?.muteFor?.let { it > 0 } == true,
             order = mainPosition?.order ?: 0L,
+            archiveOrder = archivePosition?.order ?: 0L,
             photo = profiles.photo(photo)
         )
     }

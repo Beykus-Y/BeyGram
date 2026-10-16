@@ -6,6 +6,7 @@ enum class AppRoute {
     LoginCode,
     LoginPassword,
     Chats,
+    Archive,
     Chat,
     ChatInfo,
     MyProfile,

@@ -25,4 +25,14 @@ class ChatOrderingTest {
         val updated = old.map { if (it.id == 2L) it.copy(order = 20L) else it }
         assertEquals(listOf(2L, 1L), orderedMainChats(updated).map { it.id })
     }
+
+    @Test fun archivedChatsAreOrderedByTheirArchivePosition() {
+        val chats = listOf(chat(1L, 0L).copy(archiveOrder = 5L), chat(2L, 0L).copy(archiveOrder = 9L), chat(3L, 7L))
+        assertEquals(listOf(2L, 1L), orderedArchivedChats(chats).map { it.id })
+    }
+
+    @Test fun archivedChatsAreHiddenFromTheMainList() {
+        val archived = chat(1L, 0L).copy(archiveOrder = 5L)
+        assertEquals(emptyList<Long>(), orderedMainChats(listOf(archived)).map { it.id })
+    }
 }
