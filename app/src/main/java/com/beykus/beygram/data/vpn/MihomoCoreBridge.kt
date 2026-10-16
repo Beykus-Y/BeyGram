@@ -6,7 +6,6 @@ import android.util.AtomicFile
 import com.beykus.beygram.domain.model.MihomoConnection
 import com.beykus.beygram.domain.model.MihomoProbeResult
 import com.beykus.beygram.domain.model.VpnSettings
-import com.beykus.beygram.BuildConfig
 import io.github.oviron.libmihomo.Clash
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +25,9 @@ internal class MihomoCoreBridge(context: Context) {
     private val home = File(appContext.noBackupFilesDir, "mihomo").apply { mkdirs() }
     private val profileFile = File(home, "config.yaml")
     private val profile = AtomicFile(profileFile)
-    private val normalizer = MihomoProfileNormalizer()
+    private val credentials = LoopbackProxyCredentials.get(appContext)
+    private val normalizer = MihomoProfileNormalizer(credentials)
+    private val selectionPrefs = appContext.getSharedPreferences(SELECTION_PREFERENCES, Context.MODE_PRIVATE)
 
     suspend fun importSubscription(configuration: String): String = coreMutex.withLock { withContext(Dispatchers.IO) {
         loadNativeCore()
@@ -69,7 +70,7 @@ internal class MihomoCoreBridge(context: Context) {
             val init = JSONObject()
                 .put("home-dir", home.absolutePath)
                 .put("version", Build.VERSION.SDK_INT)
-            val result = quickSetup(init.toString(), "{\"selected-map\":{}}")
+            val result = quickSetup(init.toString(), JSONObject().put("selected-map", selectedMap()).toString())
             if (result.isNotBlank()) throw MihomoCoreException("Mihomo could not load the profile: $result")
         }
         startNativeDiagnostics()
@@ -150,7 +151,6 @@ internal class MihomoCoreBridge(context: Context) {
         }
 
     private suspend fun startNativeDiagnostics() {
-        if (!BuildConfig.DEBUG || BuildConfig.FLAVOR != "dev") return
         runCatching {
             Clash.setEventListener { raw -> MihomoCoreLogCapture.onMessage(raw.orEmpty()) }
             invokeAction("startLog")
@@ -171,6 +171,8 @@ internal class MihomoCoreBridge(context: Context) {
     suspend fun selectConnection(groupName: String, connectionName: String) = withContext(Dispatchers.IO) {
         val data = JSONObject().put("group-name", groupName).put("proxy-name", connectionName).toString()
         invokeAction("changeProxy", data)
+        // Persisted so the choice survives core re-initialization and process restarts.
+        selectionPrefs.edit().putString(groupName, connectionName).commit()
         invokeAction("resetConnections")
         Unit
     }
@@ -192,16 +194,28 @@ internal class MihomoCoreBridge(context: Context) {
 
     private suspend fun reloadProfile() {
         check(profileExists()) { "No local Mihomo profile is installed" }
-        val params = JSONObject().put("selected-map", JSONObject()).toString()
+        val params = JSONObject().put("selected-map", selectedMap()).toString()
         val result = invokeAction("setupConfig", params) as? String
         if (!result.isNullOrBlank()) throw MihomoCoreException("Mihomo could not apply the profile: $result")
     }
 
+    /** Maps the saved node selection into Mihomo's `selected-map` so the choice survives core re-initialization. */
+    private fun selectedMap(): JSONObject = JSONObject().apply {
+        selectionPrefs.getString(VpnSettings.DEFAULT_CONNECTION_GROUP, null)?.takeIf(String::isNotBlank)?.let {
+            put(VpnSettings.DEFAULT_CONNECTION_GROUP, it)
+        }
+    }
+
     private fun loadNativeCore() {
-        if (!Clash.isLoaded()) Clash.load(appContext.applicationInfo.nativeLibraryDir)
-        val abi = Clash.bridgeABI()
-        check(abi == Clash.EXPECTED_BRIDGE_ABI) {
-            "Mihomo bridge ABI mismatch: expected ${Clash.EXPECTED_BRIDGE_ABI}, received $abi"
+        try {
+            if (!Clash.isLoaded()) Clash.load(appContext.applicationInfo.nativeLibraryDir)
+            val abi = Clash.bridgeABI()
+            check(abi == Clash.EXPECTED_BRIDGE_ABI) {
+                "Mihomo bridge ABI mismatch: expected ${Clash.EXPECTED_BRIDGE_ABI}, received $abi"
+            }
+        } catch (error: LinkageError) {
+            // A missing or incompatible libclash.so is an Error, not an Exception; report it as a normal core failure.
+            throw MihomoCoreException("Не удалось загрузить ядро Mihomo (${error.javaClass.simpleName})")
         }
     }
 
@@ -260,6 +274,7 @@ internal class MihomoCoreBridge(context: Context) {
         private val SELECTABLE_GROUP_TYPES = setOf("select", "selector", "urltest", "fallback", "loadbalance", "relay")
         private val NON_CONNECTION_TYPES = setOf("direct", "reject", "reject-drop", "pass", "compatible", "global", "block")
 
+        private const val SELECTION_PREFERENCES = "mihomo-selection"
         private val coreMutex = Mutex()
     }
 }

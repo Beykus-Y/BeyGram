@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.beykus.beygram.R
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -67,7 +68,10 @@ class MihomoProxyService : Service() {
                 bridge.startProxyListener()
                 _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.RUNNING)
                 MihomoRuntimeDiagnostics.event("service", "state=RUNNING")
-            } catch (error: Exception) {
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                // Native loading can fail with an Error, not an Exception. Leave STARTING in every case.
                 runCatching { core?.stopProxyListener() }
                 core = null
                 MihomoRuntimeDiagnostics.failure("service start", error)
@@ -102,7 +106,7 @@ class MihomoProxyService : Service() {
 
     private fun buildNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle("BeyGram proxy (dev)")
+        .setContentTitle("Прокси BeyGram")
         .setContentText("Локальный SOCKS5: 127.0.0.1:${MihomoProxyClient.PORT}")
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
         .setOngoing(true)
@@ -112,14 +116,14 @@ class MihomoProxyService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "BeyGram proxy (dev)", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(CHANNEL_ID, "Прокси BeyGram", NotificationManager.IMPORTANCE_LOW)
         )
     }
 
     companion object {
         const val ACTION_START = "com.beykus.beygram.mihomo_proxy.START"
         const val ACTION_STOP = "com.beykus.beygram.mihomo_proxy.STOP"
-        private const val CHANNEL_ID = "beygram-mihomo-proxy-dev"
+        private const val CHANNEL_ID = "beygram-mihomo-proxy"
         private const val NOTIFICATION_ID = 7012
         private val _runtimeState = MutableStateFlow(ProxyRuntimeState(ProxyRuntimeStatus.STOPPED))
         val runtimeState: StateFlow<ProxyRuntimeState> = _runtimeState.asStateFlow()

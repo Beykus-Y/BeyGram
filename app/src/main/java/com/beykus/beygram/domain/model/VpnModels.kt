@@ -33,7 +33,7 @@ data class VpnSettings(
     val handoverDelayMillis: Long = DEFAULT_HANDOVER_DELAY_MILLIS
 ) {
     companion object {
-        const val DEFAULT_CONNECTION_GROUP = "BeyGram Telegram (dev)"
+        const val DEFAULT_CONNECTION_GROUP = "BeyGram Telegram"
         const val DEFAULT_HANDOVER_DELAY_MILLIS = 8_000L
         const val TELEGRAM_HEALTH_CHECK_URL = "https://web.telegram.org/"
     }

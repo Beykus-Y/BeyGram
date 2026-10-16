@@ -6,17 +6,15 @@ import com.beykus.beygram.diagnostics.ConnectionEventLog
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Captures only warning/error messages from Mihomo in Dev, with endpoints and secrets removed. */
+/** Captures only warning/error messages from Mihomo, with endpoints and secrets removed. */
 internal object MihomoCoreLogCapture {
     private const val TAG = "BeyGramMihomoCore"
-    private val enabled get() = BuildConfig.DEBUG && BuildConfig.FLAVOR == "dev"
     private val schemaReported = AtomicBoolean(false)
     private val endpoint = Regex("(?i)(?:\\b(?:\\d{1,3}\\.){3}\\d{1,3}|\\[[0-9a-f:]+]|[a-z0-9.-]+\\.[a-z]{2,})(?::\\d{1,5})?")
     private val url = Regex("(?i)https?://[^\\s\\\"'<>]+")
     private val secret = Regex("(?i)\\b(password|passwd|token|secret|uuid|authorization)\\s*[:=]\\s*[^\\s,;]+")
 
     fun onMessage(raw: String) {
-        if (!enabled) return
         runCatching {
             val envelope = JSONObject(raw)
             val type = envelope.optString("type", envelope.optString("Type")).lowercase()
@@ -39,7 +37,9 @@ internal object MihomoCoreLogCapture {
                 .filterNot(Char::isISOControl)
                 .take(MAX_PAYLOAD_CHARS)
             val line = "Mihomo core $level: $safePayload"
-            if (level == "error") Log.e(TAG, line) else Log.w(TAG, line)
+            if (BuildConfig.DEBUG) {
+                if (level == "error") Log.e(TAG, line) else Log.w(TAG, line)
+            }
             ConnectionEventLog.shared.record(line)
         }
     }

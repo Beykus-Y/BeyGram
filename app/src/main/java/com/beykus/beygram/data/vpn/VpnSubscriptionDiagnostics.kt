@@ -7,20 +7,18 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
-/** Dev-only subscription trace. Never pass a URL, header, profile value, or server body here. */
+/** Subscription trace for the shareable diagnostics. Never pass a URL, header, profile value, or server body here. */
 internal object VpnSubscriptionDiagnostics {
     private const val TAG = "BeyGramVpnSub"
-    private val enabled: Boolean get() = BuildConfig.DEBUG && BuildConfig.FLAVOR == "dev"
 
     fun event(stage: String, details: String) {
-        if (!enabled) return
         val safeLine = "VPN subscription $stage: $details"
-        Log.i(TAG, safeLine)
+        if (BuildConfig.DEBUG) Log.i(TAG, safeLine)
         ConnectionEventLog.shared.record(safeLine)
     }
 
     fun failure(stage: String, error: Throwable) {
-        if (!enabled || error is kotlinx.coroutines.CancellationException) return
+        if (error is kotlinx.coroutines.CancellationException) return
         event(stage, "failed=${failureKind(error)} cause=${causeSummary(error)}")
     }
 

@@ -15,7 +15,7 @@ import java.nio.charset.StandardCharsets
 import org.json.JSONObject
 
 /** Validates the provider document structure and forces app-private traffic settings. */
-internal class MihomoProfileNormalizer {
+internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCredentials) {
     fun normalize(source: String): NormalizedMihomoProfile {
         require(source.isNotBlank()) { "Subscription profile is empty" }
         require(source.toByteArray(Charsets.UTF_8).size <= MAX_PROFILE_BYTES) { "Subscription profile is larger than 5 MiB" }
@@ -29,6 +29,14 @@ internal class MihomoProfileNormalizer {
         val parsed = parseYaml(safeYaml, source)
         VpnSubscriptionDiagnostics.event("yaml", "sourceRoot=${rootKind(parsed)}")
         var root = parsed.value as? Map<*, *>
+        if (root == null) {
+            // A plain list of proxy URIs is not a YAML object, so it is read before the text is treated as Base64.
+            val plainUris = parseProxyUriList(source)
+            if (plainUris.proxies.isNotEmpty()) {
+                VpnSubscriptionDiagnostics.event("uri", plainUris.summary)
+                root = linkedMapOf("proxies" to plainUris.proxies)
+            }
+        }
         if (root == null) {
             val decoded = decodeBase64Yaml(source)
                 ?: throw SubscriptionException(
@@ -64,7 +72,9 @@ internal class MihomoProfileNormalizer {
             if (key in config) config[key] = 0
         }
         config["socks-port"] = MihomoProxyClient.PORT
-        if (BuildConfig.DEBUG && BuildConfig.FLAVOR == "dev") config["log-level"] = "debug"
+        // Every app on the device can reach the loopback port, so the listener requires per-installation credentials.
+        config["authentication"] = listOf("${credentials.username}:${credentials.password}")
+        if (BuildConfig.DEBUG) config["log-level"] = "debug"
         val dns = (config["dns"] as? Map<*, *>)?.let { existing ->
             linkedMapOf<String, Any?>().apply {
                 existing.forEach { (key, value) -> (key as? String)?.let { put(it, value) } }

@@ -19,7 +19,6 @@ internal class VpnSettingsStore(context: Context) {
         val saved = preferences.edit()
             .putString(KEY_SUBSCRIPTION_URL, next.subscriptionUrl.trim())
             .putBoolean(KEY_AUTO_SELECT, next.autoSelectEnabled)
-            .putString(KEY_GROUP, next.connectionGroup.trim())
             .putLong(KEY_HANDOVER_DELAY, next.handoverDelayMillis)
             .commit()
         check(saved) { "Could not persist VPN settings" }
@@ -29,8 +28,8 @@ internal class VpnSettingsStore(context: Context) {
     private fun read() = VpnSettings(
         subscriptionUrl = preferences.getString(KEY_SUBSCRIPTION_URL, "").orEmpty(),
         autoSelectEnabled = preferences.getBoolean(KEY_AUTO_SELECT, false),
-        connectionGroup = preferences.getString(KEY_GROUP, VpnSettings.DEFAULT_CONNECTION_GROUP)
-            ?.takeIf(String::isNotBlank) ?: VpnSettings.DEFAULT_CONNECTION_GROUP,
+        // The group is named by the generated profile, so it is never read back from storage.
+        connectionGroup = VpnSettings.DEFAULT_CONNECTION_GROUP,
         handoverDelayMillis = preferences.getLong(KEY_HANDOVER_DELAY, VpnSettings.DEFAULT_HANDOVER_DELAY_MILLIS)
             .coerceIn(MIN_HANDOVER_DELAY_MS, MAX_HANDOVER_DELAY_MS)
     )
@@ -41,7 +40,6 @@ internal class VpnSettingsStore(context: Context) {
         private const val PREFERENCES = "vpn-settings"
         private const val KEY_SUBSCRIPTION_URL = "subscription_url"
         private const val KEY_AUTO_SELECT = "auto_select"
-        private const val KEY_GROUP = "connection_group"
         private const val KEY_HANDOVER_DELAY = "handover_delay_ms"
     }
 }

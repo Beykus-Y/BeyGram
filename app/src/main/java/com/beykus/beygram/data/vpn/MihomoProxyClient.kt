@@ -1,7 +1,10 @@
 package com.beykus.beygram.data.vpn
 
+import android.content.Context
+import java.net.Authenticator
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
+import java.net.PasswordAuthentication
 import java.net.Proxy
 import java.net.Socket
 import java.net.URL
@@ -12,6 +15,20 @@ internal object MihomoProxyClient {
     const val PORT = 17891
 
     private val socksProxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(HOST, PORT))
+
+    @Volatile private var credentials: LoopbackProxyCredentials? = null
+
+    /** Gives Java clients the loopback SOCKS credentials. The authenticator answers only for this listener. */
+    fun install(context: Context) {
+        val loaded = LoopbackProxyCredentials.get(context)
+        credentials = loaded
+        Authenticator.setDefault(object : Authenticator() {
+            override fun getPasswordAuthentication(): PasswordAuthentication? {
+                val isLocalListener = requestingPort == PORT && (requestingHost == HOST || requestingHost == "localhost")
+                return if (isLocalListener) PasswordAuthentication(loaded.username, loaded.password.toCharArray()) else null
+            }
+        })
+    }
 
     fun isRunning(): Boolean = MihomoProxyService.runtimeState.value.status == ProxyRuntimeStatus.RUNNING
 

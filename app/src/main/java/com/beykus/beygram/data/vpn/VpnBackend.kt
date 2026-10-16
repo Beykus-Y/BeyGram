@@ -8,24 +8,30 @@ import com.beykus.beygram.domain.model.MihomoProbeResult
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.VpnNetworkState
 import com.beykus.beygram.domain.model.VpnSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
 
-internal class VpnBackend(
+/**
+ * The VPN/proxy controller of the process. It is created once with the application scope, so the proxy
+ * and its automatic selection keep working when no screen is shown.
+ */
+internal class VpnBackend private constructor(
     context: Context,
     connectionState: StateFlow<TelegramConnectionState>,
     private val scope: CoroutineScope,
-    private val setTdLibProxy: suspend (Boolean) -> Result<Unit>
+    private val setTdLibProxy: suspend (Boolean) -> Result<Unit>,
+    private val isTdLibProxyEnabled: suspend () -> Boolean
 ) {
     private val appContext = context.applicationContext
     private val settingsStore = VpnSettingsStore(appContext)
@@ -60,16 +66,29 @@ internal class VpnBackend(
     init {
         networkMonitor.start()
         selector.start()
-        scope.launch(Dispatchers.IO) {
-            if (mihomo.profileExists()) {
-                runCatching {
-                    if (runtimeState.value.status != ProxyRuntimeStatus.RUNNING) {
-                        mihomo.ensureInitialized()
-                        mihomo.stopProxyListener()
-                    }
+        scope.launch(Dispatchers.IO) { restoreAfterProcessStart() }
+    }
+
+    /**
+     * TDLib keeps its enabled proxy across process restarts. When that proxy is BeyGram's listener, start the listener
+     * again; if that fails, switch TDLib back to its previous proxy instead of leaving it on a dead local port.
+     */
+    private suspend fun restoreAfterProcessStart() {
+        if (runtimeState.value.status == ProxyRuntimeStatus.RUNNING) return
+        if (runCatching { isTdLibProxyEnabled() }.getOrDefault(false)) {
+            startProxy()
+                .onSuccess { refreshConnections() }
+                .onFailure {
+                    setTdLibProxy(false)
+                    MihomoRuntimeDiagnostics.event("backend", "restore failed; TDLib proxy switched off")
                 }
-                    .onSuccess { refreshConnections() }
-            }
+            return
+        }
+        if (mihomo.profileExists()) {
+            runCatching {
+                mihomo.ensureInitialized()
+                mihomo.stopProxyListener()
+            }.onSuccess { refreshConnections() }
         }
     }
 
@@ -96,20 +115,38 @@ internal class VpnBackend(
                 throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось подключить TDLib к Mihomo")
             }
             Result.success(Unit)
-        } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+        } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend start", error); Result.failure(error) }
     }
 
+    /** Turns the subscription proxy off: TDLib returns to the proxy it used before, then the listener stops. */
     suspend fun stopProxy(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy stop requested")
             val tdlib = setTdLibProxy(false)
             if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось отключить прокси TDLib")
-            appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
-            withTimeout(10_000) { MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.STOPPED } }
+            stopListenerNow()
             Result.success(Unit)
-        } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+        } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend stop", error); Result.failure(error) }
+    }
+
+    /**
+     * Stops only the local listener and leaves TDLib's proxy alone. Used when the user picks a saved proxy:
+     * TDLib no longer points at the listener, so keeping it running would only hold a foreground notification.
+     */
+    suspend fun stopListener(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            stopListenerNow()
+            Result.success(Unit)
+        } catch (error: CancellationException) { throw error }
+        catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend listener stop", error); Result.failure(error) }
+    }
+
+    private suspend fun stopListenerNow() {
+        if (runtimeState.value.status == ProxyRuntimeStatus.STOPPED) return
+        appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
+        withTimeout(10_000) { MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.STOPPED } }
     }
 
     suspend fun fetchSubscription(url: String = settings.value.subscriptionUrl): Result<List<MihomoConnection>> =
@@ -171,7 +208,7 @@ internal class VpnBackend(
             _probeProgress.value = ProbeProgress(0, current.size)
             _probes.value = emptyMap()
             current.chunked(MAX_PARALLEL_PROBES).forEach { batch ->
-                val batchResults = kotlinx.coroutines.coroutineScope {
+                val batchResults = coroutineScope {
                     batch.map { connection ->
                         async { mihomo.checkTelegram(connection.name) }
                     }.awaitAll()
@@ -200,13 +237,21 @@ internal class VpnBackend(
         }
     }
 
-    fun shutdown() {
-        selector.stop()
-        networkMonitor.stop()
-    }
-
     companion object {
         private const val MAX_PARALLEL_PROBES = 4
+
+        @Volatile private var instance: VpnBackend? = null
+
+        /** Returns the process-wide backend. The first caller's [scope] owns its background work. */
+        fun getInstance(
+            context: Context,
+            connectionState: StateFlow<TelegramConnectionState>,
+            scope: CoroutineScope,
+            setTdLibProxy: suspend (Boolean) -> Result<Unit>,
+            isTdLibProxyEnabled: suspend () -> Boolean
+        ): VpnBackend = instance ?: synchronized(this) {
+            instance ?: VpnBackend(context, connectionState, scope, setTdLibProxy, isTdLibProxyEnabled).also { instance = it }
+        }
     }
 }
 
