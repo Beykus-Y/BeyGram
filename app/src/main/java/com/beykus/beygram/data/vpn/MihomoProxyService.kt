@@ -18,6 +18,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
@@ -178,7 +179,9 @@ class MihomoProxyService : Service() {
          * it before the service has read the new intent. The caller clears it before it sends the intent.
          */
         internal fun clearFailure() {
-            if (_runtimeState.value.status == ProxyRuntimeStatus.FAILED) _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STOPPED)
+            _runtimeState.update { state ->
+                if (state.status == ProxyRuntimeStatus.FAILED) ProxyRuntimeState(ProxyRuntimeStatus.STOPPED) else state
+            }
         }
 
         // Process-wide, like the native listener it controls. Requests are enqueued from the main thread only.
