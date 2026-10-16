@@ -61,7 +61,7 @@ import androidx.compose.ui.semantics.semantics
 import com.beykus.beygram.ui.components.beyGramPalette
 
 private enum class ChatFilter(val title: String) {
-    All("Все"), Unread("Непрочитанные"), People("Личные"), Groups("Группы")
+    All("Все"), People("Личные"), Groups("Группы"), Unread("Непрочитанные")
 }
 
 @Composable
@@ -92,6 +92,7 @@ fun ChatsScreen(
     }
     val pinnedChats = if (selectedFilter == ChatFilter.All && query.isBlank()) filteredChats.filter { it.isPinned } else emptyList()
     val regularChats = filteredChats.filterNot { it in pinnedChats }
+    val showAllHeader = pinnedChats.isNotEmpty() || (selectedFilter == ChatFilter.All && query.isBlank())
 
     Column(
         modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
@@ -133,15 +134,15 @@ fun ChatsScreen(
                 items(pinnedChats, key = { "pinned_${it.id}" }) { chat ->
                     ChatListItem(chat, observeFile, downloadFile, onClick = { onChatClick(chat) })
                 }
-                if (regularChats.isNotEmpty()) {
-                    item(key = "all_header") {
-                        Text("ВСЕ ЧАТЫ", modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
-                    }
-                }
             }
             if (regularChats.isEmpty() && pinnedChats.isEmpty()) {
                 item(key = "empty_state") { EmptyState(selectedFilter, query) }
             } else {
+                if (showAllHeader && regularChats.isNotEmpty()) {
+                    item(key = "all_header") {
+                        Text("ВСЕ ЧАТЫ", modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
                 items(regularChats, key = { it.id }) { chat ->
                     ChatListItem(chat, observeFile, downloadFile, onClick = { onChatClick(chat) })
                 }
