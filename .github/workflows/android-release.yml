@@ -32,8 +32,8 @@ permissions:
   contents: read
 
 env:
-  # SHA-256 of the release signing certificate, from apksigner's "Signer #1 certificate
-  # SHA-256 digest" line for the v0.0.0.2 release APK. Publishing refuses any other key.
+  # SHA-256 of the release signing certificate, from apksigner's "certificate SHA-256 digest"
+  # line for the v0.0.0.2 release APK. Publishing refuses any other key.
   # Rotating the keystore means updating this value in a reviewed PR.
   RELEASE_SIGNER_SHA256: e7b9e482b2c2feacda9edcef17f960576ed94e94ff8cf7991f89a16e33bf436d
 
@@ -132,8 +132,11 @@ jobs:
             # fail here if the key is not the pinned release key, not only at publish time.
             "$build_tools/apksigner" verify --print-certs "$release_out" > "$RUNNER_TEMP/signer.txt" 2>&1
             sed 's/^/::notice::/' "$RUNNER_TEMP/signer.txt"
-            signers=$(grep -c 'certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" || true)
-            digest=$(grep -m1 'Signer #1 certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" | awk '{print $NF}' || true)
+            # apksigner prints the digest per scheme (v2, v3) with a wording that varies by version,
+            # so count distinct digests: exactly one, and it must be the pinned key.
+            digests=$(grep 'certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" | awk '{print $NF}' | sort -u || true)
+            signers=$(printf '%s\n' "$digests" | grep -c . || true)
+            digest=$(printf '%s\n' "$digests" | head -n 1)
             if [ "$signers" != "1" ] || [ "$digest" != "$RELEASE_SIGNER_SHA256" ]; then
               echo "::error::Main build is signed with digest '${digest:-none}', not the pinned release key. If the keystore was rotated, update RELEASE_SIGNER_SHA256 in a reviewed PR." >&2
               exit 1
@@ -277,8 +280,9 @@ jobs:
           fi
           sed 's/^/::notice::/' "$RUNNER_TEMP/signer.txt"
           # Only the pinned release key is accepted: exactly one signer, with the expected digest.
-          signers=$(grep -c 'certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" || true)
-          digest=$(grep -m1 'Signer #1 certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" | awk '{print $NF}' || true)
+          digests=$(grep 'certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" | awk '{print $NF}' | sort -u || true)
+          signers=$(printf '%s\n' "$digests" | grep -c . || true)
+          digest=$(printf '%s\n' "$digests" | head -n 1)
           if [ "$signers" != "1" ] || [ "$digest" != "$RELEASE_SIGNER_SHA256" ]; then
             echo "::error::APK signer digest '${digest:-none}' ($signers signer(s)) is not the pinned release key. Refusing to publish." >&2
             exit 1
