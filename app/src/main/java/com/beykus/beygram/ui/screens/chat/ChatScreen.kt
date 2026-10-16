@@ -176,8 +176,8 @@ fun ChatScreen(
             searchBusy = true
             conversation.searchMessages(chat.id, needle, searchNextId)
                 .onSuccess { page -> if (searchQuery.trim() == needle) { searchResults = searchResults + page.messages; searchNextId = page.nextFromMessageId } }
-                .onFailure { searchError = it.message ?: "Не удалось выполнить поиск" }
-            searchBusy = false
+                .onFailure { if (searchQuery.trim() == needle) { searchError = it.message ?: "Не удалось выполнить поиск" } }
+            if (searchQuery.trim() == needle) { searchBusy = false }
         }
     }
     fun openSearchResult(message: ChatMessage) {
