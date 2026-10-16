@@ -71,6 +71,8 @@ It reports connected devices, installed BeyGram variants, Android's validated ne
 
 Dev also writes bounded connectivity probes to the `BeyGramNet` logcat tag whenever the app's default network changes: the Android route/VPN state, TCP reachability of the DC1 address observed in TDLib, and an HTTPS request to `web.telegram.org`. These probes contain no login data and do not run in prod release. A successful TCP probe establishes socket reachability only; TDLib must still complete the MTProto handshake.
 
+In-app logs: «Поделиться логами» is available on the phone-number login screen (before sign-in) and under Profile → Notifications → Connection diagnostics. Both produce the same redacted report from the in-memory event buffer, so the buffer covers events since the app process started; keep the app running while it tries to connect before sharing.
+
 ## Media
 
 Conversation actions and privacy extension points are documented in [conversation-architecture.md](conversation-architecture.md). Long-press a message for Reply/Copy/Edit/Delete; available actions follow TDLib permissions. Read receipts are driven by the visible foreground viewport, and outgoing read status follows Telegram's read marker.
