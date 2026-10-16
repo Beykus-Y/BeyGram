@@ -21,6 +21,9 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val groupFull = mutableMapOf<Long, TdApi.BasicGroupFullInfo>()
     private val supers = mutableMapOf<Long, TdApi.Supergroup>()
     private val superFull = mutableMapOf<Long, TdApi.SupergroupFullInfo>()
+    private val onlineCounts = mutableMapOf<Long, Int>()
+    private val typingBy = mutableMapOf<Long, MutableMap<String, Typist>>()
+    private val typingFlows = ConcurrentHashMap<Long, MutableStateFlow<List<String>>>()
     private val details = ConcurrentHashMap<Long, MutableStateFlow<ProfileState>>()
     private var myId = 0L
     private val _me = MutableStateFlow(ProfileState())
@@ -44,6 +47,9 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     fun observe(chatId: Long): StateFlow<ProfileState> = synchronized(lock) {
         details.getOrPut(chatId) { MutableStateFlow(ProfileState(info = chatInfo(chatId))) }.asStateFlow()
     }
+    /** Names of people typing in the chat now. The same flow instance comes back on every call, so collectors are not restarted. */
+    fun observeTyping(chatId: Long): StateFlow<List<String>> = typingFlow(chatId)
+    private fun typingFlow(chatId: Long): MutableStateFlow<List<String>> = typingFlows.getOrPut(chatId) { MutableStateFlow(emptyList()) }
     fun handle(update: TdApi.Object) = synchronized(lock) {
         when (update) {
             is TdApi.UpdateUser -> users[update.user.id] = update.user
@@ -55,6 +61,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             is TdApi.UpdateSupergroupFullInfo -> superFull[update.supergroupId] = update.supergroupFullInfo
             is TdApi.UpdateChatPhoto -> chats[update.chatId]?.photo = update.photo
             is TdApi.UpdateChatTitle -> chats[update.chatId]?.title = update.title
+            is TdApi.UpdateChatOnlineMemberCount -> onlineCounts[update.chatId] = update.onlineMemberCount
+            is TdApi.UpdateChatAction -> { updateTyping(update); return@synchronized }
             is TdApi.UpdateOption -> if (update.name == "bio_length_max") (update.value as? TdApi.OptionValueInteger)?.let { _bioLimit.value = it.value.toInt().coerceIn(1, 4096) }
             else -> return@synchronized
         }
@@ -139,6 +147,47 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         users[myId]?.let { _me.value = _me.value.copy(info = userInfo(it)) }
         details.forEach { (id, state) -> state.value = state.value.copy(info = chatInfo(id)) }
     }
+    private fun updateTyping(update: TdApi.UpdateChatAction) {
+        val sender = update.senderId
+        // TDLib не присылает собственный набор. Апдейты не отбрасываем, пока myId не загружен: иначе при сбое GetMe чужой набор пропал бы.
+        if (sender is TdApi.MessageSenderUser && sender.userId == myId) return
+        // Темы форума не различаем: строка набора общая для всего чата.
+        val key = when (sender) {
+            is TdApi.MessageSenderUser -> "u${sender.userId}"
+            is TdApi.MessageSenderChat -> "c${sender.chatId}"
+            else -> return
+        }
+        val typists = typingBy.getOrPut(update.chatId) { mutableMapOf() }
+        if (update.action is TdApi.ChatActionTyping) {
+            val typist = Typist(sender)
+            // put по существующему ключу сохраняет место в порядке имён, поэтому повторный набор не переставляет строку.
+            typists.put(key, typist)?.expiry?.cancel()
+            typist.expiry = scope.launch {
+                delay(TYPING_TIMEOUT_MS)
+                synchronized(lock) {
+                    val current = typingBy[update.chatId]
+                    if (current != null && current[key] === typist) current.remove(key)
+                    publishTyping(update.chatId)
+                }
+            }
+        } else {
+            typists.remove(key)?.expiry?.cancel()
+        }
+        publishTyping(update.chatId)
+    }
+    private fun publishTyping(chatId: Long) {
+        val typists = typingBy[chatId]
+        if (typists != null && typists.isEmpty()) typingBy.remove(chatId)
+        typingFlow(chatId).value = typists?.values?.map { typingName(it.sender) }.orEmpty()
+    }
+    private fun typingName(sender: TdApi.MessageSender): String {
+        val name = when (sender) {
+            is TdApi.MessageSenderUser -> users[sender.userId]?.firstName
+            is TdApi.MessageSenderChat -> chats[sender.chatId]?.title
+            else -> null
+        }
+        return name?.takeIf { it.isNotBlank() } ?: "Кто-то"
+    }
     private fun userInfo(user: TdApi.User): ProfileInfo = ProfileInfo(
         id = user.id, title = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "Пользователь" },
         kind = if (user.type is TdApi.UserTypeBot) ProfileKind.Bot else ProfileKind.Person,
@@ -149,7 +198,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     )
     private fun chatInfo(id: Long): ProfileInfo? {
         val chat = chats[id] ?: return null
-        val base = ProfileInfo(id, chat.title, photo = photo(chat.photo))
+        val base = ProfileInfo(id, chat.title, photo = photo(chat.photo), onlineMemberCount = onlineCounts[id]?.takeIf { it > 0 })
         return when (val type = chat.type) {
             is TdApi.ChatTypePrivate -> users[type.userId]?.let { userInfo(it).copy(id = id, title = chat.title, photo = photo(chat.photo) ?: it.profilePhoto?.let { p -> photo(p.small, p.big) }) } ?: base
             is TdApi.ChatTypeSecret -> users[type.userId]?.let { userInfo(it).copy(id = id, title = chat.title, kind = ProfileKind.Secret) } ?: base.copy(kind = ProfileKind.Secret)
@@ -183,6 +232,13 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             }
         })
     }
+}
+
+private const val TYPING_TIMEOUT_MS = 6_000L
+
+private class Typist(val sender: TdApi.MessageSender) {
+    /** Срок набора: новое действие или отмена отменяют прежний таймер. */
+    var expiry: Job? = null
 }
 
 private fun Throwable.profileError(): String = when {

@@ -230,6 +230,8 @@ private fun BeyGramAppContent(
             } else {
                 val historyFlow = remember(repository, selectedChatId) { repository.observeChatHistory(selectedChatId) }
                 val history by historyFlow.collectAsStateWithLifecycle()
+                val chatInfoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
+                val chatInfo by chatInfoFlow.collectAsStateWithLifecycle()
                 DisposableEffect(repository, selectedChatId) {
                     val openedChatId = selectedChatId
                     repository.openChat(openedChatId)
@@ -237,6 +239,7 @@ private fun BeyGramAppContent(
                 }
                 ChatScreen(
                     chat = chat,
+                    info = chatInfo.info,
                     history = history,
                     conversation = repository,
                     observeFile = repository::observeFile,

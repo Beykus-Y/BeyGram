@@ -97,6 +97,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override val myProfile: StateFlow<ProfileState> get() = profiles.me
     override val bioLengthLimit: StateFlow<Int> get() = profiles.bioLimit
     override fun observeChatInfo(chatId: Long) = profiles.observe(chatId)
+    override fun observeTyping(chatId: Long): StateFlow<List<String>> = profiles.observeTyping(chatId)
     override fun refreshChatInfo(chatId: Long) = profiles.refreshChat(chatId)
     override fun refreshMyProfile() = profiles.refreshMe()
     override suspend fun updateMyProfile(edit: ProfileEdit) = profiles.edit(edit)

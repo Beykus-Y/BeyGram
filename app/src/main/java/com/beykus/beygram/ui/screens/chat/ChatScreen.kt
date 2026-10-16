@@ -57,7 +57,7 @@ import kotlinx.coroutines.launch
 @OptIn(FlowPreview::class)
 @Composable
 fun ChatScreen(
-    chat: ChatPreview, history: ChatHistory, conversation: ConversationRepository,
+    chat: ChatPreview, info: ProfileInfo?, history: ChatHistory, conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState
 ) {
@@ -82,6 +82,8 @@ fun ChatScreen(
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
+    val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
+    val typingNames by typingFlow.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -156,7 +158,7 @@ fun ChatScreen(
             onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText("Сообщение", actionMessage.text)); closeActions() },
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
-        ) else ChatTopBar(chat, onBack, onChatInfo, observeFile, onDownloadFile)
+        ) else ChatTopBar(chat, chatPresenceLine(chat, info), onBack, onChatInfo, observeFile, onDownloadFile)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -223,6 +225,7 @@ fun ChatScreen(
             attachments.active -> attachments.pending.isNotEmpty() && !attachments.importing
             else -> fieldText.isNotBlank()
         }
+        if (!deleting && typingNames.isNotEmpty()) TypingRow(typingNames)
         if (!deleting) Row(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!editing) AttachmentButton(attachments, enabled = !sending)
             else Spacer(Modifier.width(8.dp))
@@ -263,7 +266,7 @@ fun ChatScreen(
 }
 
 @Composable
-private fun ChatTopBar(chat: ChatPreview, onBack: () -> Unit, onInfo: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
+private fun ChatTopBar(chat: ChatPreview, presence: String, onBack: () -> Unit, onInfo: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -272,7 +275,7 @@ private fun ChatTopBar(chat: ChatPreview, onBack: () -> Unit, onInfo: () -> Unit
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f).clickable(onClick = onInfo)) {
                 Text(chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(if (chat.isGroup) "Группа" else "Личный чат", color = palette.textSecondary, fontSize = 13.sp)
+                Text(presence, color = palette.textSecondary, fontSize = 13.sp)
             }
         }
         HorizontalDivider(color = palette.divider)
