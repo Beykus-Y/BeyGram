@@ -164,6 +164,18 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  manual-publish-from-branch:
+    # Manual publishing is refused outside main, so the run fails instead of passing silently.
+    name: Refuse manual publish outside main
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Refuse
+        run: |
+          echo "::error::Manual publishing runs only from main. Run the workflow from main with publish set to true." >&2
+          exit 1
+
   publish:
     name: Publish GitHub release
     # Manual publishing runs only from main, so the workflow file it runs is the reviewed one.
@@ -221,7 +233,9 @@ jobs:
               break
             fi
             pending=$(echo "$runs" | jq 'map(select(.status != "completed")) | length')
-            if [ "$pending" = "0" ]; then
+            total=$(echo "$runs" | jq 'length')
+            # Give a just-pushed main build about five minutes to appear before giving up.
+            if [ "$pending" = "0" ] && { [ "$total" != "0" ] || [ "$attempt" -ge 10 ]; }; then
               break
             fi
             echo "::notice::The main build of ${SHA::7} is still running; waiting (check $attempt)."
