@@ -74,6 +74,8 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
         config["socks-port"] = MihomoProxyClient.PORT
         // Every app on the device can reach the loopback port, so the listener requires per-installation credentials.
         config["authentication"] = listOf("${credentials.username}:${credentials.password}")
+        // Set explicitly: when the key is absent, the core default may exempt loopback clients from the credentials above.
+        config["skip-auth-prefixes"] = emptyList<String>()
         if (BuildConfig.DEBUG) config["log-level"] = "debug"
         val dns = (config["dns"] as? Map<*, *>)?.let { existing ->
             linkedMapOf<String, Any?>().apply {

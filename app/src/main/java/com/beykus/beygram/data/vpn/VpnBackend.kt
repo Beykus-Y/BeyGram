@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -115,6 +116,9 @@ internal class VpnBackend private constructor(
                 throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось подключить TDLib к Mihomo")
             }
             Result.success(Unit)
+        } catch (error: TimeoutCancellationException) {
+            MihomoRuntimeDiagnostics.event("backend", "start timed out")
+            Result.failure(IllegalStateException("Mihomo не запустился за 30 секунд"))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend start", error); Result.failure(error) }
     }
@@ -127,6 +131,9 @@ internal class VpnBackend private constructor(
             if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось отключить прокси TDLib")
             stopListenerNow()
             Result.success(Unit)
+        } catch (error: TimeoutCancellationException) {
+            MihomoRuntimeDiagnostics.event("backend", "stop timed out")
+            Result.failure(IllegalStateException("Mihomo не остановился за 10 секунд"))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend stop", error); Result.failure(error) }
     }
@@ -139,6 +146,9 @@ internal class VpnBackend private constructor(
         try {
             stopListenerNow()
             Result.success(Unit)
+        } catch (error: TimeoutCancellationException) {
+            MihomoRuntimeDiagnostics.event("backend", "listener stop timed out")
+            Result.failure(IllegalStateException("Mihomo не остановился за 10 секунд"))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend listener stop", error); Result.failure(error) }
     }
