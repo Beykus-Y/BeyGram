@@ -29,6 +29,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository {
     suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit>
     suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit>
 
+    /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
+    suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>
+
+    /** Отмечает прочитанными все сообщения чата, в том числе у архивных чатов. */
+    suspend fun markChatRead(chatId: Long): Result<Unit>
+
     /** Инициирует процесс авторизации (отправляет параметры TDLib). */
     fun startAuthorization()
 
