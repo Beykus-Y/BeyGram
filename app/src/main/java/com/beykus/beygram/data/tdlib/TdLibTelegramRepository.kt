@@ -11,7 +11,9 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
+import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.orderedArchivedChats
 import com.beykus.beygram.domain.model.orderedMainChats
 import com.beykus.beygram.domain.model.TelegramConnectionState
@@ -93,6 +95,17 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L } ?: throw IllegalStateException("Нет сообщений для отметки")
         TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true)); Unit
     }
+    private val contactBook = TdContacts({ client }, profiles)
+    private val callHistory = TdCallHistory({ client }, profiles)
+    override suspend fun loadContacts(): Result<List<ContactPreview>> = conversationResult { contactBook.load() }
+    override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> =
+        conversationResult { contactBook.add(firstName, lastName, phone) }
+    override suspend fun openPrivateChat(userId: Long): Result<Long> = conversationResult {
+        val chat = TdRequests { client }(TdApi.CreatePrivateChat(userId, false))
+        handleNewChat(chat)
+        chat.id
+    }
+    override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = conversationResult { callHistory.page(offset) }
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
     private val conversationEffects = TdConversationEffects({ client }, policy)
     override val messageLimits get() = conversationActions.limits
@@ -603,7 +616,7 @@ private val CHAT_COLORS = longArrayOf(
     0xFFA9731D, 0xFF3A78C2, 0xFFB0476E
 )
 
-private fun Long.stableColor(): Long {
+internal fun Long.stableColor(): Long {
     val idx = (this % CHAT_COLORS.size).toInt()
     return CHAT_COLORS[if (idx < 0) idx + CHAT_COLORS.size else idx]
 }

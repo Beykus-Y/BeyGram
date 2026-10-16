@@ -2,7 +2,9 @@ package com.beykus.beygram.domain.repository
 
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.OutgoingMedia
@@ -34,6 +36,18 @@ interface TelegramRepository : ConversationRepository, NotificationRepository {
 
     /** Отмечает прочитанными все сообщения чата, в том числе у архивных чатов. */
     suspend fun markChatRead(chatId: Long): Result<Unit>
+
+    /** Контакты из адресной книги Telegram, по имени. */
+    suspend fun loadContacts(): Result<List<ContactPreview>>
+
+    /** Добавляет контакт по номеру телефона; номер должен быть зарегистрирован в Telegram. */
+    suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit>
+
+    /** Открывает личный чат с пользователем и возвращает идентификатор чата. */
+    suspend fun openPrivateChat(userId: Long): Result<Long>
+
+    /** Страница истории звонков. Первая страница запрашивается с пустым [offset], дальше — с [CallHistoryPage.nextOffset]. */
+    suspend fun loadCallHistory(offset: String): Result<CallHistoryPage>
 
     /** Инициирует процесс авторизации (отправляет параметры TDLib). */
     fun startAuthorization()

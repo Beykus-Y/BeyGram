@@ -39,7 +39,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     }
 
     fun photo(photo: TdApi.ChatPhotoInfo?): AvatarPhoto? = photo?.let { photo(it.small, it.big) }
-    private fun photo(small: TdApi.File, big: TdApi.File): AvatarPhoto {
+    fun photo(small: TdApi.File, big: TdApi.File): AvatarPhoto {
         files.register(small.toMediaFileState()); files.register(big.toMediaFileState())
         return AvatarPhoto(small.id, big.id)
     }
