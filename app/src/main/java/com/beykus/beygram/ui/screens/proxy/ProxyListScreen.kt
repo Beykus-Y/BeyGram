@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
  * Макет: «Прокси» из раздела дизайн-системы про прокси.
  */
 @Composable
-fun ProxyListScreen(
+internal fun ProxyListScreen(
     repository: TelegramRepository,
     vpnBackend: VpnBackend,
     onBack: () -> Unit,

@@ -64,7 +64,7 @@ private fun defaultPort(tab: ProxyConnectTab): String = when (tab) {
  * Макет: «Подключение к Telegram» из раздела дизайн-системы про прокси.
  */
 @Composable
-fun ProxyConnectScreen(
+internal fun ProxyConnectScreen(
     repository: TelegramRepository,
     vpnBackend: VpnBackend,
     connectionState: TelegramConnectionState,
