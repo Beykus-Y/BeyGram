@@ -2,6 +2,7 @@ package com.beykus.beygram.ui.screens.chats
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,14 +22,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
@@ -41,16 +45,28 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.domain.model.ChatPreview
@@ -58,6 +74,7 @@ import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.MediaFileState
+import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -66,6 +83,9 @@ import com.beykus.beygram.ui.components.beyGramPalette
 private enum class ChatFilter(val title: String) {
     All("Все"), People("Личные"), Groups("Группы"), Unread("Непрочитанные")
 }
+
+/** Сколько протянуть список вниз, чтобы вернуть скрытый архив; подсказка занимает столько же. */
+private val archivePullThreshold = 104.dp
 
 @Composable
 fun ChatsScreen(
@@ -79,6 +99,8 @@ fun ChatsScreen(
     onArchiveClick: () -> Unit,
     onMarkRead: suspend (ChatPreview) -> Boolean,
     onArchive: suspend (ChatPreview) -> Boolean,
+    archiveHidden: Boolean,
+    onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -109,6 +131,43 @@ fun ChatsScreen(
     val pinnedChats = if (selectedFilter == ChatFilter.All && query.isBlank()) filteredChats.filter { it.isPinned } else emptyList()
     val regularChats = filteredChats.filterNot { it in pinnedChats }
     val showAllHeader = pinnedChats.isNotEmpty() || (selectedFilter == ChatFilter.All && query.isBlank())
+    val archiveAvailable = archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
+    val density = LocalDensity.current
+    val listState = rememberLazyListState()
+    val archivePullThresholdPx = with(density) { archivePullThreshold.toPx() }
+    // Сколько протянуто вниз, пока архив скрыт. Подсказка растёт до порога, а за порогом архив возвращается при отпускании.
+    var pullPx by remember { mutableFloatStateOf(0f) }
+    val shownPx = if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f
+    val pullCanReveal by rememberUpdatedState(archiveAvailable && archiveHidden)
+    val latestOnArchiveHiddenChange by rememberUpdatedState(onArchiveHiddenChange)
+    val pullConnection = remember(listState, archivePullThresholdPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                return when {
+                    available.y > 0f && pullCanReveal && atTop -> {
+                        pullPx += available.y
+                        Offset(0f, available.y)
+                    }
+                    available.y < 0f && pullPx > 0f -> {
+                        val back = minOf(-available.y, pullPx)
+                        pullPx -= back
+                        Offset(0f, -back)
+                    }
+                    else -> Offset.Zero
+                }
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (pullPx <= 0f) return Velocity.Zero
+                val reveal = pullPx >= archivePullThresholdPx
+                pullPx = 0f
+                if (reveal) latestOnArchiveHiddenChange(false)
+                return available
+            }
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
@@ -142,9 +201,14 @@ fun ChatsScreen(
             }
         }
 
-        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp)) {
-            if (archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()) {
-                item(key = "archive_row") { ArchiveRow(archivedChats, onClick = onArchiveClick) }
+        if (shownPx > 0f) ArchivePullHint(heightDp = with(density) { shownPx.toDp() })
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f).nestedScroll(pullConnection),
+            contentPadding = PaddingValues(bottom = 20.dp)
+        ) {
+            if (archiveAvailable && !archiveHidden) {
+                item(key = "archive_row") { ArchiveRow(archivedChats, onClick = onArchiveClick, onHide = { onArchiveHiddenChange(true) }) }
             }
             if (pinnedChats.isNotEmpty()) {
                 item(key = "pinned_header") {
@@ -189,28 +253,73 @@ fun ChatsScreen(
 }
 
 @Composable
-private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit) {
+private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, onHide: () -> Unit) {
     val palette = beyGramPalette()
+    var actionsOpen by remember { mutableStateOf(false) }
     val unread = archivedChats.sumOf { it.unreadCount }
     val summary = buildString {
         append("${archivedChats.size} ${russianPlural(archivedChats.size, "чат", "чата", "чатов")}")
         if (unread > 0) append(" · $unread ${russianPlural(unread, "непрочитанное", "непрочитанных", "непрочитанных")}")
     }
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp)).background(palette.surface)
+                .combinedClickable(onClick = onClick, onLongClick = { actionsOpen = true })
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Archive, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Архив", color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(summary, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+        }
+        if (actionsOpen) {
+            // Действия открываются прямо под строкой, без всплывающего окна.
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                    .clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)
+            ) {
+                ArchiveAction(Icons.Rounded.VisibilityOff, "Скрыть архив", palette.accent, palette.accentInk, FontWeight.SemiBold, onHide)
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(palette.divider))
+                ArchiveAction(Icons.Rounded.Close, "Отмена", palette.textSecondary, palette.textSecondary, FontWeight.Normal) { actionsOpen = false }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArchiveAction(icon: ImageVector, label: String, iconTint: Color, labelColor: Color, labelWeight: FontWeight, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(20.dp)).background(palette.surface).clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
-            Icon(Icons.Rounded.Archive, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
-        }
+        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text("Архив", color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Text(summary, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = labelColor, fontSize = 16.sp, fontWeight = labelWeight)
+    }
+}
+
+/** Подсказка над списком, пока архив скрыт и список тянут вниз: высота растёт вместе с протяжкой. */
+@Composable
+private fun ArchivePullHint(heightDp: Dp) {
+    val palette = beyGramPalette()
+    Column(
+        modifier = Modifier.fillMaxWidth().height(heightDp).clipToBounds()
+            .background(Brush.verticalGradient(listOf(palette.accentSoft, Color.Transparent))),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(palette.surface), contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
         }
-        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.height(6.dp))
+        Text("Тяните дальше, чтобы открыть архив", color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 
