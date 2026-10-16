@@ -130,6 +130,8 @@ jobs:
               --out "$release_out" \
               "$RUNNER_TEMP/aligned.apk"
             echo "signed=true" >> "$GITHUB_OUTPUT"
+            # Report the signer so the signature can be checked from the check run.
+            "$build_tools/apksigner" verify --print-certs "$release_out" 2>&1 | sed 's/^/::notice::/'
           else
             if [ "$PUBLISH" = "true" ]; then
               echo "::error::Refusing to publish an unsigned release APK. Set the ANDROID_KEYSTORE_* secrets." >&2
@@ -138,8 +140,9 @@ jobs:
             cp "$release_in" "$release_out"
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "::notice::release APK signed=$(grep -q '^signed=true' "$GITHUB_OUTPUT" && echo true || echo false)"
           echo "APKs prepared in $out:"
-          ls -l "$out"
+          ls -l "$out" | sed 's/^/::notice::/' 
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
