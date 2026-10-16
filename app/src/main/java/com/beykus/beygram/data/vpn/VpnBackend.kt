@@ -118,6 +118,8 @@ internal class VpnBackend private constructor(
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
             MihomoRuntimeDiagnostics.event("backend", "start timed out")
+            // The service keeps starting in its own scope after this caller gives up; stop it instead of leaving a foreground notification.
+            appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
             Result.failure(IllegalStateException("Прокси не запустился вовремя. Попробуйте ещё раз."))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend start", error); Result.failure(error) }
@@ -174,7 +176,17 @@ internal class VpnBackend private constructor(
                 val proxyWasRunning = runtimeState.value.status == ProxyRuntimeStatus.RUNNING
                 val groupName = mihomo.importSubscription(response.configuration)
                 mihomo.stopProxyListener()
-                if (proxyWasRunning) mihomo.startProxyListener()
+                if (proxyWasRunning) {
+                    try {
+                        mihomo.startProxyListener()
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        // TDLib still points at the listener that just went away: give TDLib its previous proxy back
+                        // and stop the service, so the runtime state does not report a working proxy.
+                        stopProxy()
+                        throw error
+                    }
+                }
                 settingsStore.update { it.copy(subscriptionUrl = trimmedUrl, connectionGroup = groupName) }
                 var loaded = mihomo.listConnections(groupName)
                 if (loaded.isNotEmpty() && loaded.none { it.selected }) {

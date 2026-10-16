@@ -146,8 +146,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         return tdRequests(TdApi.AddProxy(TdApi.Proxy(MihomoProxyClient.HOST, MihomoProxyClient.PORT, expected), false, MIHOMO_PROXY_COMMENT)).id
     }
 
+    /** Only the entry BeyGram created: a user's own SOCKS5 proxy on the same port has a different comment. */
     private fun TdApi.AddedProxy.isMihomoEntry(): Boolean =
-        proxy.server == MihomoProxyClient.HOST && proxy.port == MihomoProxyClient.PORT && proxy.type is TdApi.ProxyTypeSocks5
+        comment == MIHOMO_PROXY_COMMENT &&
+            proxy.server == MihomoProxyClient.HOST && proxy.port == MihomoProxyClient.PORT && proxy.type is TdApi.ProxyTypeSocks5
 
     private fun TdApi.AddedProxy.toSavedProxy(): SavedTelegramProxy? {
         val kind = when (proxy.type) {
