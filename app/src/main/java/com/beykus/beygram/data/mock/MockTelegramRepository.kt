@@ -11,6 +11,7 @@ import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileKind
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.orderedArchivedChats
 import com.beykus.beygram.domain.model.orderedMainChats
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.MessageLimits
@@ -32,6 +33,8 @@ class MockTelegramRepository : TelegramRepository {
 
     private val _chats = MutableStateFlow(orderedMainChats(buildMockChats()))
     override val chats: StateFlow<List<ChatPreview>> = _chats.asStateFlow()
+    private val _archivedChats = MutableStateFlow(orderedArchivedChats(buildMockChats()))
+    override val archivedChats: StateFlow<List<ChatPreview>> = _archivedChats.asStateFlow()
     override val connectionState: StateFlow<TelegramConnectionState> = MutableStateFlow(TelegramConnectionState.Connected).asStateFlow()
 
     private var nextMessageId = 100L
@@ -39,8 +42,8 @@ class MockTelegramRepository : TelegramRepository {
     override val notifications = MutableStateFlow(TelegramNotifications(initialized = true)).asStateFlow()
     override val notificationPresentation = MutableStateFlow(NotificationPresentation()).asStateFlow()
     override suspend fun dismissNotifications(groupId: Int, maxNotificationId: Int) = Result.success(Unit)
-    override fun observeChat(chatId: Long) = MutableStateFlow(_chats.value.firstOrNull { it.id == chatId }).asStateFlow()
-    override suspend fun loadChat(chatId: Long): Result<Unit> = if (_chats.value.any { it.id == chatId }) Result.success(Unit) else Result.failure(IllegalStateException("Чат недоступен"))
+    override fun observeChat(chatId: Long) = MutableStateFlow((_chats.value + _archivedChats.value).firstOrNull { it.id == chatId }).asStateFlow()
+    override suspend fun loadChat(chatId: Long): Result<Unit> = if ((_chats.value + _archivedChats.value).any { it.id == chatId }) Result.success(Unit) else Result.failure(IllegalStateException("Чат недоступен"))
     private val profileState = MutableStateFlow(ProfileState(info = ProfileInfo(1, "Beykus", firstName = "Beykus", isSelf = true)))
     override val myProfile = profileState.asStateFlow()
     override val bioLengthLimit = MutableStateFlow(70).asStateFlow()
@@ -225,5 +228,27 @@ private fun buildMockChats() = listOf(
         unreadCount = 0,
         avatarColorArgb = 0xFFEF4444,
         order = 10L
+    ),
+    ChatPreview(
+        id = 5L,
+        title = "Насальникова",
+        initials = "Н",
+        lastMessage = "Ок, пришлю файлы завтра",
+        lastMessageTime = "Вчера",
+        unreadCount = 1,
+        avatarColorArgb = 0xFF2F8A7B,
+        archiveOrder = 20L
+    ),
+    ChatPreview(
+        id = 6L,
+        title = "Команда «Релиз»",
+        initials = "Р",
+        lastMessage = "Артём: сборка 1.4 готова",
+        lastMessageTime = "Пн",
+        unreadCount = 14,
+        avatarColorArgb = 0xFF5B4BC4,
+        isGroup = true,
+        isMuted = true,
+        archiveOrder = 10L
     )
 )
