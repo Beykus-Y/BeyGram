@@ -1,5 +1,6 @@
 package com.beykus.beygram
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
@@ -97,6 +98,14 @@ private fun BeyGramAppContent(
     // Куда вернуться из открытого чата: из архива — в архив, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var notificationError by remember { mutableStateOf<String?>(null) }
+    // Скрытый архив остаётся скрытым после перезапуска: флаг лежит в настройках приложения.
+    val context = LocalContext.current
+    val chatPreferences = remember(context) { context.applicationContext.getSharedPreferences("chats", Context.MODE_PRIVATE) }
+    var archiveHidden by remember { mutableStateOf(chatPreferences.getBoolean("archive_hidden", false)) }
+    val onArchiveHiddenChange: (Boolean) -> Unit = { hidden ->
+        archiveHidden = hidden
+        chatPreferences.edit().putBoolean("archive_hidden", hidden).apply()
+    }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, notificationRequest?.token) {
         val request = notificationRequest ?: return@LaunchedEffect
@@ -214,6 +223,8 @@ private fun BeyGramAppContent(
             onArchiveClick = { routeName = AppRoute.Archive.name },
             onMarkRead = markChatRead,
             onArchive = archiveChat,
+            archiveHidden = archiveHidden,
+            onArchiveHiddenChange = onArchiveHiddenChange,
             onChatClick = { chat ->
                 selectedChatId = chat.id
                 chatBackRouteName = AppRoute.Chats.name
@@ -253,6 +264,8 @@ private fun BeyGramAppContent(
                     onArchiveClick = { routeName = AppRoute.Archive.name },
                     onMarkRead = markChatRead,
                     onArchive = archiveChat,
+                    archiveHidden = archiveHidden,
+                    onArchiveHiddenChange = onArchiveHiddenChange,
                     onChatClick = { selectedChat ->
                         selectedChatId = selectedChat.id
                         chatBackRouteName = AppRoute.Chats.name
