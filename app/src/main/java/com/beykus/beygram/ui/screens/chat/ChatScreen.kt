@@ -81,6 +81,7 @@ fun ChatScreen(
     var capabilitiesAttempt by remember { mutableIntStateOf(0) }
     var selectedMediaId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var viewerCapabilities by remember { mutableStateOf<MessageCapabilities?>(null) }
+    var viewerPosition by remember { mutableStateOf<MediaPosition?>(null) }
     var forwardId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var forwardBusy by remember { mutableStateOf(false) }
     var forwardError by remember { mutableStateOf<String?>(null) }
@@ -151,9 +152,11 @@ fun ChatScreen(
         capabilitiesError = result.exceptionOrNull()?.message
     }
     LaunchedEffect(selectedMediaId) {
-        viewerCapabilities = null
+        viewerCapabilities = null; viewerPosition = null
         val id = selectedMediaId ?: return@LaunchedEffect
         viewerCapabilities = conversation.messageCapabilities(chat.id, id).getOrNull()
+        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind ?: return@LaunchedEffect
+        viewerPosition = conversation.mediaPosition(chat.id, id, kind).getOrNull()
     }
     BackHandler(enabled = searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active) {
         when {
@@ -343,7 +346,7 @@ fun ChatScreen(
     }
     messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(media, observeFile, onDownloadFile,
         onViewed = { selectedMediaId?.let { conversation.openMessageContent(chat.id, it) } }, onClose = { selectedMediaId = null },
-        title = if (viewed.isOutgoing) "Вы" else viewed.senderName.ifBlank { chat.title }, subtitle = viewed.time,
+        title = if (viewed.isOutgoing) "Вы" else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { "${it.number} из ${it.total}" }).joinToString(" · "),
         canExport = viewerCapabilities?.canSave == true,
         actions = MediaViewerActions(
             canForward = viewerCapabilities?.canForward == true,

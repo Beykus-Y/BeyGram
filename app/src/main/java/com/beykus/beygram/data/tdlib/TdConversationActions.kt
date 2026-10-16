@@ -36,6 +36,24 @@ internal class TdConversationActions(
             canForward = properties.canBeForwarded, canSave = properties.canBeSaved)
     }
 
+    /** Предполагаем, что TDLib считает позицию от новых к старым, как результаты поиска: номер от самого раннего — total - position + 1. */
+    suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition> = conversationResult {
+        val filter = searchFilter(kind)
+        val fromNewest = request(TdApi.GetChatMessagePosition(chatId, null, filter, messageId)).count
+        val total = request(TdApi.GetChatMessageCount(chatId, null, filter, false)).count
+        check(fromNewest in 1..total) { "Не удалось определить место в чате" }
+        MediaPosition(total - fromNewest + 1, total)
+    }
+    private fun searchFilter(kind: MediaKind): TdApi.SearchMessagesFilter = when (kind) {
+        MediaKind.Photo, MediaKind.Video -> TdApi.SearchMessagesFilterPhotoAndVideo()
+        MediaKind.Animation -> TdApi.SearchMessagesFilterAnimation()
+        MediaKind.Audio -> TdApi.SearchMessagesFilterAudio()
+        MediaKind.Document -> TdApi.SearchMessagesFilterDocument()
+        MediaKind.Voice -> TdApi.SearchMessagesFilterVoiceNote()
+        MediaKind.VideoNote -> TdApi.SearchMessagesFilterVideoNote()
+        MediaKind.Sticker -> error("Стикеры не нумеруются")
+    }
+
     suspend fun sendText(chatId: Long, text: String, replyId: Long?): Result<Unit> = conversationResult {
         require(text.isNotBlank()) { "Введите сообщение" }
         require(text.codePointCount(0, text.length) <= limits.value.text) { "Сообщение слишком длинное" }
