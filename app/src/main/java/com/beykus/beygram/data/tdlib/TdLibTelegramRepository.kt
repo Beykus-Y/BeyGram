@@ -93,9 +93,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         requestResult { tdRequests(TdApi.RemoveProxy(id)); Unit }
     }
 
-    override suspend fun isMihomoProxyEnabled(): Boolean =
+    override suspend fun isMihomoProxyEnabled(): Result<Boolean> =
         requestResult { tdRequests(TdApi.GetProxies()).proxies.orEmpty().any { it.isEnabled && it.isMihomoEntry() } }
-            .getOrDefault(false)
 
     override suspend fun measureProxyLatency(server: String, port: Int): Result<Long> = withContext(Dispatchers.IO) {
         try {

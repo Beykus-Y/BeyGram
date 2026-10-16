@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +33,7 @@ internal class VpnBackend private constructor(
     connectionState: StateFlow<TelegramConnectionState>,
     private val scope: CoroutineScope,
     private val setTdLibProxy: suspend (Boolean) -> Result<Unit>,
-    private val isTdLibProxyEnabled: suspend () -> Boolean
+    private val isTdLibProxyEnabled: suspend () -> Result<Boolean>
 ) {
     private val appContext = context.applicationContext
     private val settingsStore = VpnSettingsStore(appContext)
@@ -76,7 +77,8 @@ internal class VpnBackend private constructor(
      */
     private suspend fun restoreAfterProcessStart() {
         if (runtimeState.value.status == ProxyRuntimeStatus.RUNNING) return
-        if (runCatching { isTdLibProxyEnabled() }.getOrDefault(false)) {
+        val enabled = readTdLibProxyEnabled() ?: return
+        if (enabled) {
             startProxy()
                 .onSuccess { refreshConnections() }
                 .onFailure {
@@ -91,6 +93,19 @@ internal class VpnBackend private constructor(
                 mihomo.stopProxyListener()
             }.onSuccess { refreshConnections() }
         }
+    }
+
+    /**
+     * TDLib may not answer yet right after process start, and a failed read is not "proxy off", so the read is repeated.
+     * Null means TDLib never answered; its proxy is then left as it is.
+     */
+    private suspend fun readTdLibProxyEnabled(): Boolean? {
+        repeat(RESTORE_READ_ATTEMPTS) { attempt ->
+            isTdLibProxyEnabled().onSuccess { return it }
+            MihomoRuntimeDiagnostics.event("backend", "TDLib proxy state not read; attempt ${attempt + 1} failed")
+            if (attempt < RESTORE_READ_ATTEMPTS - 1) delay(RESTORE_READ_RETRY_DELAY_MS)
+        }
+        return null
     }
 
     fun updateAutoSelect(enabled: Boolean) {
@@ -182,9 +197,10 @@ internal class VpnBackend private constructor(
                         mihomo.startProxyListener()
                     } catch (error: Exception) {
                         if (error is CancellationException) throw error
-                        // TDLib still points at the listener that just went away: give TDLib its previous proxy back
-                        // and stop the service, so the runtime state does not report a working proxy.
-                        stopProxy()
+                        // The listener is already down and TDLib may still point at it. Roll TDLib back and stop the service
+                        // even if the rollback fails, so the runtime state does not report a working proxy.
+                        setTdLibProxy(false)
+                        runCatching { stopListenerNow() }
                         throw error
                     }
                 }
@@ -262,6 +278,8 @@ internal class VpnBackend private constructor(
 
     companion object {
         private const val MAX_PARALLEL_PROBES = 4
+        private const val RESTORE_READ_ATTEMPTS = 3
+        private const val RESTORE_READ_RETRY_DELAY_MS = 5_000L
 
         @Volatile private var instance: VpnBackend? = null
 
@@ -271,7 +289,7 @@ internal class VpnBackend private constructor(
             connectionState: StateFlow<TelegramConnectionState>,
             scope: CoroutineScope,
             setTdLibProxy: suspend (Boolean) -> Result<Unit>,
-            isTdLibProxyEnabled: suspend () -> Boolean
+            isTdLibProxyEnabled: suspend () -> Result<Boolean>
         ): VpnBackend = instance ?: synchronized(this) {
             instance ?: VpnBackend(context, connectionState, scope, setTdLibProxy, isTdLibProxyEnabled).also { instance = it }
         }

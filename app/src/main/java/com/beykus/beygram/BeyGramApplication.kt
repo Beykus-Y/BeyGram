@@ -5,6 +5,7 @@ import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import com.beykus.beygram.data.vpn.VpnBackend
+import com.beykus.beygram.notifications.TelegramNotificationService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,9 +17,9 @@ class BeyGramApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         MihomoProxyClient.install(this)
-        // Boot and notification services can start the process without an Activity. TDLib may still use the local
-        // proxy saved in its database, so the backend, which restores that proxy, must also exist for those starts.
-        if (TdLibBootstrap(this).readiness().canCreateClient) {
+        // Background notifications are the only work that needs TDLib without a screen. Starting the client only when they
+        // run keeps a disabled feature from connecting after boot; the backend restores the local proxy for that client.
+        if (TelegramNotificationService.shouldRun(this) && TdLibBootstrap(this).readiness().canCreateClient) {
             val repository = TdLibTelegramRepository.getInstance(this)
             VpnBackend.getInstance(
                 context = this,
