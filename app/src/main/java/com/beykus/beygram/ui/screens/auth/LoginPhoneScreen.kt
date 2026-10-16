@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.remember
 import kotlinx.coroutines.launch
 import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
-import com.beykus.beygram.ui.components.ProxySettingsDialog
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.AuthScaffold
@@ -43,7 +42,7 @@ fun LoginPhoneScreen(
     onBack: () -> Unit,
     onContinue: (String) -> Unit,
     onReconnect: () -> Unit,
-    onAddProxy: (String, Int, Boolean, String, String, String) -> Unit
+    onProxySettings: () -> Unit
 ) {
     var phone by rememberSaveable { mutableStateOf("+7 ") }
     val isLoading = authState is AuthState.Loading
@@ -52,7 +51,6 @@ fun LoginPhoneScreen(
         AuthState.ConnectionTimeout -> "Telegram пока не ответил. Запрос остаётся активным и продолжится после восстановления связи."
         else -> null
     }
-    var showProxyDialog by remember { mutableStateOf(false) }
     val requestWaitingForNetwork = authState == AuthState.ConnectionTimeout
     val canContinue = phone.count { it.isDigit() } >= 11 && !isLoading && !requestWaitingForNetwork
     val palette = beyGramPalette()
@@ -135,7 +133,7 @@ fun LoginPhoneScreen(
             }
         }
 
-        TextButton(onClick = { showProxyDialog = true }, modifier = Modifier.fillMaxWidth()) {
+        TextButton(onClick = onProxySettings, modifier = Modifier.fillMaxWidth()) {
             Text("Не подключается? Настроить прокси")
         }
         if (requestWaitingForNetwork) {
@@ -159,9 +157,4 @@ fun LoginPhoneScreen(
         }
         shareLogsError?.let { Text(text = it, color = palette.danger, fontSize = 13.sp) }
     }
-
-    if (showProxyDialog) ProxySettingsDialog(
-        onDismiss = { showProxyDialog = false },
-        onApply = onAddProxy
-    )
 }

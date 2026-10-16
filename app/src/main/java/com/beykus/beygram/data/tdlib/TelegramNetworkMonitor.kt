@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import android.util.Log
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.diagnostics.ConnectionEventLog
+import com.beykus.beygram.data.vpn.MihomoProxyClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -69,12 +70,14 @@ internal class TelegramNetworkMonitor(
             if (internet) probeJob = scope.launch(Dispatchers.IO) {
                 // Diagnostic target is the DC1 address seen in this TDLib build's connection log.
                 probe("[$network] TCP DC1 149.154.175.50:443") {
-                    Socket().use { it.connect(InetSocketAddress("149.154.175.50", 443), 5_000) }
+                    (if (MihomoProxyClient.isRunning()) MihomoProxyClient.newSocket() else Socket()).use {
+                        it.connect(InetSocketAddress("149.154.175.50", 443), 5_000)
+                    }
                     "socket connected"
                 }
                 ensureActive()
                 probe("[$network] HTTPS web.telegram.org") {
-                    val connection = URL("https://web.telegram.org/").openConnection() as HttpURLConnection
+                    val connection = MihomoProxyClient.openConnection(URL("https://web.telegram.org/"))
                     try {
                         connection.connectTimeout = 5_000
                         connection.readTimeout = 5_000
