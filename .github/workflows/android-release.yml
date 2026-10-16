@@ -70,14 +70,18 @@ jobs:
           java-version: "17"
 
       - name: Install Android platform 36.1
-        # The runner image ships the Android SDK. Command output is echoed as
-        # notice annotations so failures are readable from the check run.
+        # The runner image ships the Android SDK but not sdkmanager on PATH.
+        # Command output is echoed as notice annotations so failures are readable.
         run: |
-          echo "::notice::ANDROID_HOME=$ANDROID_HOME sdkmanager=$(command -v sdkmanager || echo missing)"
-          ls "$ANDROID_HOME" "$ANDROID_HOME/cmdline-tools" 2>&1 | sed 's/^/::notice::/'
-          yes | sdkmanager --licenses > "$RUNNER_TEMP/licenses.txt" 2>&1 || true
-          sed 's/^/::notice::/' "$RUNNER_TEMP/licenses.txt" | tail -5
-          sdkmanager --install "platforms;android-36.1" > "$RUNNER_TEMP/install.txt" 2>&1
+          set -uo pipefail
+          sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' 2>/dev/null | sort -V | tail -n 1)
+          echo "::notice::sdkmanager=${sdkmanager:-missing}"
+          if [ -z "$sdkmanager" ]; then
+            find "$ANDROID_HOME" -maxdepth 2 | sed 's/^/::notice::/' | head -40
+            exit 1
+          fi
+          yes | "$sdkmanager" --licenses > "$RUNNER_TEMP/licenses.txt" 2>&1 || true
+          "$sdkmanager" --install "platforms;android-36.1" > "$RUNNER_TEMP/install.txt" 2>&1
           code=$?
           sed 's/^/::notice::/' "$RUNNER_TEMP/install.txt" | tail -40
           exit $code
