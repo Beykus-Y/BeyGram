@@ -20,6 +20,8 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -57,7 +59,7 @@ import kotlinx.coroutines.launch
 fun ChatScreen(
     chat: ChatPreview, history: ChatHistory, conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    onBack: () -> Unit, onChatInfo: () -> Unit
+    onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState
 ) {
     var draft by rememberSaveable(chat.id) { mutableStateOf("") }
     var replyId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
@@ -155,6 +157,14 @@ fun ChatScreen(
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
         ) else ChatTopBar(chat, onBack, onChatInfo, observeFile, onDownloadFile)
+        if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
+            Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.WifiOff, null, tint = palette.warningText, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Нет сети. Сообщения отправятся позже", color = palette.warningText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -220,7 +230,7 @@ fun ChatScreen(
                 placeholder = { Text(if (attachments.active) "Подпись" else "Сообщение", color = palette.textSecondary) }, maxLines = 5,
                 shape = RoundedCornerShape(20.dp), colors = beyGramFilledTextFieldColors(), isError = overLimit)
             Spacer(Modifier.width(8.dp))
-            Box(Modifier.size(40.dp).clip(CircleShape).background(if (canSend || busy) palette.accent else palette.surface2)
+            Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f))
                 .clickable(enabled = canSend) {
                     when {
                         editing -> scope.launch {
@@ -243,7 +253,7 @@ fun ChatScreen(
                 }, contentAlignment = Alignment.Center) {
                 if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
                 else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, if (editing) "Сохранить" else "Отправить",
-                    tint = if (canSend) palette.onAccent else palette.textSecondary, modifier = Modifier.size(22.dp))
+                    tint = palette.onAccent.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
             }
         }
     }
@@ -286,7 +296,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 message.reply?.let { reply ->
                     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp))
-                        .border(1.dp, palette.accent.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .border(1.dp, palette.accent, RoundedCornerShape(12.dp))
                         .clickable { onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
                         Text(reply.senderName.ifBlank { "Ответ на сообщение" }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                         Text(reply.text, color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -295,13 +305,13 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 if (hasText) Text(message.text, color = palette.textPrimary, fontSize = 16.sp, lineHeight = 22.sp)
                 Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                     val failed = message.sendState == MessageSendState.Failed
-                    val status = if (message.isOutgoing) when (message.sendState) {
-                        MessageSendState.Sending -> " · отправка…"
-                        MessageSendState.Failed -> " · не отправлено"
-                        MessageSendState.Sent -> ""
-                    } else ""
+                    val status = if (message.isOutgoing && message.sendState == MessageSendState.Failed) " · не отправлено" else ""
                     Text((if (message.isEdited) "изменено · " else "") + message.time + status,
                         color = if (failed) palette.warningText else palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
+                        Spacer(Modifier.width(3.dp))
+                        Icon(Icons.Rounded.Schedule, "Отправляется", tint = palette.textSecondary, modifier = Modifier.size(14.dp))
+                    }
                     if (message.isOutgoing && message.sendState == MessageSendState.Sent) {
                         Spacer(Modifier.width(3.dp))
                         Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done, if (isRead) "Прочитано" else "Отправлено",

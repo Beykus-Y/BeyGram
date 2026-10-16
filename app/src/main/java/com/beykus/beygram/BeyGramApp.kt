@@ -242,7 +242,8 @@ private fun BeyGramAppContent(
                     observeFile = repository::observeFile,
                     onDownloadFile = repository::downloadFile,
                     onBack = { routeName = AppRoute.Chats.name },
-                    onChatInfo = { routeName = AppRoute.ChatInfo.name }
+                    onChatInfo = { routeName = AppRoute.ChatInfo.name },
+                    connectionState = connectionState
                 )
             }
         }
