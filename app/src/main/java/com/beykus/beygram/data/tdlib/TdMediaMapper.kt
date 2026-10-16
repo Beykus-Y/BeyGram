@@ -54,7 +54,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             MessageMedia(MediaKind.Voice, register(it.voice), fileName = "Голосовое сообщение.ogg", mimeType = it.mimeType.orEmpty().ifBlank { "audio/ogg" }, durationSeconds = it.duration, waveform = decodeVoiceWaveform(it.waveform ?: ByteArray(0)))
         }
         is TdApi.MessageVideoNote -> content.videoNote.let {
-            MessageMedia(MediaKind.Video, register(it.video), thumbnail(it.thumbnail), "Видеосообщение.mp4", "video/mp4", it.length, it.length, it.duration, isSecret = content.isSecret)
+            MessageMedia(MediaKind.VideoNote, register(it.video), thumbnail(it.thumbnail), "Видеосообщение.mp4", "video/mp4", it.length, it.length, it.duration, isSecret = content.isSecret, isViewed = content.isViewed)
         }
         is TdApi.MessageSticker -> content.sticker.let {
             val mime = when (it.format) {

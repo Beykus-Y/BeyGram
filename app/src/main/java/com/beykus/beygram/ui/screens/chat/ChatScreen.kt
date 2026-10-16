@@ -3,6 +3,8 @@ package com.beykus.beygram.ui.screens.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -101,15 +103,30 @@ fun ChatScreen(
         if (result.isSuccess) replyId = null
         result
     }
+    val context = LocalContext.current
+    val videoNote = rememberVideoNoteRecorder(
+        onFinished = { media -> scope.launch { conversation.sendMedia(chat.id, media, "", replyId).onSuccess { replyId = null }.onFailure { error = it.message ?: "Не удалось отправить кружок" } } },
+        onError = { error = it }
+    )
+    val videoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (!granted.values.all { it }) error = "Для кружков нужны камера и микрофон"
+    }
+    fun startVideoNote() { if (videoNoteAllowed(context)) videoNote.press() else videoPermissions.launch(videoNotePermissions) }
     val messages = history.messages
     val currentMessages by rememberUpdatedState(messages)
     val newest = messages.lastOrNull()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    // Голосовое не играет в фоне и после выхода из чата.
+    // Голосовое и кружок не играют в фоне и после выхода из чата; запись кружка в фоне отменяется.
     DisposableEffect(lifecycle) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) VoicePlayback.stop() }
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                VoicePlayback.stop()
+                InlinePlaybackFocus.stopAll()
+                videoNote.release(cancel = true)
+            }
+        }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); VoicePlayback.stop() }
+        onDispose { lifecycle.removeObserver(observer); VoicePlayback.stop(); InlinePlaybackFocus.stopAll() }
     }
     val window = LocalWindowInfo.current
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }
@@ -138,6 +155,7 @@ fun ChatScreen(
         }
     }
     BackHandler(enabled = actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching, onBack = onBack)
+    BackHandler(enabled = videoNote.active) { videoNote.release(cancel = true) }
 
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
     LaunchedEffect(chat.id, lifecycle, conversation) {
@@ -234,6 +252,7 @@ fun ChatScreen(
         }
         if (searching) ChatSearchResults(searchQuery, searchResults, searchBusy, searchError, hasMore = searchNextId != 0L,
             onOpen = ::openSearchResult, onMore = ::loadMoreResults)
+        if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
         error?.let { failure -> Row(Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(failure, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -272,15 +291,20 @@ fun ChatScreen(
             attachments.active -> attachments.pending.isNotEmpty() && !attachments.importing
             else -> fieldText.isNotBlank()
         }
+        val showRecord = videoNote.active || (!editing && !attachments.active && fieldText.isBlank())
         if (!deleting && !searching && typingNames.isNotEmpty()) TypingRow(typingNames)
         if (!deleting && !searching) Row(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
-            if (!editing) AttachmentButton(attachments, enabled = !sending)
-            else Spacer(Modifier.width(8.dp))
-            TextField(fieldText, { if (editing) editText = it else draft = it }, enabled = !busy, modifier = Modifier.weight(1f).defaultMinSize(minHeight = 40.dp),
+            if (!videoNote.active) {
+                if (!editing) AttachmentButton(attachments, enabled = !sending)
+                else Spacer(Modifier.width(8.dp))
+            }
+            if (videoNote.active) VideoNoteRecordingHint(Modifier.weight(1f))
+            else TextField(fieldText, { if (editing) editText = it else draft = it }, enabled = !busy, modifier = Modifier.weight(1f).defaultMinSize(minHeight = 40.dp),
                 placeholder = { Text(if (attachments.active) "Подпись" else "Сообщение", color = palette.textSecondary) }, maxLines = 5,
                 shape = RoundedCornerShape(20.dp), colors = beyGramFilledTextFieldColors(), isError = overLimit)
             Spacer(Modifier.width(8.dp))
-            Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f))
+            if (showRecord) VideoNoteRecordButton(videoNote, enabled = !sending && !busy, onPress = ::startVideoNote)
+            else Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f))
                 .clickable(enabled = canSend) {
                     when {
                         editing -> scope.launch {
@@ -336,15 +360,28 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val palette = beyGramPalette()
     val shape = if (message.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     val hasText = message.text.isNotBlank()
+    val circle = message.media?.kind == MediaKind.VideoNote
+    // Кружок показывает время и статус поверх себя; при ошибке отправки статус остаётся под пузырём.
+    val inCircle = circle && message.sendState != MessageSendState.Failed
+    val statusIcon = when {
+        !message.isOutgoing -> null
+        message.sendState == MessageSendState.Sending -> Icons.Rounded.Schedule
+        message.sendState == MessageSendState.Sent -> if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done
+        else -> null
+    }
     Box(Modifier.fillMaxWidth(), contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart) {
-        // Голосовое управляется своими кнопками в пузыре и не открывает просмотрщик.
+        // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
         Column(Modifier.widthIn(max = 292.dp).clip(shape)
-            .background(if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
-            .then(if (highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-            .combinedClickable(onClick = { if (message.media != null && message.media.kind != MediaKind.Voice) onOpen() }, onLongClick = onActions)) {
+            .background(if (circle) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
+            .then(if (highlighted) Modifier.border(2.dp, palette.accent, if (circle) CircleShape else shape) else Modifier)
+            .combinedClickable(onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() }, onLongClick = onActions)) {
             // Media sits flush against the bubble's top and side edges; text keeps its own padding.
-            message.media?.let { MediaPreview(it, observeFile, onDownloadFile, onOpen, onActions, onPlayed) }
-            Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp)) {
+            message.media?.let { media ->
+                if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile, onPlayed, onActions,
+                    time = if (inCircle) message.time else "", statusIcon = if (inCircle) statusIcon else null, unseen = !message.isOutgoing && !media.isViewed)
+                else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed)
+            }
+            Column(Modifier.padding(start = 12.dp, end = 12.dp, top = if (circle) 4.dp else 8.dp, bottom = if (circle) 0.dp else 6.dp)) {
                 if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 message.reply?.let { reply ->
                     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp))
@@ -355,7 +392,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     }
                 }
                 if (hasText) Text(message.text, color = palette.textPrimary, fontSize = 16.sp, lineHeight = 22.sp)
-                Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                if (!inCircle) Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                     val failed = message.sendState == MessageSendState.Failed
                     val status = if (message.isOutgoing && message.sendState == MessageSendState.Failed) " · не отправлено" else ""
                     Text((if (message.isEdited) "изменено · " else "") + message.time + status,

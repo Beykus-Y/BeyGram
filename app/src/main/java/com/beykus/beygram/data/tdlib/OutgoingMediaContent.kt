@@ -32,6 +32,12 @@ internal fun OutgoingMedia.toInputContent(caption: String): TdApi.InputMessageCo
             }
             this.caption = formattedCaption
         }
+        MediaKind.VideoNote -> TdApi.InputMessageVideoNote().apply {
+            videoNote = local
+            thumbnail = thumb
+            duration = durationSeconds
+            length = this@toInputContent.width
+        }
         else -> TdApi.InputMessageDocument().apply {
             document = TdApi.InputDocument(local, thumb, true)
             this.caption = formattedCaption
