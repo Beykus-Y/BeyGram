@@ -3,7 +3,9 @@ package com.beykus.beygram.data.vpn
 import android.os.Build
 import com.beykus.beygram.BuildConfig
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.Proxy
 import java.net.URL
 
 data class FetchedVpnSubscription(
@@ -18,11 +20,25 @@ internal class SubscriptionClient(
 ) {
     fun fetch(subscriptionUrl: String): FetchedVpnSubscription {
         VpnSubscriptionDiagnostics.event("request", "started; url=redacted")
+        val proxy = MihomoProxyClient.currentProxy()
         VpnSubscriptionDiagnostics.event("route", MihomoProxyClient.routeName())
+        if (proxy == null) return fetchVia(subscriptionUrl, proxy = null)
+        return try {
+            fetchVia(subscriptionUrl, proxy)
+        } catch (error: IOException) {
+            // The selected node can be down while the subscription host is reachable. Only a network failure is retried,
+            // once and directly; an HTTP or format error is not a route problem and is reported as it is.
+            VpnSubscriptionDiagnostics.failure("route", error)
+            VpnSubscriptionDiagnostics.event("route", "direct retry after proxy failure")
+            fetchVia(subscriptionUrl, proxy = null)
+        }
+    }
+
+    private fun fetchVia(subscriptionUrl: String, proxy: Proxy?): FetchedVpnSubscription {
         var currentUrl = validateUrl(subscriptionUrl)
         val originalOrigin = origin(currentUrl)
         repeat(MAX_REDIRECTS + 1) { redirectNumber ->
-            val connection = MihomoProxyClient.openConnection(currentUrl).apply {
+            val connection = MihomoProxyClient.openConnection(currentUrl, proxy).apply {
                 connectTimeout = CONNECT_TIMEOUT_MS
                 readTimeout = READ_TIMEOUT_MS
                 instanceFollowRedirects = false

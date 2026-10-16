@@ -36,8 +36,8 @@ internal object MihomoProxyClient {
 
     fun currentProxy(): Proxy? = socksProxy.takeIf { isRunning() }
 
-    fun openConnection(url: URL): HttpURLConnection {
-        val proxy = currentProxy()
+    /** Goes through the listener while it runs. Pass null to connect directly. */
+    fun openConnection(url: URL, proxy: Proxy? = currentProxy()): HttpURLConnection {
         return (if (proxy == null) url.openConnection() else url.openConnection(proxy)) as HttpURLConnection
     }
 
