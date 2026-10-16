@@ -70,10 +70,17 @@ jobs:
           java-version: "17"
 
       - name: Install Android platform 36.1
-        # The runner image ships the Android SDK with accepted licenses.
+        # The runner image ships the Android SDK. Command output is echoed as
+        # notice annotations so failures are readable from the check run.
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          sdkmanager --install "platforms;android-36.1"
+          echo "::notice::ANDROID_HOME=$ANDROID_HOME sdkmanager=$(command -v sdkmanager || echo missing)"
+          ls "$ANDROID_HOME" "$ANDROID_HOME/cmdline-tools" 2>&1 | sed 's/^/::notice::/'
+          yes | sdkmanager --licenses > "$RUNNER_TEMP/licenses.txt" 2>&1 || true
+          sed 's/^/::notice::/' "$RUNNER_TEMP/licenses.txt" | tail -5
+          sdkmanager --install "platforms;android-36.1" > "$RUNNER_TEMP/install.txt" 2>&1
+          code=$?
+          sed 's/^/::notice::/' "$RUNNER_TEMP/install.txt" | tail -40
+          exit $code
 
       - name: Write Telegram API credentials
         # Optional. Without these secrets the APKs are built with empty credentials
@@ -137,7 +144,7 @@ jobs:
     name: Publish GitHub release
     needs: build
     if: needs.build.outputs.publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Download APKs
