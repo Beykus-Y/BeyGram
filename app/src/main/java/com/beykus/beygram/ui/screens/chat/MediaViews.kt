@@ -69,6 +69,7 @@ internal fun MediaKind.label(): String = when (this) {
     MediaKind.Audio -> "Аудио"
     MediaKind.Document -> "Файл"
     MediaKind.Voice -> "Голосовое"
+    MediaKind.VideoNote -> "Видеосообщение"
 }
 
 internal fun formatMediaSize(bytes: Long): String = when {
@@ -132,6 +133,10 @@ internal fun MediaPreview(
     }
     if (media.kind == MediaKind.Voice) {
         VoiceBubble(media, file, downloadFile, onPlayed, onLongPress)
+        return
+    }
+    if (media.kind == MediaKind.VideoNote) {
+        VideoNoteBubble(media, observeFile, downloadFile, onPlayed, onLongPress)
         return
     }
     if (isVisual) {

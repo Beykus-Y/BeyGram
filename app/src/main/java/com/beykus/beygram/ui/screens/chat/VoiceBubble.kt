@@ -98,12 +98,14 @@ internal object VoicePlayback {
     }
 
     private fun resume(active: MediaPlayer, onStarted: () -> Unit) {
+        InlinePlaybackFocus.claim(VoicePlayback) { stop() }
         runCatching { active.start() }
         _state.update { it.copy(playing = true) }
         onStarted()
     }
 
     private fun start(path: String, fraction: Float, onStarted: () -> Unit) {
+        InlinePlaybackFocus.claim(VoicePlayback) { stop() }
         stop()
         pendingFraction = fraction
         _state.value = VoiceState(path = path)

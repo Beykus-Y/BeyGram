@@ -2,7 +2,7 @@ package com.beykus.beygram.domain.model
 
 import java.io.Serializable
 
-enum class MediaKind { Photo, Video, Animation, Sticker, Audio, Document, Voice }
+enum class MediaKind { Photo, Video, Animation, Sticker, Audio, Document, Voice, VideoNote }
 
 data class MessageMedia(
     val kind: MediaKind,
@@ -16,7 +16,9 @@ data class MessageMedia(
     val hasSpoiler: Boolean = false,
     val isSecret: Boolean = false,
     /** Отсчёты волны голосового сообщения, каждый 0…31; для остальных типов пусто. */
-    val waveform: List<Int> = emptyList()
+    val waveform: List<Int> = emptyList(),
+    /** Кружок ещё не открывали; для остальных типов всегда true. */
+    val isViewed: Boolean = true
 )
 
 data class MediaFileState(
