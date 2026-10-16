@@ -31,8 +31,16 @@ on:
 permissions:
   contents: read
 
+env:
+  # SHA-256 of the release signing certificate, from apksigner's "Signer #1 certificate
+  # SHA-256 digest" line for the v0.0.0.2 release APK. Publishing refuses any other key.
+  # Rotating the keystore means updating this value in a reviewed PR.
+  RELEASE_SIGNER_SHA256: e7b9e482b2c2feacda9edcef17f960576ed94e94ff8cf7991f89a16e33bf436d
+
 concurrency:
-  group: android-release-${{ github.ref }}
+  # One run per commit: a run waiting in a shared group would be replaced by a newer
+  # push, leaving that commit without an artifact.
+  group: android-release-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -89,10 +97,12 @@ jobs:
 
       - name: Collect and sign APKs
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Signing secrets are only exposed to pushes, not to pull requests, which
+          # run workflow code from the branch under review.
+          KEYSTORE_BASE64: ${{ github.event_name == 'push' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          KEYSTORE_PASSWORD: ${{ github.event_name == 'push' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          KEY_ALIAS: ${{ github.event_name == 'push' && secrets.ANDROID_KEY_ALIAS || '' }}
+          KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.ANDROID_KEY_PASSWORD || '' }}
           # Only the main build feeds releases, so it must be signed.
           REQUIRE_SIGNING: ${{ github.event_name == 'push' }}
         run: |
@@ -150,7 +160,8 @@ jobs:
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
       (github.event_name == 'workflow_dispatch' && inputs.publish)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Leaves room for the wait for a main build still running on this commit.
+    timeout-minutes: 60
     permissions:
       contents: write
       actions: read
@@ -182,11 +193,26 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android-release.yml/runs" \
-            -f head_sha="$SHA" -f status=completed -f per_page=50 \
-            --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .conclusion == "success")][0].id // empty')
+          # gh api sends POST when fields are given, so the method is explicit.
+          runs_url="repos/$GITHUB_REPOSITORY/actions/workflows/android-release.yml/runs"
+          run_id=""
+          # Wait up to about 45 minutes while a main build of this commit is queued or running.
+          for attempt in $(seq 1 90); do
+            runs=$(gh api --method GET "$runs_url" -f head_sha="$SHA" -f per_page=50 \
+              --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main")]')
+            run_id=$(echo "$runs" | jq -r 'map(select(.conclusion == "success")) | .[0].id // empty')
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            pending=$(echo "$runs" | jq 'map(select(.status != "completed")) | length')
+            if [ "$pending" = "0" ]; then
+              break
+            fi
+            echo "::notice::The main build of ${SHA::7} is still running; waiting (check $attempt)."
+            sleep 30
+          done
           if [ -z "$run_id" ]; then
-            echo "::error::No successful build on main for commit ${SHA::7}. Merge the commit to main and wait for its Android release run to pass, then run this workflow manually with publish set to true from main." >&2
+            echo "::error::No successful build on main for commit ${SHA::7}. If the main build failed, fix it and merge the commit to main again. If it has not run yet, run this workflow manually with publish set to true from main once that build passes." >&2
             exit 1
           fi
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
@@ -199,7 +225,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir apks; then
-            echo "::error::Artifact $ARTIFACT is missing or expired (kept for 90 days). Merge the commit to main again to rebuild it." >&2
+            echo "::error::Artifact $ARTIFACT is missing or expired. Artifacts are kept up to 90 days, and a repository retention setting can make that shorter. Merge the commit to main again to rebuild it." >&2
             exit 1
           fi
 
@@ -220,6 +246,13 @@ jobs:
             exit 1
           fi
           sed 's/^/::notice::/' "$RUNNER_TEMP/signer.txt"
+          # Only the pinned release key is accepted: exactly one signer, with the expected digest.
+          signers=$(grep -c 'certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" || true)
+          digest=$(grep -m1 'Signer #1 certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" | awk '{print $NF}' || true)
+          if [ "$signers" != "1" ] || [ "$digest" != "$RELEASE_SIGNER_SHA256" ]; then
+            echo "::error::APK signer digest '${digest:-none}' ($signers signer(s)) is not the pinned release key. Refusing to publish." >&2
+            exit 1
+          fi
           mv "$apk" "apks/BeyGram-$VERSION-prod-release.apk"
 
       - name: Create or update release
@@ -228,6 +261,13 @@ jobs:
         run: |
           set -euo pipefail
           tag="v$VERSION"
+          # An existing tag must point at this commit, or --clobber would swap the APK
+          # of a release built from another commit.
+          tag_sha=$(gh api --method GET "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null || true)
+          if [ -n "$tag_sha" ] && [ "$tag_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $tag points to ${tag_sha::7}, not ${GITHUB_SHA::7}. Refusing to replace its APK." >&2
+            exit 1
+          fi
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
