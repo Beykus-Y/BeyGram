@@ -357,6 +357,7 @@ private fun BeyGramAppContent(
                     info = chatInfo.info,
                     history = history,
                     conversation = repository,
+                    chats = chats,
                     observeFile = repository::observeFile,
                     onDownloadFile = repository::downloadFile,
                     onBack = { routeName = chatBackRouteName },

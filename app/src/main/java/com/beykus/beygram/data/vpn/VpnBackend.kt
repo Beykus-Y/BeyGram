@@ -159,6 +159,9 @@ internal class VpnBackend private constructor(
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
             MihomoRuntimeDiagnostics.event("backend", "start timed out")
+            // The service keeps starting in its own scope after this caller gives up; stop it instead of leaving a foreground notification.
+            // startService throws when the app is in the background; that must not replace the timeout failure below.
+            runCatching { appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP)) }
             Result.failure(IllegalStateException("Прокси не запустился вовремя. Попробуйте ещё раз."))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend start", error); Result.failure(error) }
@@ -215,7 +218,18 @@ internal class VpnBackend private constructor(
                 val proxyWasRunning = runtimeState.value.status == ProxyRuntimeStatus.RUNNING
                 val groupName = mihomo.importSubscription(response.configuration)
                 mihomo.stopProxyListener()
-                if (proxyWasRunning) mihomo.startProxyListener()
+                if (proxyWasRunning) {
+                    try {
+                        mihomo.startProxyListener()
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        // The listener is already down and TDLib may still point at it. Roll TDLib back and stop the service
+                        // even if the rollback fails, so the runtime state does not report a working proxy.
+                        setTdLibProxy(false)
+                        runCatching { stopListenerNow() }
+                        throw error
+                    }
+                }
                 settingsStore.update { it.copy(subscriptionUrl = trimmedUrl, connectionGroup = groupName) }
                 var loaded = mihomo.listConnections(groupName)
                 if (loaded.isNotEmpty() && loaded.none { it.selected }) {

@@ -13,8 +13,12 @@ interface ConversationRepository {
     suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null): Result<Unit>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null): Result<Unit>
     suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities>
+    /** Place among the chat's attachments of the same kind; TDLib counts can be approximate in large chats. */
+    suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition>
     suspend fun editMessage(chatId: Long, messageId: Long, text: String): Result<Unit>
     suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit>
+    /** Regular forward (the original sender stays visible). TDLib refuses it when the message can't be forwarded. */
+    suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit>
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
     /** Messages in one chat whose text matches [query]. Pass 0 for the first page, then the previous page's nextFromMessageId. */
     suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>

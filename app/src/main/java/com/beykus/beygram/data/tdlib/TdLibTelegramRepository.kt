@@ -8,6 +8,8 @@ import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
@@ -145,8 +147,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         return tdRequests(TdApi.AddProxy(TdApi.Proxy(MihomoProxyClient.HOST, MihomoProxyClient.PORT, expected), false, MIHOMO_PROXY_COMMENT)).id
     }
 
+    /** Only the entry BeyGram created: a user's own SOCKS5 proxy on the same port has a different comment. */
     private fun TdApi.AddedProxy.isMihomoEntry(): Boolean =
-        proxy.server == MihomoProxyClient.HOST && proxy.port == MihomoProxyClient.PORT && proxy.type is TdApi.ProxyTypeSocks5
+        comment == MIHOMO_PROXY_COMMENT &&
+            proxy.server == MihomoProxyClient.HOST && proxy.port == MihomoProxyClient.PORT && proxy.type is TdApi.ProxyTypeSocks5
 
     private fun TdApi.AddedProxy.toSavedProxy(): SavedTelegramProxy? {
         val kind = when (proxy.type) {
@@ -233,8 +237,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val conversationEffects = TdConversationEffects({ client }, policy)
     override val messageLimits get() = conversationActions.limits
     override suspend fun messageCapabilities(chatId: Long, messageId: Long) = conversationActions.capabilities(chatId, messageId)
+    override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind) = conversationActions.mediaPosition(chatId, messageId, kind)
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String) = conversationActions.edit(chatId, messageId, text)
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) = conversationActions.delete(chatId, messageId, scope)
+    override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long) = conversationActions.forward(fromChatId, messageId, toChatId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)

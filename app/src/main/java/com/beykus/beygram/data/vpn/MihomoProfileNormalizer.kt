@@ -63,10 +63,11 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
         // uses an explicit loopback SOCKS inlet; no transparent TUN is created.
         config["allow-lan"] = false
         config["bind-address"] = MihomoProxyClient.HOST
+        // Shortcut inbounds open server ports as well (the port sits inside their value), so they are removed with listeners.
         listOf(
             "external-controller", "external-controller-tls", "external-controller-unix",
             "external-controller-pipe", "secret", "authentication", "skip-auth-prefixes",
-            "listeners"
+            "listeners", "ss-config", "vmess-config", "tuic-server"
         ).forEach(config::remove)
         listOf("port", "mixed-port", "redir-port", "tproxy-port", "tun-port").forEach { key ->
             if (key in config) config[key] = 0

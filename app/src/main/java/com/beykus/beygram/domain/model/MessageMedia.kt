@@ -4,6 +4,9 @@ import java.io.Serializable
 
 enum class MediaKind { Photo, Video, Animation, Sticker, Audio, Document, Voice, VideoNote }
 
+/** Место медиа среди вложений того же вида в чате: [number] отсчитывается от самого раннего, с 1. */
+data class MediaPosition(val number: Int, val total: Int)
+
 data class MessageMedia(
     val kind: MediaKind,
     val fileId: Int,

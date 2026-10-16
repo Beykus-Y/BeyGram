@@ -5,6 +5,8 @@ import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.ProfileState
@@ -211,7 +213,13 @@ class MockTelegramRepository : TelegramRepository {
     }
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> {
         val message = messagesByChatId[chatId]?.firstOrNull { it.id == messageId } ?: return Result.failure(IllegalStateException("Сообщение недоступно"))
-        return Result.success(MessageCapabilities(true, true, message.isOutgoing, true, message.isOutgoing))
+        return Result.success(MessageCapabilities(true, true, message.isOutgoing, true, message.isOutgoing, canForward = true, canSave = true))
+    }
+    override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition> {
+        val sameKind = messagesByChatId[chatId].orEmpty().filter { it.media?.kind == kind }
+        val index = sameKind.indexOfFirst { it.id == messageId }
+        if (index < 0) return Result.failure(IllegalStateException("Сообщение недоступно"))
+        return Result.success(MediaPosition(index + 1, sameKind.size))
     }
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String): Result<Unit> {
         val messages = messagesByChatId[chatId] ?: return Result.failure(IllegalStateException("Сообщение недоступно"))
@@ -226,6 +234,7 @@ class MockTelegramRepository : TelegramRepository {
         historyStates[chatId]?.let { it.value = it.value.copy(messages = messagesByChatId[chatId].orEmpty().toList()) }
         return Result.success(Unit)
     }
+    override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit> = Result.success(Unit)
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = Result.success(MessageContext(chatId, "Чат", messageId, messagesByChatId[chatId].orEmpty().toList()))
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> =
         Result.success(MessageSearchPage(messagesByChatId[chatId].orEmpty().filter { it.text.contains(query, ignoreCase = true) }, 0L))
