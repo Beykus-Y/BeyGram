@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="sharedpref" path="vpn-settings.xml" />
+    <!-- The loopback SOCKS credentials are per installation; a restored copy would share them with another device. -->
+    <exclude domain="sharedpref" path="mihomo-loopback.xml" />
 </full-backup-content>
