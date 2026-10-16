@@ -100,6 +100,9 @@ fun ChatScreen(
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
     fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null }
     fun closeEdit() { editId = null; editText = ""; editError = null }
+    LaunchedEffect(actionMessage) {
+        if (actionMessage == null) { deleting = false; deleteError = null; capabilities = null; capabilitiesError = null }
+    }
     LaunchedEffect(actionsId, capabilitiesAttempt) {
         val id = actionsId ?: return@LaunchedEffect
         capabilities = null; capabilitiesError = null

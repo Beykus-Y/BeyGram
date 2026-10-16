@@ -19,7 +19,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-release-${{ github.ref }}
@@ -109,6 +109,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PUBLISH: ${{ steps.version.outputs.publish }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/apks"
@@ -130,6 +131,10 @@ jobs:
               "$RUNNER_TEMP/aligned.apk"
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
+            if [ "$PUBLISH" = "true" ]; then
+              echo "::error::Refusing to publish an unsigned release APK. Set the ANDROID_KEYSTORE_* secrets." >&2
+              exit 1
+            fi
             cp "$release_in" "$release_out"
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
@@ -150,6 +155,8 @@ jobs:
     if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - name: Download APKs
         uses: actions/download-artifact@v4
@@ -170,4 +177,6 @@ jobs:
               --title "BeyGram $VERSION" \
               --notes "Android APKs built from ${GITHUB_SHA::7}."
           fi
-          gh release upload "$tag" apks/*.apk --repo "$GITHUB_REPOSITORY" --clobber
+          # The dev debug APK is signed with the runner's debug key, so it is
+          # kept as a workflow artifact and not published.
+          gh release upload "$tag" "apks/BeyGram-$VERSION-prod-release.apk" --repo "$GITHUB_REPOSITORY" --clobber

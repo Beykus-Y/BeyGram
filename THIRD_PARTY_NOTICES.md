@@ -10,6 +10,10 @@ The generated Java bindings and the native library must be updated together. The
 
 The native build scripts use [OpenSSL 3.3.0](https://github.com/openssl/openssl/tree/openssl-3.3.0), licensed under Apache License 2.0. See [LICENSES/OpenSSL-Apache-2.0.txt](LICENSES/OpenSSL-Apache-2.0.txt).
 
+## Source Sans 3
+
+`app/src/main/res/font/source_sans_3.ttf` is Source Sans 3 by Adobe, licensed under the SIL Open Font License 1.1. See [LICENSES/SourceSans3-OFL-1.1.txt](LICENSES/SourceSans3-OFL-1.1.txt).
+
 ## Other build/runtime dependencies
 
 AndroidX/Jetpack Compose, Kotlin, coroutines and the Android Gradle tooling are resolved through Gradle. Their versions and repositories are declared in `gradle/libs.versions.toml`, the Gradle build scripts and the wrapper configuration; they retain their respective upstream licenses.
