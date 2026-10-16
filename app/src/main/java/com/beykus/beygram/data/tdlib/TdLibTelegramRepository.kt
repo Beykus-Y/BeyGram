@@ -21,6 +21,11 @@ import com.beykus.beygram.domain.model.InteractionPolicy
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.NotificationPresentation
+import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.TelegramProxyDraft
+import com.beykus.beygram.domain.model.TelegramProxyKind
+import com.beykus.beygram.data.vpn.LoopbackProxyCredentials
+import com.beykus.beygram.data.vpn.MihomoProxyClient
 import com.beykus.beygram.diagnostics.ConnectionEventLog
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,11 +40,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.text.DateFormat
 import java.util.Date
 
@@ -53,32 +61,117 @@ import java.util.Date
  */
 class TdLibTelegramRepository private constructor(context: Context, policy: InteractionPolicy) : TelegramRepository {
 
-    private val mihomoProxyMutex = Mutex()
+    private val proxyMutex = Mutex()
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences("mihomo_tdlib_proxy", Context.MODE_PRIVATE)
+    private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
 
-    override suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit> = mihomoProxyMutex.withLock {
+    // ---- Прокси Telegram -----------------------------------------------------
+
+    override suspend fun loadSavedProxies(): Result<List<SavedTelegramProxy>> = requestResult {
+        tdRequests(TdApi.GetProxies()).proxies.orEmpty()
+            .filterNot { it.isMihomoEntry() }
+            .mapNotNull { it.toSavedProxy() }
+    }
+
+    override suspend fun addProxy(draft: TelegramProxyDraft, enable: Boolean): Result<Unit> = proxyMutex.withLock {
+        requestResult {
+            tdRequests(TdApi.AddProxy(draft.toTdProxy(), enable, USER_PROXY_COMMENT))
+            Unit
+        }
+    }
+
+    override suspend fun enableProxy(id: Int): Result<Unit> = proxyMutex.withLock {
+        requestResult { tdRequests(TdApi.EnableProxy(id)); Unit }
+    }
+
+    override suspend fun disableProxy(): Result<Unit> = proxyMutex.withLock {
+        requestResult { tdRequests(TdApi.DisableProxy()); Unit }
+    }
+
+    override suspend fun removeProxy(id: Int): Result<Unit> = proxyMutex.withLock {
+        requestResult { tdRequests(TdApi.RemoveProxy(id)); Unit }
+    }
+
+    override suspend fun isMihomoProxyEnabled(): Boolean =
+        requestResult { tdRequests(TdApi.GetProxies()).proxies.orEmpty().any { it.isEnabled && it.isMihomoEntry() } }
+            .getOrDefault(false)
+
+    override suspend fun measureProxyLatency(server: String, port: Int): Result<Long> = withContext(Dispatchers.IO) {
         try {
+            val started = System.nanoTime()
+            Socket().use { it.connect(InetSocketAddress(server.trim(), port), PROXY_PING_TIMEOUT_MS) }
+            Result.success((System.nanoTime() - started) / 1_000_000L)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(IllegalStateException("Нет ответа от сервера"))
+        }
+    }
+
+    /** Routes TDLib through BeyGram's local Mihomo listener, or restores the proxy that was active before it. */
+    override suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit> = proxyMutex.withLock {
+        requestResult {
             val proxies = tdRequests(TdApi.GetProxies()).proxies.orEmpty().toList()
+            val current = proxies.firstOrNull { it.isEnabled }
             if (enabled) {
-                val local = proxies.firstOrNull { it.proxy.server == MIHOMO_PROXY_HOST && it.proxy.port == MIHOMO_PROXY_PORT && it.proxy.type is TdApi.ProxyTypeSocks5 }
-                    ?: tdRequests(TdApi.AddProxy(TdApi.Proxy(MIHOMO_PROXY_HOST, MIHOMO_PROXY_PORT, TdApi.ProxyTypeSocks5("", "")), false, "BeyGram Mihomo"))
-                val previous = proxies.firstOrNull { it.isEnabled && it.id != local.id }?.id ?: 0
-                if (previous != 0) mihomoProxyPrefs.edit().putInt(KEY_PREVIOUS_PROXY_ID, previous).apply()
-                mihomoProxyPrefs.edit().putInt(KEY_LOCAL_PROXY_ID, local.id).apply()
-                tdRequests(TdApi.EnableProxy(local.id))
+                val localId = ensureMihomoEntry(proxies)
+                // Remember a manual proxy (or direct mode) once, so a repeated enable keeps the original choice.
+                if (current == null || !current.isMihomoEntry()) {
+                    mihomoProxyPrefs.edit().putInt(KEY_PREVIOUS_PROXY_ID, current?.id ?: 0).apply()
+                }
+                tdRequests(TdApi.EnableProxy(localId))
             } else {
-                tdRequests(TdApi.DisableProxy())
-                val previousId = mihomoProxyPrefs.getInt(KEY_PREVIOUS_PROXY_ID, 0)
-                if (previousId != 0 && proxies.any { it.id == previousId }) tdRequests(TdApi.EnableProxy(previousId))
+                // Only undo the local entry; a manual proxy the user chose later is left untouched.
+                if (current?.isMihomoEntry() == true) {
+                    val previousId = mihomoProxyPrefs.getInt(KEY_PREVIOUS_PROXY_ID, 0)
+                    val previous = proxies.firstOrNull { it.id == previousId && !it.isMihomoEntry() }
+                    if (previous != null) tdRequests(TdApi.EnableProxy(previous.id)) else tdRequests(TdApi.DisableProxy())
+                }
                 mihomoProxyPrefs.edit().remove(KEY_PREVIOUS_PROXY_ID).apply()
             }
-            Result.success(Unit)
-        } catch (error: kotlinx.coroutines.CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Result.failure(error)
+            Unit
         }
+    }
+
+    /** Returns the id of BeyGram's local SOCKS entry with the current credentials; an outdated entry is replaced. */
+    private suspend fun ensureMihomoEntry(proxies: List<TdApi.AddedProxy>): Int {
+        val existing = proxies.firstOrNull { it.isMihomoEntry() }
+        val type = existing?.proxy?.type as? TdApi.ProxyTypeSocks5
+        if (existing != null && type != null && type.username == loopbackCredentials.username && type.password == loopbackCredentials.password) {
+            return existing.id
+        }
+        if (existing != null) tdRequests(TdApi.RemoveProxy(existing.id))
+        val expected = TdApi.ProxyTypeSocks5(loopbackCredentials.username, loopbackCredentials.password)
+        return tdRequests(TdApi.AddProxy(TdApi.Proxy(MihomoProxyClient.HOST, MihomoProxyClient.PORT, expected), false, MIHOMO_PROXY_COMMENT)).id
+    }
+
+    private fun TdApi.AddedProxy.isMihomoEntry(): Boolean =
+        proxy.server == MihomoProxyClient.HOST && proxy.port == MihomoProxyClient.PORT && proxy.type is TdApi.ProxyTypeSocks5
+
+    private fun TdApi.AddedProxy.toSavedProxy(): SavedTelegramProxy? {
+        val kind = when (proxy.type) {
+            is TdApi.ProxyTypeMtproto -> TelegramProxyKind.MTPROTO
+            is TdApi.ProxyTypeSocks5 -> TelegramProxyKind.SOCKS5
+            is TdApi.ProxyTypeHttp -> TelegramProxyKind.HTTP
+            else -> return null
+        }
+        return SavedTelegramProxy(id = id, kind = kind, server = proxy.server, port = proxy.port, enabled = isEnabled)
+    }
+
+    private fun TelegramProxyDraft.toTdProxy(): TdApi.Proxy {
+        val host = server.trim()
+        require(host.isNotEmpty()) { "Укажите адрес сервера" }
+        require(port in 1..65_535) { "Порт должен быть от 1 до 65535" }
+        val type: TdApi.ProxyType = when (kind) {
+            TelegramProxyKind.MTPROTO -> {
+                require(secret.isNotBlank()) { "Укажите секрет MTProto" }
+                TdApi.ProxyTypeMtproto(secret.trim())
+            }
+            TelegramProxyKind.SOCKS5 -> TdApi.ProxyTypeSocks5(username.trim(), password)
+            TelegramProxyKind.HTTP -> TdApi.ProxyTypeHttp(username.trim(), password, false)
+        }
+        return TdApi.Proxy(host, port, type)
     }
 
 
@@ -248,28 +341,6 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             _authState.value = AuthState.Loading
             startAuthTimeout()
         }
-    }
-
-    override fun addProxy(
-        server: String,
-        port: Int,
-        isMtproto: Boolean,
-        username: String,
-        password: String,
-        secret: String
-    ) {
-        val type = if (isMtproto) {
-            TdApi.ProxyTypeMtproto(secret.trim())
-        } else {
-            TdApi.ProxyTypeSocks5(username.trim(), password)
-        }
-        val proxy = TdApi.Proxy(server.trim(), port, type)
-        client.send(TdApi.AddProxy(proxy, false, "BeyGram"), Client.ResultHandler { result ->
-            when (result) {
-                is TdApi.AddedProxy -> client.send(TdApi.EnableProxy(result.id), errorHandler())
-                is TdApi.Error -> _authState.value = AuthState.Error(result.message)
-            }
-        })
     }
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = messageHistory.observe(chatId)
@@ -621,10 +692,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     companion object {
-        private const val MIHOMO_PROXY_HOST = "127.0.0.1"
-        private const val MIHOMO_PROXY_PORT = 17891
-        private const val KEY_LOCAL_PROXY_ID = "local_proxy_id"
+        private const val MIHOMO_PROXY_COMMENT = "BeyGram Mihomo"
+        private const val USER_PROXY_COMMENT = "BeyGram"
         private const val KEY_PREVIOUS_PROXY_ID = "previous_proxy_id"
+        private const val PROXY_PING_TIMEOUT_MS = 5_000
         private const val AUTH_REQUEST_TIMEOUT_MS = 35_000L
         @Volatile private var instance: TdLibTelegramRepository? = null
 
