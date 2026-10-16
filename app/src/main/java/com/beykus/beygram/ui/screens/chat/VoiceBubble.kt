@@ -169,7 +169,11 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
             VoicePlayback.toggle(path, onPlayed)
         }
     }
-    Row(Modifier.width(244.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    // Промежутки между кнопкой и волной тоже запускают воспроизведение, а не открывают просмотрщик вложения.
+    Row(
+        Modifier.width(244.dp).padding(vertical = 4.dp).combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Box(
             Modifier.size(44.dp).clip(CircleShape).background(palette.accentSoft)
                 .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress),

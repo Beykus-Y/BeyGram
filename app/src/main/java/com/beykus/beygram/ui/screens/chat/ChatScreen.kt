@@ -337,10 +337,11 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val shape = if (message.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     val hasText = message.text.isNotBlank()
     Box(Modifier.fillMaxWidth(), contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart) {
+        // Голосовое управляется своими кнопками в пузыре и не открывает просмотрщик.
         Column(Modifier.widthIn(max = 292.dp).clip(shape)
             .background(if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
             .then(if (highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-            .combinedClickable(onClick = { if (message.media != null) onOpen() }, onLongClick = onActions)) {
+            .combinedClickable(onClick = { if (message.media != null && message.media.kind != MediaKind.Voice) onOpen() }, onLongClick = onActions)) {
             // Media sits flush against the bubble's top and side edges; text keeps its own padding.
             message.media?.let { MediaPreview(it, observeFile, onDownloadFile, onOpen, onActions, onPlayed) }
             Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp)) {
