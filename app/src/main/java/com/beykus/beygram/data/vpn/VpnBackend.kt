@@ -85,8 +85,10 @@ internal class VpnBackend private constructor(
      */
     private suspend fun restore(switchOffOnFailure: Boolean) {
         restoreMutex.withLock {
-            if (runtimeState.value.status == ProxyRuntimeStatus.RUNNING) return
+            if (listenerInUse()) return
             val enabled = awaitTdLibProxyState() ?: return
+            // A start or stop may have begun while TDLib was asked; that request owns the listener now.
+            if (listenerInUse()) return
             if (enabled) {
                 startProxy()
                     .onSuccess { refreshConnections() }
@@ -118,8 +120,16 @@ internal class VpnBackend private constructor(
     private suspend fun prepareCoreWithoutListener() {
         runCatching {
             mihomo.ensureInitialized()
+            // Loading the core takes a while, and a start may have begun meanwhile. Then the listener belongs to that start.
+            if (listenerInUse()) return@runCatching
             mihomo.stopProxyListener()
         }.onSuccess { refreshConnections() }
+    }
+
+    /** True while the listener is up or changing. A start or stop under way owns it, so a restore must leave it alone. */
+    private fun listenerInUse(): Boolean = when (runtimeState.value.status) {
+        ProxyRuntimeStatus.STARTING, ProxyRuntimeStatus.RUNNING, ProxyRuntimeStatus.STOPPING -> true
+        ProxyRuntimeStatus.STOPPED, ProxyRuntimeStatus.FAILED -> false
     }
 
     fun updateAutoSelect(enabled: Boolean) {
@@ -134,6 +144,8 @@ internal class VpnBackend private constructor(
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy start requested")
             if (!mihomo.profileExists()) throw IllegalStateException("Сначала загрузите подписку Mihomo")
+            // An earlier failure must not answer this start, so it is cleared before the intent is sent.
+            MihomoProxyService.clearFailure()
             ContextCompat.startForegroundService(appContext, Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_START))
             val state = withTimeout(30_000) {
                 MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.RUNNING || it.status == ProxyRuntimeStatus.FAILED }

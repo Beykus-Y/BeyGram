@@ -72,7 +72,8 @@ internal fun ProxyListScreen(
     val reload: () -> Unit = {
         scope.launch {
             saved = repository.loadSavedProxies().getOrElse { error -> message = error.message; emptyList() }
-            mihomoEnabled = repository.isMihomoProxyEnabled().getOrDefault(false)
+            // A failed query keeps the last known state: an error must not show the proxy as off.
+            repository.isMihomoProxyEnabled().onSuccess { mihomoEnabled = it }
             latency = emptyMap()
             saved.forEach { proxy ->
                 launch {

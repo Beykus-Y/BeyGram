@@ -27,7 +27,8 @@ internal class SubscriptionClient(
             fetchVia(subscriptionUrl, proxy)
         } catch (error: IOException) {
             // The selected node can be down while the subscription host is reachable. Only a network failure is retried,
-            // once and directly; an HTTP or format error is not a route problem and is reported as it is.
+            // once and directly, which shows the device's own address to the subscription host. An HTTP or format error
+            // is not a route problem and is reported as it is.
             VpnSubscriptionDiagnostics.failure("route", error)
             VpnSubscriptionDiagnostics.event("route", "direct retry after proxy failure")
             fetchVia(subscriptionUrl, proxy = null)
