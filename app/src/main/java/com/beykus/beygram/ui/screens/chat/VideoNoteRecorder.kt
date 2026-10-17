@@ -31,6 +31,7 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
@@ -417,21 +418,32 @@ internal fun VideoNoteRecordButton(recorder: VideoNoteRecorder, enabled: Boolean
     }
 }
 
-/** Строка записи вместо поля ввода: иконка удаления и подсказка про отмену сдвигом влево. */
+/** Нижняя панель состояния видеосообщения с явной отменой после фиксации. */
 @Composable
-internal fun VideoNoteRecordingHint(modifier: Modifier = Modifier) {
+internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modifier = Modifier, onCancel: () -> Unit) {
     val palette = beyGramPalette()
-    Row(modifier.height(40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-        Icon(Icons.Rounded.Delete, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(stringResource(R.string.recorder_swipe_left_hint), color = palette.textSecondary, fontSize = 14.sp, maxLines = 1,
-            modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(palette.surface2).padding(horizontal = 16.dp, vertical = 9.dp))
+    Row(modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface2).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.size(9.dp).clip(CircleShape).background(palette.danger))
+        Icon(Icons.Rounded.Videocam, null, tint = palette.danger, modifier = Modifier.size(19.dp))
+        Text(duration((recorder.elapsedMs / 1000).toInt()), color = palette.textPrimary, fontSize = 16.sp)
+        Text(
+            if (recorder.locked) stringResource(R.string.recorder_locked) else stringResource(R.string.recorder_swipe_left_hint),
+            color = palette.textSecondary,
+            fontSize = 13.sp,
+            maxLines = 1,
+            modifier = Modifier.weight(1f)
+        )
+        if (recorder.locked) {
+            Text(stringResource(R.string.recorder_cancel), color = palette.warningText, fontSize = 13.sp,
+                modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable(onClick = onCancel).padding(horizontal = 8.dp, vertical = 7.dp))
+        }
     }
 }
 
 /** Экран записи вместо ленты: кадр в круге, кольцо прогресса к лимиту 60 секунд и подсказки. */
 @Composable
-internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, onDelete: () -> Unit, modifier: Modifier = Modifier) {
+internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     Column(
         modifier.fillMaxSize().background(palette.screen).padding(14.dp),
@@ -463,7 +475,6 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, onDelete: ()
         Spacer(Modifier.height(16.dp))
         if (recorder.locked) {
             Text(stringResource(R.string.recorder_locked), color = palette.accentInk, fontSize = 15.sp)
-            androidx.compose.material3.TextButton(onClick = onDelete) { Text(stringResource(R.string.recorder_cancel), color = palette.warningText) }
         } else {
             Text(if (recorder.canceling) stringResource(R.string.recorder_release_to_cancel) else stringResource(R.string.recorder_release_to_send), color = palette.textPrimary, fontSize = 14.sp)
             Text(stringResource(R.string.recorder_swipe_up_lock), color = palette.textSecondary, fontSize = 14.sp)

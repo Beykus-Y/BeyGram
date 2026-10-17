@@ -349,7 +349,7 @@ fun ChatScreen(
         }
         if (searching) ChatSearchResults(searchQuery, searchResults, searchBusy, searchError, hasMore = searchNextId != 0L,
             onOpen = ::openSearchResult, onMore = ::loadMoreResults)
-        if (videoNote.active) VideoNoteRecordingOverlay(videoNote, onDelete = videoNote::discardLocked)
+        if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
         error?.let { failure -> Row(Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(failure, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -399,7 +399,7 @@ fun ChatScreen(
                 else Spacer(Modifier.width(8.dp))
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
-            else if (recordingActive) VideoNoteRecordingHint(Modifier.weight(1f))
+            else if (videoNote.active) VideoNoteRecordingDock(videoNote, Modifier.weight(1f), onCancel = videoNote::discardLocked)
             else TextField(fieldText, { if (editing) editText = it else draft = it }, enabled = !busy, modifier = Modifier.weight(1f).defaultMinSize(minHeight = 40.dp),
                 placeholder = { Text(if (attachments.active) stringResource(R.string.chat_caption_placeholder) else stringResource(R.string.chat_message), color = palette.textSecondary) }, maxLines = 5,
                 shape = RoundedCornerShape(20.dp), colors = beyGramFilledTextFieldColors(), isError = overLimit)
