@@ -26,6 +26,20 @@ sealed interface UpdateStatus {
     data class Failure(val message: String, val release: StableRelease? = null) : UpdateStatus
 }
 
+/** Pure policy that guards all user-triggered network/file actions during install handoff. */
+internal object StableUpdateActionPolicy {
+    fun canCheck(state: UpdateStatus): Boolean =
+        state !is UpdateStatus.Checking &&
+            state !is UpdateStatus.Downloading &&
+            state !is UpdateStatus.PreparingInstall
+
+    fun canDownload(state: UpdateStatus, release: StableRelease): Boolean = when (state) {
+        is UpdateStatus.Available -> state.release == release
+        is UpdateStatus.Failure -> state.release == release
+        else -> false
+    }
+}
+
 class StableUpdatesViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = StableUpdateRepository(application.applicationContext)
     var status: UpdateStatus by mutableStateOf(UpdateStatus.Idle)
@@ -35,8 +49,7 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
     private var runningJob: Job? = null
 
     fun check() {
-        if (status is UpdateStatus.Checking || status is UpdateStatus.Downloading ||
-            status is UpdateStatus.PreparingInstall) return
+        if (!StableUpdateActionPolicy.canCheck(status)) return
         installHint = null
         status = UpdateStatus.Checking
         runningJob = viewModelScope.launch {
@@ -53,10 +66,7 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun download(release: StableRelease) {
-        val previous = status
-        if (previous !is UpdateStatus.Available && previous !is UpdateStatus.Failure) return
-        if (previous is UpdateStatus.Available && previous.release != release) return
-        if (previous is UpdateStatus.Failure && previous.release != release) return
+        if (!StableUpdateActionPolicy.canDownload(status, release)) return
         installHint = null
         status = UpdateStatus.Downloading(release, 0)
         runningJob = viewModelScope.launch {
