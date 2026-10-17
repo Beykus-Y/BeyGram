@@ -548,6 +548,7 @@
     <string name="recorder_switch_to_back_description">Переключить на заднюю камеру</string>
     <string name="recorder_switch_to_front_description">Переключить на переднюю камеру</string>
     <string name="recorder_start_failed">Не удалось начать запись</string>
+    <string name="recorder_zoom_value">%1$.1f×</string>
     <string name="recorder_swipe_left_cancel">Влево — отменить</string>
     <string name="recorder_swipe_left_hint">‹ Сдвиньте влево для отмены</string>
     <string name="settings_video_recording_title">Запись видеосообщений</string>
