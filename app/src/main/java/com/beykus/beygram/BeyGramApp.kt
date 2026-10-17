@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -23,6 +24,7 @@ import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.ArchiveSettings
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
@@ -56,6 +58,7 @@ import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyRestoreDialog
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
 import com.beykus.beygram.ui.text.resolve
+import kotlinx.coroutines.launch
 
 @Composable
 fun BeyGramApp(
@@ -146,6 +149,19 @@ private fun BeyGramAppContent(
     }
     val archiveSettingsStore = remember(context) { ArchiveSettingsStore.get(context) }
     val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
+    val archiveSettingsScope = rememberCoroutineScope()
+    val onArchiveSettingsChange: (ArchiveSettings) -> Unit = { next ->
+        val previous = archiveSettingsStore.state.value
+        archiveSettingsStore.update(next)
+        // Возврат из архива — настройка аккаунта: при ошибке записи возвращаем переключатель назад.
+        if (next.returnOnNewMessage != previous.returnOnNewMessage) {
+            archiveSettingsScope.launch {
+                repository.setArchiveReturnsOnNewMessage(next.returnOnNewMessage).onFailure {
+                    archiveSettingsStore.update(archiveSettingsStore.state.value.copy(returnOnNewMessage = previous.returnOnNewMessage))
+                }
+            }
+        }
+    }
     // Нижнее меню: какие разделы видны. Скрытые разделы открываются из профиля; настройка сохраняется между запусками.
     val tabPreferences = remember(context) { MainTabPreferences(context) }
     var tabVisibility by remember { mutableStateOf(tabPreferences.load()) }
@@ -263,7 +279,7 @@ private fun BeyGramAppContent(
             onMarkRead = markChatRead,
             onUnarchive = unarchiveChat,
             settings = archiveSettings,
-            onSettingsChange = archiveSettingsStore::update,
+            onSettingsChange = onArchiveSettingsChange,
             onBack = { routeName = AppRoute.Chats.name },
             onChatClick = { chat ->
                 selectedChatId = chat.id

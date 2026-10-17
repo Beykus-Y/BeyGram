@@ -236,6 +236,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
         TdRequests { client }(TdApi.AddChatToList(chatId, list)); Unit
     }
+    override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = requestResult {
+        !TdRequests { client }(TdApi.GetArchiveChatListSettings()).keepUnmutedChatsArchived
+    }
+    override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = requestResult {
+        // Меняем одно поле: остальные настройки архива аккаунта должны остаться прежними.
+        val settings = TdRequests { client }(TdApi.GetArchiveChatListSettings())
+        settings.keepUnmutedChatsArchived = !enabled
+        TdRequests { client }(TdApi.SetArchiveChatListSettings(settings)); Unit
+    }
     override suspend fun markChatRead(chatId: Long): Result<Unit> = conversationResult {
         val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L } ?: throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
         TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true)); Unit
@@ -561,6 +570,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.AuthorizationStateReady -> {
                 _authState.value = AuthState.Ready
                 loadChats()
+                syncArchiveReturnSetting()
                 profiles.refreshMe()
                 conversationActions.initialize()
                 conversationEffects.authorized()
@@ -601,6 +611,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun loadChats() {
         loadChatList(TdApi.ChatListMain())
         loadChatList(TdApi.ChatListArchive())
+    }
+
+    /** Переключатель возврата из архива показывает настройку аккаунта, поэтому читаем её при входе. */
+    private fun syncArchiveReturnSetting() {
+        chatListScope.launch {
+            archiveReturnsOnNewMessage().onSuccess { returns ->
+                val store = ArchiveSettingsStore.get(appContext)
+                store.update(store.state.value.copy(returnOnNewMessage = returns))
+            }
+        }
     }
 
     /**

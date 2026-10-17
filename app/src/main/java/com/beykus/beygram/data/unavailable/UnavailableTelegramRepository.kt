@@ -61,6 +61,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit> = unavailable()
     override suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit> = unavailable()
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = unavailable()
+    override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = unavailable()
+    override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = unavailable()
     override suspend fun markChatRead(chatId: Long): Result<Unit> = unavailable()
     override suspend fun loadContacts(): Result<List<ContactPreview>> = Result.success(emptyList())
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> = unavailable()
