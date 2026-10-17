@@ -12,6 +12,7 @@ import android.util.Log
 import android.view.Surface
 import android.view.ViewGroup
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.ViewPort
@@ -376,6 +377,8 @@ internal class VideoNoteRecorder(
                 .setTargetVideoEncodingBitRate(bitrate)
                 .build()
         )
+        // Запись фронтальной камеры отражается так же, как превью: отправленный кружок совпадает с тем, что видно при записи.
+        captureBuilder.setMirrorMode(MirrorMode.MIRROR_MODE_ON_FRONT_ONLY)
         if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
         captureFpsRange = fpsRange
         return captureBuilder.build()
@@ -396,6 +399,7 @@ internal class VideoNoteRecorder(
         )
         val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         val previewBuilder = Preview.Builder()
+        previewBuilder.setMirrorMode(MirrorMode.MIRROR_MODE_ON_FRONT_ONLY)
         if (fpsRange != null) previewBuilder.setTargetFrameRate(fpsRange)
         val preview = previewBuilder.build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
