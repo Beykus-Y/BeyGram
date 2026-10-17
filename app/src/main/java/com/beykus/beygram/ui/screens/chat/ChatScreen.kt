@@ -533,7 +533,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
         Column(Modifier.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
             .then(if (message.media != null && !circle) Modifier.width(244.dp) else Modifier).clip(shape)
             .background(if (circle) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
-            .then(if (highlighted) Modifier.border(2.dp, palette.accent, if (circle) CircleShape else shape) else Modifier)
+            .then(if (highlighted && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
             .combinedClickable(onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() }, onLongClick = onActions)) {
             if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
             // Media sits flush against the bubble's top and side edges; text keeps its own padding.
@@ -545,7 +545,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         message.sendState == MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
                         isRead -> stringResource(R.string.chat_read_description)
                         else -> stringResource(R.string.chat_sent_description)
-                    }, unseen = !message.isOutgoing && !media.isViewed)
+                    }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted)
                 else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed)
             }
             Column(Modifier.padding(start = 12.dp, end = 12.dp, top = if (circle) 4.dp else 8.dp, bottom = if (circle) 0.dp else 6.dp)) {

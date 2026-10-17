@@ -6,6 +6,7 @@ import android.view.Surface
 import android.view.TextureView
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -171,7 +172,8 @@ internal fun VideoNoteBubble(
     time: String = "",
     statusIcon: ImageVector? = null,
     statusDescription: String? = null,
-    unseen: Boolean = false
+    unseen: Boolean = false,
+    highlighted: Boolean = false
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
@@ -215,7 +217,7 @@ internal fun VideoNoteBubble(
     // Во время проигрывания показывается оставшееся время, как в оригинальном клиенте.
     val shownSeconds = if (holder.started && holder.durationMs > 0) (holder.durationMs - holder.positionMs + 500) / 1000 else media.durationSeconds
     Column(horizontalAlignment = Alignment.End) {
-        Box(Modifier.size(size)) {
+        Box(Modifier.size(size).then(if (highlighted) Modifier.border(2.dp, palette.accent, CircleShape) else Modifier)) {
             Box(
                 Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
                     .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress),

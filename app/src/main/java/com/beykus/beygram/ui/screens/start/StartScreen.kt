@@ -145,13 +145,14 @@ fun StartScreen(
                 TelegramConnectionState.Updating -> stringResource(R.string.start_connection_updating) to palette.warningText
                 TelegramConnectionState.Unknown -> stringResource(R.string.start_connection_checking) to palette.textSecondary
             }
-            Text(connectionText, color = connectionColor, fontSize = 13.sp)
+            if (tdLibReadiness.canCreateClient) Text(connectionText, color = connectionColor, fontSize = 13.sp)
             TextButton(onClick = onProxySettings) { Text(stringResource(R.string.start_proxy_settings)) }
         }
 
         Button(
             onClick = onStartClick,
             modifier = Modifier.fillMaxWidth(),
+            enabled = tdLibReadiness.canCreateClient,
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = palette.accent,
@@ -160,7 +161,7 @@ fun StartScreen(
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
             Text(
-                text = if (tdLibReadiness.canCreateClient) stringResource(R.string.auth_sign_in) else stringResource(R.string.start_continue_demo),
+                text = stringResource(R.string.auth_sign_in),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.sp
