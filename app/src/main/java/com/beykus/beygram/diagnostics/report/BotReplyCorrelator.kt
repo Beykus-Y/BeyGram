@@ -47,6 +47,10 @@ class BotReplyCorrelator(
         sentMessageIds.remove(oldMessageId)
     }
 
+    /** Отправка с этим id принадлежит этой команде (ещё не заменена финальным id или не провалена). */
+    @Synchronized
+    fun owns(messageId: Long): Boolean = messageId in sentMessageIds
+
     @Synchronized
     fun onIncoming(message: TdApi.Message): Verdict? {
         // Приватный чат с ботом: только он и только он.

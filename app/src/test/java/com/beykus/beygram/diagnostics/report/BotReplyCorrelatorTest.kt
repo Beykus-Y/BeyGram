@@ -2,6 +2,7 @@ package com.beykus.beygram.diagnostics.report
 
 import org.drinkless.tdlib.TdApi
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -136,5 +137,24 @@ class BotReplyCorrelatorTest {
         c.trackSent(42L)
         c.onSendFailed(42L)
         assertNull(c.onIncoming(botReply(42L, confirmedText())))
+    }
+
+    @Test
+    fun `send success that arrives before tracking still confirms the final id`() {
+        val c = correlator()
+        c.onSendSucceeded(42L, 100L)
+        c.trackSent(42L)
+        val verdict = c.onIncoming(botReply(100L, confirmedText()))
+        assertTrue(verdict is BotReplyCorrelator.Verdict.Confirmed)
+    }
+
+    @Test
+    fun `ownership covers only the tracked command`() {
+        val c = correlator()
+        c.trackSent(42L)
+        assertTrue(c.owns(42L))
+        assertFalse(c.owns(7L))
+        c.onSendSucceeded(42L, 100L)
+        assertFalse(c.owns(42L))
     }
 }
