@@ -50,7 +50,7 @@ class MessageHistoryStoreTest {
         val store = MessageHistoryStore()
         store.put(message(1L))
         store.put(message(2L, 2L, state = MessageSendState.Sending))
-        store.replaceWithWindow(1L, listOf(message(50L, 50L), message(51L, 51L)))
+        store.replaceWithWindow(1L, listOf(message(50L, 50L), message(51L, 51L)), reachesLatest = false)
         val history = store.observe(1L).value
         assertEquals(listOf(2L, 50L, 51L), history.messages.map { it.id })
         assertTrue(history.hasNewerMessages)
@@ -58,12 +58,40 @@ class MessageHistoryStoreTest {
         assertFalse(history.isLoading)
     }
 
-    @Test fun resetToLatestDropsTheJumpWindowUntilTheNextLoad() {
+    @Test fun windowThatReachesTheNewestMessagesIsNotMarkedAsGapped() {
         val store = MessageHistoryStore()
-        store.replaceWithWindow(1L, listOf(message(50L, 50L)))
-        store.resetToLatest(1L)
-        assertEquals(emptyList<ChatMessage>(), store.observe(1L).value.messages)
+        store.replaceWithWindow(1L, listOf(message(50L, 50L)), reachesLatest = true)
         assertFalse(store.observe(1L).value.hasNewerMessages)
+    }
+
+    @Test fun incomingMessageDoesNotJoinAJumpWindow() {
+        val store = MessageHistoryStore()
+        store.replaceWithWindow(1L, listOf(message(50L, 50L)), reachesLatest = false)
+        store.put(message(60L, 60L))
+        assertEquals(listOf(50L), store.observe(1L).value.messages.map { it.id })
+    }
+
+    @Test fun loadStartedBeforeJumpWindowCannotMergeIntoIt() {
+        val store = MessageHistoryStore()
+        val epoch = store.beginLoad(1L)!!
+        store.replaceWithWindow(1L, listOf(message(50L, 50L)), reachesLatest = false)
+        val applied = store.finishLoad(1L, listOf(message(1L), message(2L, 2L)), hasOlder = true, epoch = epoch)
+        assertFalse(applied)
+        assertEquals(listOf(50L), store.observe(1L).value.messages.map { it.id })
+        assertTrue(store.observe(1L).value.hasNewerMessages)
+    }
+
+    @Test fun restartFromLatestSupersedesOlderLoadRunningInTheJumpWindow() {
+        val store = MessageHistoryStore()
+        store.replaceWithWindow(1L, listOf(message(50L, 50L)), reachesLatest = false)
+        val olderEpoch = store.beginLoad(1L)!!
+        val latestEpoch = store.restartFromLatest(1L)
+        assertFalse(store.finishLoad(1L, listOf(message(49L, 49L)), hasOlder = true, epoch = olderEpoch))
+        assertTrue(store.finishLoad(1L, listOf(message(1L)), hasOlder = false, epoch = latestEpoch))
+        val history = store.observe(1L).value
+        assertEquals(listOf(1L), history.messages.map { it.id })
+        assertFalse(history.hasNewerMessages)
+        assertFalse(history.isLoading)
     }
 
     @Test fun snapshotRequestedBeforeAnUpdateCannotRollItBack() {

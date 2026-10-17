@@ -418,11 +418,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationEffects.contentOpened(chatId, messageId)
     }
 
-    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> =
-        conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities)
+    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities)
+    }
 
-    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> =
-        conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities)
+    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities)
+    }
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> =
         conversationActions.retryMessages(chatId, messageIds)
 
@@ -432,8 +436,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationEffects.opened(chatId)
         messageHistory.opened(chatId)
         client.send(TdApi.OpenChat(chatId), Client.ResultHandler { })
-        messageHistory.resetToLatest(chatId)
-        if (messageHistory.beginLoad(chatId)) requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3)
+        requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3, epoch = messageHistory.restartFromLatest(chatId))
     }
 
     override fun closeChat(chatId: Long) {
@@ -445,21 +448,26 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override fun loadOlderMessages(chatId: Long) {
         val oldest = messageHistory.observe(chatId).value.messages.firstOrNull()?.id ?: 0L
-        if (messageHistory.beginLoad(chatId)) requestHistory(chatId, oldest, remaining = 50, pagesLeft = 3)
+        messageHistory.beginLoad(chatId)?.let { epoch -> requestHistory(chatId, oldest, remaining = 50, pagesLeft = 3, epoch = epoch) }
     }
 
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Unit> =
         conversationActions.window(chatId, messageId).onSuccess { messages ->
-            messageHistory.replaceWithWindow(chatId, messages.map { it.toChatMessage() })
+            val newestId = chatCache[chatId]?.lastMessageId
+            messageHistory.replaceWithWindow(chatId, messages.map { it.toChatMessage() }, reachesLatest = messages.any { it.id == newestId })
             messages.forEach(conversationActions::hydrateReply)
         }.map { Unit }
 
     override fun loadLatestMessages(chatId: Long) {
-        messageHistory.resetToLatest(chatId)
-        if (messageHistory.beginLoad(chatId)) requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3)
+        requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3, epoch = messageHistory.restartFromLatest(chatId))
     }
 
-    private fun requestHistory(chatId: Long, fromMessageId: Long, remaining: Int, pagesLeft: Int) {
+    /** Sending from a jump window first returns to the newest messages, so the sent message does not leave a gap. */
+    private fun leaveJumpWindow(chatId: Long) {
+        if (messageHistory.observe(chatId).value.hasNewerMessages) loadLatestMessages(chatId)
+    }
+
+    private fun requestHistory(chatId: Long, fromMessageId: Long, remaining: Int, pagesLeft: Int, epoch: Long) {
         val requestVersion = messageHistory.version()
         client.send(TdApi.GetChatHistory(chatId, fromMessageId, 0, 50, false), Client.ResultHandler { result ->
             when (result) {
@@ -468,18 +476,22 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     val nextFrom = page.lastOrNull()?.id ?: fromMessageId
                     val more = page.isNotEmpty()
                     val continueLoading = more && nextFrom != fromMessageId && remaining > page.size && pagesLeft > 1
-                    messageHistory.finishLoad(chatId, page.map { it.toChatMessage() }, more, continueLoading, requestVersion)
-                    page.forEach(conversationActions::hydrateReply)
-                    if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "History page received: ${page.size} messages")
-                    if (continueLoading) requestHistory(chatId, nextFrom, remaining - page.size, pagesLeft - 1)
+                    // A page from before the window was replaced is stale and must not be merged or continued.
+                    if (messageHistory.finishLoad(chatId, page.map { it.toChatMessage() }, more, continueLoading, requestVersion, epoch)) {
+                        page.forEach(conversationActions::hydrateReply)
+                        if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "History page received: ${page.size} messages")
+                        if (continueLoading) requestHistory(chatId, nextFrom, remaining - page.size, pagesLeft - 1, epoch)
+                    }
                 }
-                is TdApi.Error -> messageHistory.fail(chatId, UiText.Res(R.string.err_chat_history_load_failed))
+                is TdApi.Error -> messageHistory.fail(chatId, UiText.Res(R.string.err_chat_history_load_failed), epoch = epoch)
             }
         })
     }
 
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> =
-        conversationActions.sendText(chatId, text, replyToMessageId, entities)
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendText(chatId, text, replyToMessageId, entities)
+    }
 
     // =========================================================================
     // Обработка обновлений TDLib

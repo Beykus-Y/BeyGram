@@ -381,7 +381,7 @@ fun ChatScreen(
             else if (messages.isEmpty() && history.error == null) item(key = "history_empty") { Text(stringResource(R.string.chat_history_empty), color = palette.textSecondary, modifier = Modifier.padding(8.dp)) }
         }
         val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
-        if (away) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).clip(RoundedCornerShape(50)).background(palette.surface)
+        if (away || history.hasNewerMessages) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).clip(RoundedCornerShape(50)).background(palette.surface)
             .border(1.dp, palette.divider, RoundedCornerShape(50)).clickable {
                 if (history.hasNewerMessages) { conversation.loadLatestMessages(chat.id); scope.launch { listState.scrollToItem(0) } }
                 else scope.launch { listState.animateScrollToItem(0) }

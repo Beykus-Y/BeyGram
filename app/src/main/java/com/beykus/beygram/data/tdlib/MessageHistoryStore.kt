@@ -20,6 +20,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     private val openedChats = mutableSetOf<Long>()
     // Chats that keep their messages, least recently used first.
     private val cachedChats = LinkedHashSet<Long>()
+    // Bumped whenever the loaded window is replaced, so responses to loads started before it are dropped.
+    private val windowEpochs = mutableMapOf<Long, Long>()
     fun version(): Long = synchronized(lock) { revision }
 
     private fun flow(chatId: Long) = states.computeIfAbsent(chatId) { MutableStateFlow(ChatHistory()) }
@@ -39,46 +41,60 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         markChanged(message.chatId, message.id)
         if (replaces != null && replaces != message.id) retire(message.chatId, listOf(replaces))
         val state = flow(message.chatId)
+        // A jump window does not reach the newest messages, so an incoming message would leave a gap; it shows once they load.
+        if (state.value.hasNewerMessages && message.sendState == MessageSendState.Sent && state.value.messages.none { it.id == message.id }) return@synchronized
         state.value = state.value.copy(messages = merge(message.chatId, state.value.messages, listOf(message)))
         keepCached(message.chatId)
     }
 
-    /** Replaces the loaded messages with a window around a jumped-to message; unsent messages stay. */
-    fun replaceWithWindow(chatId: Long, messages: List<ChatMessage>) = synchronized(lock) {
+    /** Replaces the loaded messages with a window around a jumped-to message; unsent messages stay and loads in flight are dropped. */
+    fun replaceWithWindow(chatId: Long, messages: List<ChatMessage>, reachesLatest: Boolean) = synchronized(lock) {
         val state = flow(chatId)
         val unsent = state.value.messages.filter { it.sendState != MessageSendState.Sent }
+        windowEpochs[chatId] = epochOf(chatId) + 1
         state.value = state.value.copy(
             messages = merge(chatId, unsent, messages),
             isLoading = false,
             hasOlderMessages = true,
-            hasNewerMessages = true,
+            hasNewerMessages = !reachesLatest,
             error = null
         )
         endLoad(chatId)
         keepCached(chatId)
     }
 
-    /** Drops the jumped-to window so the next load starts again from the newest messages. */
-    fun resetToLatest(chatId: Long) = synchronized(lock) {
+    /** Starts loading the newest messages; a jump window is dropped first, and loads started before this call are dropped too. */
+    fun restartFromLatest(chatId: Long): Long = synchronized(lock) {
         val state = flow(chatId)
-        if (!state.value.hasNewerMessages) return@synchronized
-        state.value = state.value.copy(
-            messages = state.value.messages.filter { it.sendState != MessageSendState.Sent },
+        windowEpochs[chatId] = epochOf(chatId) + 1
+        val history = state.value
+        state.value = if (history.hasNewerMessages) history.copy(
+            messages = history.messages.filter { it.sendState != MessageSendState.Sent },
             hasOlderMessages = true,
-            hasNewerMessages = false
-        )
+            hasNewerMessages = false,
+            isLoading = true,
+            error = null
+        ) else history.copy(isLoading = true, error = null)
+        changed.remove(chatId)
+        keepCached(chatId)
+        epochOf(chatId)
     }
 
-    fun beginLoad(chatId: Long): Boolean = synchronized(lock) {
+    /** Returns the epoch of the started load, or null when a load is already running. */
+    fun beginLoad(chatId: Long): Long? = synchronized(lock) {
         val state = flow(chatId)
-        if (state.value.isLoading) false else {
+        if (state.value.isLoading) null else {
             state.value = state.value.copy(isLoading = true, error = null)
             keepCached(chatId)
-            true
+            epochOf(chatId)
         }
     }
 
-    fun finishLoad(chatId: Long, messages: List<ChatMessage>, hasOlder: Boolean, continueLoading: Boolean = false, requestVersion: Long? = null) = synchronized(lock) {
+    private fun epochOf(chatId: Long): Long = windowEpochs[chatId] ?: 0L
+
+    /** Returns false when the load started before the window was replaced, so its page is dropped. */
+    fun finishLoad(chatId: Long, messages: List<ChatMessage>, hasOlder: Boolean, continueLoading: Boolean = false, requestVersion: Long? = null, epoch: Long? = null): Boolean = synchronized(lock) {
+        if (epoch != null && epoch != epochOf(chatId)) return@synchronized false
         val state = flow(chatId)
         val changes = changed[chatId].orEmpty()
         state.value = state.value.copy(
@@ -89,6 +105,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         )
         if (!continueLoading) endLoad(chatId)
         keepCached(chatId)
+        true
     }
 
     fun update(chatId: Long, messageId: Long, transform: (ChatMessage) -> ChatMessage) = synchronized(lock) {
@@ -108,7 +125,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         state.value = state.value.copy(lastReadOutboxMessageId = maxOf(state.value.lastReadOutboxMessageId, messageId))
     }
 
-    fun fail(chatId: Long, error: UiText, endLoading: Boolean = true) = synchronized(lock) {
+    fun fail(chatId: Long, error: UiText, endLoading: Boolean = true, epoch: Long? = null) = synchronized(lock) {
+        if (epoch != null && epoch != epochOf(chatId)) return@synchronized
         val state = flow(chatId)
         state.value = state.value.copy(error = error, isLoading = if (endLoading) false else state.value.isLoading)
         if (endLoading) endLoad(chatId)
