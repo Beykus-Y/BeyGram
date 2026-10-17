@@ -45,3 +45,6 @@ key.properties
 /screenshots/
 /diagnostics/
 /artifacts/
+
+# Local Gradle user home used for development builds.
+/.gradle-dev/

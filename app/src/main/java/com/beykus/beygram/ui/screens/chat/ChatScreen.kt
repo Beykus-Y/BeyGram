@@ -453,10 +453,6 @@ fun ChatScreen(
                 placeholder = if (attachments.active) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
                 enabled = !busy, isError = overLimit, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
-            if (!recordingActive && showRecord && VIDEO_NOTE_RECORDING_ENABLED && recordingMode == ComposerRecordingMode.Video && videoNote.canSwitchCamera) {
-                VideoNoteSwitchCameraButton(videoNote, enabled = !sending && !busy)
-                Spacer(Modifier.width(8.dp))
-            }
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
             if (recordingActive && recordingLocked) Box(Modifier.size(44.dp).clip(CircleShape)
