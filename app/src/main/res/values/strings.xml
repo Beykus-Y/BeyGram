@@ -715,4 +715,22 @@
     <string name="report_error_server_detail">Ответ сервера: %1$s</string>
     <string name="report_retry">Повторить</string>
     <string name="report_new_report">Составить новый отчёт</string>
+    <string name="updates_title">Обновления</string>
+    <string name="updates_installed_version">Установленная версия: %1$s</string>
+    <string name="updates_stable_only">Канал: Stable · Проверка только по вашему запросу</string>
+    <string name="updates_check">Проверить обновления</string>
+    <string name="updates_manual_hint">Нажмите кнопку, чтобы проверить новый Stable-релиз на GitHub.</string>
+    <string name="updates_checking">Проверяем GitHub Releases…</string>
+    <string name="updates_current">Установлена актуальная версия.</string>
+    <string name="updates_available">Доступен BeyGram %1$s</string>
+    <string name="updates_size">Размер APK: %1$.1f МБ</string>
+    <string name="updates_published">Опубликовано: %1$s</string>
+    <string name="updates_changes">Что изменилось</string>
+    <string name="updates_no_notes">Разработчик не указал список изменений.</string>
+    <string name="updates_download">Скачать обновление</string>
+    <string name="updates_downloading">Загрузка: %1$d%%</string>
+    <string name="updates_cancel">Отменить загрузку</string>
+    <string name="updates_install">Установить</string>
+    <string name="updates_failed">Ошибка: %1$s</string>
+    <string name="updates_retry_download">Повторить загрузку</string>
 </resources>

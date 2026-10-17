@@ -18,6 +18,7 @@ enum class AppRoute {
     Contacts,
     Settings,
     NavigationSettings,
+    Updates,
     VideoMessageSettings,
     Diagnostics,
     ReportProblem,

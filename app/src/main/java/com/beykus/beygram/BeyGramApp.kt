@@ -47,6 +47,7 @@ import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
+import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
@@ -248,6 +249,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Proxy || route == AppRoute.ProxyConnect) {
         routeName = if (route == AppRoute.ProxyConnect) AppRoute.Proxy.name else proxyReturnRouteName
     }
+    BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Diagnostics || route == AppRoute.ReportProblem) { routeName = AppRoute.Settings.name }
 
@@ -472,9 +474,11 @@ private fun BeyGramAppContent(
                 onNotifications = { openNotifications(AppRoute.Settings) },
                 onProxy = { openProxy(AppRoute.Settings) },
                 onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
-                onDiagnostics = { routeName = AppRoute.Diagnostics.name }
+                onDiagnostics = { routeName = AppRoute.Diagnostics.name },
+                onUpdates = { routeName = AppRoute.Updates.name }
             )
         }
+        AppRoute.Updates -> StableUpdatesScreen(onBack = { routeName = AppRoute.Settings.name })
         AppRoute.Diagnostics -> DiagnosticsScreen(
             connectionState = connectionState,
             onBack = { routeName = AppRoute.Settings.name },

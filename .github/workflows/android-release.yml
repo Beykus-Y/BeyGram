@@ -99,8 +99,25 @@ jobs:
         # and a failed main build cannot be published.
         run: ./gradlew --no-daemon :app:testDevDebugUnitTest
 
-      - name: Build debug and release APKs
-        run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease
+      - name: Build debug, release and instrumented-test APKs (no device tests)
+        run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease :app:assembleDevDebugAndroidTest
+
+      - name: Assert install permission is Prod-only
+        run: |
+          set -euo pipefail
+          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          dev=app/build/outputs/apk/dev/debug/app-dev-debug.apk
+          prod=app/build/outputs/apk/prod/release/app-prod-release-unsigned.apk
+          "$build_tools/aapt" dump permissions "$dev" > "$RUNNER_TEMP/dev-permissions.txt"
+          "$build_tools/aapt" dump permissions "$prod" > "$RUNNER_TEMP/prod-permissions.txt"
+          if grep -q "android.permission.REQUEST_INSTALL_PACKAGES" "$RUNNER_TEMP/dev-permissions.txt"; then
+            echo "::error::DEV unexpectedly requests APK installation permission" >&2
+            exit 1
+          fi
+          if ! grep -q "android.permission.REQUEST_INSTALL_PACKAGES" "$RUNNER_TEMP/prod-permissions.txt"; then
+            echo "::error::Prod APK is missing manual update installation permission" >&2
+            exit 1
+          fi
 
       - name: Collect and sign APKs
         env:
@@ -294,6 +311,40 @@ jobs:
           fi
           mv "$apk" "apks/BeyGram-$VERSION-prod-release.apk"
 
+      - name: Validate embedded APK version and generate update manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          apk="apks/BeyGram-$VERSION-prod-release.apk"
+          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          badging=$("$build_tools/aapt" dump badging "$apk")
+          package_line=$(printf '%s\n' "$badging" | grep '^package: ' | head -n 1)
+          package_name=$(printf '%s\n' "$package_line" | awk -F "'" '{print $2}')
+          apk_code=$(printf '%s\n' "$package_line" | awk -F "'" '{print $4}')
+          apk_version=$(printf '%s\n' "$package_line" | awk -F "'" '{print $6}')
+          if [ "$package_name" != "com.beykus.beygram" ] || [ "$apk_version" != "$VERSION" ] || ! [[ "$apk_code" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Tag v$VERSION does not match the APK: package=$package_name versionCode=$apk_code versionName=$apk_version" >&2
+            exit 1
+          fi
+          # Ensure the integer code follows the same 4-part encoding as Gradle.
+          IFS=. read -r major minor patch revision <<< "$VERSION"
+          expected_code=$((10#$major * 100000000 + 10#$minor * 1000000 + 10#$patch * 10000 + 10#$revision))
+          if [ "$apk_code" != "$expected_code" ]; then
+            echo "::error::Expected embedded versionCode=$expected_code but APK contains $apk_code." >&2
+            exit 1
+          fi
+          digest=$(sha256sum "$apk" | cut -d ' ' -f 1)
+          size=$(stat -c '%s' "$apk")
+          jq -n --arg name "BeyGram-$VERSION-prod-release.apk" \
+                --arg version "$apk_version" --arg sha "$digest" \
+                --argjson code "$apk_code" --argjson bytes "$size" \
+                '{schema: 1, versionName: $version, versionCode: $code, apkName: $name, size: $bytes, sha256: $sha}' \
+                > apks/BeyGram-stable-update.json
+          jq -e . apks/BeyGram-stable-update.json > /dev/null
+
+
+
       - name: Create or update release
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -323,4 +374,4 @@ jobs:
               --title "BeyGram $VERSION" \
               --notes "Android APKs built from ${GITHUB_SHA::7}."
           fi
-          gh release upload "$tag" "apks/BeyGram-$VERSION-prod-release.apk" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$tag" "apks/BeyGram-$VERSION-prod-release.apk" "apks/BeyGram-stable-update.json" --repo "$GITHUB_REPOSITORY" --clobber
