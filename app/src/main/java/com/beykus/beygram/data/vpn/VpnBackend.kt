@@ -96,9 +96,13 @@ internal class VpnBackend private constructor(
         _restoreRetrying.value = true
         try {
             restore()
-            // restore() returns without a result when a start is already running or TDLib does not answer. The question
-            // must come back then, instead of a window that closes silently.
-            if (runtimeState.value.status != ProxyRuntimeStatus.RUNNING && isTdLibProxyEnabled().getOrNull() != false) {
+            // restore() can return while a start or stop from elsewhere is still running. The question waits for that result,
+            // so a proxy that comes up is not reported as failed. There is no timeout: the hint stays until the state settles,
+            // and turning the proxy off stays available.
+            val state = runtimeState.first { it.status != ProxyRuntimeStatus.STARTING && it.status != ProxyRuntimeStatus.STOPPING }
+            // The question comes back only when the proxy stopped or failed, and TDLib does not say it is off.
+            val stoppedOrFailed = state.status == ProxyRuntimeStatus.STOPPED || state.status == ProxyRuntimeStatus.FAILED
+            if (stoppedOrFailed && isTdLibProxyEnabled().getOrNull() != false) {
                 _restoreFailed.value = true
             }
         } finally {
