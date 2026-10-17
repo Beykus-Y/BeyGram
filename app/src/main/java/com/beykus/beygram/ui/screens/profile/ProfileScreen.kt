@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.media.OutgoingMediaImporter
+import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.ui.components.*
@@ -39,6 +40,7 @@ import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
 import com.beykus.beygram.ui.screens.chat.MediaViewerItem
 import com.beykus.beygram.ui.screens.chat.presenceText
+import com.beykus.beygram.ui.screens.chat.rememberPresenceClock
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
@@ -57,7 +59,7 @@ fun ProfileScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onBack: () -> Unit, onRefresh: () -> Unit, onEdit: () -> Unit,
     setPhoto: suspend (OutgoingMedia) -> Result<Unit>,
-    isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit,
+    isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit, lastSeenStyle: LastSeenStyle,
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
     hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
     sharedMessages: (suspend (SharedMediaKind, Long) -> Result<MessageSearchPage>)? = null, onOpenMessage: (Long) -> Unit = {}
@@ -94,7 +96,7 @@ fun ProfileScreen(
                     Spacer(Modifier.height(16.dp))
                     Text(info.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(4.dp))
-                    Text(info.subtitle(), color = palette.textSecondary, fontSize = 14.sp)
+                    ProfileSubtitle(info, lastSeenStyle)
                     if (info.isVerified || info.isPremium) Text(listOfNotNull(if (info.isVerified) stringResource(R.string.profile_badge_verified) else null, if (info.isPremium) stringResource(R.string.profile_badge_premium) else null).joinToString(" · "), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
                     if (isOwnProfile) {
                         Spacer(Modifier.height(14.dp))
@@ -184,14 +186,21 @@ fun ProfileScreen(
     }
 }
 
-@Composable private fun ProfileInfo.subtitle(): String = when (kind) {
+@Composable private fun ProfileSubtitle(info: ProfileInfo, lastSeenStyle: LastSeenStyle) {
+    val palette = beyGramPalette()
+    // Тик времени перерисовывает только подпись, а не весь экран профиля.
+    val now by rememberPresenceClock(info.status is ProfilePresence.LastSeen)
+    Text(info.subtitle(lastSeenStyle, now), color = palette.textSecondary, fontSize = 14.sp)
+}
+
+@Composable private fun ProfileInfo.subtitle(lastSeenStyle: LastSeenStyle, nowMillis: Long): String = when (kind) {
     ProfileKind.Group -> memberCount?.let { count ->
         onlineMemberCount?.let { stringResource(R.string.profile_group_members_online_count, count, it) } ?: stringResource(R.string.profile_group_members_count, count)
     } ?: stringResource(R.string.profile_type_group)
     ProfileKind.Channel -> memberCount?.let { stringResource(R.string.profile_channel_subscribers_count, it) } ?: stringResource(R.string.profile_type_channel)
-    ProfileKind.Secret -> stringResource(R.string.profile_secret_chat_status, status?.let { presenceText(it).resolve() }.orEmpty())
+    ProfileKind.Secret -> stringResource(R.string.profile_secret_chat_status, status?.let { presenceText(it, lastSeenStyle, nowMillis).resolve() }.orEmpty())
     ProfileKind.Bot -> stringResource(R.string.profile_type_bot)
-    ProfileKind.Person -> if (isSelf) stringResource(R.string.profile_own_account_telegram) else status?.let { presenceText(it).resolve() }.orEmpty()
+    ProfileKind.Person -> if (isSelf) stringResource(R.string.profile_own_account_telegram) else status?.let { presenceText(it, lastSeenStyle, nowMillis).resolve() }.orEmpty()
 }
 
 /** Подготавливает новое фото и удаляет прежнее. Если подготовка падает, прежнее фото не трогаем. */

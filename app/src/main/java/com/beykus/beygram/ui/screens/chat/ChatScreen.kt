@@ -53,6 +53,7 @@ import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.ComposerRecordingMode
+import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
@@ -69,7 +70,7 @@ import kotlinx.coroutines.launch
 @OptIn(FlowPreview::class)
 @Composable
 fun ChatScreen(
-    chat: ChatPreview, info: ProfileInfo?, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
+    chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
     recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {}
@@ -392,7 +393,7 @@ fun ChatScreen(
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
-        else ChatTopBar(chat, chatPresenceLine(chat, info).resolve(), onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
+        else ChatTopBar(chat, info, lastSeenStyle, onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
         PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected, ::jumpToPinned)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -610,8 +611,10 @@ fun ChatScreen(
 }
 
 @Composable
-private fun ChatTopBar(chat: ChatPreview, presence: String, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
+private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
     val palette = beyGramPalette()
+    // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
+    val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
@@ -619,7 +622,7 @@ private fun ChatTopBar(chat: ChatPreview, presence: String, onBack: () -> Unit, 
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f).clickable(onClick = onInfo)) {
                 Text(chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(presence, color = palette.textSecondary, fontSize = 13.sp)
+                Text(chatPresenceLine(chat, info, lastSeenStyle, now).resolve(), color = palette.textSecondary, fontSize = 13.sp)
             }
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
         }

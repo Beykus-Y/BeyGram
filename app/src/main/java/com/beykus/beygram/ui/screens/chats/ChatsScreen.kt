@@ -84,6 +84,7 @@ import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.ui.text.resolve
+import com.beykus.beygram.ui.text.russianPlural
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.contentDescription
@@ -351,15 +352,6 @@ private fun ArchivePullHint(heightDp: Dp) {
     }
 }
 
-private fun russianPlural(count: Int, one: String, few: String, many: String): String {
-    val lastTwo = count % 100
-    val last = count % 10
-    return when {
-        last == 1 && lastTwo != 11 -> one
-        last in 2..4 && lastTwo !in 12..14 -> few
-        else -> many
-    }
-}
 @Composable
 private fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
     val palette = beyGramPalette()
