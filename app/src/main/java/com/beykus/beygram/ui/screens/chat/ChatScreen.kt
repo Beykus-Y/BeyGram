@@ -324,7 +324,7 @@ fun ChatScreen(
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
     }
     fun showInChat(messageId: Long) {
-        val index = messages.asReversed().indexOfFirst { it.id == messageId }
+        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = messageId }
     }
     // Results refresh after a short pause in typing; a new query replaces the pending request.
