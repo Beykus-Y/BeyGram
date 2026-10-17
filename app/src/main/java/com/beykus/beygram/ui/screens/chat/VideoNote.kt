@@ -1,9 +1,13 @@
 package com.beykus.beygram.ui.screens.chat
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
 import android.view.Surface
 import android.view.TextureView
+import android.view.WindowManager
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
@@ -30,10 +34,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
@@ -161,6 +169,15 @@ private class VideoNoteHolder {
     }
 }
 
+private fun Context.findActivity(): Activity? {
+    var context = this
+    while (context is ContextWrapper) {
+        if (context is Activity) return context
+        context = context.baseContext
+    }
+    return null
+}
+
 /** Кружок в ленте: круг 220 dp с отметкой непросмотренного; при проигрывании растёт и показывает кольцо прогресса. */
 @Composable
 internal fun VideoNoteBubble(
@@ -191,6 +208,18 @@ internal fun VideoNoteBubble(
     }
     val size by animateDpAsState(targetValue = if (holder.started) playingSize else IDLE_SIZE, label = "video note size")
     DisposableEffect(holder) { onDispose { holder.dispose() } }
+    val hostContext = LocalContext.current
+    // Секретный кружок во время проигрывания не должен попасть на скриншот или запись экрана.
+    val secureWhilePlaying = media.isSecret && holder.started
+    DisposableEffect(secureWhilePlaying) {
+        val window = hostContext.findActivity()?.window
+        if (secureWhilePlaying) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { if (secureWhilePlaying) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+    // Миниатюра показывается до старта; у секретного кружка её не грузим, иначе кадр виден до просмотра.
+    val thumbnailId = media.thumbnailFileId?.takeUnless { media.isSecret }
+    val thumbnail by remember(thumbnailId) { observeFile(thumbnailId ?: 0) }.collectAsStateWithLifecycle()
+    LaunchedEffect(thumbnailId) { if (thumbnailId != null) downloadFile(thumbnailId) }
     // Нажатие до окончания загрузки запоминается: как только файл готов, кружок начинает играть.
     LaunchedEffect(path, wantPlay) {
         if (wantPlay && path != null) {
@@ -198,6 +227,8 @@ internal fun VideoNoteBubble(
             holder.start(path) { played = true; currentOnPlayed() }
         }
     }
+    // Ошибка загрузки снимает ожидание: спиннер не крутится вечно, повтор — новым нажатием.
+    LaunchedEffect(file.error) { if (file.error != null) wantPlay = false }
     LaunchedEffect(holder.playing) {
         while (holder.playing) {
             holder.tick()
@@ -223,6 +254,8 @@ internal fun VideoNoteBubble(
                     .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress),
                 contentAlignment = Alignment.Center
             ) {
+                val thumbnailPath = thumbnail.localPath
+                if (!holder.started && thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize())
                 if (holder.started) AndroidView(
                     factory = { context ->
                         TextureView(context).apply {
@@ -247,10 +280,10 @@ internal fun VideoNoteBubble(
                     Icon(if (holder.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
                 }
                 if (path == null && (wantPlay || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
+            if (path == null && file.error != null && !wantPlay) Text(stringResource(R.string.video_note_download_failed), color = Color.White, fontSize = 12.sp,
+                textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
                 if (!holder.started) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
                     modifier = Modifier.align(Alignment.TopStart).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
-
-
             }
             if (unseen && !played) Box(Modifier.align(Alignment.CenterEnd).size(10.dp).background(palette.accent, CircleShape))
         }

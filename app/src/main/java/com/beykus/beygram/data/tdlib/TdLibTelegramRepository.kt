@@ -403,6 +403,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         botKeyboards.refresh(chatId)
         _notificationPresentation.update { it.copy(openedChats = it.openedChats + chatId) }
         conversationEffects.opened(chatId)
+        messageHistory.opened(chatId)
         client.send(TdApi.OpenChat(chatId), Client.ResultHandler { })
         if (messageHistory.beginLoad(chatId)) requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3)
     }
@@ -410,6 +411,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun closeChat(chatId: Long) {
         _notificationPresentation.update { it.copy(openedChats = it.openedChats - chatId) }
         conversationEffects.closed(chatId)
+        messageHistory.closed(chatId)
         client.send(TdApi.CloseChat(chatId), Client.ResultHandler { })
     }
 
@@ -471,6 +473,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateMessageContent -> messageHistory.update(update.chatId, update.messageId) { message ->
                 val attachment = mediaMapper.media(update.newContent)
                 message.copy(text = contentText(update.newContent, attachment != null), entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
+            }
+            is TdApi.UpdateMessageContentOpened -> messageHistory.update(update.chatId, update.messageId) { message ->
+                message.copy(media = message.media?.copy(isViewed = true))
             }
             is TdApi.UpdateMessageEdited -> messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)

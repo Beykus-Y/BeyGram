@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.CallRecord
@@ -72,8 +73,9 @@ fun CallsScreen(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var calls by remember { mutableStateOf<List<CallRecord>>(emptyList()) }
-    var nextOffset by remember { mutableStateOf("") }
+    val state: CallsScreenState = viewModel()
+    val calls = state.calls
+    val nextOffset = state.nextOffset
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -83,8 +85,7 @@ fun CallsScreen(
             error = null
             loadCalls(offset)
                 .onSuccess { page ->
-                    calls = if (offset.isEmpty()) page.calls else calls + page.calls
-                    nextOffset = page.nextOffset
+                    if (offset.isEmpty()) state.replaceFirstPage(page) else state.appendPage(page)
                 }
                 .onFailure { error = it.userMessage(context, R.string.calls_load_failed) }
             loading = false

@@ -66,7 +66,7 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
         }
     }, confirmButton = { TextButton(onClick = { format = false }) { Text(stringResource(R.string.common_close)) } })
     if (linkDialog) AlertDialog(onDismissRequest = { linkDialog = false }, title = { Text(stringResource(R.string.chat_format_link)) },
-        text = { TextField(link, { link = it }, singleLine = true, label = { Text("URL") }) },
+        text = { TextField(link, { link = it }, singleLine = true, label = { Text(stringResource(R.string.chat_format_link_address)) }) },
         confirmButton = { TextButton(enabled = safeMessageUrl(link)?.let { it != "https://" } == true, onClick = {
             val target = safeMessageUrl(link) ?: return@TextButton
             onEntitiesChange(applyTextFormat(value, entities, range.min, range.max, TextStyleKind.Url).map {

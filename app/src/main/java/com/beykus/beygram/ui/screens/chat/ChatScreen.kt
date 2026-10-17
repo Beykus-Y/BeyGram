@@ -112,7 +112,14 @@ fun ChatScreen(
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
-    val listState = rememberLazyListState()
+    val scrollPosition: ChatScrollPositionViewModel = viewModel(key = "chat-scroll-${chat.id}")
+    val listState = rememberLazyListState(scrollPosition.firstVisibleItemIndex, scrollPosition.firstVisibleItemScrollOffset)
+    DisposableEffect(listState) {
+        onDispose {
+            scrollPosition.firstVisibleItemIndex = listState.firstVisibleItemIndex
+            scrollPosition.firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+        }
+    }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
@@ -185,6 +192,8 @@ fun ChatScreen(
         if (recordingMode == ComposerRecordingMode.Voice) {
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) audioNote.press()
             else audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+        } else if (!VIDEO_NOTE_RECORDING_ENABLED) {
+            error = context.getString(R.string.recorder_video_note_unavailable)
         } else if (videoNoteAllowed(context)) videoNote.press() else videoPermissions.launch(videoNotePermissions)
     }
     val messages = history.messages
