@@ -269,6 +269,7 @@
     <string name="err_vpn_group_not_found">Не найдена группа серверов подписки</string>
     <string name="err_vpn_group_not_selectable">Группа серверов не поддерживает выбор</string>
     <string name="err_vpn_listener_not_accepting">Прокси не принимает подключения</string>
+    <string name="err_vpn_listener_port_taken">Порт прокси занят другим приложением. Закройте приложение, которое его использует, и попробуйте снова</string>
     <string name="err_vpn_listener_not_started">Прокси не запустился</string>
     <string name="err_vpn_no_profile">Сначала загрузите подписку</string>
     <string name="err_vpn_probe_failed">Проверка не удалась</string>
