@@ -3,8 +3,6 @@ package com.beykus.beygram.ui.screens.chat
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.hardware.camera2.CaptureRequest
-import android.hardware.camera2.CameraCharacteristics
 import android.media.MediaMetadataRetriever
 import android.os.StatFs
 import android.os.SystemClock
@@ -17,8 +15,6 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.ViewPort
-import androidx.camera.camera2.interop.Camera2Interop
-import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileOutputOptions
@@ -66,6 +62,8 @@ import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoQualityPreset
 import com.beykus.beygram.data.media.VideoNoteProcessor
+import com.beykus.beygram.data.media.requestedFrameRateRange
+import com.beykus.beygram.data.media.chooseSupportedFrameRateRange
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -255,11 +253,6 @@ internal class VideoNoteRecorder(
             VideoQualityPreset.Maximum -> 640
             VideoQualityPreset.Custom -> settings.customSide
         }
-        val fps = when (settings.preset) {
-            VideoQualityPreset.Standard, VideoQualityPreset.High -> 30
-            VideoQualityPreset.Maximum -> 60
-            VideoQualityPreset.Custom -> settings.customFps
-        }
         val bitrate = when (settings.preset) {
             VideoQualityPreset.Standard -> 1_000_000
             VideoQualityPreset.High -> 1_400_000
@@ -267,25 +260,26 @@ internal class VideoNoteRecorder(
             VideoQualityPreset.Custom -> settings.customVideoBitrateKbps * 1_000
         }
         val quality = if (side > 480) Quality.HD else Quality.SD
-        val cameraInfo = cameraProvider.getCameraInfo(selector)
-        val supportedFps = runCatching {
-            Camera2CameraInfo.from(cameraInfo).getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)?.toList().orEmpty()
-        }.getOrDefault(emptyList())
-        val fpsRange = supportedFps.filter { it.lower <= fps && it.upper >= fps }
-            .minByOrNull { it.upper - it.lower }
-            ?: supportedFps.filter { it.upper <= fps }.maxByOrNull { it.upper }
-            ?: supportedFps.minByOrNull { kotlin.math.abs(it.upper - fps) }
-            ?: Range(30, 30)
+        val requestedFps = settings.requestedFrameRateRange()
+        val supportedFps = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges
+        val chosenFps = chooseSupportedFrameRateRange(
+            requestedFps,
+            supportedFps.map { it.lower..it.upper }
+        )
+        // An exact 24–60 / 35–60 / 55–60 AE range is often unavailable.
+        // Use a camera-advertised range; CameraX still makes the final session decision.
+        Log.i(TAG, "video_fps requested=$requestedFps selected=$chosenFps available=$supportedFps")
+        val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         val qualitySelector = QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(quality))
         val previewBuilder = Preview.Builder()
-        Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+        if (fpsRange != null) previewBuilder.setTargetFrameRate(fpsRange)
         val preview = previewBuilder.build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
         val recorder = Recorder.Builder()
             .setQualitySelector(qualitySelector)
             .setTargetVideoEncodingBitRate(bitrate)
             .build()
         val captureBuilder = VideoCapture.Builder(recorder)
-        Camera2Interop.Extender(captureBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+        if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
         val capture = captureBuilder.build()
         videoCapture = capture
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
