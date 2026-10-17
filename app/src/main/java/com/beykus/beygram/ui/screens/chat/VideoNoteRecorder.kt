@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Icon
@@ -117,6 +118,12 @@ internal class VideoNoteRecorder(
     var elapsedMs by mutableLongStateOf(0L)
         private set
     val durationLimitMs: Long get() = maxDurationMs
+    /** Выбор камеры сохраняется между записями, пока жив этот рекордер (экран чата). Фронтальная — по умолчанию. */
+    var preferFrontCamera by mutableStateOf(true)
+        private set
+    /** Переключатель показывается, только если на устройстве есть и фронтальная, и основная камера. */
+    var canSwitchCamera by mutableStateOf(false)
+        private set
 
     private var provider: ProcessCameraProvider? = null
     private var videoCapture: VideoCapture<Recorder>? = null
@@ -125,6 +132,27 @@ internal class VideoNoteRecorder(
     private var startedAt = 0L
     private var maxDurationMs = NORMAL_MAX_DURATION_MS
     private var attempt = 0
+
+    init {
+        if (VIDEO_NOTE_RECORDING_ENABLED) probeCameras()
+    }
+
+    private fun probeCameras() {
+        val future = ProcessCameraProvider.getInstance(context)
+        future.addListener({
+            canSwitchCamera = runCatching {
+                val cameraProvider = future.get()
+                cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) && cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+            }.getOrDefault(false)
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    /** Смена камеры только до начала записи: CameraX не переключает камеру без обрыва текущего кадра. */
+    fun switchCamera() {
+        if (active) return
+        preferFrontCamera = !preferFrontCamera
+        Log.i(TAG, "video_camera_switched front=$preferFrontCamera")
+    }
 
     /** Нажатие: камера открывается асинхронно, запись начинается, когда она готова. */
     fun press() {
@@ -239,7 +267,8 @@ internal class VideoNoteRecorder(
 
     private fun bind(cameraProvider: ProcessCameraProvider, settings: VideoMessageSettings) {
         cameraProvider.unbindAll()
-        val selector = if (cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+        val useFront = preferFrontCamera && cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
+        val selector = if (useFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
         val side = when (settings.preset) {
             VideoQualityPreset.Standard -> 384
             VideoQualityPreset.High -> 480
@@ -419,6 +448,24 @@ internal fun VideoNoteRecordButton(recorder: VideoNoteRecorder, enabled: Boolean
     ) {
         Icon(Icons.Rounded.Videocam, if (recording) stringResource(R.string.recorder_recording_description) else stringResource(R.string.recorder_start_description),
             tint = if (recording) Color.White else palette.textSecondary, modifier = Modifier.size(22.dp))
+    }
+}
+
+/** Переключатель камеры у кнопки записи: виден только до начала записи, поэтому во время съёмки его нет. */
+@Composable
+internal fun VideoNoteSwitchCameraButton(recorder: VideoNoteRecorder, enabled: Boolean) {
+    val palette = beyGramPalette()
+    Box(
+        Modifier.size(40.dp).clip(CircleShape).background(palette.surface2)
+            .clickable(enabled = enabled, onClick = recorder::switchCamera),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Rounded.Cameraswitch,
+            stringResource(if (recorder.preferFrontCamera) R.string.recorder_switch_to_back_description else R.string.recorder_switch_to_front_description),
+            tint = palette.textSecondary.copy(alpha = if (enabled) 1f else 0.38f),
+            modifier = Modifier.size(22.dp)
+        )
     }
 }
 
