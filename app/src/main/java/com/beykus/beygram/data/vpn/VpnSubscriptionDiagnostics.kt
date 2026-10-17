@@ -36,18 +36,18 @@ internal object VpnSubscriptionDiagnostics {
 
     private fun failureKind(error: Throwable): String = when (error) {
         is SocketTimeoutException -> "network_timeout"
-        is UnknownHostException -> "dns_failure"
-        is SSLException -> "tls_failure"
+        is UnknownHostException -> "name_resolution_failure"
+        is SSLException -> "secure_connection_failure"
         is SubscriptionException -> when {
-            error.message?.startsWith("Subscription server returned HTTP ") == true -> "http_error"
-            error.message?.startsWith("Subscription is not a Mihomo YAML profile") == true -> "not_mihomo_yaml"
-            error.message?.startsWith("Decoded subscription") == true -> "decoded_content_not_yaml_object"
-            error.message?.startsWith("Enter a valid HTTPS") == true -> "invalid_url"
-            error.message?.startsWith("Subscription URL must use HTTPS") == true -> "url_policy_rejected"
+            error.message?.startsWith("Сервер подписки ответил ошибкой ") == true -> "server_error"
+            error.message?.startsWith("Подписка не похожа ни на профиль прокси") == true -> "unsupported_profile"
+            error.message?.startsWith("Декодированная подписка") == true -> "decoded_content_unsupported"
+            error.message?.startsWith("Введите корректный адрес подписки") == true -> "invalid_url"
+            error.message?.startsWith("Адрес подписки должен начинаться с https://") == true -> "url_policy_rejected"
             error.message?.contains("larger than 5 MiB") == true -> "response_too_large"
             else -> "subscription_rejected"
         }
-        is MihomoCoreException -> "mihomo_rejected_profile"
+        is MihomoCoreException -> "core_rejected_profile"
         else -> error.javaClass.simpleName.take(48).ifBlank { "unknown_error" }
     }
 

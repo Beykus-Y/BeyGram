@@ -27,35 +27,35 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
         }
         val safeYaml = Yaml(SafeConstructor(loaderOptions))
         val parsed = parseYaml(safeYaml, source)
-        VpnSubscriptionDiagnostics.event("yaml", "sourceRoot=${rootKind(parsed)}")
+        VpnSubscriptionDiagnostics.event("profile", "sourceRoot=${rootKind(parsed)}")
         var root = parsed.value as? Map<*, *>
         if (root == null) {
             // A plain list of proxy URIs is not a YAML object, so it is read before the text is treated as Base64.
             val plainUris = parseProxyUriList(source)
             if (plainUris.proxies.isNotEmpty()) {
-                VpnSubscriptionDiagnostics.event("uri", plainUris.summary)
+                VpnSubscriptionDiagnostics.event("links", plainUris.summary)
                 root = linkedMapOf("proxies" to plainUris.proxies)
             }
         }
         if (root == null) {
             val decoded = decodeBase64Yaml(source)
                 ?: throw SubscriptionException(
-                    "Subscription is not a Mihomo YAML profile or supported proxy URI list."
+                    "Подписка не похожа ни на профиль прокси, ни на список ссылок"
                 )
-            VpnSubscriptionDiagnostics.event("base64", "decoded=true decodedBytes=${decoded.toByteArray(Charsets.UTF_8).size}")
+            VpnSubscriptionDiagnostics.event("encoding", "decoded=true decodedBytes=${decoded.toByteArray(Charsets.UTF_8).size}")
             val decodedParsed = parseYaml(safeYaml, decoded)
-            VpnSubscriptionDiagnostics.event("yaml", "decodedRoot=${rootKind(decodedParsed)}")
+            VpnSubscriptionDiagnostics.event("profile", "decodedRoot=${rootKind(decodedParsed)}")
             root = decodedParsed.value as? Map<*, *>
             if (root == null) {
                 val result = parseProxyUriList(decoded)
-                VpnSubscriptionDiagnostics.event("uri", result.summary)
-                if (result.proxies.isEmpty()) throw SubscriptionException("Decoded subscription is neither a Mihomo YAML object nor a supported proxy URI list")
+                VpnSubscriptionDiagnostics.event("links", result.summary)
+                if (result.proxies.isEmpty()) throw SubscriptionException("Декодированная подписка не похожа ни на профиль прокси, ни на список ссылок")
                 root = linkedMapOf("proxies" to result.proxies)
             }
         }
         val config = linkedMapOf<String, Any?>()
         root!!.forEach { (key, value) ->
-            val stringKey = key as? String ?: throw SubscriptionException("Subscription contains a non-text YAML key")
+            val stringKey = key as? String ?: throw SubscriptionException("Подписка содержит некорректные данные")
             config[stringKey] = value
         }
 
@@ -87,7 +87,7 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
         // blocked on mobile networks and otherwise prevent every proxy from ever dialing.
         dns["proxy-server-nameserver"] = listOf("system")
         config["dns"] = dns
-        MihomoRuntimeDiagnostics.event("profile", "proxy-node DNS resolver=Android system")
+        MihomoRuntimeDiagnostics.event("profile", "server name resolver=Android system")
         val tun = (config["tun"] as? Map<*, *>)?.let { existing ->
             linkedMapOf<String, Any?>().apply {
                 existing.forEach { (key, value) -> (key as? String)?.let { put(it, value) } }
@@ -103,7 +103,7 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
             val existingGroup = groups[groupIndex] as? Map<*, *>
             val type = (existingGroup?.get("type") as? String)?.lowercase()
             if (type != "select") {
-                throw SubscriptionException("Subscription already uses the reserved BeyGram connection group name")
+                throw SubscriptionException("Подписка использует имя группы, которое занято приложением")
             }
             groups[groupIndex] = linkedMapOf<String, Any?>().apply {
                 existingGroup?.forEach { (key, value) -> (key as? String)?.let { put(it, value) } }
@@ -136,7 +136,7 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
     }
 
     private fun rootKind(parsed: ParsedYaml): String = when {
-        parsed.failed -> "invalidYaml"
+        parsed.failed -> "invalidFormat"
         parsed.value == null -> "null"
         parsed.value is Map<*, *> -> "object"
         parsed.value is List<*> -> "array"

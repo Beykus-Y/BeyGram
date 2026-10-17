@@ -53,7 +53,7 @@ internal class SubscriptionClient(
             try {
                 val status = connection.responseCode
                 VpnSubscriptionDiagnostics.event(
-                    "http",
+                    "download",
                     "status=$status contentType=${safeMediaType(connection.contentType)} redirect=${redirectNumber > 0}"
                 )
                 when (status) {
@@ -79,10 +79,10 @@ internal class SubscriptionClient(
                         if (origin(next) != originalOrigin) throw SubscriptionException("Cross-origin subscription redirects are blocked")
                         currentUrl = next
                     }
-                    else -> throw SubscriptionException("Subscription server returned HTTP $status")
+                    else -> throw SubscriptionException("Сервер подписки ответил ошибкой $status")
                 }
             } catch (error: Exception) {
-                VpnSubscriptionDiagnostics.failure("http", error)
+                VpnSubscriptionDiagnostics.failure("download", error)
                 throw error
             } finally {
                 connection.disconnect()
@@ -92,9 +92,9 @@ internal class SubscriptionClient(
     }
 
     private fun validateUrl(raw: String): URL {
-        val url = runCatching { URL(raw.trim()) }.getOrElse { throw SubscriptionException("Enter a valid HTTPS subscription URL") }
+        val url = runCatching { URL(raw.trim()) }.getOrElse { throw SubscriptionException("Введите корректный адрес подписки") }
         if (url.protocol != "https" || url.host.isBlank() || url.userInfo != null || url.port == 0) {
-            throw SubscriptionException("Subscription URL must use HTTPS and must not contain user-info")
+            throw SubscriptionException("Адрес подписки должен начинаться с https:// и не содержать логин и пароль")
         }
         return url
     }

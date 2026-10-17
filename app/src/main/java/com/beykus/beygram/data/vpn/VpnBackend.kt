@@ -95,9 +95,9 @@ internal class VpnBackend private constructor(
                     .onFailure {
                         if (switchOffOnFailure) {
                             setTdLibProxy(false)
-                            MihomoRuntimeDiagnostics.event("backend", "restore failed; TDLib proxy switched off")
+                            MihomoRuntimeDiagnostics.event("backend", "restore failed; Telegram proxy switched off")
                         } else {
-                            MihomoRuntimeDiagnostics.event("backend", "background restore failed; TDLib proxy kept")
+                            MihomoRuntimeDiagnostics.event("backend", "background restore failed; Telegram proxy kept")
                         }
                     }
                 return
@@ -112,7 +112,7 @@ internal class VpnBackend private constructor(
             isTdLibProxyEnabled().onSuccess { return it }
             if (attempt < TDLIB_STATE_ATTEMPTS - 1) delay(TDLIB_STATE_RETRY_MILLIS)
         }
-        MihomoRuntimeDiagnostics.event("backend", "TDLib proxy state unknown; restore skipped")
+        MihomoRuntimeDiagnostics.event("backend", "Telegram proxy state unknown; restore skipped")
         return null
     }
 
@@ -143,18 +143,18 @@ internal class VpnBackend private constructor(
     suspend fun startProxy(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy start requested")
-            if (!mihomo.profileExists()) throw IllegalStateException("Сначала загрузите подписку Mihomo")
+            if (!mihomo.profileExists()) throw IllegalStateException("Сначала загрузите подписку")
             // An earlier failure must not answer this start, so it is cleared before the intent is sent.
             MihomoProxyService.clearFailure()
             ContextCompat.startForegroundService(appContext, Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_START))
             val state = withTimeout(30_000) {
                 MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.RUNNING || it.status == ProxyRuntimeStatus.FAILED }
             }
-            if (state.status == ProxyRuntimeStatus.FAILED) throw IllegalStateException(state.message ?: "Не удалось запустить Mihomo")
+            if (state.status == ProxyRuntimeStatus.FAILED) throw IllegalStateException(state.message ?: "Не удалось запустить прокси")
             val tdlib = setTdLibProxy(true)
             if (tdlib.isFailure) {
                 appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
-                throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось подключить TDLib к Mihomo")
+                throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось подключить Telegram к прокси")
             }
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
@@ -172,7 +172,7 @@ internal class VpnBackend private constructor(
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy stop requested")
             val tdlib = setTdLibProxy(false)
-            if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось отключить прокси TDLib")
+            if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось отключить прокси Telegram")
             stopListenerNow()
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {

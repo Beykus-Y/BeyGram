@@ -32,7 +32,7 @@ internal object MihomoProxyClient {
 
     fun isRunning(): Boolean = MihomoProxyService.runtimeState.value.status == ProxyRuntimeStatus.RUNNING
 
-    fun routeName(): String = if (isRunning()) "local_socks" else "direct"
+    fun routeName(): String = if (isRunning()) "local_proxy" else "direct"
 
     fun currentProxy(): Proxy? = socksProxy.takeIf { isRunning() }
 
@@ -55,6 +55,7 @@ internal object MihomoProxyClient {
                 Thread.sleep(100)
             }
         }
-        throw MihomoCoreException("Mihomo SOCKS listener did not bind to 127.0.0.1:$PORT${lastError?.let { ": ${it.javaClass.simpleName}" }.orEmpty()}")
+        MihomoRuntimeDiagnostics.event("listener", "port not ready error=${lastError?.javaClass?.simpleName ?: "none"}")
+        throw MihomoCoreException("Локальный прокси не запустился")
     }
 }

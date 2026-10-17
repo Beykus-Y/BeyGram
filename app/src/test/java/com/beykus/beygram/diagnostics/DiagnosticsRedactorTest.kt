@@ -46,7 +46,7 @@ class DiagnosticsRedactorTest {
     }
 
     @Test fun keepsTimestampsAndConnectionStates() {
-        val line = "2026-10-16 14:18:31.123 TDLib соединение: ConnectionStateWaitingForNetwork"
+        val line = "2026-10-16 14:18:31.123 Соединение с Telegram: ожидание сети"
         assertEquals(line, DiagnosticsRedactor.redact(line))
     }
 }

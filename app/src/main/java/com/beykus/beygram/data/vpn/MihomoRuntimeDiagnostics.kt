@@ -9,7 +9,7 @@ internal object MihomoRuntimeDiagnostics {
     private const val TAG = "BeyGramMihomo"
 
     fun event(stage: String, detail: String) {
-        val line = "Mihomo $stage: $detail"
+        val line = "Proxy $stage: $detail"
         if (BuildConfig.DEBUG) Log.i(TAG, line)
         ConnectionEventLog.shared.record(line)
     }
@@ -17,8 +17,8 @@ internal object MihomoRuntimeDiagnostics {
     fun failure(stage: String, error: Throwable) {
         if (error is kotlinx.coroutines.CancellationException) return
         val known = error.message?.takeIf {
-            it.startsWith("Mihomo SOCKS listener") || it.startsWith("Mihomo did not start") ||
-                it.startsWith("Сначала загрузите подписку") || it.startsWith("Не удалось загрузить ядро Mihomo")
+            it.startsWith("Локальный прокси не запустился") ||
+                it.startsWith("Сначала загрузите подписку") || it.startsWith("Не удалось загрузить ядро прокси")
         }
         event(stage, "failed=${error.javaClass.simpleName}${known?.let { " detail=$it" }.orEmpty()}")
     }

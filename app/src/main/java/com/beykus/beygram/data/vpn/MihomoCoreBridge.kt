@@ -37,7 +37,7 @@ internal class MihomoCoreBridge(context: Context) {
         writeAtomically(pending, normalized.yaml.toByteArray(Charsets.UTF_8))
         try {
             val validation = invokeAction("validateConfig", pendingFile.absolutePath) as? String
-            if (!validation.isNullOrBlank()) throw SubscriptionException("Mihomo rejected the subscription: $validation")
+            if (!validation.isNullOrBlank()) throw SubscriptionException("Не удалось применить подписку: $validation")
 
             val previous = runCatching { profile.readFully() }.getOrNull()
             writeAtomically(profile, normalized.yaml.toByteArray(Charsets.UTF_8))
@@ -71,7 +71,7 @@ internal class MihomoCoreBridge(context: Context) {
                 .put("home-dir", home.absolutePath)
                 .put("version", Build.VERSION.SDK_INT)
             val result = quickSetup(init.toString(), JSONObject().put("selected-map", selectedMap()).toString())
-            if (result.isNotBlank()) throw MihomoCoreException("Mihomo could not load the profile: $result")
+            if (result.isNotBlank()) throw MihomoCoreException("Не удалось загрузить профиль прокси: $result")
         }
         startNativeDiagnostics()
     }
@@ -83,15 +83,15 @@ internal class MihomoCoreBridge(context: Context) {
         val normalized = normalizer.normalize(previous.toString(Charsets.UTF_8)).yaml.toByteArray(Charsets.UTF_8)
         if (previous.contentEquals(normalized)) return
         writeAtomically(profile, normalized)
-        MihomoRuntimeDiagnostics.event("profile", "stored profile migrated to app-local SOCKS configuration")
+        MihomoRuntimeDiagnostics.event("profile", "stored profile updated for the app-local proxy")
     }
 
     suspend fun listConnections(groupName: String): List<MihomoConnection> = withContext(Dispatchers.IO) {
-        val root = JSONObject(invokeAction("getProxies") as? String ?: throw MihomoCoreException("Mihomo returned an empty proxy list"))
-        val proxies = root.optJSONObject("proxies") ?: throw MihomoCoreException("Mihomo returned an invalid proxy list")
-        val group = proxies.optJSONObject(groupName) ?: throw MihomoCoreException("Configured Mihomo group was not found")
+        val root = JSONObject(invokeAction("getProxies") as? String ?: throw MihomoCoreException("Прокси не вернул список серверов"))
+        val proxies = root.optJSONObject("proxies") ?: throw MihomoCoreException("Прокси вернул некорректный список серверов")
+        val group = proxies.optJSONObject(groupName) ?: throw MihomoCoreException("Группа серверов не найдена")
         val groupType = group.optString("type").lowercase()
-        if (groupType !in SELECTABLE_GROUP_TYPES) throw MihomoCoreException("Configured Mihomo item is not a selectable group")
+        if (groupType !in SELECTABLE_GROUP_TYPES) throw MihomoCoreException("Выбранный элемент не является группой серверов")
 
         val names = group.optJSONArray("all") ?: JSONArray()
         val selectedName = group.optString("now")
@@ -181,10 +181,10 @@ internal class MihomoCoreBridge(context: Context) {
 
     suspend fun startProxyListener() = withContext(Dispatchers.IO) {
         val started = invokeAction("startListener") as? Boolean ?: false
-        MihomoRuntimeDiagnostics.event("listener", "startListener returned=$started")
-        if (!started) throw MihomoCoreException("Mihomo did not start its local SOCKS listener")
+        MihomoRuntimeDiagnostics.event("listener", "listener start returned=$started")
+        if (!started) throw MihomoCoreException("Локальный прокси не запустился")
         MihomoProxyClient.awaitReady()
-        MihomoRuntimeDiagnostics.event("listener", "SOCKS port is accepting loopback connections")
+        MihomoRuntimeDiagnostics.event("listener", "local proxy port is accepting loopback connections")
     }
 
     suspend fun stopProxyListener() = withContext(Dispatchers.IO) {
@@ -193,10 +193,10 @@ internal class MihomoCoreBridge(context: Context) {
     }
 
     private suspend fun reloadProfile() {
-        check(profileExists()) { "No local Mihomo profile is installed" }
+        check(profileExists()) { "Профиль прокси не установлен" }
         val params = JSONObject().put("selected-map", selectedMap()).toString()
         val result = invokeAction("setupConfig", params) as? String
-        if (!result.isNullOrBlank()) throw MihomoCoreException("Mihomo could not apply the profile: $result")
+        if (!result.isNullOrBlank()) throw MihomoCoreException("Не удалось применить профиль прокси: $result")
     }
 
     /** Maps the saved node selection into Mihomo's `selected-map` so the choice survives core re-initialization. */
@@ -211,11 +211,12 @@ internal class MihomoCoreBridge(context: Context) {
             if (!Clash.isLoaded()) Clash.load(appContext.applicationInfo.nativeLibraryDir)
             val abi = Clash.bridgeABI()
             check(abi == Clash.EXPECTED_BRIDGE_ABI) {
-                "Mihomo bridge ABI mismatch: expected ${Clash.EXPECTED_BRIDGE_ABI}, received $abi"
+                "Несовместимая версия прокси-ядра: ожидалась ${Clash.EXPECTED_BRIDGE_ABI}, получена $abi"
             }
         } catch (error: LinkageError) {
             // A missing or incompatible libclash.so is an Error, not an Exception; report it as a normal core failure.
-            throw MihomoCoreException("Не удалось загрузить ядро Mihomo (${error.javaClass.simpleName})")
+            MihomoRuntimeDiagnostics.event("core", "load failed error=${error.javaClass.simpleName}")
+            throw MihomoCoreException("Не удалось загрузить ядро прокси")
         }
     }
 
@@ -242,12 +243,12 @@ internal class MihomoCoreBridge(context: Context) {
                         val code = result.optInt("code", -1)
                         val value = result.opt("data")
                         if (code != 0) {
-                            continuation.resumeWith(Result.failure(MihomoCoreException(value?.toString() ?: "Mihomo action failed")))
+                            continuation.resumeWith(Result.failure(MihomoCoreException(value?.toString() ?: "Прокси не выполнил действие")))
                         } else {
                             continuation.resume(value)
                         }
                     } catch (error: Throwable) {
-                        continuation.resumeWith(Result.failure(MihomoCoreException("Mihomo returned an invalid action response")))
+                        continuation.resumeWith(Result.failure(MihomoCoreException("Прокси вернул некорректный ответ")))
                     }
                 }
             } catch (error: Throwable) {

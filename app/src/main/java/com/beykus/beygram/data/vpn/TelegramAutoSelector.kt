@@ -75,7 +75,7 @@ internal class TelegramAutoSelector(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            report(AutoSelectEvent.Failed(error.message ?: "Could not read Mihomo connections"))
+            report(AutoSelectEvent.Failed(error.message ?: "Не удалось получить список серверов"))
             return
         }
         if (connections.isEmpty()) {
@@ -112,7 +112,7 @@ internal class TelegramAutoSelector(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            report(AutoSelectEvent.Failed(error.message ?: "Could not select a Mihomo connection"))
+            report(AutoSelectEvent.Failed(error.message ?: "Не удалось выбрать сервер"))
         }
     }
 
