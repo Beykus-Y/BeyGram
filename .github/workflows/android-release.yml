@@ -81,8 +81,8 @@ jobs:
           exit $code
 
       - name: Write Telegram API credentials
-        # Optional. Without these secrets the APKs are built with empty credentials
-        # and TDLib cannot sign in.
+        # Required for pushes and manual runs. Without these secrets their Dev and Prod APK
+        # builds stop (see checkTelegramCredentials in app/build.gradle.kts).
         env:
           # Pull requests build with empty credentials, as before, so their workflow
           # code cannot read these secrets.
