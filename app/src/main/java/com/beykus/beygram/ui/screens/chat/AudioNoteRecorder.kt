@@ -7,6 +7,9 @@ import android.os.StatFs
 import android.media.MediaMetadataRetriever
 import android.util.Log
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
 import kotlinx.coroutines.CoroutineScope
@@ -85,8 +88,9 @@ internal class AudioNoteRecorder(
                     delay(100)
                 }
             }
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
             Log.e(TAG, "voice_recording_start_failed")
+            recordAppEvent(EventKind.UI, "voice_note_start_failed", "Голосовое: запись не запустилась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
             runCatching { recorder?.release() }
             recorder = null
             target.delete()
@@ -141,8 +145,9 @@ internal class AudioNoteRecorder(
         }
         try {
             current?.stop()
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
             Log.w(TAG, "voice_recording_stop_failed durationMs=$durationMs")
+            recordAppEvent(EventKind.UI, "voice_note_stop_failed", "Голосовое: сохранить запись не удалось", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
             current?.release()
             target.parentFile?.deleteRecursively()
             file = null
@@ -171,6 +176,7 @@ internal class AudioNoteRecorder(
             waveform = packWaveform(amplitudes)
         ), previewFirst)
         Log.i(TAG, "voice_recording_saved durationSeconds=$actualDuration bytes=${target.length()}")
+        recordAppEvent(EventKind.UI, "voice_note_saved", "Голосовое: запись сохранена, $actualDuration с", attrs = mapOf("duration_s" to actualDuration.toString()))
     }
 
     private fun discard() {

@@ -419,7 +419,9 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                 Text(if (emptyPreview) stringResource(if (chat.isGroup) R.string.chats_group_preview else R.string.chats_start_conversation) else chat.lastMessage.resolve(), color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (unread) {
                     Spacer(Modifier.width(8.dp))
-                    Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(11.dp)).background(palette.accent).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
+                    // Чат без звука получает серый счётчик, как в Telegram.
+                    val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
+                    Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(11.dp)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
                         Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
