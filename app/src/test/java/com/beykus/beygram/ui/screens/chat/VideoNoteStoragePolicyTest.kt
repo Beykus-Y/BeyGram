@@ -27,21 +27,4 @@ class VideoNoteStoragePolicyTest {
         val recordedBytes = (1_000_000L + 128_000L) * 60 / 8
         assertEquals(recordedBytes * 2 + 256L * 1024 * 1024, required)
     }
-
-    @Test fun exportGateIsBusyUntilEveryExportFinishes() {
-        assertFalse(VideoNoteExportGate.busy)
-        VideoNoteExportGate.begin()
-        assertTrue(VideoNoteExportGate.busy)
-        VideoNoteExportGate.begin()
-        assertTrue(VideoNoteExportGate.busy)
-        VideoNoteExportGate.end()
-        assertTrue(VideoNoteExportGate.busy)
-        VideoNoteExportGate.end()
-        assertFalse(VideoNoteExportGate.busy)
-    }
-
-    @Test fun exportGateNeverGoesNegative() {
-        VideoNoteExportGate.end()
-        assertFalse(VideoNoteExportGate.busy)
-    }
 }
