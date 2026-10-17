@@ -422,7 +422,7 @@ internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modif
         Icon(Icons.Rounded.Videocam, null, tint = palette.danger, modifier = Modifier.size(19.dp))
         Text(duration((recorder.elapsedMs / 1000).toInt()), color = palette.textPrimary, fontSize = 16.sp)
         Text(
-            if (recorder.locked) stringResource(R.string.recorder_locked) else stringResource(R.string.recorder_swipe_left_hint),
+            if (recorder.locked) "" else stringResource(R.string.recorder_swipe_left_hint),
             color = palette.textSecondary,
             fontSize = 13.sp,
             maxLines = 1,
@@ -440,12 +440,12 @@ internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modif
 internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     Column(
-        modifier.fillMaxSize().background(palette.screen).padding(14.dp),
+        modifier.fillMaxSize().background(palette.screen),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         val progress = (recorder.elapsedMs.toFloat() / recorder.durationLimitMs).coerceIn(0f, 1f)
-        Box(Modifier.size(228.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
                 val stroke = 4.dp.toPx()
                 val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
@@ -453,23 +453,14 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
                 drawArc(palette.divider, startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
                 drawArc(palette.danger, startAngle = -90f, sweepAngle = 360f * progress, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
             }
-            Box(Modifier.size(220.dp).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.TopCenter) {
+            Box(Modifier.fillMaxSize().padding(4.dp).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.TopCenter) {
                 // PreviewView переиспользуется между записями: снимаем его со старого контейнера, иначе addView упадёт.
                 AndroidView(factory = { recorder.previewView.also { (it.parent as? ViewGroup)?.removeView(it) } }, modifier = Modifier.fillMaxSize())
-                Row(
-                    Modifier.padding(top = 10.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(Modifier.size(8.dp).background(palette.danger, CircleShape))
-                    Spacer(Modifier.width(6.dp))
-                    Text(duration((recorder.elapsedMs / 1000).toInt()), color = Color.White, fontSize = 12.sp)
-                }
+
             }
         }
         Spacer(Modifier.height(16.dp))
-        if (recorder.locked) {
-            Text(stringResource(R.string.recorder_locked), color = palette.accentInk, fontSize = 15.sp)
-        } else {
+        if (!recorder.locked) {
             Text(if (recorder.canceling) stringResource(R.string.recorder_release_to_cancel) else stringResource(R.string.recorder_release_to_send), color = palette.textPrimary, fontSize = 14.sp)
             Text(stringResource(R.string.recorder_swipe_up_lock), color = palette.textSecondary, fontSize = 14.sp)
             Text(stringResource(R.string.recorder_swipe_left_cancel), color = if (recorder.canceling) palette.danger else palette.textSecondary, fontSize = 14.sp)

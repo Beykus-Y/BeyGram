@@ -228,10 +228,8 @@ private fun BeyGramAppContent(
 
     when (route) {
         AppRoute.Start -> StartScreen(
-            isDarkTheme = isDarkTheme,
             tdLibReadiness = tdLibReadiness,
-            connectionState = connectionState,
-            onThemeChange = onThemeChange,
+            authState = authState,
             onProxySettings = { openProxy(AppRoute.Start) },
             onStartClick = {
                 repository.startAuthorization()
