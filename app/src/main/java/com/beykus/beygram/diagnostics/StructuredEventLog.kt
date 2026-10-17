@@ -79,6 +79,10 @@ class StructuredEventLog(
     @Synchronized
     fun hasOverflowed(): Boolean = overflowed
 
+    /** Сколько событий записано с запуска процесса, включая уже вытесненные из буфера. */
+    @Synchronized
+    fun totalRecorded(): Long = nextSeq
+
     companion object {
         const val DEFAULT_CAPACITY = 200
 

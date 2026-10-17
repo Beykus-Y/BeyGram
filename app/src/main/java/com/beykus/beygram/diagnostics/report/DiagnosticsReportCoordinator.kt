@@ -116,6 +116,8 @@ class DiagnosticsReportCoordinator(
     private val delayFn: suspend (Long) -> Unit = { delay(it) },
     private val eventsProvider: () -> List<DiagnosticEvent>,
     private val overflowedProvider: () -> Boolean,
+    /** Всего событий с запуска процесса (включая вытесненные из буфера). */
+    private val totalEventsProvider: () -> Long,
     private val metaProvider: suspend () -> ReportClientMeta,
     /** Авторизована ли TDLib-сессия; без неё сетевая отправка отключена. */
     private val telegramReadyProvider: () -> Boolean = { true },
@@ -231,7 +233,18 @@ class DiagnosticsReportCoordinator(
             createdAtSeconds = clock() / 1000.0
         )
         val fitted = ReportSnapshot.fitToBudget(base) ?: return null
-        val meta = runCatching { metaProvider() }.getOrNull()
+        // Счётчики фиксируются вместе с payload: превью и POST видят одни и те же числа.
+        val trimmed = fitted.events.size < events.size || fitted.summary != base.summary
+        val meta = runCatching { metaProvider() }.getOrNull()?.let { client ->
+            if (draft.includeDiagnostics) {
+                client.copy(
+                    eventCountTotal = totalEventsProvider().coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+                    bufferOverflowed = overflowedProvider() || trimmed
+                )
+            } else {
+                client
+            }
+        }
         val payload = fitted.copy(clientMeta = meta)
         val bytes = ReportJson.encode(payload).toByteArray(Charsets.UTF_8)
         if (bytes.size > ReportSnapshot.MAX_BODY_BYTES) return null

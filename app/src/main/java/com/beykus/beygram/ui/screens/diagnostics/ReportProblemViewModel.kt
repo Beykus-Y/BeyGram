@@ -45,6 +45,7 @@ class ReportProblemViewModel(
         ioDispatcher = Dispatchers.IO,
         eventsProvider = { ReportSnapshot.collectEvents(StructuredEventLog.shared) },
         overflowedProvider = { StructuredEventLog.shared.hasOverflowed() },
+        totalEventsProvider = { StructuredEventLog.shared.totalRecorded() },
         metaProvider = {
             ReportClientMeta(
                 appVersion = BuildConfig.VERSION_NAME,
@@ -54,9 +55,7 @@ class ReportProblemViewModel(
                 deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
                 locale = Locale.getDefault().toString(),
                 vpnActive = MihomoProxyClient.isRunning(),
-                proxyEnabled = repository.isMihomoProxyEnabled().getOrNull() == true,
-                eventCountTotal = null,
-                bufferOverflowed = null
+                proxyEnabled = repository.isMihomoProxyEnabled().getOrNull() == true
             )
         },
         telegramReadyProvider = { repository.authState.value is AuthState.Ready }
