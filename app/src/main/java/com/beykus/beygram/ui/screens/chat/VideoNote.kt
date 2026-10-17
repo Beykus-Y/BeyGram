@@ -10,6 +10,7 @@ import android.view.TextureView
 import android.view.WindowManager
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -45,11 +47,14 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 private val IDLE_SIZE = 220.dp
-private val PLAYING_SIZE = 292.dp
 internal val VideoNoteBackground = Brush.linearGradient(listOf(Color(0xFF2B2640), Color(0xFF17151D)))
+/** Состояние для кружка без миниатюры: не наблюдаем фиктивный файл с id 0, которого в хранилище нет. */
+private val NoThumbnailState = MutableStateFlow(MediaFileState(0)).asStateFlow()
 
 /** Голосовое и кружок играют прямо в ленте, поэтому тап по пузырю для них не открывает просмотрщик. */
 internal fun MediaKind.playsInline(): Boolean = this == MediaKind.Voice || this == MediaKind.VideoNote
@@ -187,7 +192,9 @@ internal fun VideoNoteBubble(
     onLongPress: (() -> Unit)? = null,
     time: String = "",
     statusIcon: ImageVector? = null,
-    unseen: Boolean = false
+    statusDescription: String? = null,
+    unseen: Boolean = false,
+    highlighted: Boolean = false
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
@@ -196,7 +203,14 @@ internal fun VideoNoteBubble(
     var played by remember(media.fileId) { mutableStateOf(false) }
     val path = file.localPath
     val currentOnPlayed by rememberUpdatedState(onPlayed)
-    val size by animateDpAsState(targetValue = if (holder.started) PLAYING_SIZE else IDLE_SIZE, label = "video note size")
+    val playingSize = LocalConfiguration.current.screenWidthDp.dp
+    var showControls by remember(media.fileId) { mutableStateOf(false) }
+    LaunchedEffect(holder.started, holder.playing) {
+        showControls = holder.started
+        delay(500)
+        showControls = false
+    }
+    val size by animateDpAsState(targetValue = if (holder.started) playingSize else IDLE_SIZE, label = "video note size")
     DisposableEffect(holder) { onDispose { holder.dispose() } }
     val hostContext = LocalContext.current
     // Секретный кружок во время проигрывания не должен попасть на скриншот или запись экрана.
@@ -208,7 +222,7 @@ internal fun VideoNoteBubble(
     }
     // Миниатюра показывается до старта; у секретного кружка её не грузим, иначе кадр виден до просмотра.
     val thumbnailId = media.thumbnailFileId?.takeUnless { media.isSecret }
-    val thumbnail by remember(thumbnailId) { observeFile(thumbnailId ?: 0) }.collectAsStateWithLifecycle()
+    val thumbnail by remember(thumbnailId) { thumbnailId?.let(observeFile) ?: NoThumbnailState }.collectAsStateWithLifecycle()
     LaunchedEffect(thumbnailId) { if (thumbnailId != null) downloadFile(thumbnailId) }
     // Нажатие до окончания загрузки запоминается: как только файл готов, кружок начинает играть.
     LaunchedEffect(path, wantPlay) {
@@ -237,55 +251,59 @@ internal fun VideoNoteBubble(
     val fraction = if (holder.durationMs > 0) (holder.positionMs.toFloat() / holder.durationMs).coerceIn(0f, 1f) else 0f
     // Во время проигрывания показывается оставшееся время, как в оригинальном клиенте.
     val shownSeconds = if (holder.started && holder.durationMs > 0) (holder.durationMs - holder.positionMs + 500) / 1000 else media.durationSeconds
-    Box(Modifier.size(size)) {
-        Box(
-            Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
-                .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress),
-            contentAlignment = Alignment.Center
-        ) {
-            val thumbnailPath = thumbnail.localPath
-            if (!holder.started && thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize())
-            if (holder.started) AndroidView(
-                factory = { context ->
-                    TextureView(context).apply {
-                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) = holder.attach(Surface(texture))
-                            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) = Unit
-                            override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean { holder.detach(); return true }
-                            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-            if (holder.started) Canvas(Modifier.fillMaxSize()) {
-                val stroke = 4.dp.toPx()
-                val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
-                val inset = Offset(stroke / 2, stroke / 2)
-                drawArc(palette.textSecondary.copy(alpha = 0.3f), startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
-                drawArc(palette.accent, startAngle = -90f, sweepAngle = 360f * fraction, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
-            }
-            if (holder.started) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                Icon(if (holder.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
-            }
-            if (path == null && (wantPlay || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
-            if (path == null && file.error != null && !wantPlay) Text(stringResource(R.string.video_note_download_failed), color = Color.White, fontSize = 12.sp,
-                textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
-            if (!holder.started) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
-                modifier = Modifier.align(Alignment.TopStart).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
-            Text(duration(shownSeconds), color = Color.White, fontSize = 12.sp,
-                modifier = Modifier.align(Alignment.BottomStart).padding(10.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
-            if (time.isNotBlank()) Row(
-                Modifier.align(Alignment.BottomEnd).padding(10.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
+    Column(horizontalAlignment = Alignment.End) {
+        Box(Modifier.size(size).then(if (highlighted) Modifier.border(2.dp, palette.accent, CircleShape) else Modifier)) {
+            Box(
+                Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
+                    .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress),
+                contentAlignment = Alignment.Center
             ) {
-                Text(time, color = Color.White, fontSize = 12.sp)
-                if (statusIcon != null) {
-                    Spacer(Modifier.width(3.dp))
-                    Icon(statusIcon, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                val thumbnailPath = thumbnail.localPath
+                if (!holder.started && thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize())
+                if (holder.started) AndroidView(
+                    factory = { context ->
+                        TextureView(context).apply {
+                            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) = holder.attach(Surface(texture))
+                                override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) = Unit
+                                override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean { holder.detach(); return true }
+                                override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+                if (holder.started) Canvas(Modifier.fillMaxSize()) {
+                    val stroke = 4.dp.toPx()
+                    val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
+                    val inset = Offset(stroke / 2, stroke / 2)
+                    drawArc(palette.textSecondary.copy(alpha = 0.3f), startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
+                    drawArc(palette.accent, startAngle = -90f, sweepAngle = 360f * fraction, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
                 }
+                if (holder.started && showControls) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                    Icon(if (holder.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                }
+                if (path == null && (wantPlay || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
+                if (path == null && file.error != null && !wantPlay) Text(stringResource(R.string.video_note_download_failed), color = Color.White, fontSize = 12.sp,
+                    textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
+                if (!holder.started) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
+                    modifier = Modifier.align(Alignment.TopStart).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
+            }
+            if (unseen && !played) Box(Modifier.align(Alignment.CenterEnd).size(10.dp).background(palette.accent, CircleShape))
+        }
+        Row(
+            Modifier.padding(top = 4.dp).background(palette.surface, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(duration(shownSeconds), color = palette.textSecondary, fontSize = 12.sp)
+            if (time.isNotBlank()) {
+                Spacer(Modifier.width(12.dp))
+                Text(time, color = palette.textSecondary, fontSize = 12.sp)
+            }
+            if (statusIcon != null) {
+                Spacer(Modifier.width(3.dp))
+                Icon(statusIcon, contentDescription = statusDescription, tint = palette.accent, modifier = Modifier.size(14.dp))
             }
         }
-        if (unseen && !played) Box(Modifier.align(Alignment.CenterEnd).size(10.dp).background(palette.accent, CircleShape))
     }
 }

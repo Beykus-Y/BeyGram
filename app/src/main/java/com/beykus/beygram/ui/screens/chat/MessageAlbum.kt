@@ -97,7 +97,7 @@ internal fun MessageAlbumBubble(
         MessageSendState.Sent -> ""
     }
 
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (latest.isOutgoing) Arrangement.End else Arrangement.Start) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = if (latest.isOutgoing) Arrangement.End else Arrangement.Start) {
         Column(Modifier.widthIn(max = 292.dp).clip(shape)
             .then(if (highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
             .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble)) {
@@ -107,7 +107,7 @@ internal fun MessageAlbumBubble(
             }
             val rows = chronological.chunked(columns)
             rows.forEachIndexed { index, rowMessages ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     rowMessages.forEach { message ->
                         val media = message.media ?: return@forEach
                         AlbumMediaTile(media, observeFile, onDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) }, Modifier.weight(1f))
@@ -128,7 +128,7 @@ internal fun MessageAlbumBubble(
             if (captions.isNotEmpty()) {
                 Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { onActions(captionMessage.id) })
                     .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp)) {
-                    captions.forEach { Text(it.text, color = palette.textPrimary, fontSize = 16.sp, lineHeight = 22.sp) }
+                    captions.forEach { FormattedMessageText(it) }
                 }
             }
             Row(Modifier.align(Alignment.End).padding(start = 12.dp, end = 10.dp, top = 2.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {

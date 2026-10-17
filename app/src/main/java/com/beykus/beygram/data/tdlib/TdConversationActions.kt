@@ -57,17 +57,40 @@ internal class TdConversationActions(
         MediaKind.Sticker -> error("Стикеры не нумеруются")
     }
 
-    suspend fun sendText(chatId: Long, text: String, replyId: Long?): Result<Unit> = conversationResult {
+    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult {
         if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_message_too_long))
-        send(chatId, TdApi.InputMessageText().apply { this.text = TdApi.FormattedText(text, emptyArray()); clearDraft = true }, replyId)
+        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); clearDraft = true }, replyId)
     }
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?): Result<Unit> = conversationResult {
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult {
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
-        send(chatId, media.toInputContent(caption), replyId)
+        send(chatId, media.toInputContent(caption, entities), replyId)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult {
+        require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
+        if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
+        val replyTarget = replyId?.let {
+            if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+            request(TdApi.GetMessage(chatId, it))
+        }
+        val messages = request(TdApi.SendMessageAlbum().apply {
+            this.chatId = chatId
+            inputMessageContents = media.mapIndexed { index, item -> item.toInputContent(if (index == 0) caption else "", if (index == 0) entities else emptyList()) }.toTypedArray()
+            if (replyTarget != null) {
+                topicId = replyTarget.topicId
+                replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+            }
+        })
+        messages.messages.filterNotNull().forEach { message -> history.put(map(message)); hydrateReply(message) }
+    }
+
+    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long): Result<PinnedMessagePage> = conversationResult {
+        val page = request(pinnedMessagesRequest(chatId, fromMessageId))
+        PinnedMessagePage(page.messages.orEmpty().filterNotNull().map(map), page.totalCount, page.nextFromMessageId)
+    }
+
     suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = conversationResult {
         val orderedIds = messageIds.distinct().sorted()
         require(orderedIds.isNotEmpty()) { "Нет сообщений для повтора" }
@@ -89,14 +112,14 @@ internal class TdConversationActions(
         history.put(map(message)); hydrateReply(message)
     }
 
-    suspend fun edit(chatId: Long, messageId: Long, text: String): Result<Unit> = conversationResult {
+    suspend fun edit(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>): Result<Unit> = conversationResult {
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))
         val original = request(TdApi.GetMessage(chatId, messageId))
         if (!(properties.canBeEdited && original.isOutgoing && editable(original.content))) throw UserMessageException(UiText.Res(R.string.err_message_cannot_edit))
         val message = if (original.content is TdApi.MessageText) {
             if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_edit_text_empty))
             if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_edit_text_too_long))
-            request(TdApi.EditMessageText(chatId, messageId, null, TdApi.InputMessageText().apply { this.text = TdApi.FormattedText(text, emptyArray()) }))
+            request(TdApi.EditMessageText(chatId, messageId, null, TdApi.InputMessageText().apply { this.text = formattedText(text, entities) }))
         } else {
             if (text.codePointCount(0, text.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
             val above = when (val c = original.content) {
@@ -105,7 +128,7 @@ internal class TdConversationActions(
                 is TdApi.MessageAnimation -> c.showCaptionAboveMedia
                 else -> false
             }
-            request(TdApi.EditMessageCaption(chatId, messageId, null, TdApi.FormattedText(text, emptyArray()), above))
+            request(TdApi.EditMessageCaption(chatId, messageId, null, formattedText(text, entities), above))
         }
         history.put(map(message)); hydrateReply(message)
     }
@@ -162,3 +185,11 @@ private const val TAG = "BeyGramNet"
 internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(text.take(180)) else UiText.Res(when (media?.kind) {
     MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title
 })
+
+internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long) = TdApi.SearchChatMessages().apply {
+    this.chatId = chatId
+    query = ""
+    this.fromMessageId = fromMessageId
+    limit = 50
+    filter = TdApi.SearchMessagesFilterPinned()
+}

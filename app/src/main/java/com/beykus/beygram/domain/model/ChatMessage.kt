@@ -15,6 +15,8 @@ data class ChatMessage(
     val mediaAlbumId: Long = 0L,
     val senderName: String = "",
     val reply: MessageReply? = null,
+    val entities: List<MessageTextEntity> = emptyList(),
+    val inlineKeyboard: List<List<BotButton>> = emptyList(),
     val isEdited: Boolean = false
 )
 
@@ -35,3 +37,5 @@ enum class DeleteMessageScope { ForSelf, ForEveryone }
 data class MessageContext(val chatId: Long, val title: String, val targetId: Long, val messages: List<ChatMessage>)
 data class MessageSearchPage(val messages: List<ChatMessage>, val nextFromMessageId: Long)
 data class MessageLimits(val text: Int = 4096, val caption: Int = 1024)
+
+data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)

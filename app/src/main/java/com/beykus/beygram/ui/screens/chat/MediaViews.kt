@@ -115,7 +115,7 @@ internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: B
         (drawable as? AnimatedImageDrawable)?.start()
         onDispose { (drawable as? AnimatedImageDrawable)?.stop() }
     }
-    Box(modifier, contentAlignment = Alignment.Center) {
+    Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
         when {
             drawable != null -> AndroidView(
                 factory = { ImageView(it).apply { contentDescription = context.getString(R.string.media_image_description) } },

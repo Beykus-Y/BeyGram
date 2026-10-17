@@ -13,6 +13,9 @@ import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
+import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.BotKeyboard
+import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
@@ -205,6 +208,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // ---- Вспомогательные структуры -------------------------------------------
 
     /** Кэш сообщений по chatId. */
+    private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
+    override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
+    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId)
+    private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
+
     private val messageHistory = MessageHistoryStore()
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
@@ -238,12 +246,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         chat.id
     }
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
+    private val botKeyboards = TdBotKeyboards { client }
+    override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
+    override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
+    override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
     private val conversationEffects = TdConversationEffects({ client }, policy)
     override val messageLimits get() = conversationActions.limits
     override suspend fun messageCapabilities(chatId: Long, messageId: Long) = conversationActions.capabilities(chatId, messageId)
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind) = conversationActions.mediaPosition(chatId, messageId, kind)
-    override suspend fun editMessage(chatId: Long, messageId: Long, text: String) = conversationActions.edit(chatId, messageId, text)
+    override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>) = conversationActions.edit(chatId, messageId, text, entities)
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) = conversationActions.delete(chatId, messageId, scope)
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long) = conversationActions.forward(fromChatId, messageId, toChatId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
@@ -379,12 +391,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationEffects.contentOpened(chatId, messageId)
     }
 
-    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?): Result<Unit> =
-        conversationActions.sendMedia(chatId, media, caption, replyToMessageId)
+    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> =
+        conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities)
+
+    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> =
+        conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities)
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> =
         conversationActions.retryMessages(chatId, messageIds)
 
     override fun openChat(chatId: Long) {
+        botKeyboards.refresh(chatId)
         _notificationPresentation.update { it.copy(openedChats = it.openedChats + chatId) }
         conversationEffects.opened(chatId)
         messageHistory.opened(chatId)
@@ -423,20 +439,26 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         })
     }
 
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?): Result<Unit> =
-        conversationActions.sendText(chatId, text, replyToMessageId)
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> =
+        conversationActions.sendText(chatId, text, replyToMessageId, entities)
 
     // =========================================================================
     // Обработка обновлений TDLib
     // =========================================================================
 
     private fun handleUpdate(update: TdApi.Object) {
+        when (update) {
+            is TdApi.UpdateMessageIsPinned -> invalidatePins(update.chatId)
+            is TdApi.UpdateMessageContent -> invalidatePins(update.chatId)
+            is TdApi.UpdateDeleteMessages -> if (update.isPermanent) invalidatePins(update.chatId)
+        }
         profiles.handle(update)
         notificationFeed.handle(update)
         when (update) {
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
             is TdApi.UpdateChatLastMessage    -> handleChatLastMessage(update.chatId, update.lastMessage, update.positions)
+            is TdApi.UpdateChatReplyMarkup -> botKeyboards.update(update.chatId, update.replyMarkupMessage)
             is TdApi.UpdateChatPosition -> handleChatPosition(update.chatId, update.position)
             is TdApi.UpdateChatDraftMessage -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.withPositions(update.positions) }
@@ -450,12 +472,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateChatReadOutbox -> messageHistory.readOutbox(update.chatId, update.lastReadOutboxMessageId)
             is TdApi.UpdateMessageContent -> messageHistory.update(update.chatId, update.messageId) { message ->
                 val attachment = mediaMapper.media(update.newContent)
-                message.copy(text = contentText(update.newContent, attachment != null), media = attachment)
+                message.copy(text = contentText(update.newContent, attachment != null), entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
             }
             is TdApi.UpdateMessageContentOpened -> messageHistory.update(update.chatId, update.messageId) { message ->
                 message.copy(media = message.media?.copy(isViewed = true))
             }
-            is TdApi.UpdateMessageEdited -> messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0) }
+            is TdApi.UpdateMessageEdited -> messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
             is TdApi.UpdateChatPhoto -> {
@@ -657,6 +679,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
         isEdited = editDate > 0,
+        entities = messageFormattedText(content)?.domainEntities().orEmpty(),
+        inlineKeyboard = inlineKeyboard(replyMarkup),
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
