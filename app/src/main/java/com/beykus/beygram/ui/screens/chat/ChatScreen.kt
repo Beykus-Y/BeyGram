@@ -33,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -497,7 +498,7 @@ fun ChatScreen(
                 onChange = { if (editing) editText = it else draft = it },
                 onEntitiesChange = { if (editing) editEntities = it else draftEntities = ArrayList(it) },
                 placeholder = if (attachments.active) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
-                enabled = !busy, isError = overLimit, modifier = Modifier.weight(1f))
+                locked = busy, isError = overLimit, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
@@ -516,6 +517,8 @@ fun ChatScreen(
                 onRelease = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.release(it) else videoNote.release(it) }
             )
             else Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f))
+                // A tap must not move focus off the text field, or the keyboard closes.
+                .focusProperties { canFocus = false }
                 .clickable(enabled = canSend) {
                     when {
                         editing -> scope.launch {
