@@ -23,10 +23,12 @@ internal class CoalescedPublisher(
         if (!queued.compareAndSet(false, true)) return
         scope.launch {
             delay(delayMs)
-            // Clear the flag before publishing, so a change that arrives later schedules the next run.
-            queued.set(false)
             // Runs never overlap, so a slower run cannot write an older snapshot after a newer one.
-            publishing.withLock { publish() }
+            publishing.withLock {
+                // Clear the flag once the run starts: changes made while the run waits for the lock join that run.
+                queued.set(false)
+                publish()
+            }
         }
     }
 }
