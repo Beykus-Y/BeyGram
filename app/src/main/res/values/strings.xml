@@ -343,6 +343,12 @@
     <string name="settings_video_side">%1$d × %1$d</string>
     <string name="settings_video_fps">Частота кадров</string>
     <string name="settings_video_fps_value">%1$d FPS</string>
+    <string name="settings_video_fps_priority">Приоритет съёмки при слабом освещении</string>
+    <string name="settings_video_fps_priority_quality">Максимальное качество</string>
+    <string name="settings_video_fps_priority_balanced">Баланс</string>
+    <string name="settings_video_fps_priority_smoothness">Максимальная плавность</string>
+    <string name="settings_video_fps_priority_range">%1$d–%2$d FPS</string>
+    <string name="settings_video_fps_priority_note">Камера выбирает ближайший поддерживаемый диапазон, поэтому фактический FPS может отличаться. В пользовательском качестве верхняя граница ограничена выбранной частотой кадров.</string>
     <string name="settings_video_bitrate">Целевой видеобитрейт</string>
     <string name="settings_video_audio_bitrate">Целевой аудиобитрейт</string>
     <string name="settings_video_kbps">%1$d Кбит/с</string>
