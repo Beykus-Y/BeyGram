@@ -15,10 +15,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.beykus.beygram.data.mock.MockTelegramRepository
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
+import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
@@ -72,7 +72,7 @@ fun BeyGramApp(
         if (tdLibReadiness.canCreateClient) {
             TdLibTelegramRepository.getInstance(context.applicationContext)
         } else {
-            MockTelegramRepository()
+            UnavailableTelegramRepository()
         }
     }
     // Бэкенд прокси живёт в процессе: его область работы — область приложения, а не экрана.
