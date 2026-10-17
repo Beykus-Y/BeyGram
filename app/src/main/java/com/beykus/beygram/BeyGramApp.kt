@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -363,19 +364,21 @@ private fun BeyGramAppContent(
                     repository.openChat(openedChatId)
                     onDispose { repository.closeChat(openedChatId) }
                 }
-                ChatScreen(
-                    chat = chat,
-                    info = chatInfo.info,
-                    history = history,
-                    conversation = repository,
-                    chats = chats,
-                    observeFile = repository::observeFile,
-                    onDownloadFile = repository::downloadFile,
-                    onBack = { routeName = chatBackRouteName },
-                    onChatInfo = { routeName = AppRoute.ChatInfo.name },
-                    connectionState = connectionState,
-                    recordingSettings = recordingSettings
-                )
+                key(selectedChatId) {
+                    ChatScreen(
+                        chat = chat,
+                        info = chatInfo.info,
+                        history = history,
+                        conversation = repository,
+                        chats = chats,
+                        observeFile = repository::observeFile,
+                        onDownloadFile = repository::downloadFile,
+                        onBack = { routeName = chatBackRouteName },
+                        onChatInfo = { routeName = AppRoute.ChatInfo.name },
+                        connectionState = connectionState,
+                        recordingSettings = recordingSettings
+                    )
+                }
             }
         }
         AppRoute.ChatInfo -> {

@@ -109,7 +109,14 @@ fun ChatScreen(
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
-    val listState = rememberLazyListState()
+    val scrollPosition: ChatScrollPositionViewModel = viewModel(key = "chat-scroll-${chat.id}")
+    val listState = rememberLazyListState(scrollPosition.firstVisibleItemIndex, scrollPosition.firstVisibleItemScrollOffset)
+    DisposableEffect(listState) {
+        onDispose {
+            scrollPosition.firstVisibleItemIndex = listState.firstVisibleItemIndex
+            scrollPosition.firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+        }
+    }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
