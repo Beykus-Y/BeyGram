@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteProcessor
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.model.OutgoingMedia
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -113,11 +116,13 @@ internal object VideoNoteExportCenter {
                 Log.i(TAG, "video_processing_started session=" + sessionName + " chatId=" + chatId)
                 val media = VideoNoteProcessor(appContext).process(source, settings, outputDirectory)
                 Log.i(TAG, "video_processing_completed session=" + sessionName + " segments=" + media.size)
+                recordAppEvent(EventKind.OTHER, "video_note_processed", "Кружок: обработка завершена", attrs = mapOf("segments" to media.size.toString()))
                 publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName))
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
                 Log.e(TAG, "video_processing_failed session=" + sessionName, failure)
+                recordAppEvent(EventKind.OTHER, "video_note_processing_failed", "Кружок: обработка не удалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
                 _failures.update { it + chatId }
             } finally {
                 _pendingNotes.update { current -> current.filterNot { it.sessionName == sessionName } }
@@ -169,6 +174,7 @@ internal object VideoNoteExportCenter {
                 throw cancelled
             } catch (failure: Exception) {
                 Log.e(TAG, "video_note_send_failed session=" + sessionName, failure)
+                recordAppEvent(EventKind.OTHER, "video_note_send_failed", "Кружок: отправка прервалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
                 updateResult(sessionName) { it.markSendFailed() }
             }
         }

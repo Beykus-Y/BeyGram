@@ -39,6 +39,7 @@ import com.beykus.beygram.data.vpn.LoopbackProxyCredentials
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import com.beykus.beygram.diagnostics.ConnectionEventLog
 import com.beykus.beygram.diagnostics.StructuredEventLog
+import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.repository.TelegramRepository
@@ -448,7 +449,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         client.send(TdApi.DownloadFile(fileId, 16, 0, 0, false), Client.ResultHandler { result ->
             when (result) {
                 is TdApi.File -> mediaFiles.update(result.toMediaFileState())
-                is TdApi.Error -> mediaFiles.fail(fileId, UiText.Res(R.string.err_media_download_failed))
+                is TdApi.Error -> {
+                    recordAppEvent(
+                        kind = EventKind.TDLIB,
+                        code = "file_download_failed",
+                        text = "Файл не загрузился, код ${result.code}",
+                        severity = Severity.WARNING,
+                        attrs = mapOf("error_code" to result.code.toString())
+                    )
+                    mediaFiles.fail(fileId, UiText.Res(R.string.err_media_download_failed))
+                }
             }
         })
     }
@@ -603,6 +613,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
                 android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} code=${sendError?.code} error=${sendError?.message}")
+                recordAppEvent(
+                    kind = EventKind.TDLIB,
+                    code = "message_send_failed",
+                    text = "Сообщение не отправлено: ${update.message.content.javaClass.simpleName}, код ${sendError?.code ?: 0}",
+                    severity = Severity.ERROR,
+                    attrs = mapOf("content" to update.message.content.javaClass.simpleName, "error_code" to (sendError?.code ?: 0).toString())
+                )
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
             }
             is TdApi.UpdateDeleteMessages -> if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())

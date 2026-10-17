@@ -58,6 +58,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
@@ -209,6 +212,7 @@ internal class VideoNoteRecorder(
             timer?.cancel()
             timer = null
             requestStop(current)
+            recordRecordingFailure("camera_switch", failure)
             onError(context.getString(R.string.recorder_camera_switch_aborted))
         }
     }
@@ -227,6 +231,7 @@ internal class VideoNoteRecorder(
         // Проверяем пиковый объём: RAW с камеры и перекодированные сегменты живут на диске одновременно.
         val requiredBytes = videoPeakStorageBytes(videoCameraBitrate(settings), maxDurationMs / 1000)
         if (StatFs(context.filesDir.absolutePath).availableBytes < requiredBytes) {
+            recordAppEvent(EventKind.UI, "video_note_storage_low", "Кружок: мало места на устройстве", Severity.WARNING)
             onError(context.getString(R.string.recorder_storage_low))
             return
         }
@@ -257,8 +262,9 @@ internal class VideoNoteRecorder(
                 videoCapture = capture
                 bind(cameraProvider, startSelector, settings, capture)
                 startRecording(settings)
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
                 Log.e(TAG, "video_camera_open_failed")
+                recordRecordingFailure("camera_open", failure)
                 fail(context.getString(R.string.recorder_camera_open_failed))
             }
         }, ContextCompat.getMainExecutor(context))
@@ -312,6 +318,21 @@ internal class VideoNoteRecorder(
             provider?.unbindAll()
         } else requestStop(current)
     }
+
+    private fun recordStarted() = recordAppEvent(
+        kind = EventKind.UI,
+        code = "video_note_recording_started",
+        text = "Кружок: запись началась",
+        attrs = mapOf("persistent" to persistentSupported.toString())
+    )
+
+    private fun recordRecordingFailure(stage: String, cause: Exception) = recordAppEvent(
+        kind = EventKind.UI,
+        code = "video_note_recording_failed",
+        text = "Кружок: сбой записи",
+        severity = Severity.ERROR,
+        attrs = mapOf("stage" to stage, "cause" to cause.javaClass.simpleName)
+    )
 
     private fun fail(message: String) {
         active = false
@@ -434,10 +455,12 @@ internal class VideoNoteRecorder(
         try {
             current.recording = prepare(current, persistent = persistentSupported)
             Log.i(TAG, "video_recording_started session=$sessionName persistent=$persistentSupported")
-        } catch (_: Exception) {
+            recordStarted()
+        } catch (failure: Exception) {
             // Persistent-запись нужна только для смены камеры во время записи: без неё кружок пишется как раньше.
             if (!persistentSupported) {
                 Log.e(TAG, "video_recording_start_failed session=$sessionName")
+                recordRecordingFailure("recording_start", failure)
                 take = null
                 current.file.parentFile?.deleteRecursively()
                 fail(context.getString(R.string.recorder_start_failed))
@@ -449,8 +472,10 @@ internal class VideoNoteRecorder(
             try {
                 current.recording = prepare(current, persistent = false)
                 Log.i(TAG, "video_recording_started session=$sessionName persistent=false")
-            } catch (_: Exception) {
+                recordStarted()
+            } catch (retryFailure: Exception) {
                 Log.e(TAG, "video_recording_start_failed session=$sessionName")
+                recordRecordingFailure("recording_start", retryFailure)
                 take = null
                 current.file.parentFile?.deleteRecursively()
                 fail(context.getString(R.string.recorder_start_failed))
@@ -488,7 +513,15 @@ internal class VideoNoteRecorder(
         }
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
-        when (videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)) {
+        val outcome = videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)
+        recordAppEvent(
+            kind = EventKind.UI,
+            code = "video_note_finalized",
+            text = "Кружок: запись остановлена, $seconds с",
+            severity = if (outcome == VideoTakeOutcome.SaveFailed) Severity.ERROR else Severity.INFO,
+            attrs = mapOf("outcome" to outcome.name, "duration_s" to seconds.toString(), "codec_error" to event.error.toString())
+        )
+        when (outcome) {
             VideoTakeOutcome.Discarded -> current.file.parentFile?.deleteRecursively()
             VideoTakeOutcome.TooShort -> {
                 current.file.parentFile?.deleteRecursively()

@@ -1,6 +1,9 @@
 package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.*
@@ -57,18 +60,18 @@ internal class TdConversationActions(
         MediaKind.Sticker -> error("Стикеры не нумеруются")
     }
 
-    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult {
+    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
         if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_message_too_long))
         send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); clearDraft = true }, replyId)
-    }
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult {
+    }.onFailure { recordSendFailure("text", it) }
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
         send(chatId, media.toInputContent(caption, entities), replyId)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
-    }
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult {
+    }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
         require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
         if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
         val replyTarget = replyId?.let {
@@ -84,7 +87,7 @@ internal class TdConversationActions(
             }
         })
         messages.messages.filterNotNull().forEach { message -> history.put(map(message)); hydrateReply(message) }
-    }
+    }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
 
     suspend fun pinnedMessages(chatId: Long, fromMessageId: Long): Result<PinnedMessagePage> = conversationResult {
         val page = request(pinnedMessagesRequest(chatId, fromMessageId))
@@ -200,4 +203,25 @@ internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long) = TdApi.Se
     this.fromMessageId = fromMessageId
     limit = 50
     filter = TdApi.SearchMessagesFilterPinned()
+}
+
+/** Медиа в журнале видны и принятые, и неудачные: текстовые сообщения слишком частые, поэтому там только сбои. */
+private fun recordMediaAccepted(kind: String) = recordAppEvent(
+    kind = EventKind.TDLIB,
+    code = "media_send_accepted",
+    text = "Медиа принято к отправке: $kind",
+    attrs = mapOf("kind" to kind)
+)
+
+/** Ошибки проверки ввода (пустой текст, длинная подпись) пользователь видит сразу, в журнал не пишем. */
+private fun recordSendFailure(kind: String, error: Throwable) {
+    if (error is UserMessageException && error.cause == null) return
+    val reason = (error.cause as? TdRequestError)?.let { "tdlib_${it.code}" } ?: (error.cause ?: error).javaClass.simpleName
+    recordAppEvent(
+        kind = EventKind.TDLIB,
+        code = "send_request_failed",
+        text = "Отправка не удалась: $kind, причина: $reason",
+        severity = Severity.ERROR,
+        attrs = mapOf("kind" to kind, "reason" to reason)
+    )
 }
