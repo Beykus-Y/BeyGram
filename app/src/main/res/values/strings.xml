@@ -4,6 +4,9 @@
     <string name="archive_action_read">Прочитано</string>
     <string name="archive_action_unarchive">Вернуть</string>
     <string name="archive_empty">В архиве пока пусто</string>
+    <string name="archive_setting_return_on_message">Возвращать из архива при новом сообщении</string>
+    <string name="archive_setting_sound">Звук для архивных чатов</string>
+    <string name="archive_settings_note">Архив не виден собеседникам. Чат можно вернуть свайпом.</string>
     <string name="archive_title">Архив</string>
     <string name="auth_code_connection_timeout">Не удалось связаться с Telegram. Проверьте прокси и попробуйте снова.</string>
     <string name="auth_code_label">Код</string>

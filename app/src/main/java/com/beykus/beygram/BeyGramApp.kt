@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -16,12 +17,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.ArchiveSettings
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
@@ -55,6 +58,7 @@ import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyRestoreDialog
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
 import com.beykus.beygram.ui.text.resolve
+import kotlinx.coroutines.launch
 
 @Composable
 fun BeyGramApp(
@@ -142,6 +146,23 @@ private fun BeyGramAppContent(
     val onArchiveHiddenChange: (Boolean) -> Unit = { hidden ->
         archiveHidden = hidden
         chatPreferences.edit().putBoolean("archive_hidden", hidden).apply()
+    }
+    val archiveSettingsStore = remember(context) { ArchiveSettingsStore.get(context) }
+    val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
+    val archiveSettingsScope = rememberCoroutineScope()
+    val onArchiveSettingsChange: (ArchiveSettings) -> Unit = { next ->
+        val previous = archiveSettingsStore.state.value
+        archiveSettingsStore.update(next)
+        // Возврат из архива — настройка аккаунта: при ошибке записи возвращаем переключатель назад.
+        if (next.returnOnNewMessage != previous.returnOnNewMessage) {
+            archiveSettingsScope.launch {
+                repository.setArchiveReturnsOnNewMessage(next.returnOnNewMessage).onFailure {
+                    // Запись не прошла: показываем значение аккаунта, а не то, что было до нажатия.
+                    val actual = repository.archiveReturnsOnNewMessage().getOrDefault(previous.returnOnNewMessage)
+                    archiveSettingsStore.update(archiveSettingsStore.state.value.copy(returnOnNewMessage = actual))
+                }
+            }
+        }
     }
     // Нижнее меню: какие разделы видны. Скрытые разделы открываются из профиля; настройка сохраняется между запусками.
     val tabPreferences = remember(context) { MainTabPreferences(context) }
@@ -253,12 +274,20 @@ private fun BeyGramAppContent(
     }
     val archiveRoute: @Composable () -> Unit = {
         val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        // Переключатель показывает настройку аккаунта: её могли поменять на другом устройстве.
+        LaunchedEffect(repository) {
+            repository.archiveReturnsOnNewMessage().onSuccess { returns ->
+                archiveSettingsStore.update(archiveSettingsStore.state.value.copy(returnOnNewMessage = returns))
+            }
+        }
         ArchiveScreen(
             chats = archivedChats,
             observeFile = repository::observeFile,
             downloadFile = repository::downloadFile,
             onMarkRead = markChatRead,
             onUnarchive = unarchiveChat,
+            settings = archiveSettings,
+            onSettingsChange = onArchiveSettingsChange,
             onBack = { routeName = AppRoute.Chats.name },
             onChatClick = { chat ->
                 selectedChatId = chat.id

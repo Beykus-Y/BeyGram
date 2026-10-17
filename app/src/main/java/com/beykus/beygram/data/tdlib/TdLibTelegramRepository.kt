@@ -17,6 +17,7 @@ import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.CallHistoryPage
@@ -217,7 +218,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
     private val profiles = TdProfiles({ client }, mediaFiles)
-    private val notificationFeed = TdNotifications({ client }, profiles::senderName)
+    /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
+    private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
+    private val notificationFeed = TdNotifications({ client }, profiles::senderName) { chatId ->
+        chatId !in returningFromArchive && chatCache[chatId]?.archiveOrder?.let { it > 0L } == true
+    }
     override val notifications get() = notificationFeed.state
     private val _notificationPresentation = MutableStateFlow(NotificationPresentation())
     override val notificationPresentation = _notificationPresentation.asStateFlow()
@@ -230,6 +235,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = requestResult {
         val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
         TdRequests { client }(TdApi.AddChatToList(chatId, list)); Unit
+    }
+    override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = requestResult {
+        !TdRequests { client }(TdApi.GetArchiveChatListSettings()).keepUnmutedChatsArchived
+    }
+    override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = requestResult {
+        // Меняем одно поле: остальные настройки архива аккаунта должны остаться прежними.
+        val settings = TdRequests { client }(TdApi.GetArchiveChatListSettings())
+        settings.keepUnmutedChatsArchived = !enabled
+        TdRequests { client }(TdApi.SetArchiveChatListSettings(settings)); Unit
     }
     override suspend fun markChatRead(chatId: Long): Result<Unit> = conversationResult {
         val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L } ?: throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
@@ -556,6 +570,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.AuthorizationStateReady -> {
                 _authState.value = AuthState.Ready
                 loadChats()
+                syncArchiveReturnSetting()
                 profiles.refreshMe()
                 conversationActions.initialize()
                 conversationEffects.authorized()
@@ -596,6 +611,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun loadChats() {
         loadChatList(TdApi.ChatListMain())
         loadChatList(TdApi.ChatListArchive())
+    }
+
+    /** Переключатель возврата из архива показывает настройку аккаунта, поэтому читаем её при входе. */
+    private fun syncArchiveReturnSetting() {
+        chatListScope.launch {
+            archiveReturnsOnNewMessage().onSuccess { returns ->
+                val store = ArchiveSettingsStore.get(appContext)
+                store.update(store.state.value.copy(returnOnNewMessage = returns))
+            }
+        }
     }
 
     /**
@@ -659,6 +684,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun handleNewMessage(message: TdApi.Message) {
         messageHistory.put(message.toChatMessage())
         conversationActions.hydrateReply(message)
+        val chat = chatCache[message.chatId]
+        // Muted archived chats stay in the archive, as they do in Telegram.
+        if (!message.isOutgoing && chat != null && chat.archiveOrder > 0L && !chat.isMuted && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage) {
+            returningFromArchive += message.chatId
+            chatListScope.launch {
+                setChatArchived(message.chatId, false).onFailure { ConnectionEventLog.shared.record("Возврат чата из архива: ошибка") }
+                returningFromArchive -= message.chatId
+            }
+        }
     }
 
     private fun TdApi.Message.toChatMessage(): ChatMessage {
