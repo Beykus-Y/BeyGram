@@ -400,6 +400,9 @@
     <string name="profile_about_me">О себе</string>
     <string name="profile_action_change_photo">Изменить фотографию</string>
     <string name="profile_action_edit">Редактировать профиль</string>
+    <string name="profile_admin_owner">Владелец</string>
+    <string name="profile_admin_role">Администратор</string>
+    <string name="profile_admins_header">АДМИНИСТРАТОРЫ</string>
     <string name="profile_badge_premium">Telegram Premium</string>
     <string name="profile_badge_verified">Подтверждённый аккаунт</string>
     <string name="profile_bio_counter">%1$d / %2$d</string>
