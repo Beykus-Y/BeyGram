@@ -73,7 +73,7 @@ fun ProfileScreen(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             preparing = true; photoError = null
-            try { pendingPhoto = importer.prepare(uri, asDocument = false, squarePhoto = true) }
+            try { pendingPhoto = replacePendingPhoto(pendingPhoto, { importer.prepare(uri, asDocument = false, squarePhoto = true) }, importer::discard) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { photoError = error.userMessage(context, R.string.profile_photo_prepare_failed) }
             finally { preparing = false }
@@ -189,6 +189,13 @@ fun ProfileScreen(
     ProfileKind.Secret -> stringResource(R.string.profile_secret_chat_status, status?.let { presenceText(it).resolve() }.orEmpty())
     ProfileKind.Bot -> stringResource(R.string.profile_type_bot)
     ProfileKind.Person -> if (isSelf) stringResource(R.string.profile_own_account_telegram) else status?.let { presenceText(it).resolve() }.orEmpty()
+}
+
+/** Подготавливает новое фото и удаляет прежнее. Если подготовка падает, прежнее фото не трогаем. */
+internal suspend fun <T : Any> replacePendingPhoto(previous: T?, prepare: suspend () -> T, discard: suspend (T) -> Unit): T {
+    val next = prepare()
+    previous?.let { discard(it) }
+    return next
 }
 
 /** День рождения для строки профиля; год показываем, только если аккаунт его указал. Null, если дата не сходится с календарём. */
