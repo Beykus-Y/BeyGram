@@ -63,8 +63,16 @@ internal class TdConversationActions(
         send(chatId, TdApi.InputMessageText().apply { this.text = TdApi.FormattedText(text, emptyArray()); clearDraft = true }, replyId)
     }
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?): Result<Unit> = conversationResult {
+        android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
         send(chatId, media.toInputContent(caption), replyId)
+        android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
+    }
+    suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = conversationResult {
+        val orderedIds = messageIds.distinct().sorted()
+        require(orderedIds.isNotEmpty()) { "Нет сообщений для повтора" }
+        request(TdApi.ResendMessages(chatId, orderedIds.toLongArray(), null, 0L))
+        Unit
     }
     private suspend fun send(chatId: Long, content: TdApi.InputMessageContent, replyId: Long?) {
         val replyTarget = replyId?.let {
@@ -148,6 +156,8 @@ internal class TdConversationActions(
     }
     private fun editable(content: TdApi.MessageContent): Boolean = content is TdApi.MessageText || content is TdApi.MessagePhoto || content is TdApi.MessageVideo || content is TdApi.MessageAnimation || content is TdApi.MessageAudio || content is TdApi.MessageDocument || content is TdApi.MessageVoiceNote
 }
+
+private const val TAG = "BeyGramNet"
 
 internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(text.take(180)) else UiText.Res(when (media?.kind) {
     MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title

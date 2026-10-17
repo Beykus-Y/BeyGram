@@ -11,6 +11,8 @@ data class ChatMessage(
     val dateSeconds: Long = 0L,
     val sendState: MessageSendState = MessageSendState.Sent,
     val media: MessageMedia? = null,
+    /** Telegram's mediaAlbumId; zero means this message is not part of an album. */
+    val mediaAlbumId: Long = 0L,
     val senderName: String = "",
     val reply: MessageReply? = null,
     val isEdited: Boolean = false

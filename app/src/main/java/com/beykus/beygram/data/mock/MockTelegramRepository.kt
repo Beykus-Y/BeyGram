@@ -261,6 +261,7 @@ class MockTelegramRepository : TelegramRepository {
         historyStates.getValue(chatId).value = ChatHistory(messagesByChatId[chatId].orEmpty().toList(), hasOlderMessages = false)
         return Result.success(Unit)
     }
+    override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = Result.success(Unit)
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = historyStates.getOrPut(chatId) {
         MutableStateFlow(ChatHistory(messages = messagesByChatId[chatId].orEmpty().toList(), hasOlderMessages = false))

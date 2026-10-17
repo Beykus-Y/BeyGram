@@ -51,5 +51,6 @@ data class OutgoingMedia(
     val thumbnailPath: String? = null,
     val size: Long = 0,
     val thumbnailWidth: Int = 0,
-    val thumbnailHeight: Int = 0
+    val thumbnailHeight: Int = 0,
+    val waveform: ByteArray = byteArrayOf()
 ) : Serializable
