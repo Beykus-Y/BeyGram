@@ -154,14 +154,15 @@ internal object VoicePlayback {
 @Composable
 internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile: (Int) -> Unit, onPlayed: () -> Unit, onLongPress: (() -> Unit)?) {
     val palette = beyGramPalette()
-    val voice by VoicePlayback.state.collectAsStateWithLifecycle()
+    val playbackState by VoicePlayback.state.collectAsStateWithLifecycle()
     val path = file.localPath
+    // Общий проигрыватель читает только пузырь, который играет: у остальных значение null, и на каждом шаге прогресса они не перерисовываются.
+    val voice = remember(path) { derivedStateOf { playbackState.takeIf { path != null && it.path == path } } }.value
     var wantPlay by remember(media.fileId) { mutableStateOf(false) }
-    val mine = path != null && voice.path == path
-    val playing = mine && voice.playing
-    val loading = (mine && voice.durationMs == 0 && !voice.failed) || (wantPlay && path == null)
-    val fraction = if (mine && voice.durationMs > 0) (voice.positionMs.toFloat() / voice.durationMs).coerceIn(0f, 1f) else 0f
-    val shownSeconds = if (mine && voice.positionMs > 0) voice.positionMs / 1000 else media.durationSeconds
+    val playing = voice?.playing == true
+    val loading = (voice != null && voice.durationMs == 0 && !voice.failed) || (wantPlay && path == null)
+    val fraction = if (voice != null && voice.durationMs > 0) (voice.positionMs.toFloat() / voice.durationMs).coerceIn(0f, 1f) else 0f
+    val shownSeconds = if (voice != null && voice.positionMs > 0) voice.positionMs / 1000 else media.durationSeconds
     val bars = remember(media.fileId, media.waveform) { resampleWaveform(media.waveform, BAR_COUNT) }
     fun togglePlay() {
         if (path == null) { wantPlay = true; downloadFile(media.fileId) } else VoicePlayback.toggle(path, onPlayed)
