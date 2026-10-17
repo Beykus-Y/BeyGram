@@ -55,6 +55,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -341,6 +344,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
      * пересобираются не чаще раза в [CHAT_LIST_PUBLISH_DELAY_MS].
      */
     private val chatCache = ConcurrentHashMap<Long, ChatPreview>()
+    private val muteState = ChatMuteState()
     // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
     private val historyRequests = ConcurrentHashMap<Long, Long>()
     private val chatListScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -601,9 +605,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 publishChat(update.chatId)
             }
             is TdApi.UpdateChatNotificationSettings -> {
-                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(isMuted = update.notificationSettings.muteFor > 0) }
+                muteState.updateChat(update.chatId, update.notificationSettings)
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(isMuted = muteState.isMuted(update.chatId)) }
                 publishChat(update.chatId)
             }
+            is TdApi.UpdateScopeNotificationSettings -> handleScopeNotificationSettings(NotificationScope.ofScope(update.scope), update.notificationSettings)
             is TdApi.UpdateNewMessage         -> {
                 reportBotChannel.onNewMessage(update.message)
                 handleNewMessage(update.message)
@@ -701,7 +707,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             }
             is TdApi.AuthorizationStateReady -> {
                 _authState.value = AuthState.Ready
-                loadChats()
+                loadChatsWithNotificationScopes()
                 syncArchiveReturnSetting()
                 profiles.refreshMe()
                 conversationActions.initialize()
@@ -745,6 +751,34 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         loadChatList(TdApi.ChatListArchive())
     }
 
+    /**
+     * Чаты грузим только после общих настроек звука: иначе новое сообщение в заглушённом архивном чате
+     * может вернуть его в основной список, пока настройки области ещё неизвестны.
+     */
+    private fun loadChatsWithNotificationScopes() {
+        chatListScope.launch {
+            loadNotificationScopes()
+            loadChats()
+        }
+    }
+
+    /** Ошибка чтения одной области оставляет её без общего значения, чат тогда смотрит на свою настройку. */
+    private suspend fun loadNotificationScopes() = coroutineScope {
+        NotificationScope.entries.map { scope ->
+            async {
+                runCatching { tdRequests(TdApi.GetScopeNotificationSettings(scope.toTd())) }
+                    .onSuccess { handleScopeNotificationSettings(scope, it) }
+            }
+        }.awaitAll()
+    }
+
+    private fun handleScopeNotificationSettings(scope: NotificationScope, settings: TdApi.ScopeNotificationSettings) {
+        muteState.updateScope(scope, settings).forEach { chatId ->
+            chatCache[chatId]?.let { chatCache[chatId] = it.copy(isMuted = muteState.isMuted(chatId)) }
+            publishChat(chatId)
+        }
+    }
+
     /** Переключатель возврата из архива показывает настройку аккаунта, поэтому читаем её при входе. */
     private fun syncArchiveReturnSetting() {
         chatListScope.launch {
@@ -771,6 +805,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         notificationFeed.chat(chat)
         messageHistory.readInbox(chat.id, chat.lastReadInboxMessageId)
         messageHistory.readOutbox(chat.id, chat.lastReadOutboxMessageId)
+        muteState.putChat(chat.id, NotificationScope.ofChat(chat.type), chat.notificationSettings)
         val preview = chat.toChatPreview() ?: return
         chatCache[chat.id] = preview
         publishChat(chat.id)
@@ -880,7 +915,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isPinned = mainPosition?.isPinned == true,
-            isMuted = notificationSettings?.muteFor?.let { it > 0 } == true,
+            isMuted = muteState.isMuted(id),
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,
             lastMessageId = lastMessage?.id ?: 0L,
