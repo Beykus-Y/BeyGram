@@ -57,9 +57,13 @@ internal data class ChatSwipeAction(
 
 internal enum class SwipeTarget { Closed, Revealed, Dismissed }
 
-/** The animation that finishes the latest gesture. A new gesture or a new settle cancels it. */
+/**
+ * The animation that finishes the latest gesture. Cancelling it or starting a new one bumps [gesture], so a rollback
+ * scheduled earlier can tell that the row has moved on.
+ */
 private class Settle {
     var job: Job? = null
+    var gesture = 0
 }
 
 private const val FLING_PX_PER_SECOND = 800f
@@ -105,8 +109,13 @@ internal fun SwipeChatRow(
     val latestOpenChatId by rememberUpdatedState(openChatId)
     val settle = remember { Settle() }
 
-    fun startSettle(block: suspend () -> Unit) {
+    fun cancelSettle() {
+        settle.gesture++
         settle.job?.cancel()
+    }
+
+    fun startSettle(block: suspend () -> Unit) {
+        cancelSettle()
         settle.job = scope.launch { block() }
     }
 
@@ -131,10 +140,14 @@ internal fun SwipeChatRow(
             }
             SwipeTarget.Revealed -> animateOffset(-revealPx)
             SwipeTarget.Dismissed -> {
+                val gesture = settle.gesture
                 animateOffset(-rowWidth)
                 if (latestOpenChatId == chat.id) onOpenChange(null)
                 // Outside the settle job, so a new gesture does not cancel the action in flight.
-                scope.launch { if (!primary.perform(chat)) startSettle { animateOffset(0f) } }
+                scope.launch {
+                    // A failed action restores the row only if nothing has moved it since the dismissal.
+                    if (!primary.perform(chat) && settle.gesture == gesture) startSettle { animateOffset(0f) }
+                }
             }
         }
     }
@@ -162,7 +175,7 @@ internal fun SwipeChatRow(
                     state = dragState,
                     orientation = Orientation.Horizontal,
                     onDragStarted = {
-                        settle.job?.cancel()
+                        cancelSettle()
                         onOpenChange(chat.id)
                     },
                     onDragStopped = { velocity ->
