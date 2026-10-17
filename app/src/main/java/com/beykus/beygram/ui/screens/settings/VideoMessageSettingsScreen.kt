@@ -35,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoProcessingMode
+import com.beykus.beygram.data.media.VideoFrameRatePriority
 import com.beykus.beygram.data.media.VideoQualityPreset
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
@@ -70,6 +71,23 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
                 }
             }
 
+            if (settings.preset == VideoQualityPreset.Maximum || settings.preset == VideoQualityPreset.Custom) {
+                val fpsLimit = if (settings.preset == VideoQualityPreset.Maximum) 60 else settings.customFps
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.settings_video_fps_priority), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    FpsPriorityRow(VideoFrameRatePriority.MaximumQuality, settings.frameRatePriority,
+                        stringResource(R.string.settings_video_fps_priority_quality), fpsLimit
+                    ) { store.updateSettings { it.copy(frameRatePriority = VideoFrameRatePriority.MaximumQuality) } }
+                    FpsPriorityRow(VideoFrameRatePriority.Balanced, settings.frameRatePriority,
+                        stringResource(R.string.settings_video_fps_priority_balanced), fpsLimit
+                    ) { store.updateSettings { it.copy(frameRatePriority = VideoFrameRatePriority.Balanced) } }
+                    FpsPriorityRow(VideoFrameRatePriority.MaximumSmoothness, settings.frameRatePriority,
+                        stringResource(R.string.settings_video_fps_priority_smoothness), fpsLimit
+                    ) { store.updateSettings { it.copy(frameRatePriority = VideoFrameRatePriority.MaximumSmoothness) } }
+                    Text(stringResource(R.string.settings_video_fps_priority_note), color = palette.textSecondary, fontSize = 13.sp)
+                }
+            }
+
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.settings_video_processing), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 ProcessingRow(VideoProcessingMode.Automatic, settings.processing, stringResource(R.string.settings_video_processing_auto)) { store.updateSettings { it.copy(processing = VideoProcessingMode.Automatic) } }
@@ -101,6 +119,19 @@ private fun PresetRow(value: VideoQualityPreset, selected: VideoQualityPreset, t
         Column(Modifier.padding(start = 6.dp)) {
             Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Text(detail, color = palette.textSecondary, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun FpsPriorityRow(value: VideoFrameRatePriority, selected: VideoFrameRatePriority, title: String, maxFps: Int, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected == value, onClick = onClick)
+        Column(Modifier.padding(start = 4.dp)) {
+            Text(title, color = palette.textPrimary, fontSize = 14.sp)
+            Text(stringResource(R.string.settings_video_fps_priority_range, value.minimumFps.coerceAtMost(maxFps), maxFps),
+                color = palette.textSecondary, fontSize = 12.sp)
         }
     }
 }
