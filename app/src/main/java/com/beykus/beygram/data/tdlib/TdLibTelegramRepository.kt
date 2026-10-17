@@ -265,9 +265,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     /**
      * Промежуточный кэш чатов: TDLib отдаёт чаты через несколько обновлений,
-     * поэтому собираем их здесь и переиздаём [_chats] при каждом изменении.
+     * поэтому собираем их здесь. Открытый чат переиздаётся сразу, а [_chats] и [_archivedChats]
+     * пересобираются не чаще раза в [CHAT_LIST_PUBLISH_DELAY_MS].
      */
     private val chatCache = ConcurrentHashMap<Long, ChatPreview>()
+    private val chatListScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val chatListPublisher = CoalescedPublisher(chatListScope, CHAT_LIST_PUBLISH_DELAY_MS) {
+        // Main-list ordering comes from Telegram, including pins and draft activity.
+        _chats.value = orderedMainChats(chatCache.values)
+        _archivedChats.value = orderedArchivedChats(chatCache.values)
+    }
 
     /** Номер телефона, введённый пользователем — нужен для [WaitingForCode]. */
     private var submittedPhone: String = ""
@@ -431,12 +438,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateChatPosition -> handleChatPosition(update.chatId, update.position)
             is TdApi.UpdateChatDraftMessage -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.withPositions(update.positions) }
-                publishChats()
+                publishChat(update.chatId)
             }
             is TdApi.UpdateChatReadInbox -> {
                 messageHistory.readInbox(update.chatId, update.lastReadInboxMessageId)
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadCount = update.unreadCount) }
-                publishChats()
+                publishChat(update.chatId)
             }
             is TdApi.UpdateChatReadOutbox -> messageHistory.readOutbox(update.chatId, update.lastReadOutboxMessageId)
             is TdApi.UpdateMessageContent -> messageHistory.update(update.chatId, update.messageId) { message ->
@@ -448,7 +455,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
             is TdApi.UpdateChatPhoto -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(photo = profiles.photo(update.photo)) }
-                publishChats()
+                publishChat(update.chatId)
             }
             is TdApi.UpdateNewMessage         -> handleNewMessage(update.message)
             is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
@@ -582,7 +589,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         messageHistory.readOutbox(chat.id, chat.lastReadOutboxMessageId)
         val preview = chat.toChatPreview() ?: return
         chatCache[chat.id] = preview
-        publishChats()
+        publishChat(chat.id)
     }
 
     private fun handleChatLastMessage(chatId: Long, lastMessage: TdApi.Message?, positions: Array<TdApi.ChatPosition>) {
@@ -592,7 +599,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             lastMessageTime = lastMessage?.toTimeString().orEmpty(),
             lastMessageId = lastMessage?.id ?: 0L
         ).withPositions(positions)
-        publishChats()
+        publishChat(chatId)
     }
 
     /** Позиции чата в основном списке и в архиве; нет позиции в списке — чат там не показывается. */
@@ -613,13 +620,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.ChatListArchive -> existing.copy(archiveOrder = position.order)
             else -> return
         }
-        publishChats()
+        publishChat(chatId)
     }
 
     private fun handleChatTitleChange(chatId: Long, title: String) {
         val existing = chatCache[chatId] ?: return
         chatCache[chatId] = existing.copy(title = title)
-        publishChats()
+        publishChat(chatId)
     }
 
     private fun handleNewMessage(message: TdApi.Message) {
@@ -652,11 +659,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     )
     }
 
-    /** Main-list ordering comes from Telegram, including pins and draft activity. */
-    private fun publishChats() {
-        _chats.value = orderedMainChats(chatCache.values)
-        _archivedChats.value = orderedArchivedChats(chatCache.values)
-        chatStates.forEach { (id, flow) -> flow.value = chatCache[id] }
+    /** Updates observers of this chat right away and queues the shared lists; other chats are not touched. */
+    private fun publishChat(chatId: Long) {
+        chatStates[chatId]?.value = chatCache[chatId]
+        chatListPublisher.request()
     }
 
     // =========================================================================
@@ -761,6 +767,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         private const val KEY_PREVIOUS_PROXY_ID = "previous_proxy_id"
         private const val PROXY_PING_TIMEOUT_MS = 5_000
         private const val AUTH_REQUEST_TIMEOUT_MS = 35_000L
+        private const val CHAT_LIST_PUBLISH_DELAY_MS = 100L
         @Volatile private var instance: TdLibTelegramRepository? = null
 
         fun getInstance(context: Context, policy: InteractionPolicy = InteractionPolicy.Standard): TdLibTelegramRepository =
