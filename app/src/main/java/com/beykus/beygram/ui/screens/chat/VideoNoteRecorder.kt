@@ -124,9 +124,6 @@ internal class VideoNoteRecorder(
     /** Переключатель показывается, только если на устройстве есть и фронтальная, и основная камера. */
     var canSwitchCamera by mutableStateOf(false)
         private set
-    /** Предыдущая запись ещё перекодируется: новая не стартует, чтобы Transformer'ы и резерв места не множились. */
-    var processing by mutableStateOf(false)
-        private set
 
     private var provider: ProcessCameraProvider? = null
     private var videoCapture: VideoCapture<Recorder>? = null
@@ -160,7 +157,8 @@ internal class VideoNoteRecorder(
     /** Нажатие: камера открывается асинхронно, запись начинается, когда она готова. */
     fun press() {
         if (active || take != null) return
-        if (processing) {
+        if (VideoNoteExportGate.busy) {
+            // Шлюз процесс-глобальный: экспорт прошлой записи продолжается даже из другого чата или после пересоздания экрана.
             onError(context.getString(R.string.recorder_processing_busy))
             return
         }
@@ -372,8 +370,8 @@ internal class VideoNoteRecorder(
             }
             return
         }
-        // Флаг ставится синхронно с Finalize: между финализацией и стартом корутины новую запись начать нельзя.
-        processing = true
+        // Счётчик ставится синхронно с Finalize: между финализацией и стартом корутины новую запись начать нельзя.
+        VideoNoteExportGate.begin()
         scope.launch {
             try {
                 val outputDirectory = File(context.filesDir, "uploads").resolve(current.sessionName).apply { mkdirs() }
@@ -386,7 +384,7 @@ internal class VideoNoteRecorder(
                 onError(context.getString(R.string.recorder_save_failed))
                 // The source remains in its private session directory so a failed conversion never destroys it.
             } finally {
-                processing = false
+                VideoNoteExportGate.end()
             }
         }
     }
@@ -404,6 +402,20 @@ internal fun videoCameraBitrate(settings: VideoMessageSettings): Int = when (set
 internal fun videoPeakStorageBytes(videoBitrate: Int, durationSeconds: Long): Long {
     val bits = (videoBitrate.toLong() + 128_000L) * durationSeconds
     return bits / 8 * 2 + 256L * 1024L * 1024L
+}
+
+/**
+ * Процесс-глобальный шлюз экспорта кружков: один Transformer за раз. Живёт вне экрана чата,
+ * поэтому смена чата или поворот экрана не позволяет запустить второй экспорт параллельно.
+ */
+internal object VideoNoteExportGate {
+    var activeExports by mutableStateOf(0)
+        private set
+    val busy: Boolean get() = activeExports > 0
+
+    fun begin() { activeExports++ }
+
+    fun end() { activeExports = (activeExports - 1).coerceAtLeast(0) }
 }
 
 /** Запись кружка на экране чата: отмена при уходе из композиции, чтобы камера не оставалась открытой. */
