@@ -25,8 +25,15 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     private fun flow(chatId: Long) = states.computeIfAbsent(chatId) { MutableStateFlow(ChatHistory()) }
     fun observe(chatId: Long): StateFlow<ChatHistory> = flow(chatId).asStateFlow()
 
-    fun opened(chatId: Long) = synchronized(lock) { openedChats += chatId }
-    fun closed(chatId: Long) = synchronized(lock) { openedChats -= chatId }
+    fun opened(chatId: Long) = synchronized(lock) {
+        openedChats += chatId
+        keepCached(chatId)
+    }
+
+    fun closed(chatId: Long) = synchronized(lock) {
+        openedChats -= chatId
+        keepCached(chatId)
+    }
 
     fun put(message: ChatMessage, replaces: Long? = null) = synchronized(lock) {
         markChanged(message.chatId, message.id)
@@ -54,7 +61,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
             hasOlderMessages = hasOlder,
             error = null
         )
-        if (!continueLoading) changed.remove(chatId)
+        if (!continueLoading) endLoad(chatId)
         keepCached(chatId)
     }
 
@@ -78,7 +85,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     fun fail(chatId: Long, error: UiText, endLoading: Boolean = true) = synchronized(lock) {
         val state = flow(chatId)
         state.value = state.value.copy(error = error, isLoading = if (endLoading) false else state.value.isLoading)
-        if (endLoading) changed.remove(chatId)
+        if (endLoading) endLoad(chatId)
     }
 
     fun delete(chatId: Long, ids: Collection<Long>) = synchronized(lock) {
@@ -93,8 +100,18 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     }
 
     private fun retire(chatId: Long, ids: Collection<Long>) {
-        val retired = retiredIds.getOrPut(chatId) { mutableSetOf() }
-        retired.addAll(ids)
+        retiredIds.getOrPut(chatId) { mutableSetOf() }.addAll(ids)
+        // A running load may still return snapshots from before these ids were retired, so the trim waits for it.
+        if (!flow(chatId).value.isLoading) trimRetired(chatId)
+    }
+
+    private fun endLoad(chatId: Long) {
+        changed.remove(chatId)
+        trimRetired(chatId)
+    }
+
+    private fun trimRetired(chatId: Long) {
+        val retired = retiredIds[chatId] ?: return
         // Late responses only concern recent sends and deletions, so the oldest entries go first.
         while (retired.size > MAX_RETIRED_IDS_PER_CHAT) retired.remove(retired.first())
     }
