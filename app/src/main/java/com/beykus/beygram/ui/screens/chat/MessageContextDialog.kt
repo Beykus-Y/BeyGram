@@ -75,6 +75,6 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
             }
         }
     }
-    selected?.let { message -> message.media?.let { media -> MediaViewer(media, observeFile, downloadFile,
-        onViewed = { conversation.openMessageContent(message.chatId, message.id) }, onClose = { selected = null }, canExport = exportable) } }
+    selected?.let { message -> message.media?.let { media -> MediaViewer(pages = listOf(MediaViewerItem(message.id, media)), selectedId = message.id, onSelect = {},
+        observeFile = observeFile, downloadFile = downloadFile, onViewed = { id -> conversation.openMessageContent(message.chatId, id) }, onClose = { selected = null }, canExport = exportable) } }
 }

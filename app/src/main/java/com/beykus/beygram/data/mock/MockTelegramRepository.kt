@@ -222,10 +222,12 @@ class MockTelegramRepository : TelegramRepository {
         return Result.success(MessageCapabilities(true, true, message.isOutgoing, true, message.isOutgoing, canForward = true, canSave = true))
     }
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition> {
-        val sameKind = messagesByChatId[chatId].orEmpty().filter { it.media?.kind == kind }
-        val index = sameKind.indexOfFirst { it.id == messageId }
+        // Фото и видео считаются вместе, как в TDLib (SearchMessagesFilterPhotoAndVideo).
+        val kinds = if (kind == MediaKind.Photo || kind == MediaKind.Video) setOf(MediaKind.Photo, MediaKind.Video) else setOf(kind)
+        val sameGroup = messagesByChatId[chatId].orEmpty().filter { it.media?.kind in kinds }
+        val index = sameGroup.indexOfFirst { it.id == messageId }
         if (index < 0) return Result.failure(UserMessageException(UiText.Res(R.string.chat_message_unavailable)))
-        return Result.success(MediaPosition(index + 1, sameKind.size))
+        return Result.success(MediaPosition(index + 1, sameGroup.size))
     }
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String): Result<Unit> {
         val messages = messagesByChatId[chatId] ?: return Result.failure(UserMessageException(UiText.Res(R.string.chat_message_unavailable)))

@@ -199,6 +199,10 @@ fun ChatScreen(
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = reply.messageId }
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
     }
+    fun showInChat(messageId: Long) {
+        val index = messages.asReversed().indexOfFirst { it.id == messageId }
+        if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = messageId }
+    }
     // Results refresh after a short pause in typing; a new query replaces the pending request.
     LaunchedEffect(searching, searchQuery) {
         searchResults = emptyList(); searchNextId = 0L; searchError = null
@@ -348,8 +352,11 @@ fun ChatScreen(
             }
         }
     }
-    messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(media, observeFile, onDownloadFile,
-        onViewed = { selectedMediaId?.let { conversation.openMessageContent(chat.id, it) } }, onClose = { selectedMediaId = null },
+    // Фото и видео листаются вместе; остальные вложения открываются по одному.
+    val viewerItems = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it) } } }
+    messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(
+        pages = if (media.kind in viewerSwipeKinds) viewerItems else listOf(MediaViewerItem(viewed.id, media)), selectedId = viewed.id, onSelect = { selectedMediaId = it },
+        observeFile = observeFile, downloadFile = onDownloadFile, onViewed = { id -> conversation.openMessageContent(chat.id, id) }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
         canExport = viewerCapabilities?.canSave == true,
         actions = MediaViewerActions(
@@ -359,7 +366,7 @@ fun ChatScreen(
             onForward = { forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
             onDelete = { deleteEveryone = viewerCapabilities?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
-        )) } }
+        ), onShowInChat = { id -> selectedMediaId = null; showInChat(id) }) } }
     forwardId?.let { id ->
         ForwardChatDialog(chats, forwardBusy, forwardError,
             onPick = { target -> scope.launch {

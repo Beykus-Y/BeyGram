@@ -22,6 +22,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,6 +32,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MusicNote
@@ -200,75 +203,119 @@ internal class MediaViewerActions(
     val onForward: () -> Unit, val onEdit: () -> Unit, val onDelete: () -> Unit
 )
 
-/** [canExport] разрешает сохранить файл и передать его наружу; Telegram запрещает это в защищённых чатах. */
+/** Вложение в листаемом просмотрщике; [messageId] нужен для отметки «просмотрено» и действий над сообщением. */
+internal data class MediaViewerItem(val messageId: Long, val media: MessageMedia)
+
+/** Фото и видео листаются вместе, и счётчик «N из M» считает их тоже вместе. */
+internal val viewerSwipeKinds = setOf(MediaKind.Photo, MediaKind.Video)
+
+/**
+ * [pages] листаются слева направо, от самого раннего; [selectedId] — вложение, которое показано сейчас.
+ * [canExport] разрешает сохранить файл и передать его наружу; Telegram запрещает это в защищённых чатах.
+ * [onShowInChat] не передаётся, если просмотр открыт не из чата.
+ */
 @Composable
 internal fun MediaViewer(
-    media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onViewed: () -> Unit, onClose: () -> Unit,
-    title: String? = null, subtitle: String? = null, canExport: Boolean = true, actions: MediaViewerActions? = null
+    pages: List<MediaViewerItem>, selectedId: Long, onSelect: (Long) -> Unit,
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onViewed: (Long) -> Unit, onClose: () -> Unit,
+    title: String? = null, subtitle: String? = null, canExport: Boolean = true, actions: MediaViewerActions? = null,
+    onShowInChat: ((Long) -> Unit)? = null
 ) {
-    val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
+    val selectedIndex = pages.indexOfFirst { it.messageId == selectedId }.coerceAtLeast(0)
+    val shown = pages[selectedIndex]
+    val pagerState = rememberPagerState(initialPage = selectedIndex) { pages.size }
+    // Лента может измениться (пришло или удалено сообщение), поэтому выбранное вложение держим по id, а не по индексу.
+    LaunchedEffect(selectedIndex) { if (pagerState.settledPage != selectedIndex) pagerState.scrollToPage(selectedIndex) }
+    LaunchedEffect(pagerState.settledPage) {
+        val settled = pages.getOrNull(pagerState.settledPage)?.messageId
+        if (settled != null && settled != selectedId) onSelect(settled)
+    }
+    val shownFile by remember(shown.media.fileId) { observeFile(shown.media.fileId) }.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var externalError by remember { mutableStateOf<String?>(null) }
     var fileNotice by remember { mutableStateOf<String?>(null) }
-    val localPath = file.localPath
-    val exportPath = if (canExport && !media.isSecret) localPath else null
-    val tgs = media.mimeType == "application/x-tgsticker"
-    val previewId = media.thumbnailFileId
-    val currentOnViewed by rememberUpdatedState(onViewed)
-    fun openExternal(path: String) {
-        externalError = openExternalMedia(context, path, media.mimeType)
-        if (externalError == null) currentOnViewed()
+    var menuOpen by remember { mutableStateOf(false) }
+    val exportPath = if (canExport && !shown.media.isSecret) shownFile.localPath else null
+    fun openExternal(item: MediaViewerItem, path: String) {
+        externalError = openExternalMedia(context, path, item.media.mimeType)
+        if (externalError == null) onViewed(item.messageId)
     }
-    LaunchedEffect(media.fileId, file.localPath) {
-        if (file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed()
-    }
-    LaunchedEffect(media.fileId) { if (!tgs) downloadFile(media.fileId) else previewId?.let(downloadFile) }
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (media.isSecret) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (shown.media.isSecret) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
                 Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                    Text(title ?: media.fileName.ifBlank { media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
-                if (exportPath != null) IconButton(onClick = { fileNotice = shareMedia(context, exportPath, media.mimeType) }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
-            }
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                val path = file.localPath
-                when {
-                    tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (previewId != null) {
-                            val preview by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
-                            preview.localPath?.let { LocalMediaImage(it, Modifier.size(240.dp), fit = true) }
-                        }
-                        Text(stringResource(R.string.media_animated_sticker_preview), color = Color.LightGray, modifier = Modifier.padding(16.dp))
-                    }
-                    path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
-                        if (file.isDownloading) CircularProgressIndicator()
-                        Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
-                        if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
-                    }
-                    media.mimeType.startsWith("image/") -> ZoomableImage(path)
-                    media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") -> LocalVideo(path, media.kind == MediaKind.Animation, onViewed)
-                    media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> LocalAudio(path, onViewed)
-                    else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(formatMediaSize(file.size), color = Color.LightGray)
-                        if (exportPath != null) TextButton(onClick = { openExternal(path) }) { Text(stringResource(R.string.media_open_file)) }
+                if (exportPath != null) IconButton(onClick = { fileNotice = shareMedia(context, exportPath, shown.media.mimeType) }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
+                if (exportPath != null || onShowInChat != null) Box {
+                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (exportPath != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_open_in_other_app)) }, onClick = { menuOpen = false; openExternal(shown, exportPath) })
+                        if (onShowInChat != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_show_in_chat)) }, onClick = { menuOpen = false; onShowInChat(shown.messageId) })
                     }
                 }
             }
-            if (exportPath != null) TextButton(onClick = { openExternal(exportPath) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(stringResource(R.string.media_open_in_other_app)) }
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().weight(1f)) { page ->
+                val item = pages[page]
+                MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
+                    onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed)
+            }
             if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
                 if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
-                    scope.launch { fileNotice = withContext(Dispatchers.IO) { saveToDevice(context, exportPath, media) } }
+                    scope.launch { fileNotice = withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
                 }
                 if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
                 if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
             }
             externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp)) }
             fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+        }
+    }
+}
+
+/** Одна страница просмотрщика. [active] — страница, которую сейчас видно целиком: только её видео играет. */
+@Composable
+private fun MediaViewerPage(
+    item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
+    canExport: Boolean, active: Boolean, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit
+) {
+    val media = item.media
+    val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
+    val tgs = media.mimeType == "application/x-tgsticker"
+    val previewId = media.thumbnailFileId
+    val exportable = canExport && !media.isSecret
+    val currentOnViewed by rememberUpdatedState(onViewed)
+    LaunchedEffect(media.fileId, file.localPath) {
+        if (file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
+    }
+    LaunchedEffect(media.fileId) { if (!tgs) downloadFile(media.fileId) else previewId?.let(downloadFile) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val path = file.localPath
+        when {
+            tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (previewId != null) {
+                    val preview by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
+                    preview.localPath?.let { LocalMediaImage(it, Modifier.size(240.dp), fit = true) }
+                }
+                Text(stringResource(R.string.media_animated_sticker_preview), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+            }
+            path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                if (file.isDownloading) CircularProgressIndicator()
+                Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
+            }
+            media.mimeType.startsWith("image/") -> ZoomableImage(path)
+            media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
+                LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
+            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> LocalAudio(path) { currentOnViewed(item.messageId) }
+            else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(formatMediaSize(file.size), color = Color.LightGray)
+                if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
+            }
         }
     }
 }
@@ -291,7 +338,7 @@ private fun ZoomableImage(path: String) {
         scale = (scale * zoom).coerceIn(1f, 5f)
         offset = Offset((offset.x + pan.x).coerceIn(-size.width * (scale - 1) / 2, size.width * (scale - 1) / 2), (offset.y + pan.y).coerceIn(-size.height * (scale - 1) / 2, size.height * (scale - 1) / 2))
     }
-    Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform).pointerInput(path) {
+    Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1f }).pointerInput(path) {
         detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; offset = Offset.Zero })
     }) {
         LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y }, fit = true, maxDimension = 4096)
@@ -299,10 +346,11 @@ private fun ZoomableImage(path: String) {
 }
 
 @Composable
-private fun LocalVideo(path: String, loop: Boolean, onStarted: () -> Unit) {
+private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: () -> Unit) {
     val context = LocalContext.current
     var error by remember(path) { mutableStateOf(false) }
     val currentOnStarted by rememberUpdatedState(onStarted)
+    val currentActive by rememberUpdatedState(active)
     val video = remember(path) { object : VideoView(context) {
         override fun start() { super.start(); if (runCatching { isPlaying }.getOrDefault(false)) currentOnStarted() }
     } }
@@ -314,11 +362,13 @@ private fun LocalVideo(path: String, loop: Boolean, onStarted: () -> Unit) {
     }
     DisposableEffect(video) {
         video.setMediaController(MediaController(context).apply { setAnchorView(video) })
-        video.setOnPreparedListener { it.isLooping = loop; if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) video.start() }
+        video.setOnPreparedListener { it.isLooping = loop; if (currentActive && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) video.start() }
         video.setOnErrorListener { _, _, _ -> error = true; true }
         video.setVideoPath(path)
         onDispose { video.stopPlayback() }
     }
+    // Играет только текущая страница; соседнее видео, которое увели свайпом, ставим на паузу.
+    LaunchedEffect(active) { if (active) video.start() else video.pause() }
     if (error) Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray, modifier = Modifier.padding(24.dp))
     else AndroidView(factory = { video }, modifier = Modifier.fillMaxSize())
 }
