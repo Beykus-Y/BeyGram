@@ -12,12 +12,13 @@ internal class CallsScreenState : ViewModel() {
     var calls by mutableStateOf<List<CallRecord>>(emptyList())
     var nextOffset by mutableStateOf("")
 
-    /** Свежая первая страница заменяет прежнюю, а более старые страницы, загруженные раньше, остаются. */
+    /** Свежая первая страница заменяет прежнюю. Более старые страницы остаются, только если свежая пересекается с уже загруженными звонками: иначе между ними может быть пропуск. */
     fun replaceFirstPage(page: CallHistoryPage) {
         val fresh = page.calls.map { it.key() }.toSet()
+        val overlaps = calls.any { it.key() in fresh }
         val older = calls.filterNot { it.key() in fresh }
-        calls = page.calls + older
-        if (older.isEmpty()) nextOffset = page.nextOffset
+        calls = if (overlaps) page.calls + older else page.calls
+        if (!overlaps || older.isEmpty()) nextOffset = page.nextOffset
     }
 
     /** Следующая страница дописывается в конец; звонки, которые уже есть в списке, не повторяются. */
