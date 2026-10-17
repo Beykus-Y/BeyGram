@@ -141,9 +141,12 @@ private fun BeyGramAppContent(
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
+    // Профиль участника открывается по его личному чату; запоминаем чат и экран, куда вернуться.
+    var memberChatId by rememberSaveable { mutableStateOf(0L) }
+    var memberReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.ChatInfo.name) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
-    var notificationError by remember { mutableStateOf<UiText?>(null) }
+    var noticeError by remember { mutableStateOf<UiText?>(null) }
     // Скрытый архив остаётся скрытым после перезапуска: флаг лежит в настройках приложения.
     val context = LocalContext.current
     val chatPreferences = remember(context) { context.applicationContext.getSharedPreferences("chats", Context.MODE_PRIVATE) }
@@ -200,6 +203,19 @@ private fun BeyGramAppContent(
         proxyConnectTabName = tab.name
         routeName = AppRoute.ProxyConnect.name
     }
+    // Профиль участника: открываем его личный чат и показываем сведения; назад возвращаемся туда, откуда открыли.
+    val memberScope = rememberCoroutineScope()
+    val openUserProfile: (Long, AppRoute) -> Unit = { userId, returnTo ->
+        memberScope.launch {
+            repository.openPrivateChat(userId)
+                .onSuccess { chatId ->
+                    memberChatId = chatId
+                    memberReturnRouteName = returnTo.name
+                    routeName = AppRoute.MemberProfile.name
+                }
+                .onFailure { error -> noticeError = (error as? UserMessageException)?.text ?: UiText.Res(R.string.profile_member_open_failed) }
+        }
+    }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, notificationRequest?.token) {
         val request = notificationRequest ?: return@LaunchedEffect
@@ -208,7 +224,7 @@ private fun BeyGramAppContent(
         else request.chatId?.let { chatId ->
             val result = repository.loadChat(chatId)
             if (result.isSuccess) { selectedChatId = chatId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name }
-            else notificationError = (result.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.err_app_open_chat_failed)
+            else noticeError = (result.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.err_app_open_chat_failed)
         }
         onNotificationHandled(request.token)
     }
@@ -345,15 +361,27 @@ private fun BeyGramAppContent(
         LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
-            onMembers = { routeName = AppRoute.ChatMembers.name },
+            onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
             isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
     }
 
     val chatMembersRoute: @Composable () -> Unit = {
         key(selectedChatId) {
-            ChatMembersScreen(loadPage = { offset, limit -> repository.loadChatMembers(selectedChatId, offset, limit) }, onBack = { routeName = AppRoute.ChatInfo.name })
+            ChatMembersScreen(loadPage = { offset, limit -> repository.loadChatMembers(selectedChatId, offset, limit) },
+                observeFile = repository::observeFile, downloadFile = repository::downloadFile,
+                onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatMembers) },
+                onBack = { routeName = AppRoute.ChatInfo.name })
         }
+    }
+    val memberProfileRoute: @Composable () -> Unit = {
+        val infoFlow = remember(repository, memberChatId) { repository.observeChatInfo(memberChatId) }
+        val info by infoFlow.collectAsStateWithLifecycle()
+        LaunchedEffect(repository, memberChatId) { repository.refreshChatInfo(memberChatId) }
+        ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
+            onBack = { routeName = memberReturnRouteName }, onRefresh = { repository.refreshChatInfo(memberChatId) },
+            onEdit = {}, setPhoto = repository::setMyProfilePhoto,
+            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
     }
 
     when (route) {
@@ -424,6 +452,7 @@ private fun BeyGramAppContent(
         AppRoute.Chat -> chatRoute()
         AppRoute.ChatInfo -> chatInfoRoute()
         AppRoute.ChatMembers -> chatMembersRoute()
+        AppRoute.MemberProfile -> memberProfileRoute()
         AppRoute.MyProfile -> {
             LaunchedEffect(repository) { repository.refreshMyProfile() }
             ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile,
@@ -511,7 +540,7 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Proxy.name }
         )
     }
-    notificationError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { notificationError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
-        text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { notificationError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
+    noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
+        text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
     ProxyRestoreDialog(vpnBackend = vpnBackend)
 }
