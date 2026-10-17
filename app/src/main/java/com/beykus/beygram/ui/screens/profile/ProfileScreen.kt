@@ -37,6 +37,7 @@ import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.ui.components.*
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
+import com.beykus.beygram.ui.screens.chat.MediaViewerItem
 import com.beykus.beygram.ui.screens.chat.presenceText
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
@@ -130,7 +131,10 @@ fun ProfileScreen(
         }
     }
     val photo = state.info?.photo
-    if (showPhoto && photo != null) MediaViewer(MessageMedia(MediaKind.Photo, photo.bigFileId, photo.smallFileId, stringResource(R.string.profile_photo_title), "image/jpeg"), observeFile, downloadFile, onViewed = {}, onClose = { showPhoto = false })
+    // Фото профиля не привязано к сообщению, поэтому у единственной страницы нет id (0).
+    if (showPhoto && photo != null) MediaViewer(
+        pages = listOf(MediaViewerItem(0L, MessageMedia(MediaKind.Photo, photo.bigFileId, photo.smallFileId, stringResource(R.string.profile_photo_title), "image/jpeg"))), selectedId = 0L,
+        onSelect = {}, observeFile = observeFile, downloadFile = downloadFile, onViewed = {}, onClose = { showPhoto = false })
     pendingPhoto?.let { selected ->
         fun discard() { if (!saving) { pendingPhoto = null; scope.launch { importer.discard(selected) } } }
         BackHandler(onBack = ::discard)

@@ -221,11 +221,12 @@ fun ChatScreen(
         capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
     }
     LaunchedEffect(selectedMediaId) {
-        viewerCapabilities = null; viewerPosition = null
+        // При свайпе старые значения остаются до ответа, иначе счётчик и кнопки мигают на каждом вложении.
+        if (selectedMediaId == null) { viewerCapabilities = null; viewerPosition = null }
         val id = selectedMediaId ?: return@LaunchedEffect
         viewerCapabilities = conversation.messageCapabilities(chat.id, id).getOrNull()
-        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind ?: return@LaunchedEffect
-        viewerPosition = conversation.mediaPosition(chat.id, id, kind).getOrNull()
+        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind
+        viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
     BackHandler(enabled = searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active) {
         when {
@@ -268,6 +269,10 @@ fun ChatScreen(
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = reply.messageId }
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
+    }
+    fun showInChat(messageId: Long) {
+        val index = messages.asReversed().indexOfFirst { it.id == messageId }
+        if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = messageId }
     }
     // Results refresh after a short pause in typing; a new query replaces the pending request.
     LaunchedEffect(searching, searchQuery) {
@@ -448,6 +453,8 @@ fun ChatScreen(
             }
         }
     }
+    // Фото и видео листаются вместе; остальные вложения открываются по одному.
+    val viewerItems = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it) } } }
     recordingPreview?.let { mediaList -> RecordingPreviewDialog(
         mediaList = mediaList,
         selectedIndex = recordingPreviewIndex,
@@ -458,8 +465,9 @@ fun ChatScreen(
         onDelete = { mediaList.firstOrNull()?.let { java.io.File(it.path).parentFile?.deleteRecursively() }; sentRecordingPaths = emptySet(); recordingRecovery.dismissPreview() },
         onSend = { sendRecordedMedia(mediaList) }
     ) }
-    messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(media, observeFile, onDownloadFile,
-        onViewed = { selectedMediaId?.let { conversation.openMessageContent(chat.id, it) } }, onClose = { selectedMediaId = null },
+    messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(
+        pages = if (media.kind in viewerSwipeKinds) viewerItems else listOf(MediaViewerItem(viewed.id, media)), selectedId = viewed.id, onSelect = { selectedMediaId = it },
+        observeFile = observeFile, downloadFile = onDownloadFile, onViewed = { id -> conversation.openMessageContent(chat.id, id) }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
         canExport = viewerCapabilities?.canSave == true,
         actions = MediaViewerActions(
@@ -469,7 +477,7 @@ fun ChatScreen(
             onForward = { forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
             onDelete = { deleteEveryone = viewerCapabilities?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
-        )) } }
+        ), onShowInChat = { id -> selectedMediaId = null; showInChat(id) }) } }
     forwardId?.let { id ->
         ForwardChatDialog(chats, forwardBusy, forwardError,
             onPick = { target -> scope.launch {

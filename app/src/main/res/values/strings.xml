@@ -263,6 +263,7 @@
     <string name="media_kind_video">Видео</string>
     <string name="media_kind_video_note">Видеосообщение</string>
     <string name="media_kind_voice">Голосовое</string>
+    <string name="media_more_actions">Ещё</string>
     <string name="media_no_app_for_format">Нет приложения для открытия этого формата</string>
     <string name="media_open_file">Открыть файл</string>
     <string name="media_open_in_other_app">Открыть в другом приложении</string>
@@ -270,6 +271,7 @@
     <string name="media_saved_downloads">Сохранено в «Загрузки»</string>
     <string name="media_saved_gallery">Сохранено в галерею</string>
     <string name="media_share_failed">Не удалось поделиться файлом</string>
+    <string name="media_show_in_chat">Показать в чате</string>
     <string name="media_size_kb">%1$d КБ</string>
     <string name="media_size_mb">%1$.1f МБ</string>
     <string name="media_spoiler_hint">Спойлер · нажмите, чтобы открыть</string>
