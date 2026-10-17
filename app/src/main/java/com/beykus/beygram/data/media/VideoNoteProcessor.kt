@@ -1,11 +1,19 @@
 package com.beykus.beygram.data.media
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.BitmapOverlay
+import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.AudioEncoderSettings
 import androidx.media3.transformer.EditedMediaItem
@@ -85,7 +93,11 @@ class VideoNoteProcessor(private val context: Context) {
                 )
                 .build()
             val edited = EditedMediaItem.Builder(mediaItem)
-                .setEffects(Effects(emptyList(), listOf(Presentation.createForWidthAndHeight(side, side, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))))
+                .setEffects(Effects(emptyList(), listOf(
+                    Presentation.createForWidthAndHeight(side, side, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP),
+                    // Кадр за пределами круга очищается: TDLib ожидает «no data outside of the visible circle».
+                    OverlayEffect(listOf(BitmapOverlay.createStaticBitmapOverlay(circularMask(side))))
+                )))
                 .build()
             suspendCancellableCoroutine { continuation ->
                 val transformer = Transformer.Builder(context)
@@ -118,6 +130,21 @@ class VideoNoteProcessor(private val context: Context) {
             }
             check(output.isFile && output.length() > 0L) { "Пустой результат обработки" }
         }
+    }
+
+    /** Непрозрачный кадр с вырезанным кругом: углы становятся чёрными, данные камеры за пределами круга не сохраняются. */
+    private fun circularMask(side: Int): Bitmap {
+        val mask = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+        Canvas(mask).apply {
+            drawColor(Color.BLACK)
+            drawCircle(
+                side / 2f,
+                side / 2f,
+                side / 2f,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
+            )
+        }
+        return mask
     }
 
     private fun metadata(file: File): VideoMetadata = MediaMetadataRetriever().run {

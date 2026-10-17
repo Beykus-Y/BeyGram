@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
-import com.beykus.beygram.data.media.VideoProcessingMode
 import com.beykus.beygram.data.media.VideoFrameRatePriority
 import com.beykus.beygram.data.media.VideoQualityPreset
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -88,14 +87,6 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
                 }
             }
 
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.settings_video_processing), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                ProcessingRow(VideoProcessingMode.Automatic, settings.processing, stringResource(R.string.settings_video_processing_auto)) { store.updateSettings { it.copy(processing = VideoProcessingMode.Automatic) } }
-                ProcessingRow(VideoProcessingMode.Direct, settings.processing, stringResource(R.string.settings_video_processing_direct)) { store.updateSettings { it.copy(processing = VideoProcessingMode.Direct) } }
-                ProcessingRow(VideoProcessingMode.Transcode, settings.processing, stringResource(R.string.settings_video_processing_transcode)) { store.updateSettings { it.copy(processing = VideoProcessingMode.Transcode) } }
-                Text(stringResource(R.string.settings_video_processing_note), color = palette.textSecondary, fontSize = 13.sp)
-            }
-
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp)) {
                 Row(Modifier.fillMaxWidth().toggleable(settings.longRecordingEnabled, role = Role.Switch) { checked ->
                     store.updateSettings { current -> current.copy(longRecordingEnabled = checked) }
@@ -133,15 +124,6 @@ private fun FpsPriorityRow(value: VideoFrameRatePriority, selected: VideoFrameRa
             Text(stringResource(R.string.settings_video_fps_priority_range, value.minimumFps.coerceAtMost(maxFps), maxFps),
                 color = palette.textSecondary, fontSize = 12.sp)
         }
-    }
-}
-
-@Composable
-private fun ProcessingRow(value: VideoProcessingMode, selected: VideoProcessingMode, label: String, onClick: () -> Unit) {
-    val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected == value, onClick = onClick)
-        Text(label, color = palette.textPrimary, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp))
     }
 }
 

@@ -80,8 +80,8 @@ private const val SIDE_PX = 480
 /** Сдвиг пальца влево, после которого отпускание отменяет запись. */
 private const val CANCEL_DRAG_DP = 96f
 private const val TAG = "BeyGramRecorder"
-/** Пока кадр не обрезается по кругу, новые кружки не записываются: пиксели вне круга иначе уходят в файл. */
-internal const val VIDEO_NOTE_RECORDING_ENABLED = false
+/** Кадр обрезается по кругу при обработке, поэтому запись кружков включена. */
+internal const val VIDEO_NOTE_RECORDING_ENABLED = true
 
 internal val videoNotePermissions = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
 
