@@ -82,6 +82,7 @@
     <string name="chat_status_not_sent">не отправлено</string>
     <string name="chat_video_note_permission_denied">Для кружков нужны камера и микрофон</string>
     <string name="chat_video_note_send_failed">Не удалось отправить кружок</string>
+    <string name="chat_video_note_processing">Обработка</string>
     <string name="video_note_download_failed">Не удалось загрузить кружок. Нажмите, чтобы повторить</string>
     <string name="chat_you">Вы</string>
     <string name="chats_action_archive">В архив</string>

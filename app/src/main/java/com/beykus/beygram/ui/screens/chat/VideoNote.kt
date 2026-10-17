@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -50,6 +51,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.text.DateFormat
+import java.util.Date
 
 private val IDLE_SIZE = 220.dp
 internal val VideoNoteBackground = Brush.linearGradient(listOf(Color(0xFF2B2640), Color(0xFF17151D)))
@@ -182,6 +185,46 @@ private fun Context.findActivity(): Activity? {
     return null
 }
 
+/** Кольцо прогресса поверх кружка: серая дорожка и дуга, которая заполняется до [fraction]. */
+@Composable
+private fun ProgressRing(fraction: Float) {
+    val palette = beyGramPalette()
+    Canvas(Modifier.fillMaxSize()) {
+        val stroke = 4.dp.toPx()
+        val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
+        val inset = Offset(stroke / 2, stroke / 2)
+        drawArc(palette.textSecondary.copy(alpha = 0.3f), startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
+        drawArc(palette.accent, startAngle = -90f, sweepAngle = 360f * fraction, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
+    }
+}
+
+/** Автоматический кружок до приёма TDLib: кадр-заглушка с индикатором обработки или отправки. Его заменяет сообщение в ленте. */
+@Composable
+internal fun PendingVideoNoteBubble(pending: PendingVideoNote) {
+    val palette = beyGramPalette()
+    // Время фиксируется при появлении кружка и не меняется, пока он переходит от обработки к отправке.
+    val time = remember(pending.sessionName) { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date()) }
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        Column(horizontalAlignment = Alignment.End) {
+            Box(Modifier.size(IDLE_SIZE).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.Center) {
+                Spacer(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
+                    if (pending.processing) Text(stringResource(R.string.chat_video_note_processing), color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
+            Row(
+                Modifier.padding(top = 4.dp).background(palette.surface, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(time, color = palette.textSecondary, fontSize = 12.sp)
+                Spacer(Modifier.width(3.dp))
+                Icon(Icons.Rounded.Schedule, contentDescription = stringResource(R.string.chat_sending_description), tint = palette.accent, modifier = Modifier.size(14.dp))
+            }
+        }
+    }
+}
+
 /** Кружок в ленте: круг 220 dp с отметкой непросмотренного; при проигрывании растёт и показывает кольцо прогресса. */
 @Composable
 internal fun VideoNoteBubble(
@@ -273,13 +316,9 @@ internal fun VideoNoteBubble(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
-                if (holder.started) Canvas(Modifier.fillMaxSize()) {
-                    val stroke = 4.dp.toPx()
-                    val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
-                    val inset = Offset(stroke / 2, stroke / 2)
-                    drawArc(palette.textSecondary.copy(alpha = 0.3f), startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
-                    drawArc(palette.accent, startAngle = -90f, sweepAngle = 360f * fraction, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
-                }
+                // Свой кружок во время загрузки на сервер: кольцо показывает прогресс, после приёма кружок принимает обычный вид.
+                if (holder.started) ProgressRing(fraction)
+                else if (file.isUploading) ProgressRing(file.uploadProgress)
                 if (holder.started && showControls) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
                     Icon(if (holder.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
                 }

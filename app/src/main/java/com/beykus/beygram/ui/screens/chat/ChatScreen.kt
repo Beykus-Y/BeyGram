@@ -136,6 +136,9 @@ fun ChatScreen(
     val pendingRecordingSends = remember(chat.id) { ArrayDeque<List<OutgoingMedia>>() }
     val videoExports by VideoNoteExportCenter.results.collectAsStateWithLifecycle()
     val videoPreview = videoExports.firstOrNull { it.chatId == chat.id && it.requiresPreview }
+    val videoPending by VideoNoteExportCenter.pendingNotes.collectAsStateWithLifecycle()
+    // Автоматический кружок виден в ленте сразу: сначала обработка, потом отправка, пока TDLib не примет сообщение.
+    val pendingVideoNotes = remember(videoPending, videoExports, chat.id) { pendingVideoNotesFor(chat.id, videoPending, videoExports) }
     fun startRecordingSendWorker() {
         if (recordingQueueSending) return
         if (pendingRecordingSends.isEmpty()) return
@@ -226,7 +229,10 @@ fun ChatScreen(
         } else if (videoNoteAllowed(context)) videoNote.press() else videoPermissions.launch(videoNotePermissions)
     }
     val messages = history.messages
-    val messageListItems = remember(messages) { groupTelegramMediaAlbums(messages) }
+    // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
+    val messageListItems = remember(messages, pendingVideoNotes) {
+        pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + groupTelegramMediaAlbums(messages)
+    }
     val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
     val currentMessageItemsByKey by rememberUpdatedState(messageItemsByKey)
     val currentMessages by rememberUpdatedState(messages)
@@ -303,6 +309,10 @@ fun ChatScreen(
                 }
             }.debounce(350).distinctUntilChanged().collect { ids -> if (ids.isNotEmpty()) conversation.messagesVisible(chat.id, ids) }
         }
+    }
+    // Появление кружка в ленте прокручивает к низу, как и исходящее сообщение.
+    LaunchedEffect(pendingVideoNotes.firstOrNull()?.sessionName) {
+        if (pendingVideoNotes.isNotEmpty()) listState.animateScrollToItem(0)
     }
     LaunchedEffect(chat.id, newest?.id) {
         if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) listState.animateScrollToItem(0)
@@ -388,7 +398,9 @@ fun ChatScreen(
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(messageListItems, key = { it.key }) { listItem ->
-                if (listItem.mediaAlbumId != 0L) {
+                if (listItem.pendingVideoNote != null) {
+                    PendingVideoNoteBubble(listItem.pendingVideoNote)
+                } else if (listItem.mediaAlbumId != 0L) {
                     val latest = listItem.messages.maxByOrNull { it.id }
                     MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
                         isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
