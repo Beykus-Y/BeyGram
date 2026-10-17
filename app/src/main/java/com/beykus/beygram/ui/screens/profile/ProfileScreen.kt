@@ -37,6 +37,9 @@ import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.ui.components.*
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
+import com.beykus.beygram.ui.screens.chat.presenceText
+import com.beykus.beygram.ui.text.resolve
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -67,7 +70,7 @@ fun ProfileScreen(
             preparing = true; photoError = null
             try { pendingPhoto = importer.prepare(uri, asDocument = false, squarePhoto = true) }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { photoError = error.message ?: context.getString(R.string.profile_photo_prepare_failed) }
+            catch (error: Exception) { photoError = error.userMessage(context, R.string.profile_photo_prepare_failed) }
             finally { preparing = false }
         }
     }
@@ -83,10 +86,10 @@ fun ProfileScreen(
                     TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
                         Modifier.clickable(enabled = info.photo != null) { showPhoto = true })
                     Spacer(Modifier.height(16.dp))
-                    Text(info.title, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text(info.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(4.dp))
                     Text(info.subtitle(), color = palette.textSecondary, fontSize = 14.sp)
-                    if (info.isVerified || info.isPremium) Text(listOfNotNull(if (info.isVerified) stringResource(R.string.profile_badge_verified) else null, if (info.isPremium) "Telegram Premium" else null).joinToString(" · "), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
+                    if (info.isVerified || info.isPremium) Text(listOfNotNull(if (info.isVerified) stringResource(R.string.profile_badge_verified) else null, if (info.isPremium) stringResource(R.string.profile_badge_premium) else null).joinToString(" · "), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
                     if (isOwnProfile) {
                         Spacer(Modifier.height(14.dp))
                         FilledTonalButton(onClick = onEdit, enabled = !state.isLoading && state.error == null && !saving && !preparing, shape = RoundedCornerShape(14.dp),
@@ -122,7 +125,7 @@ fun ProfileScreen(
                 }
             }
             if (state.info == null && !state.isLoading && state.error == null) Text(stringResource(R.string.profile_info_not_loaded), color = palette.textSecondary, modifier = Modifier.padding(24.dp))
-            state.error?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp)) }
+            state.error?.let { Text(it.resolve(), color = palette.danger, modifier = Modifier.padding(20.dp)) }
             photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp)) }
         }
     }
@@ -149,7 +152,7 @@ fun ProfileScreen(
                         try {
                             val result = setPhoto(selected)
                             if (result.isSuccess) pendingPhoto = null
-                            else photoError = result.exceptionOrNull()?.message ?: context.getString(R.string.profile_photo_update_failed)
+                            else photoError = result.exceptionOrNull().userMessage(context, R.string.profile_photo_update_failed)
                         } finally { saving = false }
                     } }) { Text(if (saving) stringResource(R.string.common_saving) else stringResource(R.string.profile_photo_set), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
             }
@@ -160,9 +163,9 @@ fun ProfileScreen(
 @Composable private fun ProfileInfo.subtitle(): String = when (kind) {
     ProfileKind.Group -> memberCount?.let { stringResource(R.string.profile_group_members_count, it) } ?: stringResource(R.string.profile_type_group)
     ProfileKind.Channel -> memberCount?.let { stringResource(R.string.profile_channel_subscribers_count, it) } ?: stringResource(R.string.profile_type_channel)
-    ProfileKind.Secret -> stringResource(R.string.profile_secret_chat_status, status)
+    ProfileKind.Secret -> stringResource(R.string.profile_secret_chat_status, status?.let { presenceText(it).resolve() }.orEmpty())
     ProfileKind.Bot -> stringResource(R.string.profile_type_bot)
-    ProfileKind.Person -> if (isSelf) stringResource(R.string.profile_own_account_telegram) else status
+    ProfileKind.Person -> if (isSelf) stringResource(R.string.profile_own_account_telegram) else status?.let { presenceText(it).resolve() }.orEmpty()
 }
 
 @Composable
@@ -230,7 +233,7 @@ fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save
                 try {
                     val result = save(ProfileEdit(first, last, username, bio))
                     if (result.isSuccess) onBack()
-                    else error = (result.exceptionOrNull()?.message ?: context.getString(R.string.profile_save_failed)) + "\n" + context.getString(R.string.profile_save_partial_hint)
+                    else error = result.exceptionOrNull().userMessage(context, R.string.profile_save_failed) + "\n" + context.getString(R.string.profile_save_partial_hint)
                 } finally { saving = false }
             } }) { Text(if (saving) "…" else stringResource(R.string.common_save)) }
         }

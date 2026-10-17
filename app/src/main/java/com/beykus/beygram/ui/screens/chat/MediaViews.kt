@@ -67,6 +67,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -77,7 +78,7 @@ import java.io.File
 internal fun MediaKind.label(context: Context): String = when (this) {
     MediaKind.Photo -> context.getString(R.string.media_kind_photo)
     MediaKind.Video -> context.getString(R.string.media_kind_video)
-    MediaKind.Animation -> "GIF"
+    MediaKind.Animation -> context.getString(R.string.media_kind_animation)
     MediaKind.Sticker -> context.getString(R.string.media_kind_sticker)
     MediaKind.Audio -> context.getString(R.string.media_kind_audio)
     MediaKind.Document -> context.getString(R.string.media_kind_file)
@@ -245,7 +246,7 @@ internal fun MediaViewer(
                     }
                     path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                         if (file.isDownloading) CircularProgressIndicator()
-                        Text(file.error ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                        Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
                         if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
                     }
                     media.mimeType.startsWith("image/") -> ZoomableImage(path)
@@ -385,16 +386,16 @@ private fun saveToDevice(context: Context, path: String, media: MessageMedia): S
         else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_DOWNLOADS
     }
     val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(media.mimeType)?.let { ".$it" }.orEmpty()
-    val base = media.fileName.replace('/', '_').ifBlank { "BeyGram_${System.currentTimeMillis()}" }
+    val base = media.fileName.replace('/', '_').ifBlank { media.kind.label(context) }
     val values = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, if (extension.isEmpty() || base.endsWith(extension, ignoreCase = true)) base else base + extension)
         put(MediaStore.MediaColumns.MIME_TYPE, media.mimeType.ifBlank { "application/octet-stream" })
         put(MediaStore.MediaColumns.RELATIVE_PATH, "$folder/BeyGram")
         put(MediaStore.MediaColumns.IS_PENDING, 1)
     }
-    val uri = resolver.insert(collection, values) ?: error("MediaStore не создал запись")
+    val uri = resolver.insert(collection, values) ?: error("MediaStore did not create a record")
     try {
-        val output = resolver.openOutputStream(uri) ?: error("Нет доступа к записи")
+        val output = resolver.openOutputStream(uri) ?: error("MediaStore did not open an output stream")
         output.use { stream -> File(path).inputStream().use { input -> input.copyTo(stream) } }
         values.clear()
         values.put(MediaStore.MediaColumns.IS_PENDING, 0)
