@@ -18,6 +18,7 @@ import com.beykus.beygram.domain.model.MessageContext
 import com.beykus.beygram.domain.model.MessageLimits
 import com.beykus.beygram.domain.model.MessageSearchPage
 import com.beykus.beygram.domain.model.NotificationPresentation
+import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.PinnedMessagePage
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.BotKeyboard
@@ -126,6 +127,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
+    override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) {}
     override fun setAppForeground(foreground: Boolean) {}
     override fun refreshInteractionPolicy() {}

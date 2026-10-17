@@ -59,7 +59,8 @@ fun ProfileScreen(
     setPhoto: suspend (OutgoingMedia) -> Result<Unit>,
     isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit,
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
-    hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {}
+    hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
+    sharedMessages: (suspend (SharedMediaKind, Long) -> Result<MessageSearchPage>)? = null, onOpenMessage: (Long) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -120,7 +121,8 @@ fun ProfileScreen(
                             ProfileKind.Channel -> context.getString(R.string.profile_type_channel)
                             ProfileKind.Secret -> context.getString(R.string.profile_type_secret_chat)
                         })
-                        info.sharedCounts?.let { counts ->
+                        // Со вкладками счётчики стоят в заголовках; без них (профиль участника) остаются строками карточки.
+                        if (sharedMessages == null) info.sharedCounts?.let { counts ->
                             counts.media?.let { add(context.getString(R.string.profile_shared_media) to it.toString()) }
                             counts.files?.let { add(context.getString(R.string.profile_shared_files) to it.toString()) }
                             counts.links?.let { add(context.getString(R.string.profile_shared_links) to it.toString()) }
@@ -134,6 +136,7 @@ fun ProfileScreen(
                 }
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
+                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, onOpenMessage)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                 if (isOwnProfile) Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {

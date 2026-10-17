@@ -32,6 +32,7 @@ import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.NotificationPresentation
 import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.TelegramProxyKind
@@ -308,6 +309,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long) = conversationActions.forward(fromChatId, messageId, toChatId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
+    override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long) = conversationActions.shared(chatId, kind, fromMessageId)
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
     override fun setAppForeground(foreground: Boolean) {
         conversationEffects.setForeground(foreground)

@@ -169,6 +169,18 @@ internal class TdConversationActions(
         MessageSearchPage(found.messages.orEmpty().map(map), found.nextFromMessageId)
     }
 
+    /** Вкладка профиля: пустой запрос с фильтром вида вложения, новые сообщения первыми. */
+    suspend fun shared(chatId: Long, kind: SharedMediaKind, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
+        val found = request(TdApi.SearchChatMessages(chatId, null, "", null, fromMessageId, 0, SEARCH_PAGE_SIZE, sharedFilter(kind)))
+        MessageSearchPage(found.messages.orEmpty().filterNotNull().map(map), found.nextFromMessageId)
+    }
+    private fun sharedFilter(kind: SharedMediaKind): TdApi.SearchMessagesFilter = when (kind) {
+        SharedMediaKind.Media -> TdApi.SearchMessagesFilterPhotoAndVideo()
+        SharedMediaKind.Files -> TdApi.SearchMessagesFilterDocument()
+        SharedMediaKind.Links -> TdApi.SearchMessagesFilterUrl()
+        SharedMediaKind.Voice -> TdApi.SearchMessagesFilterVoiceNote()
+    }
+
     fun hydrateReply(message: TdApi.Message) {
         val reply = message.replyTo as? TdApi.MessageReplyToMessage ?: return
         val key = message.chatId to message.id
