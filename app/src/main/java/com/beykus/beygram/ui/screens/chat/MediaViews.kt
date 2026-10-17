@@ -2,8 +2,10 @@ package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.media.AudioAttributes
 import android.content.ClipData
@@ -11,6 +13,7 @@ import android.content.ContentValues
 import android.media.MediaPlayer
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.LruCache
 import android.webkit.MimeTypeMap
 import android.widget.ImageView
 import android.widget.MediaController
@@ -97,11 +100,30 @@ internal fun MediaKind.label(context: Context): String = when (this) {
 
 internal fun duration(seconds: Int) = "%d:%02d".format(seconds / 60, seconds % 60)
 
+/** Декодированные картинки до 1024 px держатся в памяти, пока их не вытеснят: повторный вход в композицию (прокрутка, возврат в чат) не декодирует файл заново. Полноразмерные картинки просмотрщика сюда не попадают. */
+private object DecodedImageCache {
+    const val MAX_CACHED_DIMENSION = 1024
+    private val cache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 8).toInt()) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
+    }
+
+    fun get(key: String): Bitmap? = cache.get(key)
+
+    fun put(key: String, bitmap: Bitmap) {
+        cache.put(key, bitmap)
+    }
+}
+
 @Composable
 internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: Boolean = false, maxDimension: Int = 1024) {
     var failed by remember(path) { mutableStateOf(false) }
     val context = LocalContext.current
-    val drawable by produceState<Drawable?>(null, path, maxDimension) {
+    val cacheKey = "$path#$maxDimension"
+    val cacheable = maxDimension <= DecodedImageCache.MAX_CACHED_DIMENSION
+    // Картинка из кэша показывается сразу, без индикатора загрузки.
+    val cached = remember(cacheKey) { if (cacheable) DecodedImageCache.get(cacheKey)?.let { BitmapDrawable(context.resources, it) } else null }
+    val drawable by produceState<Drawable?>(cached, cacheKey) {
+        if (cached != null) { value = cached; return@produceState }
         val decoded = withContext(Dispatchers.IO) { runCatching {
             ImageDecoder.decodeDrawable(ImageDecoder.createSource(File(path))) { decoder, info, _ ->
                 val longest = maxOf(info.size.width, info.size.height)
@@ -109,7 +131,9 @@ internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: B
             }
         } }
         failed = decoded.isFailure
-        value = decoded.getOrNull()
+        val result = decoded.getOrNull()
+        if (cacheable && result is BitmapDrawable) DecodedImageCache.put(cacheKey, result.bitmap)
+        value = result
     }
     DisposableEffect(drawable) {
         (drawable as? AnimatedImageDrawable)?.start()
