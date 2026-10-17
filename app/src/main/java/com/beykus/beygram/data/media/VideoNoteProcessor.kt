@@ -55,7 +55,7 @@ class VideoNoteProcessor(private val context: Context) {
                 val info = withContext(Dispatchers.IO) { metadata(output) }
                 require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }
                 require(isAcceptedVideoNoteDuration(info.durationMs)) { "Длительность кружка превышает 60 секунд" }
-                result += outgoingMedia(output, info, index + 1)
+                result += outgoingMedia(output, info, index + 1, extractThumbnail(output, File(outputDirectory, "video-note-${index + 1}-thumb.jpg")))
             } catch (failure: Exception) {
                 output.delete()
                 throw failure
@@ -65,7 +65,7 @@ class VideoNoteProcessor(private val context: Context) {
         return result
     }
 
-    private fun outgoingMedia(file: File, info: VideoMetadata, index: Int) = OutgoingMedia(
+    private fun outgoingMedia(file: File, info: VideoMetadata, index: Int, thumbnail: File?) = OutgoingMedia(
         path = file.absolutePath,
         fileName = "video-note-$index.mp4",
         mimeType = "video/mp4",
@@ -73,8 +73,29 @@ class VideoNoteProcessor(private val context: Context) {
         width = info.width,
         height = info.height,
         durationSeconds = ((info.durationMs + 999L) / 1000L).toInt(),
-        size = file.length()
+        thumbnailPath = thumbnail?.absolutePath,
+        size = file.length(),
+        thumbnailWidth = THUMBNAIL_SIDE,
+        thumbnailHeight = THUMBNAIL_SIDE
     )
+
+    /** Кадр для превью кружка в ленте. Неудача не мешает отправке: кружок уйдёт без миниатюры. */
+    private suspend fun extractThumbnail(video: File, output: File): File? = withContext(Dispatchers.IO) {
+        runCatching {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(video.absolutePath)
+                val frame = retriever.getFrameAtTime(THUMBNAIL_TIME_US, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) ?: return@runCatching null
+                val scaled = Bitmap.createScaledBitmap(frame, THUMBNAIL_SIDE, THUMBNAIL_SIDE, true)
+                output.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, THUMBNAIL_QUALITY, it) }
+                if (scaled !== frame) frame.recycle()
+                scaled.recycle()
+                output
+            } finally {
+                retriever.release()
+            }
+        }.getOrNull().also { if (it == null) output.delete() }
+    }
 
     private suspend fun transform(input: File, output: File, startMs: Long, endMs: Long, side: Int, videoBitrate: Int, audioBitrate: Int) {
         withContext(Dispatchers.Main.immediate) {
@@ -168,6 +189,12 @@ class VideoNoteProcessor(private val context: Context) {
 
 /** Предел длительности кружка в Telegram. */
 internal const val VIDEO_NOTE_MAX_MS = 60_000L
+
+/** Сторона миниатюры кружка: TDLib принимает JPEG до 320 px, кадр с запасом меньше 200 КБ. */
+private const val THUMBNAIL_SIDE = 320
+private const val THUMBNAIL_QUALITY = 85
+/** Кадр берётся не с нулевой секунды: первые миллисекунды после старта кодировщика часто чёрные. */
+private const val THUMBNAIL_TIME_US = 200_000L
 
 /**
  * Длина сегмента при нарезке. Перекодированный клип выходит длиннее заданного на несколько десятков миллисекунд

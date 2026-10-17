@@ -207,6 +207,7 @@ internal fun PendingVideoNoteBubble(pending: PendingVideoNote) {
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         Column(horizontalAlignment = Alignment.End) {
             Box(Modifier.size(IDLE_SIZE).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.Center) {
+                pending.previewPath?.let { LocalMediaImage(it, Modifier.fillMaxSize()) }
                 Spacer(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
@@ -302,7 +303,9 @@ internal fun VideoNoteBubble(
                 contentAlignment = Alignment.Center
             ) {
                 val thumbnailPath = thumbnail.localPath
+                // Миниатюра ещё не скачана: вместо чёрного круга показываем размытое минипревью из TDLib, кроме секретных кружков.
                 if (!holder.started && thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize())
+                else if (!holder.started && !media.isSecret) media.minithumbnail?.let { MinithumbnailImage(it, Modifier.fillMaxSize()) }
                 if (holder.started) AndroidView(
                     factory = { context ->
                         TextureView(context).apply {

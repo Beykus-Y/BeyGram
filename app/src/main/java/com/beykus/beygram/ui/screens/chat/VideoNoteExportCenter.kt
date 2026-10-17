@@ -44,7 +44,7 @@ internal fun VideoNoteExportResult.markSendFailed(): VideoNoteExportResult =
     copy(sending = false, requiresPreview = true)
 
 /** Автоматический кружок до приёма TDLib: [processing] — идёт обработка, иначе кружок ждёт отправки. */
-internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean)
+internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null)
 
 /**
  * Кружки чата для ленты: сначала обрабатываемые, затем ждущие отправки. Кружок с предпросмотром здесь не показывается:
@@ -52,7 +52,7 @@ internal data class PendingVideoNote(val chatId: Long, val sessionName: String, 
  */
 internal fun pendingVideoNotesFor(chatId: Long, processing: List<PendingVideoNote>, results: List<VideoNoteExportResult>): List<PendingVideoNote> =
     (processing.filter { it.chatId == chatId } + results.filter { it.chatId == chatId && !it.requiresPreview }
-        .map { PendingVideoNote(it.chatId, it.sessionName, processing = false) })
+        .map { PendingVideoNote(it.chatId, it.sessionName, processing = false, previewPath = it.media.firstOrNull()?.thumbnailPath) })
         .distinctBy { it.sessionName }
 
 private val exportMutex = Mutex()
@@ -186,7 +186,10 @@ internal object VideoNoteExportCenter {
         }
         scope.launch(Dispatchers.IO) {
             // Previously accepted parts may still be in TDLib's upload queue; delete only unsent.
-            discarded.media.drop(discarded.nextIndex).forEach { runCatching { File(it.path).delete() } }
+            discarded.media.drop(discarded.nextIndex).forEach { media ->
+                runCatching { File(media.path).delete() }
+                media.thumbnailPath?.let { path -> runCatching { File(path).delete() } }
+            }
         }
     }
 

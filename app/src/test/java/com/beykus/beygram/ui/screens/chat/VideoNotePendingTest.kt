@@ -27,6 +27,15 @@ class VideoNotePendingTest {
         assertEquals(listOf(PendingVideoNote(7L, "a", processing = false)), pendingVideoNotesFor(7L, emptyList(), results))
     }
 
+    @Test fun autoSendResultShowsItsThumbnailWhileWaiting() {
+        val withThumbnail = media("a").copy(thumbnailPath = "/tmp/video-note-1-thumb.jpg")
+        val results = listOf(VideoNoteExportResult(7L, listOf(withThumbnail), false, "a"))
+        assertEquals(
+            listOf(PendingVideoNote(7L, "a", processing = false, previewPath = "/tmp/video-note-1-thumb.jpg")),
+            pendingVideoNotesFor(7L, emptyList(), results)
+        )
+    }
+
     @Test fun previewResultStaysInTheDialogNotInTheChat() {
         val results = listOf(VideoNoteExportResult(7L, listOf(media("a")), previewFirst = true, sessionName = "a"))
         assertEquals(emptyList<PendingVideoNote>(), pendingVideoNotesFor(7L, emptyList(), results))
