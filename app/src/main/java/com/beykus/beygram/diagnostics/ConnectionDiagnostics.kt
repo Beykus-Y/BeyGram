@@ -102,7 +102,7 @@ internal fun buildDiagnosticsReport(
     appendLine("[Устройство]")
     appendLine("производитель: ${Build.MANUFACTURER}")
     appendLine("модель: ${Build.MODEL}")
-    appendLine("Android: ${Build.VERSION.RELEASE}")
+    appendLine("Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
     appendLine("процессор: ${Build.SUPPORTED_ABIS.firstOrNull() ?: "неизвестно"}")
     val ignoresBattery = context.getSystemService(PowerManager::class.java)
         ?.isIgnoringBatteryOptimizations(context.packageName) == true
