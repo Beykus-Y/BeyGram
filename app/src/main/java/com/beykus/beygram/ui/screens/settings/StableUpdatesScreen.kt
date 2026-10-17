@@ -59,7 +59,8 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
             color = palette.textSecondary)
         Text(stringResource(R.string.updates_stable_only), color = palette.textSecondary, fontSize = 14.sp)
         Button(onClick = model::check,
-            enabled = status !is UpdateStatus.Checking && status !is UpdateStatus.Downloading,
+            enabled = status !is UpdateStatus.Checking && status !is UpdateStatus.Downloading &&
+                status !is UpdateStatus.PreparingInstall,
             modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.updates_check))
         }
@@ -78,6 +79,12 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
                 LinearProgressIndicator(progress = { status.progress / 100f }, modifier = Modifier.fillMaxWidth())
                 OutlinedButton(onClick = model::cancelDownload, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.updates_cancel))
+                }
+            }
+            is UpdateStatus.PreparingInstall -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.padding(end = 16.dp))
+                    Text("Проверяем APK перед установкой…", color = palette.textPrimary)
                 }
             }
             is UpdateStatus.Ready -> {
