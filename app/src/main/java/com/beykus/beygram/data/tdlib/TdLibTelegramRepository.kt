@@ -205,6 +205,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // ---- Вспомогательные структуры -------------------------------------------
 
     /** Кэш сообщений по chatId. */
+    private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
+    override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
+    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId)
+    private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
+
     private val messageHistory = MessageHistoryStore()
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
@@ -425,6 +430,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // =========================================================================
 
     private fun handleUpdate(update: TdApi.Object) {
+        when (update) {
+            is TdApi.UpdateMessageIsPinned -> invalidatePins(update.chatId)
+            is TdApi.UpdateMessageContent -> invalidatePins(update.chatId)
+            is TdApi.UpdateDeleteMessages -> if (update.isPermanent) invalidatePins(update.chatId)
+        }
         profiles.handle(update)
         notificationFeed.handle(update)
         when (update) {

@@ -86,6 +86,11 @@ internal class TdConversationActions(
         messages.messages.filterNotNull().forEach { message -> history.put(map(message)); hydrateReply(message) }
     }
 
+    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long): Result<PinnedMessagePage> = conversationResult {
+        val page = request(pinnedMessagesRequest(chatId, fromMessageId))
+        PinnedMessagePage(page.messages.orEmpty().filterNotNull().map(map), page.totalCount, page.nextFromMessageId)
+    }
+
     suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = conversationResult {
         val orderedIds = messageIds.distinct().sorted()
         require(orderedIds.isNotEmpty()) { "Нет сообщений для повтора" }
@@ -180,3 +185,11 @@ private const val TAG = "BeyGramNet"
 internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(text.take(180)) else UiText.Res(when (media?.kind) {
     MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title
 })
+
+internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long) = TdApi.SearchChatMessages().apply {
+    this.chatId = chatId
+    query = ""
+    this.fromMessageId = fromMessageId
+    limit = 50
+    filter = TdApi.SearchMessagesFilterPinned()
+}

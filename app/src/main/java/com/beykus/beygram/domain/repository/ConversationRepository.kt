@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.StateFlow
 
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
+    fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
+    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long = 0L): Result<PinnedMessagePage>
     val messageLimits: StateFlow<MessageLimits>
     fun observeChatHistory(chatId: Long): StateFlow<ChatHistory>
     fun openChat(chatId: Long)

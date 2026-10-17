@@ -4,6 +4,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.PinnedMessagePage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.MediaFileState
@@ -261,6 +262,9 @@ class MockTelegramRepository : TelegramRepository {
         historyStates.getValue(chatId).value = ChatHistory(messagesByChatId[chatId].orEmpty().toList(), hasOlderMessages = false)
         return Result.success(Unit)
     }
+    override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L)
+    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long): Result<PinnedMessagePage> = Result.success(PinnedMessagePage(emptyList(), 0, 0L))
+
     override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?): Result<Unit> {
         val albumId = nextMessageId
         media.forEachIndexed { index, item ->

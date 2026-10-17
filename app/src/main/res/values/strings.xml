@@ -550,4 +550,11 @@
     <string name="tabs_chats">Чаты</string>
     <string name="tabs_contacts">Контакты</string>
     <string name="user_name_unknown">Пользователь</string>
+    <string name="chat_pinned_title">Закреплённые сообщения</string>
+    <string name="chat_pinned_count">Закреплённое · %1$d</string>
+    <string name="chat_pinned_list">Показать все закреплённые сообщения</string>
+    <string name="chat_pinned_failed">Не удалось загрузить закреплённые сообщения</string>
+    <string name="chat_pinned_more">Загрузить ещё</string>
+    <string name="chat_pinned_retry">Повторить</string>
+    <string name="chat_pinned_message">Сообщение</string>
 </resources>

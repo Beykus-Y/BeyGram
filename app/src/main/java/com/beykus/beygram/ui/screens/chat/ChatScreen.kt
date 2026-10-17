@@ -314,6 +314,7 @@ fun ChatScreen(
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
         else ChatTopBar(chat, chatPresenceLine(chat, info).resolve(), onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
+        PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected, ::openSearchResult)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
