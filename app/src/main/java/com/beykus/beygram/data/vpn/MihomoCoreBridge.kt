@@ -186,8 +186,8 @@ internal class MihomoCoreBridge(context: Context) {
         val started = invokeAction("startListener") as? Boolean ?: false
         MihomoRuntimeDiagnostics.event("listener", "listener start returned=$started")
         if (!started) throw coreUserError(UiText.Res(R.string.err_vpn_listener_not_started), "Прокси не запустился")
-        MihomoProxyClient.awaitReady()
-        MihomoRuntimeDiagnostics.event("listener", "local proxy port is accepting loopback connections")
+        MihomoProxyClient.awaitReady(credentials)
+        MihomoRuntimeDiagnostics.event("listener", "local proxy port ${MihomoProxyClient.PORT} accepted this app's credentials")
     }
 
     suspend fun stopProxyListener() = withContext(Dispatchers.IO) {

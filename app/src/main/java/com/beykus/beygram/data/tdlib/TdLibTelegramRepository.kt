@@ -163,11 +163,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }
     }
 
-    /** Returns the id of BeyGram's local SOCKS entry with the current credentials; an outdated entry is replaced. */
+    /** Returns the id of BeyGram's local SOCKS entry with the current port and credentials; an outdated entry is replaced. */
     private suspend fun ensureMihomoEntry(proxies: List<TdApi.AddedProxy>): Int {
         val existing = proxies.firstOrNull { it.isMihomoEntry() }
         val type = existing?.proxy?.type as? TdApi.ProxyTypeSocks5
-        if (existing != null && type != null && type.username == loopbackCredentials.username && type.password == loopbackCredentials.password) {
+        if (existing != null && type != null && existing.proxy.port == MihomoProxyClient.PORT &&
+            type.username == loopbackCredentials.username && type.password == loopbackCredentials.password
+        ) {
             return existing.id
         }
         if (existing != null) tdRequests(TdApi.RemoveProxy(existing.id))
@@ -175,10 +177,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         return tdRequests(TdApi.AddProxy(TdApi.Proxy(MihomoProxyClient.HOST, MihomoProxyClient.PORT, expected), false, MIHOMO_PROXY_COMMENT)).id
     }
 
-    /** Only the entry BeyGram created: a user's own SOCKS5 proxy on the same port has a different comment. */
+    /**
+     * Only the entry BeyGram created: a user's own SOCKS5 proxy on the same port has a different comment. The port is not
+     * compared, so an entry saved with an earlier listener port is still recognised and replaced by [ensureMihomoEntry].
+     */
     private fun TdApi.AddedProxy.isMihomoEntry(): Boolean =
-        comment == MIHOMO_PROXY_COMMENT &&
-            proxy.server == MihomoProxyClient.HOST && proxy.port == MihomoProxyClient.PORT && proxy.type is TdApi.ProxyTypeSocks5
+        comment == MIHOMO_PROXY_COMMENT && proxy.server == MihomoProxyClient.HOST && proxy.type is TdApi.ProxyTypeSocks5
 
     private fun TdApi.AddedProxy.toSavedProxy(): SavedTelegramProxy? {
         val kind = when (proxy.type) {

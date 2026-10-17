@@ -17,31 +17,48 @@ internal object MihomoCoreLogCapture {
     fun onMessage(raw: String) {
         runCatching {
             val envelope = JSONObject(raw)
-            val type = envelope.optString("type", envelope.optString("Type")).lowercase()
-            val data = envelope.optJSONObject("data") ?: envelope.optJSONObject("Data")
+            val message = messageOf(envelope)
             if (schemaReported.compareAndSet(false, true)) {
-                val envelopeKeys = envelope.keys().asSequence().sorted().joinToString(",")
-                val dataKeys = data?.keys()?.asSequence()?.sorted()?.joinToString(",") ?: "none"
-                MihomoRuntimeDiagnostics.event("core log", "event schema type=$type envelopeKeys=$envelopeKeys dataKeys=$dataKeys")
+                val method = envelope.optString("method").take(32)
+                val type = message.optString("type").take(32)
+                MihomoRuntimeDiagnostics.event("core log", "event schema method=$method type=$type")
             }
-            if (!type.contains("log")) return
-            data ?: return
-            val levelValue = data.opt("LogLevel") ?: data.opt("logLevel") ?: data.opt("level") ?: data.opt("Level")
-            val level = levelName(levelValue) ?: return
-            val payload = data.optString("Payload", data.optString("payload")).trim()
-            if (payload.isBlank()) return
-            val safePayload = payload
-                .replace(url, "[url]")
-                .replace(secret) { "${it.groupValues[1]}=[hidden]" }
-                .replace(endpoint, "[endpoint]")
-                .filterNot(Char::isISOControl)
-                .take(MAX_PAYLOAD_CHARS)
-            val line = "Proxy core $level: $safePayload"
-            if (BuildConfig.DEBUG) {
-                if (level == "error") Log.e(TAG, line) else Log.w(TAG, line)
-            }
+            val line = logLine(message) ?: return
             ConnectionEventLog.shared.record(line)
+            if (BuildConfig.DEBUG) {
+                if (line.startsWith("Proxy core error")) Log.e(TAG, line) else Log.w(TAG, line)
+            }
         }
+    }
+
+    /**
+     * Returns the safe report line for a warning or error event, or null for anything else.
+     *
+     * libmihomo-android v0.3.11 wraps every event in its action result: `{id, method: "message", code, data}`, where
+     * `data` is the event `{type: "log", data: {LogLevel, Payload}}`. A bare event is accepted as well.
+     */
+    internal fun formatEvent(raw: String): String? = logLine(messageOf(JSONObject(raw)))
+
+    private fun messageOf(envelope: JSONObject): JSONObject {
+        val wrapped = envelope.optJSONObject("data") ?: envelope.optJSONObject("Data")
+        return if (wrapped != null && (wrapped.has("type") || wrapped.has("Type"))) wrapped else envelope
+    }
+
+    private fun logLine(message: JSONObject): String? {
+        val type = message.optString("type", message.optString("Type")).lowercase()
+        if (type != "log") return null
+        val data = message.optJSONObject("data") ?: message.optJSONObject("Data") ?: return null
+        val levelValue = data.opt("LogLevel") ?: data.opt("logLevel") ?: data.opt("level") ?: data.opt("Level")
+        val level = levelName(levelValue) ?: return null
+        val payload = data.optString("Payload", data.optString("payload")).trim()
+        if (payload.isBlank()) return null
+        val safePayload = payload
+            .replace(url, "[url]")
+            .replace(secret) { "${it.groupValues[1]}=[hidden]" }
+            .replace(endpoint, "[endpoint]")
+            .filterNot(Char::isISOControl)
+            .take(MAX_PAYLOAD_CHARS)
+        return "Proxy core $level: $safePayload"
     }
 
     private fun levelName(value: Any?): String? {

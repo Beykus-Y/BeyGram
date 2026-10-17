@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.vpn
 
 import android.content.Context
+import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import java.net.Authenticator
@@ -14,7 +15,8 @@ import java.net.URL
 /** Shared loopback SOCKS entry point for BeyGram-owned Java network clients. */
 internal object MihomoProxyClient {
     const val HOST = "127.0.0.1"
-    const val PORT = 17891
+    /** Differs per variant: Dev and Stable on one device would otherwise compete for the same loopback port. */
+    val PORT: Int = BuildConfig.MIHOMO_PROXY_PORT
 
     private val socksProxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(HOST, PORT))
 
@@ -45,17 +47,24 @@ internal object MihomoProxyClient {
 
     fun newSocket(): Socket = Socket(socksProxy)
 
-    fun awaitReady(timeoutMillis: Long = 5_000) {
+    /**
+     * Waits until BeyGram's own listener answers with this installation's credentials. An open port is not enough:
+     * when another app already holds it, Mihomo's bind fails silently and TDLib would wait on that app's proxy.
+     */
+    fun awaitReady(credentials: LoopbackProxyCredentials, timeoutMillis: Long = 5_000) {
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000
         var lastError: Exception? = null
         while (System.nanoTime() < deadline) {
-            try {
-                Socket().use { it.connect(InetSocketAddress(HOST, PORT), 300) }
-                return
+            val result = try {
+                LoopbackSocksProbe.check(HOST, PORT, credentials.username, credentials.password, 300, 1_000)
             } catch (error: Exception) {
                 lastError = error
                 Thread.sleep(100)
+                continue
             }
+            if (result == LoopbackSocksProbe.Result.OWN_LISTENER) return
+            MihomoRuntimeDiagnostics.event("listener", "port $PORT is held by another app; credentials rejected")
+            throw coreUserError(UiText.Res(R.string.err_vpn_listener_port_taken), "Порт прокси занят другим приложением")
         }
         MihomoRuntimeDiagnostics.event("listener", "port not ready error=${lastError?.javaClass?.simpleName ?: "none"}")
         throw coreUserError(UiText.Res(R.string.err_vpn_listener_not_accepting), "Прокси не принимает подключения")

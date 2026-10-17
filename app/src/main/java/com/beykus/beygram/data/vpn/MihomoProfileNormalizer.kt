@@ -85,7 +85,9 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
         config["authentication"] = listOf("${credentials.username}:${credentials.password}")
         // Set explicitly: when the key is absent, the core default may exempt loopback clients from the credentials above.
         config["skip-auth-prefixes"] = emptyList<String>()
-        if (BuildConfig.DEBUG) config["log-level"] = "debug"
+        // The report keeps the core's warnings and errors, such as a failed listener bind, so release builds must not let
+        // the subscription silence them. Debug builds log everything.
+        config["log-level"] = if (BuildConfig.DEBUG) "debug" else "warning"
         val dns = (config["dns"] as? Map<*, *>)?.let { existing ->
             linkedMapOf<String, Any?>().apply {
                 existing.forEach { (key, value) -> (key as? String)?.let { put(it, value) } }
