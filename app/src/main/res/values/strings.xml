@@ -51,6 +51,8 @@
     <string name="calls_title">Звонки</string>
     <string name="chat_cancel_reply_description">Отменить ответ</string>
     <string name="chat_caption_placeholder">Подпись</string>
+    <string name="chat_date_today">Сегодня</string>
+    <string name="chat_date_yesterday">Вчера</string>
     <string name="chat_edited">изменено</string>
     <string name="chat_forward_failed">Не удалось переслать сообщение</string>
     <string name="chat_history_empty">В чате пока нет сообщений</string>
