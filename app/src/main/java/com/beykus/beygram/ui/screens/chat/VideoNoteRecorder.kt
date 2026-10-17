@@ -140,8 +140,10 @@ internal class VideoNoteRecorder(
     private fun probeCameras() {
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
-            val cameraProvider = runCatching { future.get() }.getOrNull() ?: return@addListener
-            canSwitchCamera = cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) && cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+            canSwitchCamera = runCatching {
+                val cameraProvider = future.get()
+                cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) && cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+            }.getOrDefault(false)
         }, ContextCompat.getMainExecutor(context))
     }
 
@@ -267,8 +269,6 @@ internal class VideoNoteRecorder(
         cameraProvider.unbindAll()
         val useFront = preferFrontCamera && cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
         val selector = if (useFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
-        // Превью фронтальной камеры зеркалится, как в селфи-режиме; записанный файл остаётся без отражения.
-        previewView.scaleX = if (useFront) -1f else 1f
         val side = when (settings.preset) {
             VideoQualityPreset.Standard -> 384
             VideoQualityPreset.High -> 480
