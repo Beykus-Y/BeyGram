@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -34,11 +35,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Настройки приложения: нижнее меню, уведомления и диагностика. */
 @Composable
-fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit, onDiagnostics: () -> Unit) {
+fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit, onDiagnostics: () -> Unit, onUpdates: () -> Unit) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -58,6 +60,10 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.BugReport, stringResource(R.string.diagnostics_title), onDiagnostics)
+            if (BuildConfig.APPLICATION_ID == "com.beykus.beygram") {
+                HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+                SettingsLink(Icons.Rounded.SystemUpdate, stringResource(R.string.updates_title), onUpdates)
+            }
         }
     }
 }
