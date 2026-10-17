@@ -151,8 +151,9 @@ private fun AlbumMediaTile(
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val visual = media.kind in setOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
-    val imagePath = if (media.mimeType.startsWith("image/") && !media.isSecret && file.size <= 300_000) file.localPath ?: thumb.localPath else thumb.localPath
-    LaunchedEffect(thumbId, revealed) { if (revealed && visual) onDownloadFile(thumbId) }
+    // Секретное вложение в альбоме не грузим и не показываем до открытия, как в ленте.
+    val imagePath = if (media.isSecret) null else if (media.mimeType.startsWith("image/") && file.size <= 300_000) file.localPath ?: thumb.localPath else thumb.localPath
+    LaunchedEffect(thumbId, revealed) { if (!media.isSecret && revealed && visual) onDownloadFile(thumbId) }
 
     Box(modifier.aspectRatio(1f).padding(1.dp).clip(RoundedCornerShape(5.dp)).background(palette.disabled)
         .combinedClickable(onClick = { if (!revealed) revealed = true else onOpen() }, onLongClick = onLongPress),
