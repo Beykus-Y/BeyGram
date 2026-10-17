@@ -1,6 +1,6 @@
 package com.beykus.beygram.ui.screens.chats
 
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -56,8 +57,8 @@ internal data class ChatSwipeAction(
 
 internal enum class SwipeTarget { Closed, Revealed, Dismissed }
 
-/** The newest drag step that writes the offset. Steps run in order on the main thread, so the last one is the final word. */
-private class DragStep {
+/** The animation that finishes the latest gesture. A new gesture or a new settle cancels it. */
+private class Settle {
     var job: Job? = null
 }
 
@@ -98,39 +99,48 @@ internal fun SwipeChatRow(
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     val revealPx = with(LocalDensity.current) { revealWidth.toPx() }
-    val swipeOffset = remember { Animatable(0f) }
+    // The drag writes the offset directly, so a touch move starts no coroutine. Animations only finish a gesture.
+    var swipeOffset by remember { mutableFloatStateOf(0f) }
     var rowWidth by remember { mutableStateOf(0f) }
     val latestOpenChatId by rememberUpdatedState(openChatId)
+    val settle = remember { Settle() }
+
+    fun startSettle(block: suspend () -> Unit) {
+        settle.job?.cancel()
+        settle.job = scope.launch { block() }
+    }
+
+    suspend fun animateOffset(target: Float) {
+        animate(swipeOffset, target) { value, _ -> swipeOffset = value }
+    }
 
     LaunchedEffect(openChatId) {
-        if (openChatId != chat.id && swipeOffset.value != 0f) swipeOffset.animateTo(0f)
+        if (openChatId != chat.id && swipeOffset != 0f) startSettle { animateOffset(0f) }
     }
 
-    fun close() {
-        scope.launch {
-            swipeOffset.animateTo(0f)
-            if (latestOpenChatId == chat.id) onOpenChange(null)
-        }
+    fun close() = startSettle {
+        animateOffset(0f)
+        if (latestOpenChatId == chat.id) onOpenChange(null)
     }
 
-    suspend fun settle(target: SwipeTarget) {
+    suspend fun settleTo(target: SwipeTarget) {
         when (target) {
             SwipeTarget.Closed -> {
-                swipeOffset.animateTo(0f)
+                animateOffset(0f)
                 if (latestOpenChatId == chat.id) onOpenChange(null)
             }
-            SwipeTarget.Revealed -> swipeOffset.animateTo(-revealPx)
+            SwipeTarget.Revealed -> animateOffset(-revealPx)
             SwipeTarget.Dismissed -> {
-                swipeOffset.animateTo(-rowWidth)
+                animateOffset(-rowWidth)
                 if (latestOpenChatId == chat.id) onOpenChange(null)
-                if (!primary.perform(chat)) swipeOffset.animateTo(0f)
+                // Outside the settle job, so a new gesture does not cancel the action in flight.
+                scope.launch { if (!primary.perform(chat)) startSettle { animateOffset(0f) } }
             }
         }
     }
 
-    val lastDragStep = remember { DragStep() }
     val dragState = rememberDraggableState { delta ->
-        lastDragStep.job = scope.launch { swipeOffset.snapTo((swipeOffset.value + delta).coerceIn(-rowWidth, 0f)) }
+        swipeOffset = (swipeOffset + delta).coerceIn(-rowWidth, 0f)
     }
 
     Box(modifier = Modifier.fillMaxWidth().onSizeChanged { rowWidth = it.width.toFloat() }) {
@@ -140,26 +150,28 @@ internal fun SwipeChatRow(
                 scope.launch { read.perform(chat) }
             }
             RevealButton(action = primary) {
-                scope.launch { settle(SwipeTarget.Dismissed) }
+                startSettle { settleTo(SwipeTarget.Dismissed) }
             }
         }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer { translationX = swipeOffset.value }
+                .graphicsLayer { translationX = swipeOffset }
                 .background(palette.screen)
                 .draggable(
                     state = dragState,
                     orientation = Orientation.Horizontal,
-                    onDragStarted = { onOpenChange(chat.id) },
+                    onDragStarted = {
+                        settle.job?.cancel()
+                        onOpenChange(chat.id)
+                    },
                     onDragStopped = { velocity ->
-                        // The last step must land before the settle animation starts, or it would interrupt the animation.
-                        lastDragStep.job?.join()
-                        settle(swipeTarget(swipeOffset.value, revealPx, rowWidth * DISMISS_FRACTION, velocity))
+                        val target = swipeTarget(swipeOffset, revealPx, rowWidth * DISMISS_FRACTION, velocity)
+                        startSettle { settleTo(target) }
                     }
                 )
         ) {
-            ChatListItem(chat, observeFile, downloadFile, onClick = { if (swipeOffset.value < 0f) close() else onClick() })
+            ChatListItem(chat, observeFile, downloadFile, onClick = { if (swipeOffset < 0f) close() else onClick() })
         }
     }
 }
