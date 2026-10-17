@@ -11,6 +11,8 @@ import com.beykus.beygram.data.update.StableUpdateRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 sealed interface UpdateStatus {
@@ -55,7 +57,9 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
         runningJob = viewModelScope.launch {
             try {
                 val downloaded = repository.download(release) { progress ->
-                    status = UpdateStatus.Downloading(release, progress)
+                    withContext(Dispatchers.Main) {
+                        status = UpdateStatus.Downloading(release, progress)
+                    }
                 }
                 status = UpdateStatus.Ready(release, downloaded)
             } catch (cancelled: CancellationException) {
@@ -71,15 +75,27 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
         if (status is UpdateStatus.Downloading) runningJob?.cancel()
     }
 
+    private var verifyingInstall = false
+
     fun install(file: File, release: StableRelease) {
-        try {
-            installHint = if (repository.install(file, release)) {
-                "Подтвердите обновление в системном установщике Android."
-            } else {
-                "Разрешите установку из BeyGram в настройках Android, затем вернитесь и нажмите «Установить»."
+        if (verifyingInstall || status !is UpdateStatus.Ready) return
+        verifyingInstall = true
+        installHint = "Проверяем APK перед установкой…"
+        viewModelScope.launch {
+            try {
+                repository.verifyForInstall(file, release)
+                installHint = if (repository.install(file)) {
+                    "Подтвердите обновление в системном установщике Android."
+                } else {
+                    "Разрешите установку из BeyGram в настройках Android, затем вернитесь и нажмите «Установить»."
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                installHint = error.message ?: "Не удалось открыть установщик Android."
+            } finally {
+                verifyingInstall = false
             }
-        } catch (error: Exception) {
-            installHint = error.message ?: "Не удалось открыть установщик Android."
         }
     }
 }
