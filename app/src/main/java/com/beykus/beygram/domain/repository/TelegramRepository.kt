@@ -12,6 +12,7 @@ import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.SavedTelegramProxy
 import com.beykus.beygram.domain.model.TelegramProxyDraft
+import com.beykus.beygram.domain.model.TelegramRoute
 import kotlinx.coroutines.flow.StateFlow
 
 interface TelegramRepository : ConversationRepository, NotificationRepository {
@@ -86,6 +87,9 @@ interface TelegramRepository : ConversationRepository, NotificationRepository {
 
     /** Удаляет сохранённый прокси. */
     suspend fun removeProxy(id: Int): Result<Unit>
+
+    /** Маршрут соединения с Telegram прямо сейчас: напрямую, через прокси или через подписку серверов. */
+    suspend fun currentRoute(): Result<TelegramRoute>
 
     /** Время TCP-соединения с сервером прокси, в миллисекундах. */
     suspend fun measureProxyLatency(server: String, port: Int): Result<Long>

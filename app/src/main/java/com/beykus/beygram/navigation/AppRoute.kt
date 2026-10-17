@@ -12,6 +12,7 @@ enum class AppRoute {
     MyProfile,
     EditProfile,
     Notifications,
+    ConnectionDiagnostics,
     Calls,
     Contacts,
     Settings,

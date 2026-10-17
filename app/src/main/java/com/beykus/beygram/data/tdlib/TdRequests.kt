@@ -1,6 +1,8 @@
 package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.ConnectionFailure
+import com.beykus.beygram.diagnostics.recordConnectionFailure
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import kotlinx.coroutines.CancellationException
@@ -45,12 +47,20 @@ internal suspend fun <T> conversationResult(timeoutMessage: UiText = MESSAGE_TIM
 internal suspend fun <T> requestResult(block: suspend () -> T): Result<T> = telegramResult(REQUEST_TIMEOUT, block, ::requestErrorText)
 
 private suspend fun <T> telegramResult(timeoutMessage: UiText, block: suspend () -> T, errorText: (Exception) -> UiText): Result<T> = try { Result.success(block()) }
-catch (timeout: TimeoutCancellationException) { Result.failure(UserMessageException(timeoutMessage, timeout)) }
+catch (timeout: TimeoutCancellationException) {
+    recordConnectionFailure(ConnectionFailure.Timeout)
+    Result.failure(UserMessageException(timeoutMessage, timeout))
+}
 catch (cancelled: CancellationException) { throw cancelled }
 catch (error: UserMessageException) { Result.failure(error) }
-catch (error: Exception) { Result.failure(UserMessageException(errorText(error), error)) }
+catch (error: Exception) {
+    if (error.isFloodWait()) recordConnectionFailure(ConnectionFailure.FloodWait)
+    Result.failure(UserMessageException(errorText(error), error))
+}
+
+private fun Exception.isFloodWait(): Boolean = message?.contains("FLOOD_WAIT") == true || (this as? TdRequestError)?.code == 429
 
 private fun requestErrorText(error: Exception): UiText = when {
-    error.message?.contains("FLOOD_WAIT") == true || (error as? TdRequestError)?.code == 429 -> UiText.Res(R.string.err_tdlib_flood_wait)
+    error.isFloodWait() -> UiText.Res(R.string.err_tdlib_flood_wait)
     else -> UiText.Res(R.string.err_tdlib_action_failed)
 }
