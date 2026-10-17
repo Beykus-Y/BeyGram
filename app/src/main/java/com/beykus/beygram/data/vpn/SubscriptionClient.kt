@@ -130,4 +130,4 @@ internal class SubscriptionClient(
     }
 }
 
-class SubscriptionException(message: String) : Exception(message)
+class SubscriptionException(message: String, cause: Throwable? = null) : Exception(message, cause)

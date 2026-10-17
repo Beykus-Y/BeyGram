@@ -37,7 +37,7 @@ internal class MihomoCoreBridge(context: Context) {
         writeAtomically(pending, normalized.yaml.toByteArray(Charsets.UTF_8))
         try {
             val validation = invokeAction("validateConfig", pendingFile.absolutePath) as? String
-            if (!validation.isNullOrBlank()) throw SubscriptionException("Не удалось применить подписку: $validation")
+            if (!validation.isNullOrBlank()) throw SubscriptionException("Не удалось применить подписку", MihomoCoreException(validation))
 
             val previous = runCatching { profile.readFully() }.getOrNull()
             writeAtomically(profile, normalized.yaml.toByteArray(Charsets.UTF_8))
@@ -71,7 +71,7 @@ internal class MihomoCoreBridge(context: Context) {
                 .put("home-dir", home.absolutePath)
                 .put("version", Build.VERSION.SDK_INT)
             val result = quickSetup(init.toString(), JSONObject().put("selected-map", selectedMap()).toString())
-            if (result.isNotBlank()) throw MihomoCoreException("Не удалось загрузить профиль прокси: $result")
+            if (result.isNotBlank()) throw MihomoCoreException("Не удалось загрузить профиль прокси", MihomoCoreException(result))
         }
         startNativeDiagnostics()
     }
@@ -196,7 +196,7 @@ internal class MihomoCoreBridge(context: Context) {
         check(profileExists()) { "Профиль прокси не установлен" }
         val params = JSONObject().put("selected-map", selectedMap()).toString()
         val result = invokeAction("setupConfig", params) as? String
-        if (!result.isNullOrBlank()) throw MihomoCoreException("Не удалось применить профиль прокси: $result")
+        if (!result.isNullOrBlank()) throw MihomoCoreException("Не удалось применить профиль прокси", MihomoCoreException(result))
     }
 
     /** Maps the saved node selection into Mihomo's `selected-map` so the choice survives core re-initialization. */
@@ -243,7 +243,7 @@ internal class MihomoCoreBridge(context: Context) {
                         val code = result.optInt("code", -1)
                         val value = result.opt("data")
                         if (code != 0) {
-                            continuation.resumeWith(Result.failure(MihomoCoreException(value?.toString() ?: "Прокси не выполнил действие")))
+                            continuation.resumeWith(Result.failure(MihomoCoreException("Прокси не выполнил действие", MihomoCoreException(value?.toString() ?: "no detail"))))
                         } else {
                             continuation.resume(value)
                         }
@@ -280,4 +280,4 @@ internal class MihomoCoreBridge(context: Context) {
     }
 }
 
-class MihomoCoreException(message: String) : Exception(message)
+class MihomoCoreException(message: String, cause: Throwable? = null) : Exception(message, cause)
