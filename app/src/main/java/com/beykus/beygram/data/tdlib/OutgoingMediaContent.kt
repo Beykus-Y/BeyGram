@@ -38,6 +38,12 @@ internal fun OutgoingMedia.toInputContent(caption: String): TdApi.InputMessageCo
             duration = durationSeconds
             length = this@toInputContent.width
         }
+        MediaKind.Voice -> TdApi.InputMessageVoiceNote().apply {
+            voiceNote = local
+            duration = durationSeconds
+            waveform = this@toInputContent.waveform
+            this.caption = formattedCaption
+        }
         else -> TdApi.InputMessageDocument().apply {
             document = TdApi.InputDocument(local, thumb, true)
             this.caption = formattedCaption

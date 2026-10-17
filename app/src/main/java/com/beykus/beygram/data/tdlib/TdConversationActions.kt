@@ -61,7 +61,9 @@ internal class TdConversationActions(
     }
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?): Result<Unit> = conversationResult {
         require(caption.codePointCount(0, caption.length) <= limits.value.caption) { "Подпись слишком длинная" }
+        android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         send(chatId, media.toInputContent(caption), replyId)
+        android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }
     private suspend fun send(chatId: Long, content: TdApi.InputMessageContent, replyId: Long?) {
         val replyTarget = replyId?.let {
@@ -144,6 +146,8 @@ internal class TdConversationActions(
     }
     private fun editable(content: TdApi.MessageContent): Boolean = content is TdApi.MessageText || content is TdApi.MessagePhoto || content is TdApi.MessageVideo || content is TdApi.MessageAnimation || content is TdApi.MessageAudio || content is TdApi.MessageDocument || content is TdApi.MessageVoiceNote
 }
+
+private const val TAG = "BeyGramNet"
 
 internal fun ChatMessage.preview(): String = text.ifBlank { when (media?.kind) {
     MediaKind.Photo -> "Фото"; MediaKind.Video -> "Видео"; MediaKind.Animation -> "GIF"; MediaKind.Audio -> "Аудио"; MediaKind.Document -> "Файл"; MediaKind.Voice -> "Голосовое"; MediaKind.VideoNote -> "Видеосообщение"; MediaKind.Sticker -> "Стикер"; null -> "Сообщение"

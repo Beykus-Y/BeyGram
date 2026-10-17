@@ -50,6 +50,7 @@ import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
@@ -63,6 +64,7 @@ import java.util.Date
  */
 class TdLibTelegramRepository private constructor(context: Context, policy: InteractionPolicy) : TelegramRepository {
 
+    private val appContext = context.applicationContext
     private val proxyMutex = Mutex()
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences("mihomo_tdlib_proxy", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
@@ -446,10 +448,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateNewMessage         -> handleNewMessage(update.message)
             is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
             is TdApi.UpdateMessageSendSucceeded -> {
+                cleanupSentRecording(update.message)
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
                 conversationActions.hydrateReply(update.message)
             }
-            is TdApi.UpdateMessageSendFailed -> messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+            is TdApi.UpdateMessageSendFailed -> {
+                val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
+                android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} code=${sendError?.code} error=${sendError?.message}")
+                messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+            }
             is TdApi.UpdateDeleteMessages -> if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())
             is TdApi.UpdateConnectionState    -> {
                 ConnectionEventLog.shared.record("Соединение с Telegram: ${update.state.logLabel()}")
@@ -465,6 +472,25 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             }
             else                              -> Unit
         }
+    }
+
+    /** Recorded files must stay on disk until TDLib reports upload completion. */
+    private fun cleanupSentRecording(message: TdApi.Message) {
+        val localPath = when (val content = message.content) {
+            is TdApi.MessageVideoNote -> content.videoNote.video.local.path
+            is TdApi.MessageVoiceNote -> content.voiceNote.voice.local.path
+            else -> return
+        }.takeIf { it.isNotBlank() } ?: return
+        runCatching {
+            val uploads = File(appContext.filesDir, "uploads").canonicalFile
+            val file = File(localPath).canonicalFile
+            val sessionDirectory = file.parentFile ?: return
+            require(sessionDirectory.parentFile?.canonicalFile == uploads) { "Recording path is outside uploads" }
+            require(file.path.startsWith(uploads.path + File.separator)) { "Recording path is outside uploads" }
+            if (sessionDirectory.deleteRecursively()) {
+                android.util.Log.i("BeyGramNet", "Uploaded recording cleaned kind=${message.content.javaClass.simpleName} path=$localPath")
+            }
+        }.onFailure { android.util.Log.w("BeyGramNet", "Could not clean uploaded recording: ${it.message}") }
     }
 
     // ---- Авторизация ---------------------------------------------------------
@@ -609,6 +635,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             else -> MessageSendState.Sent
         },
         media = attachment,
+        mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
         isEdited = editDate > 0,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->

@@ -3,14 +3,22 @@ package com.beykus.beygram.ui.screens.chat
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CameraCharacteristics
+import android.media.MediaMetadataRetriever
+import android.os.StatFs
 import android.os.SystemClock
+import android.util.Range
 import android.util.Rational
+import android.util.Log
 import android.view.Surface
 import android.view.ViewGroup
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.ViewPort
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileOutputOptions
@@ -53,6 +61,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.data.media.VideoMessageSettings
+import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.media.VideoQualityPreset
+import com.beykus.beygram.data.media.VideoNoteProcessor
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -61,11 +73,13 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
 
-private const val MAX_DURATION_MS = 60_000L
+private const val NORMAL_MAX_DURATION_MS = 60_000L
+private const val LONG_MAX_DURATION_MS = 3_600_000L
 private const val MIN_DURATION_SECONDS = 1
 private const val SIDE_PX = 480
 /** Сдвиг пальца влево, после которого отпускание отменяет запись. */
 private const val CANCEL_DRAG_DP = 96f
+private const val TAG = "BeyGramRecorder"
 
 internal val videoNotePermissions = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
 
@@ -73,7 +87,7 @@ internal fun videoNoteAllowed(context: Context): Boolean =
     videoNotePermissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
 /** Одна запись: пишется или уже останавливается и ждёт финализации CameraX. */
-private class VideoTake(val file: File) {
+private class VideoTake(val file: File, val settings: VideoMessageSettings) {
     var discard = false
     var recording: Recording? = null
 }
@@ -83,7 +97,8 @@ internal class VideoNoteRecorder(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
     private val scope: CoroutineScope,
-    private val onFinished: (OutgoingMedia) -> Unit,
+    private val currentSettings: () -> VideoMessageSettings,
+    private val onFinished: (List<OutgoingMedia>, previewFirst: Boolean) -> Unit,
     private val onError: (String) -> Unit
 ) {
     val previewView = PreviewView(context).apply {
@@ -92,22 +107,36 @@ internal class VideoNoteRecorder(
     }
     var active by mutableStateOf(false)
         private set
+    var locked by mutableStateOf(false)
+        private set
     var canceling by mutableStateOf(false)
         private set
     var elapsedMs by mutableLongStateOf(0L)
         private set
+    val durationLimitMs: Long get() = maxDurationMs
 
     private var provider: ProcessCameraProvider? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var take: VideoTake? = null
     private var timer: Job? = null
     private var startedAt = 0L
+    private var maxDurationMs = NORMAL_MAX_DURATION_MS
+    private var previewFirst = false
     private var attempt = 0
 
     /** Нажатие: камера открывается асинхронно, запись начинается, когда она готова. */
     fun press() {
         if (active || take != null) return
+        val settings = currentSettings()
+        Log.i(TAG, "video_start_requested preset=${settings.preset} long=${settings.longRecordingEnabled}")
+        maxDurationMs = if (settings.longRecordingEnabled) LONG_MAX_DURATION_MS else NORMAL_MAX_DURATION_MS
+        val requiredBytes = if (settings.longRecordingEnabled) 2_500L * 1024L * 1024L else 150L * 1024L * 1024L
+        if (StatFs(context.filesDir.absolutePath).availableBytes < requiredBytes) {
+            onError(context.getString(R.string.recorder_storage_low))
+            return
+        }
         active = true
+        locked = false
         canceling = false
         elapsedMs = 0L
         startedAt = SystemClock.elapsedRealtime()
@@ -119,17 +148,18 @@ internal class VideoNoteRecorder(
             try {
                 val cameraProvider = future.get()
                 provider = cameraProvider
-                bind(cameraProvider)
-                startRecording()
+                bind(cameraProvider, settings)
+                startRecording(settings)
             } catch (_: Exception) {
+                Log.e(TAG, "video_camera_open_failed")
                 fail(context.getString(R.string.recorder_camera_open_failed))
             }
         }, ContextCompat.getMainExecutor(context))
         timer = scope.launch {
             while (active) {
                 elapsedMs = SystemClock.elapsedRealtime() - startedAt
-                if (elapsedMs >= MAX_DURATION_MS) {
-                    release(cancel = false)
+                if (elapsedMs >= maxDurationMs) {
+                    stop(preview = locked)
                     break
                 }
                 delay(100)
@@ -142,10 +172,14 @@ internal class VideoNoteRecorder(
         canceling = cancelNow
     }
 
+    fun lock() { if (active) { locked = true; canceling = false; Log.i(TAG, "video_recording_locked") } }
+
     /** Отпускание: [cancel] отменяет запись, иначе кружок уходит в отправку после финализации. */
     fun release(cancel: Boolean) {
-        if (!active) return
+        if (!active || locked) return
+        Log.i(TAG, "video_recording_released cancel=$cancel elapsedMs=$elapsedMs")
         active = false
+        canceling = false
         timer?.cancel()
         timer = null
         val current = take
@@ -157,35 +191,94 @@ internal class VideoNoteRecorder(
         current.recording?.stop()
     }
 
+    fun stopLocked() { if (active && locked) stop(preview = true) }
+
+    fun sendLocked() { if (active && locked) stop(preview = false) }
+
+    fun stopForRecovery() { if (active) stop(preview = true) }
+
+    fun discardLocked() {
+        if (!active || !locked) return
+        take?.discard = true
+        stop(preview = false)
+    }
+
     fun dispose() {
-        active = false
+        if (active) stop(preview = true)
+        locked = false
         timer?.cancel()
         timer = null
         val current = take
         if (current == null) {
             provider?.unbindAll()
         } else {
-            current.discard = true
             current.recording?.stop()
         }
     }
 
     private fun fail(message: String) {
         active = false
+        locked = false
+        canceling = false
         timer?.cancel()
         timer = null
         if (take == null) provider?.unbindAll()
         onError(message)
     }
 
-    private fun bind(cameraProvider: ProcessCameraProvider) {
+    private fun stop(preview: Boolean) {
+        if (!active) return
+        Log.i(TAG, "video_recording_stopping preview=$preview elapsedMs=$elapsedMs")
+        previewFirst = preview
+        active = false
+        locked = false
+        canceling = false
+        timer?.cancel()
+        timer = null
+        take?.recording?.stop()
+    }
+
+    private fun bind(cameraProvider: ProcessCameraProvider, settings: VideoMessageSettings) {
         cameraProvider.unbindAll()
         val selector = if (cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
-        val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
+        val side = when (settings.preset) {
+            VideoQualityPreset.Standard -> 384
+            VideoQualityPreset.High -> 480
+            VideoQualityPreset.Maximum -> 640
+            VideoQualityPreset.Custom -> settings.customSide
+        }
+        val fps = when (settings.preset) {
+            VideoQualityPreset.Standard, VideoQualityPreset.High -> 30
+            VideoQualityPreset.Maximum -> 60
+            VideoQualityPreset.Custom -> settings.customFps
+        }
+        val bitrate = when (settings.preset) {
+            VideoQualityPreset.Standard -> 1_000_000
+            VideoQualityPreset.High -> 1_400_000
+            VideoQualityPreset.Maximum -> 4_000_000
+            VideoQualityPreset.Custom -> settings.customVideoBitrateKbps * 1_000
+        }
+        val quality = if (side > 480) Quality.HD else Quality.SD
+        val cameraInfo = cameraProvider.getCameraInfo(selector)
+        val supportedFps = runCatching {
+            Camera2CameraInfo.from(cameraInfo).getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)?.toList().orEmpty()
+        }.getOrDefault(emptyList())
+        val fpsRange = supportedFps.filter { it.lower <= fps && it.upper >= fps }
+            .minByOrNull { it.upper - it.lower }
+            ?: supportedFps.filter { it.upper <= fps }.maxByOrNull { it.upper }
+            ?: supportedFps.minByOrNull { kotlin.math.abs(it.upper - fps) }
+            ?: Range(30, 30)
+        val qualitySelector = QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(quality))
+        val previewBuilder = Preview.Builder()
+        Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+        val preview = previewBuilder.build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
         val recorder = Recorder.Builder()
-            .setQualitySelector(QualitySelector.from(Quality.SD, FallbackStrategy.higherQualityOrLowerThan(Quality.SD)))
+            .setQualitySelector(qualitySelector)
+            .setTargetVideoEncodingBitRate(bitrate)
             .build()
-        val capture = VideoCapture.withOutput(recorder)
+        val captureBuilder = VideoCapture.Builder(recorder)
+        Camera2Interop.Extender(captureBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+        val capture = captureBuilder.build()
         videoCapture = capture
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
         val group = UseCaseGroup.Builder()
@@ -196,11 +289,11 @@ internal class VideoNoteRecorder(
         cameraProvider.bindToLifecycle(lifecycleOwner, selector, group)
     }
 
-    private fun startRecording() {
+    private fun startRecording(settings: VideoMessageSettings) {
         val capture = videoCapture ?: return
         // Файл лежит в uploads, как и вложения: кэш система может очистить до отправки, а поставленное в очередь сообщение тогда сломается.
         val directory = File(context.filesDir, "uploads").resolve(UUID.randomUUID().toString()).apply { mkdirs() }
-        val current = VideoTake(directory.resolve("video-note.mp4"))
+        val current = VideoTake(directory.resolve("video-note.mp4"), settings)
         take = current
         try {
             current.recording = capture.output
@@ -209,7 +302,9 @@ internal class VideoNoteRecorder(
                 .start(ContextCompat.getMainExecutor(context)) { event ->
                     if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
                 }
+            Log.i(TAG, "video_recording_started session=${directory.name}")
         } catch (_: Exception) {
+            Log.e(TAG, "video_recording_start_failed session=${directory.name}")
             take = null
             current.file.parentFile?.deleteRecursively()
             fail(context.getString(R.string.recorder_start_failed))
@@ -222,32 +317,58 @@ internal class VideoNoteRecorder(
             provider?.unbindAll()
         }
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
-        if (current.discard || seconds < MIN_DURATION_SECONDS || event.hasError()) {
+        Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
+        if (current.discard || seconds < MIN_DURATION_SECONDS) {
             current.file.parentFile?.deleteRecursively()
-            if (!current.discard && seconds >= MIN_DURATION_SECONDS) onError(context.getString(R.string.recorder_save_failed))
+            if (!current.discard) {
+                val message = if (seconds < MIN_DURATION_SECONDS) R.string.recorder_too_short else R.string.recorder_save_failed
+                onError(context.getString(message))
+            }
             return
         }
-        onFinished(
-            OutgoingMedia(
-                path = current.file.absolutePath, fileName = context.getString(R.string.recorder_file_name), mimeType = "video/mp4",
-                kind = MediaKind.VideoNote, width = SIDE_PX, height = SIDE_PX, durationSeconds = seconds
-            )
-        )
+        scope.launch {
+            try {
+                Log.i(TAG, "video_processing_started session=${current.file.parentFile?.name}")
+                val media = VideoNoteProcessor(context).process(current.file, current.settings)
+                Log.i(TAG, "video_processing_completed session=${current.file.parentFile?.name} segments=${media.size} bytes=${media.sumOf { it.size }}")
+                onFinished(media, previewFirst || media.size > 1)
+            } catch (failure: Exception) {
+                Log.e(TAG, "video_processing_failed session=${current.file.parentFile?.name} type=${failure.javaClass.simpleName}", failure)
+                onError(context.getString(R.string.recorder_save_failed))
+                // The source remains in its private session directory so a failed conversion never destroys it.
+            }
+        }
     }
 }
 
 /** Запись кружка на экране чата: отмена при уходе из композиции, чтобы камера не оставалась открытой. */
 @Composable
-internal fun rememberVideoNoteRecorder(onFinished: (OutgoingMedia) -> Unit, onError: (String) -> Unit): VideoNoteRecorder {
+internal fun rememberVideoNoteRecorder(
+    settings: VideoMessageSettingsStore,
+    onFinished: (List<OutgoingMedia>, previewFirst: Boolean) -> Unit,
+    onError: (String) -> Unit
+): VideoNoteRecorder {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val currentOnFinished by rememberUpdatedState(onFinished)
     val currentOnError by rememberUpdatedState(onError)
-    val recorder = remember(owner) { VideoNoteRecorder(context, owner, scope, { currentOnFinished(it) }, { currentOnError(it) }) }
+    val recorder = remember(owner, settings) { VideoNoteRecorder(context, owner, scope, { settings.settings.value }, { media, preview -> currentOnFinished(media, preview) }, { currentOnError(it) }) }
     DisposableEffect(recorder) { onDispose { recorder.dispose() } }
     return recorder
 }
+
+private fun mediaMetadata(file: File): Triple<Int, Int, Int>? = runCatching {
+    MediaMetadataRetriever().run {
+        try {
+            setDataSource(file.absolutePath)
+            val width = extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: return null
+            val height = extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: return null
+            val durationMs = extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+            Triple(width, height, durationMs?.let { ((it + 999) / 1000).toInt() } ?: 0)
+        } finally { release() }
+    }
+}.getOrNull()
 
 /** Кнопка записи в композере: удержание включает запись, отпускание отправляет, сдвиг влево отменяет. */
 @Composable
@@ -303,14 +424,14 @@ internal fun VideoNoteRecordingHint(modifier: Modifier = Modifier) {
 
 /** Экран записи вместо ленты: кадр в круге, кольцо прогресса к лимиту 60 секунд и подсказки. */
 @Composable
-internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Modifier = Modifier) {
+internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, onDelete: () -> Unit, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     Column(
         modifier.fillMaxSize().background(palette.screen).padding(14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        val progress = (recorder.elapsedMs.toFloat() / MAX_DURATION_MS).coerceIn(0f, 1f)
+        val progress = (recorder.elapsedMs.toFloat() / recorder.durationLimitMs).coerceIn(0f, 1f)
         Box(Modifier.size(228.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
                 val stroke = 4.dp.toPx()
@@ -333,7 +454,13 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
             }
         }
         Spacer(Modifier.height(16.dp))
-        Text(if (recorder.canceling) stringResource(R.string.recorder_release_to_cancel) else stringResource(R.string.recorder_release_to_send), color = palette.textPrimary, fontSize = 14.sp)
-        Text(stringResource(R.string.recorder_swipe_left_cancel), color = if (recorder.canceling) palette.danger else palette.textSecondary, fontSize = 14.sp)
+        if (recorder.locked) {
+            Text(stringResource(R.string.recorder_locked), color = palette.accentInk, fontSize = 15.sp)
+            androidx.compose.material3.TextButton(onClick = onDelete) { Text(stringResource(R.string.recorder_cancel), color = palette.warningText) }
+        } else {
+            Text(if (recorder.canceling) stringResource(R.string.recorder_release_to_cancel) else stringResource(R.string.recorder_release_to_send), color = palette.textPrimary, fontSize = 14.sp)
+            Text(stringResource(R.string.recorder_swipe_up_lock), color = palette.textSecondary, fontSize = 14.sp)
+            Text(stringResource(R.string.recorder_swipe_left_cancel), color = if (recorder.canceling) palette.danger else palette.textSecondary, fontSize = 14.sp)
+        }
     }
 }

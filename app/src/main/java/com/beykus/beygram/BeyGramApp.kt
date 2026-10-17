@@ -35,6 +35,7 @@ import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
+import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
@@ -43,6 +44,7 @@ import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
+import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
 import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
@@ -57,6 +59,7 @@ fun BeyGramApp(
     onNotificationHandled: (Long) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val videoMessageSettings = remember(context) { VideoMessageSettingsStore(context) }
     val tdLibReadiness = remember(context) {
         TdLibBootstrap(context).readiness()
     }
@@ -89,6 +92,7 @@ fun BeyGramApp(
         onThemeChange = onThemeChange,
         notificationRuntime = notificationRuntime,
         vpnBackend = vpnBackend,
+        recordingSettings = videoMessageSettings,
         notificationRequest = notificationRequest,
         onNotificationHandled = onNotificationHandled
     )
@@ -102,6 +106,7 @@ private fun BeyGramAppContent(
     onThemeChange: (Boolean) -> Unit,
     notificationRuntime: NotificationRuntime,
     vpnBackend: VpnBackend,
+    recordingSettings: VideoMessageSettingsStore,
     notificationRequest: NotificationOpenRequest?,
     onNotificationHandled: (Long) -> Unit
 ) {
@@ -215,6 +220,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Proxy || route == AppRoute.ProxyConnect) {
         routeName = if (route == AppRoute.ProxyConnect) AppRoute.Proxy.name else proxyReturnRouteName
     }
+    BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
 
     when (route) {
         AppRoute.Start -> StartScreen(
@@ -363,7 +369,8 @@ private fun BeyGramAppContent(
                     onDownloadFile = repository::downloadFile,
                     onBack = { routeName = chatBackRouteName },
                     onChatInfo = { routeName = AppRoute.ChatInfo.name },
-                    connectionState = connectionState
+                    connectionState = connectionState,
+                    recordingSettings = recordingSettings
                 )
             }
         }
@@ -413,9 +420,11 @@ private fun BeyGramAppContent(
             SettingsScreen(
                 onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
                 onNotifications = { openNotifications(AppRoute.Settings) },
-                onProxy = { openProxy(AppRoute.Settings) }
+                onProxy = { openProxy(AppRoute.Settings) },
+                onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name }
             )
         }
+        AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings) { routeName = AppRoute.Settings.name }
         AppRoute.NavigationSettings -> NavigationSettingsScreen(
             visibility = tabVisibility,
             onVisibilityChange = onTabVisibilityChange,
