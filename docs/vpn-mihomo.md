@@ -27,12 +27,12 @@ Profiles stored by earlier builds are migrated during core initialization. Migra
 ## Proxy screens
 
 - **Прокси** (Settings → «Прокси для Telegram», or the start and login screens): the subscription entry with its best server, a «Без прокси» row, and saved proxies. Selecting a row applies it immediately. Saved proxies are stored by TDLib; their latency is a TCP connect to the proxy server.
-- **Подключение к Telegram**: tabs MTProto, SOCKS5, Web (HTTP) and Подписка. Manual tabs save the proxy in TDLib and enable it at once. The subscription tab loads the link (refresh button), shows the servers with ping, and starts the listener with the chosen server.
-- The segmented control «Применить / Вручную» on the subscription tab switches automatic server selection (see below). The design file does not describe more than that; the mapping is an interpretation.
+- **Подключение к Telegram**: tabs MTProto, SOCKS5, Web (HTTP) and Подписка. Manual tabs save the proxy in TDLib and enable it at once. The subscription tab loads the link (refresh button), shows the servers with their delay, and starts the listener with the chosen server.
+- The segmented control «Автоматически / Вручную» on the subscription tab switches automatic server selection (see below). The design file does not describe more than that; the mapping is an interpretation.
 
 ## Connectivity checks and automatic selection
 
-The connection list is read from Mihomo's in-process `getProxies` action. **Проверить пинг** on the subscription tab runs a per-node `testDelay` against `https://web.telegram.org/`. It checks that endpoint through each proxy; it does not guarantee reachability to every Telegram MTProto data center.
+The connection list is read from Mihomo's in-process `getProxies` action. **Проверить задержку** on the subscription tab runs a per-node `testDelay` against `https://web.telegram.org/`. It checks that endpoint through each proxy; it does not guarantee reachability to every Telegram MTProto data center.
 
 Automatic selection is off by default. When enabled, it watches TDLib's sustained `Connecting` state, waits eight seconds, checks available validated Wi-Fi/cellular network routes, tests the available nodes, and selects the lowest-delay successful node while Mihomo is active. The network indicators describe validated routes reported by Android, not the device's radio-toggle settings.
 
