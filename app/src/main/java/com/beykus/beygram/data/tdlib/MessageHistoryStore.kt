@@ -120,6 +120,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     // because a screen, a load or a send still refers to them.
     private fun keepCached(chatId: Long) {
         cachedChats.remove(chatId)
+        // A chat without messages holds no memory, so it takes no slot.
+        if (flow(chatId).value.messages.isEmpty()) return
         cachedChats.add(chatId)
         val candidates = cachedChats.iterator()
         while (cachedChats.size > maxCachedChats && candidates.hasNext()) {

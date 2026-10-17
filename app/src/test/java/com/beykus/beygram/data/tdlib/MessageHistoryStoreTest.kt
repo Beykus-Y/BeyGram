@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageSendState
 import org.junit.Assert.assertEquals
@@ -100,6 +101,17 @@ class MessageHistoryStoreTest {
         assertEquals(emptyList<ChatMessage>(), store.observe(2L).value.messages)
     }
 
+    @Test fun chatsWithoutMessagesDoNotTakeACacheSlot() {
+        val store = MessageHistoryStore(maxCachedChats = 2)
+        store.put(message(1L, chatId = 1L))
+        store.opened(2L)
+        store.opened(3L)
+        store.closed(3L)
+        store.put(message(4L, chatId = 4L))
+        assertEquals(listOf(1L), store.observe(1L).value.messages.map { it.id })
+        assertEquals(listOf(4L), store.observe(4L).value.messages.map { it.id })
+    }
+
     @Test fun evictionKeepsReadMarkers() {
         val store = MessageHistoryStore(maxCachedChats = 1)
         store.readInbox(1L, 5L)
@@ -120,5 +132,24 @@ class MessageHistoryStoreTest {
         assertTrue(store.observe(1L).value.messages.isEmpty())
         store.finishLoad(1L, ids.map { message(it) }, hasOlder = false)
         assertTrue(store.observe(1L).value.messages.isEmpty())
+        // The load has ended, so the oldest retired ids are forgotten while the newest still filter.
+        store.finishLoad(1L, listOf(message(1L), message(300L)), hasOlder = false)
+        assertEquals(listOf(1L), store.observe(1L).value.messages.map { it.id })
+    }
+
+    @Test fun oldestRetiredIdsAreForgottenWhenTheLimitIsReached() {
+        val store = MessageHistoryStore()
+        store.delete(1L, (1L..300L).toList())
+        store.finishLoad(1L, listOf(message(300L), message(1L)), hasOlder = false)
+        assertEquals(listOf(1L), store.observe(1L).value.messages.map { it.id })
+    }
+
+    @Test fun failedLoadAlsoEndsTheRetiredIdsWindow() {
+        val store = MessageHistoryStore()
+        store.beginLoad(1L)
+        store.delete(1L, (1L..300L).toList())
+        store.fail(1L, UiText.Raw("offline"))
+        store.finishLoad(1L, listOf(message(300L), message(1L)), hasOlder = false)
+        assertEquals(listOf(1L), store.observe(1L).value.messages.map { it.id })
     }
 }
