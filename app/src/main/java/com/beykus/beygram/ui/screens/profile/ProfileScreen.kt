@@ -58,7 +58,7 @@ fun ProfileScreen(
     onBack: () -> Unit, onRefresh: () -> Unit, onEdit: () -> Unit,
     setPhoto: suspend (OutgoingMedia) -> Result<Unit>,
     isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit,
-    onNotifications: () -> Unit = {}, onMembers: () -> Unit = {},
+    onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
     hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
     sharedMessages: (suspend (SharedMediaKind, Long) -> Result<MessageSearchPage>)? = null, onOpenMessage: (Long) -> Unit = {}
 ) {
@@ -121,14 +121,21 @@ fun ProfileScreen(
                             ProfileKind.Channel -> context.getString(R.string.profile_type_channel)
                             ProfileKind.Secret -> context.getString(R.string.profile_type_secret_chat)
                         })
+                        // Со вкладками счётчики стоят в заголовках; без них (профиль участника) остаются строками карточки.
+                        if (sharedMessages == null) info.sharedCounts?.let { counts ->
+                            counts.media?.let { add(context.getString(R.string.profile_shared_media) to it.toString()) }
+                            counts.files?.let { add(context.getString(R.string.profile_shared_files) to it.toString()) }
+                            counts.links?.let { add(context.getString(R.string.profile_shared_links) to it.toString()) }
+                            counts.voice?.let { add(context.getString(R.string.profile_shared_voice) to it.toString()) }
+                        }
                     }
                     rows.forEachIndexed { index, (label, value) ->
                         if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
                         InfoRow(label, value)
                     }
                 }
-                if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators)
-                if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, onMembers)
+                if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
+                if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
                 if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, onOpenMessage)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
@@ -211,44 +218,34 @@ private fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-private fun AdministratorsSection(administrators: List<ProfileAdmin>) {
+private fun AdministratorsSection(administrators: List<ProfileAdmin>, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_admins_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
     Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
         administrators.forEachIndexed { index, admin ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
-            InfoRow(adminRole(admin), admin.name.ifBlank { stringResource(R.string.user_name_unknown) })
+            Box(Modifier.fillMaxWidth().clickable { onOpenUser(admin.userId) }) {
+                InfoRow(adminRole(admin), admin.name.ifBlank { stringResource(R.string.user_name_unknown) })
+            }
         }
     }
 }
 
 @Composable
-private fun MembersSection(info: ProfileInfo, onMembers: () -> Unit) {
+private fun MembersSection(info: ProfileInfo, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onMembers: () -> Unit, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_members_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
     Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
         info.memberPreview.forEachIndexed { index, member ->
-            if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(member.name.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                Text(memberStatus(member), color = palette.textSecondary, fontSize = 13.sp)
-            }
+            if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 82.dp))
+            MemberRow(member, observeFile, downloadFile) { onOpenUser(member.userId) }
         }
         TextButton(onClick = onMembers, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.profile_members_all, info.memberCount ?: info.memberPreview.size), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
     }
-}
-
-/** Подпись участника: роль для владельца и администраторов, иначе «в сети». */
-@Composable
-internal fun memberStatus(member: ProfileMember): String = when {
-    member.role == ProfileMemberRole.Owner -> stringResource(R.string.profile_admin_owner)
-    member.role == ProfileMemberRole.Admin -> stringResource(R.string.profile_admin_role)
-    member.online -> stringResource(R.string.presence_online)
-    else -> ""
 }
 
 @Composable private fun adminRole(admin: ProfileAdmin): String = when {

@@ -35,8 +35,3 @@ data class CallRecord(
 
 /** Страница истории звонков. Пустой [nextOffset] означает, что звонков больше нет. */
 data class CallHistoryPage(val calls: List<CallRecord>, val nextOffset: String)
-
-private fun initialsOf(title: String): String = title.trim().split(Regex("\\s+"))
-    .filter { it.isNotEmpty() }
-    .take(2)
-    .joinToString("") { it.first().uppercaseChar().toString() }

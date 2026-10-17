@@ -10,6 +10,7 @@ enum class AppRoute {
     Chat,
     ChatInfo,
     ChatMembers,
+    MemberProfile,
     MyProfile,
     EditProfile,
     Notifications,

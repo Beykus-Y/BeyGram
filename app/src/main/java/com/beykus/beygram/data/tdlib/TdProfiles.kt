@@ -141,7 +141,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         return admins.mapNotNull { admin ->
             val user = synchronized(lock) { users[admin.userId] } ?: fetchUser(admin.userId) ?: return@mapNotNull null
             ProfileAdmin(
-                name = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
+                userId = admin.userId, name = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
                 isOwner = admin.isOwner, customTitle = admin.customTitle.orEmpty()
             )
         }
@@ -153,19 +153,38 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         val missing = raw.mapNotNull { (it.memberId as? TdApi.MessageSenderUser)?.userId }.distinct()
             .filter { id -> synchronized(lock) { users[id] } == null }
         coroutineScope { missing.map { id -> async { fetchUser(id) } }.awaitAll() }
+        // Звания администраторов TDLib отдаёт отдельным списком: запрашиваем его, только если в странице есть владелец или админ без тега.
+        val titles = if (raw.any { it.tag.isNullOrBlank() && it.status.isStaff() }) adminTitles(chatId) else emptyMap()
         ChatMembersPage(total, raw.mapNotNull { member ->
             val id = (member.memberId as? TdApi.MessageSenderUser)?.userId ?: return@mapNotNull null
             val user = synchronized(lock) { users[id] } ?: return@mapNotNull null
+            val isBot = user.type is TdApi.UserTypeBot
             ProfileMember(
+                userId = id,
                 name = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
                 role = when (member.status) {
                     is TdApi.ChatMemberStatusCreator -> ProfileMemberRole.Owner
                     is TdApi.ChatMemberStatusAdministrator -> ProfileMemberRole.Admin
                     else -> ProfileMemberRole.Member
                 },
-                online = (user.status as? TdApi.UserStatusOnline)?.let { it.expires > System.currentTimeMillis() / 1000 } == true
+                // TDLib может присылать ботам статус «в сети», но в списке их показываем как ботов.
+                online = !isBot && (user.status as? TdApi.UserStatusOnline)?.let { it.expires > System.currentTimeMillis() / 1000 } == true,
+                isBot = isBot,
+                tag = member.tag.orEmpty().ifBlank { titles[id].orEmpty() },
+                photo = user.profilePhoto?.let { photo(it.small, it.big) },
+                avatarColorArgb = id.stableColor()
             )
         }, fetched = raw.size)
+    }
+    /** Звания администраторов по id. Сбой не срывает страницу: тогда у администратора останется роль. */
+    private suspend fun adminTitles(chatId: Long): Map<Long, String> = try {
+        request(TdApi.GetChatAdministrators(chatId)).administrators
+            .filter { !it.customTitle.isNullOrBlank() }
+            .associate { it.userId to it.customTitle.orEmpty() }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        emptyMap()
     }
     private suspend fun fetchMembers(chatId: Long, offset: Int, limit: Int): Pair<Int, List<TdApi.ChatMember>> {
         return when (val type = synchronized(lock) { chats[chatId]?.type }) {
@@ -347,6 +366,8 @@ private class Typist(val sender: TdApi.MessageSender) {
     /** Срок набора: новое действие или отмена отменяют прежний таймер. */
     var expiry: Job? = null
 }
+
+private fun TdApi.ChatMemberStatus.isStaff(): Boolean = this is TdApi.ChatMemberStatusCreator || this is TdApi.ChatMemberStatusAdministrator
 
 private fun Throwable.profileError(): UiText = when {
     this is UserMessageException -> text

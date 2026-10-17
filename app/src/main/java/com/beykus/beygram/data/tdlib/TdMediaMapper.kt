@@ -36,13 +36,13 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             val full = sizes.maxByOrNull { it.width.toLong() * it.height }
             val preview = sizes.filter { maxOf(it.width, it.height) >= 240 }.minByOrNull { it.width.toLong() * it.height }
                 ?: sizes.minByOrNull { it.width.toLong() * it.height }
-            full?.let { MessageMedia(MediaKind.Photo, register(it.photo), preview?.photo?.let(::register), "", "image/jpeg", it.width, it.height, hasSpoiler = content.hasSpoiler, isSecret = content.isSecret) }
+            full?.let { MessageMedia(MediaKind.Photo, register(it.photo), preview?.photo?.let(::register), "", "image/jpeg", it.width, it.height, hasSpoiler = content.hasSpoiler, isSecret = content.isSecret, minithumbnail = content.photo.minithumbnail?.data) }
         }
         is TdApi.MessageVideo -> content.video.let {
-            MessageMedia(MediaKind.Video, register(it.video), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "video/mp4" }, it.width, it.height, it.duration, content.hasSpoiler, content.isSecret)
+            MessageMedia(MediaKind.Video, register(it.video), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "video/mp4" }, it.width, it.height, it.duration, content.hasSpoiler, content.isSecret, minithumbnail = it.minithumbnail?.data)
         }
         is TdApi.MessageAnimation -> content.animation.let {
-            MessageMedia(MediaKind.Animation, register(it.animation), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "video/mp4" }, it.width, it.height, it.duration, content.hasSpoiler)
+            MessageMedia(MediaKind.Animation, register(it.animation), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "video/mp4" }, it.width, it.height, it.duration, content.hasSpoiler, minithumbnail = it.minithumbnail?.data)
         }
         is TdApi.MessageDocument -> content.document.let {
             MessageMedia(MediaKind.Document, register(it.document), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "application/octet-stream" })
@@ -54,7 +54,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             MessageMedia(MediaKind.Voice, register(it.voice), fileName = "", mimeType = it.mimeType.orEmpty().ifBlank { "audio/ogg" }, durationSeconds = it.duration, waveform = decodeVoiceWaveform(it.waveform ?: ByteArray(0)))
         }
         is TdApi.MessageVideoNote -> content.videoNote.let {
-            MessageMedia(MediaKind.VideoNote, register(it.video), thumbnail(it.thumbnail), "", "video/mp4", it.length, it.length, it.duration, isSecret = content.isSecret, isViewed = content.isViewed)
+            MessageMedia(MediaKind.VideoNote, register(it.video), thumbnail(it.thumbnail), "", "video/mp4", it.length, it.length, it.duration, isSecret = content.isSecret, isViewed = content.isViewed, minithumbnail = it.minithumbnail?.data)
         }
         is TdApi.MessageSticker -> content.sticker.let {
             val mime = when (it.format) {
