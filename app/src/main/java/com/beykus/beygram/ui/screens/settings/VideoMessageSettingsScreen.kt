@@ -36,6 +36,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoFrameRatePriority
 import com.beykus.beygram.data.media.VideoQualityPreset
+import com.beykus.beygram.data.media.videoMirrorToggleSupported
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
@@ -96,6 +97,21 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
                         Text(stringResource(R.string.settings_video_long_recording_detail), color = palette.textSecondary, fontSize = 13.sp)
                     }
                     Switch(checked = settings.longRecordingEnabled, onCheckedChange = null)
+                }
+            }
+
+            // До API 33 CameraX не отражает превью по setMirrorMode, поэтому переключатель там не нужен.
+            if (videoMirrorToggleSupported()) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp)) {
+                    Row(Modifier.fillMaxWidth().toggleable(settings.mirrorFrontCamera, role = Role.Switch) { checked ->
+                        store.updateSettings { current -> current.copy(mirrorFrontCamera = checked) }
+                    }, verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(stringResource(R.string.settings_video_mirror_front), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Text(stringResource(R.string.settings_video_mirror_front_detail), color = palette.textSecondary, fontSize = 13.sp)
+                        }
+                        Switch(checked = settings.mirrorFrontCamera, onCheckedChange = null)
+                    }
                 }
             }
         }

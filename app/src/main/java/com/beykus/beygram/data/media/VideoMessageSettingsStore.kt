@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.media
 
 import android.content.Context
+import android.os.Build
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,8 +21,16 @@ data class VideoMessageSettings(
     val customAudioBitrateKbps: Int = 96,
     val processing: VideoProcessingMode = VideoProcessingMode.Automatic,
     val frameRatePriority: VideoFrameRatePriority = VideoFrameRatePriority.Balanced,
-    val longRecordingEnabled: Boolean = false
+    val longRecordingEnabled: Boolean = false,
+    val mirrorFrontCamera: Boolean = true
 )
+
+/**
+ * Переключатель отзеркаливания нужен только на API 33 и выше: по документации CameraX Preview.setMirrorMode
+ * до API 33 не действует, а превью фронтальной камеры отражает сам PreviewView. Там запись всегда отражается,
+ * как и превью, поэтому переключатель не показываем.
+ */
+internal fun videoMirrorToggleSupported(sdkInt: Int = Build.VERSION.SDK_INT): Boolean = sdkInt >= Build.VERSION_CODES.TIRAMISU
 
 /** App-private settings for chat recording. These preferences do not touch the TDLib database. */
 class VideoMessageSettingsStore(context: Context) {
@@ -43,7 +52,8 @@ class VideoMessageSettingsStore(context: Context) {
             .putString(KEY_PROCESSING, next.processing.name)
             .putString(KEY_FRAME_RATE_PRIORITY, next.frameRatePriority.name)
             .putBoolean(KEY_LONG_RECORDING, next.longRecordingEnabled)
-            .commit()) { "Не удалось сохранить настройки видеосообщений" }
+            .putBoolean(KEY_MIRROR_FRONT_CAMERA, next.mirrorFrontCamera)
+            .commit()){ "Не удалось сохранить настройки видеосообщений" }
         _settings.value = next
     }
 
@@ -61,7 +71,8 @@ class VideoMessageSettingsStore(context: Context) {
         customAudioBitrateKbps = preferences.getInt(KEY_CUSTOM_AUDIO_BITRATE, 96).takeIf { it in AUDIO_BITRATES } ?: 96,
         processing = preferences.getString(KEY_PROCESSING, null).enumOr(VideoProcessingMode.Automatic),
         frameRatePriority = preferences.getString(KEY_FRAME_RATE_PRIORITY, null).enumOr(VideoFrameRatePriority.Balanced),
-        longRecordingEnabled = preferences.getBoolean(KEY_LONG_RECORDING, false)
+        longRecordingEnabled = preferences.getBoolean(KEY_LONG_RECORDING, false),
+        mirrorFrontCamera = preferences.getBoolean(KEY_MIRROR_FRONT_CAMERA, true)
     )
 
     private fun readRecordingMode() = preferences.getString(KEY_RECORDING_MODE, null).enumOr(ComposerRecordingMode.Video)
@@ -90,6 +101,7 @@ class VideoMessageSettingsStore(context: Context) {
         private const val KEY_PROCESSING = "processing"
         private const val KEY_FRAME_RATE_PRIORITY = "frame_rate_priority"
         private const val KEY_LONG_RECORDING = "long_recording"
+        private const val KEY_MIRROR_FRONT_CAMERA = "mirror_front_camera"
         private const val KEY_RECORDING_MODE = "recording_mode"
     }
 }
