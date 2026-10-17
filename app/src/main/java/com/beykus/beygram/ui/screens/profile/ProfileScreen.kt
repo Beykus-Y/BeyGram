@@ -120,6 +120,12 @@ fun ProfileScreen(
                             ProfileKind.Channel -> context.getString(R.string.profile_type_channel)
                             ProfileKind.Secret -> context.getString(R.string.profile_type_secret_chat)
                         })
+                        info.sharedCounts?.let { counts ->
+                            counts.media?.let { add(context.getString(R.string.profile_shared_media) to it.toString()) }
+                            counts.files?.let { add(context.getString(R.string.profile_shared_files) to it.toString()) }
+                            counts.links?.let { add(context.getString(R.string.profile_shared_links) to it.toString()) }
+                            counts.voice?.let { add(context.getString(R.string.profile_shared_voice) to it.toString()) }
+                        }
                     }
                     rows.forEachIndexed { index, (label, value) ->
                         if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))

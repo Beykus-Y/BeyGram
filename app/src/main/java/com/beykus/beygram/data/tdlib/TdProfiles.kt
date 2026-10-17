@@ -25,6 +25,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val supers = mutableMapOf<Long, TdApi.Supergroup>()
     private val superFull = mutableMapOf<Long, TdApi.SupergroupFullInfo>()
     private val onlineCounts = mutableMapOf<Long, Int>()
+    private val sharedCounts = mutableMapOf<Long, SharedCounts>()
     private val typingBy = mutableMapOf<Long, MutableMap<String, Typist>>()
     private val typingFlows = ConcurrentHashMap<Long, MutableStateFlow<List<String>>>()
     private val details = ConcurrentHashMap<Long, MutableStateFlow<ProfileState>>()
@@ -112,6 +113,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                         synchronized(lock) { supers[group.id] = group; superFull[group.id] = full }
                     }
                 }
+                val counts = loadSharedCounts(chatId)
+                synchronized(lock) { sharedCounts[chatId] = counts }
             } }
             synchronized(lock) { publish(); state.value = state.value.copy(isLoading = false, error = result.exceptionOrNull()?.profileError()) }
         }
@@ -205,7 +208,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true
         )
     }
-    private fun chatInfo(id: Long): ProfileInfo? {
+    private fun chatInfo(id: Long): ProfileInfo? = chatProfile(id)?.copy(sharedCounts = sharedCounts[id])
+    private fun chatProfile(id: Long): ProfileInfo? {
         val chat = chats[id] ?: return null
         val base = ProfileInfo(id, chat.title, photo = photo(chat.photo), onlineMemberCount = onlineCounts[id]?.takeIf { it > 0 })
         return when (val type = chat.type) {
@@ -227,6 +231,20 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             }
             else -> base
         }
+    }
+    /** Каждый тип считается отдельно: сбой одного запроса не скрывает остальные строки. */
+    private suspend fun loadSharedCounts(chatId: Long): SharedCounts = SharedCounts(
+        media = sharedCount(chatId, TdApi.SearchMessagesFilterPhotoAndVideo()),
+        files = sharedCount(chatId, TdApi.SearchMessagesFilterDocument()),
+        links = sharedCount(chatId, TdApi.SearchMessagesFilterUrl()),
+        voice = sharedCount(chatId, TdApi.SearchMessagesFilterVoiceNote())
+    )
+    private suspend fun sharedCount(chatId: Long, filter: TdApi.SearchMessagesFilter): Int? = try {
+        request(TdApi.GetChatMessageCount(chatId, null, filter, false)).count
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        null
     }
     private fun status(user: TdApi.User): ProfilePresence {
         if (user.type is TdApi.UserTypeBot) return ProfilePresence.Bot
