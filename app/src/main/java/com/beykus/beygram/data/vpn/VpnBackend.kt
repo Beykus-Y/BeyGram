@@ -102,13 +102,18 @@ internal class VpnBackend private constructor(
             // A start or stop may have begun while TDLib was asked; that request owns the listener now.
             if (listenerInUse()) return
             if (enabled) {
-                val started = retryUntilSuccess(MAX_RESTORE_ATTEMPTS, RESTORE_RETRY_MILLIS) { attempt ->
+                val settled = retryUntilSuccess(MAX_RESTORE_ATTEMPTS, RESTORE_RETRY_MILLIS) { attempt ->
+                    // The user may have turned the proxy off during the round. That choice wins, so the round ends.
+                    if (isTdLibProxyEnabled().getOrNull() == false) {
+                        MihomoRuntimeDiagnostics.event("backend", "restore stopped; proxy turned off meanwhile")
+                        return@retryUntilSuccess true
+                    }
                     startProxy()
                         .onSuccess { refreshConnections() }
                         .onFailure { MihomoRuntimeDiagnostics.event("backend", "restore attempt $attempt failed") }
                         .isSuccess
                 }
-                if (!started) {
+                if (!settled) {
                     _restoreFailed.value = true
                     MihomoRuntimeDiagnostics.event("backend", "restore failed $MAX_RESTORE_ATTEMPTS times; user decides")
                 }
