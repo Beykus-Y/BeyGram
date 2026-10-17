@@ -437,6 +437,10 @@
     <string name="profile_save_hint">Изменения сохранятся в вашем аккаунте Telegram после нажатия «Сохранить».</string>
     <string name="profile_save_partial_hint">Уже принятые сервером изменения сохраняются.</string>
     <string name="profile_secret_chat_status">Секретный чат · %1$s</string>
+    <string name="profile_shared_files">Файлы</string>
+    <string name="profile_shared_links">Ссылки</string>
+    <string name="profile_shared_media">Медиа</string>
+    <string name="profile_shared_voice">Голосовые</string>
     <string name="profile_title_chat">Информация о чате</string>
     <string name="profile_title_own">Мой профиль</string>
     <string name="profile_type_bot">Бот</string>
