@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
@@ -28,7 +29,6 @@ import com.beykus.beygram.navigation.AppRoute
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
 import com.beykus.beygram.navigation.TabVisibility
-import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen

@@ -218,8 +218,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
     private val profiles = TdProfiles({ client }, mediaFiles)
+    /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
+    private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
     private val notificationFeed = TdNotifications({ client }, profiles::senderName) { chatId ->
-        chatCache[chatId]?.archiveOrder?.let { it > 0L } == true
+        chatId !in returningFromArchive && chatCache[chatId]?.archiveOrder?.let { it > 0L } == true
     }
     override val notifications get() = notificationFeed.state
     private val _notificationPresentation = MutableStateFlow(NotificationPresentation())
@@ -662,9 +664,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun handleNewMessage(message: TdApi.Message) {
         messageHistory.put(message.toChatMessage())
         conversationActions.hydrateReply(message)
-        val archived = chatCache[message.chatId]?.archiveOrder?.let { it > 0L } == true
-        if (!message.isOutgoing && archived && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage) {
-            chatListScope.launch { setChatArchived(message.chatId, false) }
+        val chat = chatCache[message.chatId]
+        // Muted archived chats stay in the archive, as they do in Telegram.
+        if (!message.isOutgoing && chat != null && chat.archiveOrder > 0L && !chat.isMuted && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage) {
+            returningFromArchive += message.chatId
+            chatListScope.launch {
+                setChatArchived(message.chatId, false).onFailure { ConnectionEventLog.shared.record("Возврат чата из архива: ошибка") }
+                returningFromArchive -= message.chatId
+            }
         }
     }
 
