@@ -6,9 +6,22 @@ enum class AppRoute {
     LoginCode,
     LoginPassword,
     Chats,
+    Archive,
     Chat,
     ChatInfo,
+    ChatMembers,
     MyProfile,
     EditProfile,
-    Notifications
+    Notifications,
+    ConnectionDiagnostics,
+    Calls,
+    Contacts,
+    Settings,
+    NavigationSettings,
+    Updates,
+    VideoMessageSettings,
+    Diagnostics,
+    ReportProblem,
+    Proxy,
+    ProxyConnect
 }

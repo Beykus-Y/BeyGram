@@ -1,11 +1,12 @@
 package com.beykus.beygram.domain.model
 
+import com.beykus.beygram.domain.UiText
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ChatOrderingTest {
     private fun chat(id: Long, order: Long, pinned: Boolean = false) =
-        ChatPreview(id, "chat", "C", "message", "12:00", 0, 0L, isPinned = pinned, order = order)
+        ChatPreview(id, "chat", "C", UiText.Raw("message"), "12:00", 0, 0L, isPinned = pinned, order = order)
 
     @Test fun serverPositionOverridesChatId() {
         assertEquals(listOf(1L, 99L), orderedMainChats(listOf(chat(99L, 1L), chat(1L, 10L))).map { it.id })
@@ -24,5 +25,15 @@ class ChatOrderingTest {
         val old = listOf(chat(1L, 10L), chat(2L, 5L))
         val updated = old.map { if (it.id == 2L) it.copy(order = 20L) else it }
         assertEquals(listOf(2L, 1L), orderedMainChats(updated).map { it.id })
+    }
+
+    @Test fun archivedChatsAreOrderedByTheirArchivePosition() {
+        val chats = listOf(chat(1L, 0L).copy(archiveOrder = 5L), chat(2L, 0L).copy(archiveOrder = 9L), chat(3L, 7L))
+        assertEquals(listOf(2L, 1L), orderedArchivedChats(chats).map { it.id })
+    }
+
+    @Test fun archivedChatsAreHiddenFromTheMainList() {
+        val archived = chat(1L, 0L).copy(archiveOrder = 5L)
+        assertEquals(emptyList<Long>(), orderedMainChats(listOf(archived)).map { it.id })
     }
 }

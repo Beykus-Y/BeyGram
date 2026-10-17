@@ -12,7 +12,9 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.content.ContextCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.domain.model.*
+import com.beykus.beygram.ui.text.resolve
 
 internal class AndroidNotificationRenderer(private val context: Context, private val preferences: NotificationPreferencesStore) {
     private val manager = context.getSystemService(NotificationManager::class.java)
@@ -21,6 +23,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
     fun render(state: TelegramNotifications, config: NotificationPreferences, presentation: NotificationPresentation, authorized: Boolean) {
         if (!state.initialized && authorized) return // Wait for TDLib's startup snapshot before reconciling old tray entries.
         val shown = mutableSetOf<String>()
+        val archiveSound = ArchiveSettingsStore.get(context).state.value.archiveSound
         for (group in state.groups) {
             val tag = tag(group.id)
             val maxId = group.notices.maxOfOrNull { it.id } ?: 0
@@ -30,20 +33,20 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             if (!authorized || !config.enabled || !canNotify(context) || notices.isEmpty() || presentation.foreground && group.chatId in presentation.openedChats) continue
             val hideContent = group.isSecret || !group.metadataReady
             val title = if (hideContent) "BeyGram" else group.title
-            val style = NotificationCompat.MessagingStyle(Person.Builder().setName("Вы").build()).setConversationTitle(title).setGroupConversation(group.isGroup)
+            val style = NotificationCompat.MessagingStyle(Person.Builder().setName(context.getString(R.string.chat_you)).build()).setConversationTitle(title).setGroupConversation(group.isGroup)
             notices.forEach { notice ->
                 val preview = config.previews && notice.previewAllowed && !hideContent
-                style.addMessage(if (preview) notice.text else "Новое сообщение", notice.dateSeconds * 1000,
+                style.addMessage(if (preview) notice.text.resolve(context) else context.getString(R.string.notif_new_message), notice.dateSeconds * 1000,
                     Person.Builder().setName(if (hideContent) "Telegram" else notice.sender.ifBlank { title }).build())
             }
             val latest = notices.last()
-            val public = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle("BeyGram").setContentText("Новое сообщение").build()
+            val public = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle("BeyGram").setContentText(context.getString(R.string.notif_new_message)).build()
             val notification = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle(title)
-                .setContentText(if (config.previews && latest.previewAllowed && !hideContent) latest.text else "Новое сообщение")
+                .setContentText(if (config.previews && latest.previewAllowed && !hideContent) latest.text.resolve(context) else context.getString(R.string.notif_new_message))
                 .setStyle(style).setCategory(NotificationCompat.CATEGORY_MESSAGE).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
                 .setWhen(latest.dateSeconds * 1000).setShowWhen(true).setNumber(group.totalCount).setAutoCancel(true)
                 .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
-                .setSilent(!fresh).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH).build()
+                .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH).build()
             try { compat.notify(tag, 0, notification); shown.add(tag) } catch (_: SecurityException) { }
         }
         manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
@@ -58,8 +61,8 @@ internal class AndroidNotificationRenderer(private val context: Context, private
         fun canNotify(context: Context): Boolean = (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) && NotificationManagerCompat.from(context).areNotificationsEnabled()
         fun channels(context: Context) {
             context.getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(
-                NotificationChannel(MESSAGES, "Сообщения", NotificationManager.IMPORTANCE_HIGH).apply { description = "Новые сообщения, упоминания и ответы"; lockscreenVisibility = Notification.VISIBILITY_PRIVATE },
-                NotificationChannel(CONNECTION, "Фоновое подключение", NotificationManager.IMPORTANCE_LOW).apply { description = "Получение сообщений без Google-сервисов"; setSound(null, null); enableVibration(false); setShowBadge(false) }
+                NotificationChannel(MESSAGES, context.getString(R.string.notif_channel_messages), NotificationManager.IMPORTANCE_HIGH).apply { description = context.getString(R.string.notif_channel_messages_description); lockscreenVisibility = Notification.VISIBILITY_PRIVATE },
+                NotificationChannel(CONNECTION, context.getString(R.string.notif_channel_connection), NotificationManager.IMPORTANCE_LOW).apply { description = context.getString(R.string.notif_channel_connection_description); setSound(null, null); enableVibration(false); setShowBadge(false) }
             ))
         }
     }

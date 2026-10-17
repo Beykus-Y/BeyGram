@@ -1,6 +1,7 @@
 package com.beykus.beygram.diagnostics
 
 import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
@@ -9,6 +10,7 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.FileProvider
 import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -28,9 +30,31 @@ private const val STALE_REPORT_AGE_MILLIS = 10 * 60 * 1000L
  */
 suspend fun createConnectionDiagnostics(context: Context, connection: TelegramConnectionState): File =
     withContext(Dispatchers.IO) {
-        val report = DiagnosticsRedactor.redact(buildDiagnosticsReport(context, connection, ConnectionEventLog.shared.snapshot()))
+        val report = connectionDiagnosticsReport(context, connection)
         writeDiagnosticsFile(context, report, System.currentTimeMillis())
     }
+
+/** Тот же отредактированный текст, что уходит в файл «Поделиться», но без записи на диск. */
+suspend fun connectionDiagnosticsText(context: Context, connection: TelegramConnectionState): String =
+    withContext(Dispatchers.IO) { connectionDiagnosticsReport(context, connection) }
+
+/** Copies the same redacted report used by file sharing. */
+suspend fun copyConnectionDiagnosticsToClipboardOrError(
+    context: Context,
+    connection: TelegramConnectionState
+): String? = try {
+    val report = withContext(Dispatchers.IO) { connectionDiagnosticsReport(context, connection) }
+    withContext(Dispatchers.Main) {
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+            ?: error("Clipboard service is unavailable")
+        clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram diagnostics", report))
+    }
+    null
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (failure: Exception) {
+    context.getString(R.string.diagnostics_copy_failed, failure.javaClass.simpleName)
+}
 
 /**
  * Собирает отчёт и открывает «Поделиться». Возвращает текст ошибки для экрана или null.
@@ -43,7 +67,7 @@ suspend fun shareConnectionDiagnosticsOrError(context: Context, connection: Tele
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failure: Exception) {
-        "Не удалось подготовить логи (${failure.javaClass.simpleName})"
+        context.getString(R.string.diagnostics_prepare_failed, failure.javaClass.simpleName)
     }
 
 /** Открывает системное «Поделиться» для уже записанного отчёта. */
@@ -52,11 +76,11 @@ fun shareConnectionDiagnostics(context: Context, file: File) {
     val send = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_STREAM, uri)
-        putExtra(Intent.EXTRA_SUBJECT, "BeyGram: диагностика подключения")
+        putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.diagnostics_share_subject))
         clipData = ClipData.newRawUri(null, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(send, "Поделиться логами"))
+    context.startActivity(Intent.createChooser(send, context.getString(R.string.diagnostics_share_chooser)))
 }
 
 internal fun TelegramConnectionState.diagnosticsLabel(): String = when (this) {
@@ -84,13 +108,13 @@ internal fun buildDiagnosticsReport(
     appendLine("производитель: ${Build.MANUFACTURER}")
     appendLine("модель: ${Build.MODEL}")
     appendLine("Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
-    appendLine("ABI: ${Build.SUPPORTED_ABIS.firstOrNull() ?: "неизвестно"}")
+    appendLine("процессор: ${Build.SUPPORTED_ABIS.firstOrNull() ?: "неизвестно"}")
     val ignoresBattery = context.getSystemService(PowerManager::class.java)
         ?.isIgnoringBatteryOptimizations(context.packageName) == true
     appendLine("работа без ограничений батареи: ${yesNo(ignoresBattery)}")
     appendLine()
     appendLine("[Соединение]")
-    appendLine("состояние TDLib сейчас: ${connection.diagnosticsLabel()} (${connection.name})")
+    appendLine("состояние подключения к Telegram: ${connection.diagnosticsLabel()} (${connection.name})")
     appendLine(networkSummary(context))
     appendLine()
     appendLine("[Недавние события, до ${ConnectionEventLog.DEFAULT_CAPACITY}, старые сверху]")
@@ -123,6 +147,9 @@ private fun writeDiagnosticsFile(context: Context, report: String, nowMillis: Lo
     val stamp = FILE_TIME.format(Instant.ofEpochMilli(nowMillis))
     return File(directory, "beygram-diagnostics-$stamp.txt").apply { writeText(report, Charsets.UTF_8) }
 }
+
+private fun connectionDiagnosticsReport(context: Context, connection: TelegramConnectionState): String =
+    DiagnosticsRedactor.redact(buildDiagnosticsReport(context, connection, ConnectionEventLog.shared.snapshot()))
 
 private fun yesNo(value: Boolean) = if (value) "да" else "нет"
 

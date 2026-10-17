@@ -1,13 +1,10 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
--->
+<?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="vpn-settings.xml" />
+    <!-- The loopback SOCKS credentials are per installation; a restored copy would share them with another device. -->
+    <exclude domain="sharedpref" path="mihomo-loopback.xml" />
+    <!-- The diagnostics report draft is session-local; restoring it on another device makes no sense. -->
+    <exclude domain="file" path="diagnostics-report" />
+    <!-- Pending sends only: RAW video notes live in no_backup, restored queue files would be orphans. -->
+    <exclude domain="file" path="uploads" />
 </full-backup-content>

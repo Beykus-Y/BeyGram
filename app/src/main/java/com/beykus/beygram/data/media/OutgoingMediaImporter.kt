@@ -11,6 +11,9 @@ import android.media.MediaFormat
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +30,7 @@ internal class OutgoingMediaImporter(context: Context) {
     private val uploads = app.filesDir.resolve("uploads")
 
     suspend fun prepare(uri: Uri, asDocument: Boolean, squarePhoto: Boolean = false): OutgoingMedia = withContext(Dispatchers.IO) {
-        val directory = uploads.resolve(UUID.randomUUID().toString()).apply { check(mkdirs()) { "Не удалось создать каталог для файла" } }
+        val directory = uploads.resolve(UUID.randomUUID().toString()).apply { if (!mkdirs()) throw UserMessageException(UiText.Res(R.string.err_media_directory_failed)) }
         try {
             val name = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
@@ -36,7 +39,7 @@ internal class OutgoingMediaImporter(context: Context) {
                 ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
                 ?: "application/octet-stream"
             val source = directory.resolve("original").apply { check(mkdirs()) }.resolve(name)
-            val input = app.contentResolver.openInputStream(uri) ?: error("Не удалось открыть выбранный файл")
+            val input = app.contentResolver.openInputStream(uri) ?: throw UserMessageException(UiText.Res(R.string.err_media_open_failed))
             input.use { from -> source.outputStream().use { to ->
                 val buffer = ByteArray(64 * 1024)
                 while (true) {
@@ -46,7 +49,7 @@ internal class OutgoingMediaImporter(context: Context) {
                     to.write(buffer, 0, count)
                 }
             } }
-            require(source.length() > 0) { "Выбранный файл пуст" }
+            if (source.length() <= 0L) throw UserMessageException(UiText.Res(R.string.err_media_file_empty))
             when {
                 asDocument -> OutgoingMedia(source.absolutePath, name, mime, MediaKind.Document, size = source.length())
                 mime.startsWith("image/") -> preparePhoto(source, directory, squarePhoto)
@@ -76,7 +79,8 @@ internal class OutgoingMediaImporter(context: Context) {
                 Canvas(flattened).apply { drawColor(Color.WHITE); drawBitmap(crop, (width - crop.width) / 2f, (height - crop.height) / 2f, null) }
                 val output = directory.resolve("photo.jpg")
                 output.outputStream().use { check(flattened.compress(Bitmap.CompressFormat.JPEG, 88, it)) }
-                require(output.length() <= 10 * 1024 * 1024) { "Фото слишком большое. Отправьте его как файл." }
+                val limitMb = 10
+                if (output.length() > limitMb * 1024 * 1024) throw UserMessageException(UiText.Res(R.string.err_media_photo_too_large, listOf(limitMb)))
                 val thumb = writeThumbnail(flattened, directory)
                 if (source != output) source.delete()
                 return OutgoingMedia(output.absolutePath, output.name, "image/jpeg", MediaKind.Photo, flattened.width, flattened.height,

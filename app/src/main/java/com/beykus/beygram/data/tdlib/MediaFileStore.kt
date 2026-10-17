@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.MediaFileState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +32,7 @@ internal class MediaFileStore {
         }
     }
 
-    fun fail(id: Int, message: String) = synchronized(lock) {
+    fun fail(id: Int, message: UiText) = synchronized(lock) {
         val state = flow(id)
         state.value = state.value.copy(isDownloading = false, error = message)
     }

@@ -21,20 +21,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.remember
+import com.beykus.beygram.R
 import kotlinx.coroutines.launch
 import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
-import com.beykus.beygram.ui.components.ProxySettingsDialog
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.AuthScaffold
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
+import com.beykus.beygram.ui.text.resolve
 
 @Composable
 fun LoginPhoneScreen(
@@ -43,16 +45,15 @@ fun LoginPhoneScreen(
     onBack: () -> Unit,
     onContinue: (String) -> Unit,
     onReconnect: () -> Unit,
-    onAddProxy: (String, Int, Boolean, String, String, String) -> Unit
+    onProxySettings: () -> Unit
 ) {
     var phone by rememberSaveable { mutableStateOf("+7 ") }
     val isLoading = authState is AuthState.Loading
     val errorMessage = when (authState) {
-        is AuthState.Error -> authState.message
-        AuthState.ConnectionTimeout -> "Telegram пока не ответил. Запрос остаётся активным и продолжится после восстановления связи."
+        is AuthState.Error -> authState.text.resolve()
+        AuthState.ConnectionTimeout -> stringResource(R.string.auth_phone_connection_timeout)
         else -> null
     }
-    var showProxyDialog by remember { mutableStateOf(false) }
     val requestWaitingForNetwork = authState == AuthState.ConnectionTimeout
     val canContinue = phone.count { it.isDigit() } >= 11 && !isLoading && !requestWaitingForNetwork
     val palette = beyGramPalette()
@@ -62,17 +63,17 @@ fun LoginPhoneScreen(
     var shareLogsError by remember { mutableStateOf<String?>(null) }
 
     AuthScaffold(
-        title = "Номер телефона",
-        subtitle = "Введите номер, к которому привязан Telegram.",
+        title = stringResource(R.string.auth_phone_title),
+        subtitle = stringResource(R.string.auth_phone_subtitle),
         onBack = onBack
     ) {
         Text(
             text = when (connectionState) {
-                TelegramConnectionState.Connected -> "Соединение с Telegram установлено"
-                TelegramConnectionState.Connecting -> "Подключаемся к Telegram…"
-                TelegramConnectionState.Updating -> "Восстанавливаем соединение…"
-                TelegramConnectionState.WaitingForNetwork -> "Нет доступной сети"
-                TelegramConnectionState.Unknown -> "Проверяем соединение…"
+                TelegramConnectionState.Connected -> stringResource(R.string.auth_phone_status_connected)
+                TelegramConnectionState.Connecting -> stringResource(R.string.auth_status_connecting)
+                TelegramConnectionState.Updating -> stringResource(R.string.auth_phone_status_updating)
+                TelegramConnectionState.WaitingForNetwork -> stringResource(R.string.auth_phone_status_no_network)
+                TelegramConnectionState.Unknown -> stringResource(R.string.auth_phone_status_unknown)
             },
             color = if (connectionState == TelegramConnectionState.Connected) palette.successText else palette.textSecondary,
             fontSize = 13.sp
@@ -86,7 +87,7 @@ fun LoginPhoneScreen(
                     .take(24)
             },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Телефон") },
+            label = { Text(stringResource(R.string.auth_phone_label)) },
             placeholder = { Text("+7 999 123-45-67") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(
@@ -127,7 +128,7 @@ fun LoginPhoneScreen(
                 )
             } else {
                 Text(
-                    text = if (requestWaitingForNetwork) "Ожидаем ответ Telegram…" else "Получить код",
+                    text = if (requestWaitingForNetwork) stringResource(R.string.auth_phone_waiting_response) else stringResource(R.string.auth_phone_get_code),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.sp
@@ -135,12 +136,12 @@ fun LoginPhoneScreen(
             }
         }
 
-        TextButton(onClick = { showProxyDialog = true }, modifier = Modifier.fillMaxWidth()) {
-            Text("Не подключается? Настроить прокси")
+        TextButton(onClick = onProxySettings, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.auth_phone_proxy_help))
         }
         if (requestWaitingForNetwork) {
             TextButton(onClick = onReconnect, modifier = Modifier.fillMaxWidth()) {
-                Text("Переподключиться")
+                Text(stringResource(R.string.auth_phone_reconnect))
             }
         }
         // Доступно до входа: отчёт не содержит введённый номер (см. DiagnosticsRedactor).
@@ -155,13 +156,8 @@ fun LoginPhoneScreen(
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (sharingLogs) "Собираем логи…" else "Поделиться логами")
+            Text(if (sharingLogs) stringResource(R.string.auth_share_logs_progress) else stringResource(R.string.auth_share_logs))
         }
         shareLogsError?.let { Text(text = it, color = palette.danger, fontSize = 13.sp) }
     }
-
-    if (showProxyDialog) ProxySettingsDialog(
-        onDismiss = { showProxyDialog = false },
-        onApply = onAddProxy
-    )
 }

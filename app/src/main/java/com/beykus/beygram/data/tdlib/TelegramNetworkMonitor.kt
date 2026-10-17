@@ -7,6 +7,10 @@ import android.net.NetworkCapabilities
 import android.util.Log
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.diagnostics.ConnectionEventLog
+import com.beykus.beygram.diagnostics.StructuredEventLog
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
+import com.beykus.beygram.data.vpn.MihomoProxyClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -62,6 +66,17 @@ internal class TelegramNetworkMonitor(
         ConnectionEventLog.shared.record(
             "Сеть: интернет=$internet, подтверждена=$validated, Wi-Fi=$wifi, мобильная=$mobile, VPN=$vpn"
         )
+        StructuredEventLog.shared.record(
+            kind = EventKind.NETWORK,
+            severity = Severity.INFO,
+            code = "network_route",
+            message = "",
+            attrs = buildMap {
+                put("type", type.wireName())
+                put("vpn", vpn.toString())
+                put("validated", validated.toString())
+            }
+        )
         onNetworkChanged(type)
         if (BuildConfig.DEBUG) {
             Log.i(TAG, "Default route $route,validated=$validated; reopening TDLib connections")
@@ -69,12 +84,14 @@ internal class TelegramNetworkMonitor(
             if (internet) probeJob = scope.launch(Dispatchers.IO) {
                 // Diagnostic target is the DC1 address seen in this TDLib build's connection log.
                 probe("[$network] TCP DC1 149.154.175.50:443") {
-                    Socket().use { it.connect(InetSocketAddress("149.154.175.50", 443), 5_000) }
+                    (if (MihomoProxyClient.isRunning()) MihomoProxyClient.newSocket() else Socket()).use {
+                        it.connect(InetSocketAddress("149.154.175.50", 443), 5_000)
+                    }
                     "socket connected"
                 }
                 ensureActive()
                 probe("[$network] HTTPS web.telegram.org") {
-                    val connection = URL("https://web.telegram.org/").openConnection() as HttpURLConnection
+                    val connection = MihomoProxyClient.openConnection(URL("https://web.telegram.org/"))
                     try {
                         connection.connectTimeout = 5_000
                         connection.readTimeout = 5_000
@@ -102,5 +119,13 @@ internal class TelegramNetworkMonitor(
 
     companion object {
         const val TAG = "BeyGramNet"
+
+        private fun TdApi.NetworkType.wireName(): String = when (this) {
+            is TdApi.NetworkTypeNone -> "none"
+            is TdApi.NetworkTypeWiFi -> "wifi"
+            is TdApi.NetworkTypeMobile -> "mobile"
+            is TdApi.NetworkTypeOther -> "other"
+            else -> "other"
+        }
     }
 }

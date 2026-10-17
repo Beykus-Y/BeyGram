@@ -1,9 +1,13 @@
 package com.beykus.beygram.domain.model
 
-data class TelegramNotice(val id: Int, val dateSeconds: Long, val sender: String, val text: String, val previewAllowed: Boolean)
+import com.beykus.beygram.domain.UiText
+
+data class TelegramNotice(val id: Int, val dateSeconds: Long, val sender: String, val text: UiText, val previewAllowed: Boolean)
 data class TelegramNoticeGroup(
     val id: Int, val chatId: Long, val title: String = "Telegram", val isGroup: Boolean = false,
-    val isSecret: Boolean = false, val totalCount: Int, val notices: List<TelegramNotice>, val alertId: Int = 0, val metadataReady: Boolean = false
+    val isSecret: Boolean = false, val totalCount: Int, val notices: List<TelegramNotice>, val alertId: Int = 0, val metadataReady: Boolean = false,
+    /** Чат в архиве: уведомления приходят без звука, пока это не включено в настройках архива. */
+    val archived: Boolean = false
 )
 data class TelegramNotifications(val groups: List<TelegramNoticeGroup> = emptyList(), val initialized: Boolean = false, val hasPending: Boolean = false)
 data class NotificationPresentation(val foreground: Boolean = false, val openedChats: Set<Long> = emptySet())

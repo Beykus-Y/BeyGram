@@ -1,5 +1,7 @@
 package com.beykus.beygram.domain.model
 
+import com.beykus.beygram.domain.UiText
+
 data class ChatMessage(
     val id: Long,
     val chatId: Long,
@@ -9,8 +11,12 @@ data class ChatMessage(
     val dateSeconds: Long = 0L,
     val sendState: MessageSendState = MessageSendState.Sent,
     val media: MessageMedia? = null,
+    /** Telegram's mediaAlbumId; zero means this message is not part of an album. */
+    val mediaAlbumId: Long = 0L,
     val senderName: String = "",
     val reply: MessageReply? = null,
+    val entities: List<MessageTextEntity> = emptyList(),
+    val inlineKeyboard: List<List<BotButton>> = emptyList(),
     val isEdited: Boolean = false
 )
 
@@ -20,13 +26,18 @@ data class ChatHistory(
     val messages: List<ChatMessage> = emptyList(),
     val isLoading: Boolean = false,
     val hasOlderMessages: Boolean = true,
-    val error: String? = null,
+    /** True while the messages are a window around a jumped-to message, so newer messages are not loaded yet. */
+    val hasNewerMessages: Boolean = false,
+    val error: UiText? = null,
     val lastReadInboxMessageId: Long = 0L,
     val lastReadOutboxMessageId: Long = 0L
 )
 
-data class MessageReply(val chatId: Long, val messageId: Long, val text: String = "Сообщение", val senderName: String = "", val isUnavailable: Boolean = false)
-data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boolean = false, val canEdit: Boolean = false, val canDeleteForSelf: Boolean = false, val canDeleteForAll: Boolean = false)
+data class MessageReply(val chatId: Long, val messageId: Long, val text: UiText, val senderName: String = "", val isUnavailable: Boolean = false)
+data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boolean = false, val canEdit: Boolean = false, val canDeleteForSelf: Boolean = false, val canDeleteForAll: Boolean = false, val canForward: Boolean = false, val canSave: Boolean = false)
 enum class DeleteMessageScope { ForSelf, ForEveryone }
 data class MessageContext(val chatId: Long, val title: String, val targetId: Long, val messages: List<ChatMessage>)
+data class MessageSearchPage(val messages: List<ChatMessage>, val nextFromMessageId: Long)
 data class MessageLimits(val text: Int = 4096, val caption: Int = 1024)
+
+data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)

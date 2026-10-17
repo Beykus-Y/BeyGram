@@ -20,15 +20,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.ui.components.AuthScaffold
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
+import com.beykus.beygram.ui.text.resolve
 
 @Composable
 fun LoginCodeScreen(
@@ -41,8 +44,8 @@ fun LoginCodeScreen(
     var code by rememberSaveable { mutableStateOf("") }
     val isLoading = authState is AuthState.Loading
     val errorMessage = when (authState) {
-        is AuthState.Error -> authState.message
-        AuthState.ConnectionTimeout -> "Не удалось связаться с Telegram. Проверьте прокси и попробуйте снова."
+        is AuthState.Error -> authState.text.resolve()
+        AuthState.ConnectionTimeout -> stringResource(R.string.auth_code_connection_timeout)
         else -> null
     }
     // У Telegram длина кода зависит от способа доставки и может отличаться.
@@ -50,8 +53,8 @@ fun LoginCodeScreen(
     val palette = beyGramPalette()
 
     AuthScaffold(
-        title = "Код подтверждения",
-        subtitle = "Код отправлен на $phone.",
+        title = stringResource(R.string.auth_code_title),
+        subtitle = stringResource(R.string.auth_code_subtitle, phone),
         onBack = onBack
     ) {
         OutlinedTextField(
@@ -61,8 +64,8 @@ fun LoginCodeScreen(
                 code = value.filter { it.isDigit() }.take(8)
             },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Код") },
-            placeholder = { Text("Введите код из Telegram") },
+            label = { Text(stringResource(R.string.auth_code_label)) },
+            placeholder = { Text(stringResource(R.string.auth_code_placeholder)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Number,
@@ -83,7 +86,7 @@ fun LoginCodeScreen(
             enabled = !isLoading,
             modifier = Modifier.align(Alignment.Start)
         ) {
-            Text("Отправить код ещё раз")
+            Text(stringResource(R.string.auth_code_resend))
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -109,7 +112,7 @@ fun LoginCodeScreen(
                 )
             } else {
                 Text(
-                    text = "Войти",
+                    text = stringResource(R.string.auth_sign_in),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.sp
