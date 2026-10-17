@@ -51,7 +51,7 @@ internal fun BubbleLayout(
         val bodyPlaceable = measurables[0].measure(loose)
         val metaPlaceable = measurables[1].measure(loose)
         val footerPlaceable = measurables[2].measure(loose)
-        val width = constraints.constrainWidth(maxOf(bodyPlaceable.width, metaPlaceable.width, footerPlaceable.width))
+        val width = maxOf(bodyPlaceable.width, metaPlaceable.width, footerPlaceable.width).coerceIn(constraints.minWidth, constraints.maxWidth)
         val inset = OverlayInset.roundToPx()
         val metaTop = if (overlayMeta) bodyPlaceable.height - metaPlaceable.height - inset else bodyPlaceable.height
         val footerTop = bodyPlaceable.height + (if (overlayMeta) 0 else metaPlaceable.height)
