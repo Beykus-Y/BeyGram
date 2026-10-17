@@ -55,6 +55,7 @@ import com.beykus.beygram.domain.model.CallStatus
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.text.DateFormat
@@ -85,7 +86,7 @@ fun CallsScreen(
                     calls = if (offset.isEmpty()) page.calls else calls + page.calls
                     nextOffset = page.nextOffset
                 }
-                .onFailure { error = it.message ?: context.getString(R.string.calls_load_failed) }
+                .onFailure { error = it.userMessage(context, R.string.calls_load_failed) }
             loading = false
         }
     }
@@ -140,7 +141,7 @@ private fun CallRow(call: CallRecord, observeFile: (Int) -> StateFlow<MediaFileS
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                call.title, color = if (missed) palette.danger else palette.textPrimary, fontSize = 16.sp,
+                call.title.ifBlank { stringResource(R.string.call_title_unknown) }, color = if (missed) palette.danger else palette.textPrimary, fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             Row(verticalAlignment = Alignment.CenterVertically) {

@@ -4,11 +4,12 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ProfileInfo
+import com.beykus.beygram.domain.model.ProfilePresence
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ChatPresenceTest {
-    private fun chat(isGroup: Boolean) = ChatPreview(1L, "Команда", "К", "", "", 0, 0L, isGroup = isGroup)
+    private fun chat(isGroup: Boolean) = ChatPreview(1L, "Команда", "К", UiText.Raw(""), "", 0, 0L, isGroup = isGroup)
 
     @Test fun groupShowsOnlineCount() {
         assertEquals(UiText.Res(R.string.presence_online_count, listOf(12)), chatPresenceLine(chat(true), ProfileInfo(1L, "Команда", onlineMemberCount = 12)))
@@ -19,9 +20,13 @@ class ChatPresenceTest {
         assertEquals(UiText.Res(R.string.presence_group), chatPresenceLine(chat(true), ProfileInfo(1L, "Команда", onlineMemberCount = 0)))
     }
 
-    @Test fun privateChatShowsLowercaseStatus() {
-        assertEquals(UiText.Raw("в сети"), chatPresenceLine(chat(false), ProfileInfo(2L, "Анна", status = "В сети")))
-        assertEquals(UiText.Raw("был(а) недавно"), chatPresenceLine(chat(false), ProfileInfo(2L, "Анна", status = "Был(а) недавно")))
+    @Test fun privateChatShowsTelegramStatus() {
+        assertEquals(UiText.Res(R.string.presence_online), chatPresenceLine(chat(false), ProfileInfo(2L, "Анна", status = ProfilePresence.Online)))
+        assertEquals(UiText.Res(R.string.presence_recently), chatPresenceLine(chat(false), ProfileInfo(2L, "Анна", status = ProfilePresence.Recently)))
+    }
+
+    @Test fun lastSeenPassesTheFormattedTimeAsArgument() {
+        assertEquals(UiText.Res(R.string.presence_last_seen_at, listOf("12.03, 10:00")), chatPresenceLine(chat(false), ProfileInfo(2L, "Анна", status = ProfilePresence.LastSeen("12.03, 10:00"))))
     }
 
     @Test fun privateChatWithoutStatusFallsBack() {
@@ -30,8 +35,8 @@ class ChatPresenceTest {
     }
 
     @Test fun botAndDeletedAccountKeepTheirLabels() {
-        assertEquals(UiText.Raw("бот"), chatPresenceLine(chat(false), ProfileInfo(3L, "Помощник", status = "Бот")))
-        assertEquals(UiText.Raw("удалённый аккаунт"), chatPresenceLine(chat(false), ProfileInfo(4L, "Аноним", status = "Удалённый аккаунт")))
+        assertEquals(UiText.Res(R.string.presence_bot), chatPresenceLine(chat(false), ProfileInfo(3L, "Помощник", status = ProfilePresence.Bot)))
+        assertEquals(UiText.Res(R.string.presence_deleted_account), chatPresenceLine(chat(false), ProfileInfo(4L, "Аноним", status = ProfilePresence.DeletedAccount)))
     }
 
     @Test fun typingNamesKeepTheOrderTheyStartedIn() {

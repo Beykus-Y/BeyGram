@@ -3,6 +3,9 @@ package com.beykus.beygram.data.vpn
 import android.content.Context
 import android.os.Build
 import android.util.AtomicFile
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MihomoConnection
 import com.beykus.beygram.domain.model.MihomoProbeResult
 import com.beykus.beygram.domain.model.VpnSettings
@@ -37,7 +40,7 @@ internal class MihomoCoreBridge(context: Context) {
         writeAtomically(pending, normalized.yaml.toByteArray(Charsets.UTF_8))
         try {
             val validation = invokeAction("validateConfig", pendingFile.absolutePath) as? String
-            if (!validation.isNullOrBlank()) throw SubscriptionException("Подписка не прошла проверку", MihomoCoreException(validation))
+            if (!validation.isNullOrBlank()) throw subscriptionUserError(SubscriptionFailure.REJECTED, UiText.Res(R.string.err_vpn_sub_check_failed), "Подписка не прошла проверку", MihomoCoreException(validation))
 
             val previous = runCatching { profile.readFully() }.getOrNull()
             writeAtomically(profile, normalized.yaml.toByteArray(Charsets.UTF_8))
@@ -71,7 +74,7 @@ internal class MihomoCoreBridge(context: Context) {
                 .put("home-dir", home.absolutePath)
                 .put("version", Build.VERSION.SDK_INT)
             val result = quickSetup(init.toString(), JSONObject().put("selected-map", selectedMap()).toString())
-            if (result.isNotBlank()) throw MihomoCoreException("Не удалось применить подписку", MihomoCoreException(result))
+            if (result.isNotBlank()) throw coreUserError(UiText.Res(R.string.err_vpn_sub_apply_failed), "Не удалось применить подписку", MihomoCoreException(result))
         }
         startNativeDiagnostics()
     }
@@ -87,11 +90,11 @@ internal class MihomoCoreBridge(context: Context) {
     }
 
     suspend fun listConnections(groupName: String): List<MihomoConnection> = withContext(Dispatchers.IO) {
-        val root = JSONObject(invokeAction("getProxies") as? String ?: throw MihomoCoreException("Не удалось получить список серверов"))
-        val proxies = root.optJSONObject("proxies") ?: throw MihomoCoreException("Не удалось получить список серверов")
-        val group = proxies.optJSONObject(groupName) ?: throw MihomoCoreException("Не найдена группа серверов подписки")
+        val root = JSONObject(invokeAction("getProxies") as? String ?: throw coreUserError(UiText.Res(R.string.err_vpn_servers_load_failed), "Не удалось получить список серверов"))
+        val proxies = root.optJSONObject("proxies") ?: throw coreUserError(UiText.Res(R.string.err_vpn_servers_load_failed), "Не удалось получить список серверов")
+        val group = proxies.optJSONObject(groupName) ?: throw coreUserError(UiText.Res(R.string.err_vpn_group_not_found), "Не найдена группа серверов подписки")
         val groupType = group.optString("type").lowercase()
-        if (groupType !in SELECTABLE_GROUP_TYPES) throw MihomoCoreException("Группа серверов не поддерживает выбор")
+        if (groupType !in SELECTABLE_GROUP_TYPES) throw coreUserError(UiText.Res(R.string.err_vpn_group_not_selectable), "Группа серверов не поддерживает выбор")
 
         val names = group.optJSONArray("all") ?: JSONArray()
         val selectedName = group.optString("now")
@@ -137,7 +140,7 @@ internal class MihomoCoreBridge(context: Context) {
                     telegramReachable = delay >= 0,
                     delayMillis = delay.takeIf { it >= 0 },
                     checkedAtMillis = System.currentTimeMillis(),
-                    error = if (delay < 0) "Проверка не завершилась" else null
+                    error = if (delay < 0) UiText.Res(R.string.err_vpn_probe_incomplete) else null
                 )
             } catch (error: CancellationException) {
                 throw error
@@ -146,7 +149,7 @@ internal class MihomoCoreBridge(context: Context) {
                     "probe",
                     "failed node=${safeNodeLabel(connectionName)} error=${error.javaClass.simpleName} elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt}"
                 )
-                MihomoProbeResult(connectionName, false, null, System.currentTimeMillis(), error.message ?: "Проверка не удалась")
+                MihomoProbeResult(connectionName, false, null, System.currentTimeMillis(), (error as? UserMessageException)?.text ?: UiText.Res(R.string.err_vpn_probe_failed))
             }
         }
 
@@ -182,7 +185,7 @@ internal class MihomoCoreBridge(context: Context) {
     suspend fun startProxyListener() = withContext(Dispatchers.IO) {
         val started = invokeAction("startListener") as? Boolean ?: false
         MihomoRuntimeDiagnostics.event("listener", "listener start returned=$started")
-        if (!started) throw MihomoCoreException("Прокси не запустился")
+        if (!started) throw coreUserError(UiText.Res(R.string.err_vpn_listener_not_started), "Прокси не запустился")
         MihomoProxyClient.awaitReady()
         MihomoRuntimeDiagnostics.event("listener", "local proxy port is accepting loopback connections")
     }
@@ -193,10 +196,10 @@ internal class MihomoCoreBridge(context: Context) {
     }
 
     private suspend fun reloadProfile() {
-        check(profileExists()) { "Подписка не загружена" }
+        if (!profileExists()) throw UserMessageException(UiText.Res(R.string.err_vpn_no_profile), IllegalStateException("Подписка не загружена"))
         val params = JSONObject().put("selected-map", selectedMap()).toString()
         val result = invokeAction("setupConfig", params) as? String
-        if (!result.isNullOrBlank()) throw MihomoCoreException("Не удалось применить подписку", MihomoCoreException(result))
+        if (!result.isNullOrBlank()) throw coreUserError(UiText.Res(R.string.err_vpn_sub_apply_failed), "Не удалось применить подписку", MihomoCoreException(result))
     }
 
     /** Maps the saved node selection into Mihomo's `selected-map` so the choice survives core re-initialization. */
@@ -210,13 +213,13 @@ internal class MihomoCoreBridge(context: Context) {
         try {
             if (!Clash.isLoaded()) Clash.load(appContext.applicationInfo.nativeLibraryDir)
             val abi = Clash.bridgeABI()
-            check(abi == Clash.EXPECTED_BRIDGE_ABI) {
-                "Модуль прокси не совместим с этой версией приложения"
+            if (abi != Clash.EXPECTED_BRIDGE_ABI) {
+                throw UserMessageException(UiText.Res(R.string.err_vpn_core_incompatible), IllegalStateException("Модуль прокси не совместим с этой версией приложения"))
             }
         } catch (error: LinkageError) {
             // A missing or incompatible libclash.so is an Error, not an Exception; report it as a normal core failure.
             MihomoRuntimeDiagnostics.event("core", "load failed error=${error.javaClass.simpleName}")
-            throw MihomoCoreException("Не удалось загрузить модуль прокси на этом устройстве")
+            throw coreUserError(UiText.Res(R.string.err_vpn_core_load_failed), "Не удалось загрузить модуль прокси на этом устройстве")
         }
     }
 
@@ -243,12 +246,12 @@ internal class MihomoCoreBridge(context: Context) {
                         val code = result.optInt("code", -1)
                         val value = result.opt("data")
                         if (code != 0) {
-                            continuation.resumeWith(Result.failure(MihomoCoreException("Прокси вернул ошибку", MihomoCoreException(value?.toString() ?: "no detail"))))
+                            continuation.resumeWith(Result.failure(coreUserError(UiText.Res(R.string.err_vpn_core_rejected), "Прокси вернул ошибку", MihomoCoreException(value?.toString() ?: "no detail"))))
                         } else {
                             continuation.resume(value)
                         }
                     } catch (error: Throwable) {
-                        continuation.resumeWith(Result.failure(MihomoCoreException("Прокси вернул некорректный ответ")))
+                        continuation.resumeWith(Result.failure(coreUserError(UiText.Res(R.string.err_vpn_core_bad_response), "Прокси вернул некорректный ответ")))
                     }
                 }
             } catch (error: Throwable) {
@@ -281,3 +284,7 @@ internal class MihomoCoreBridge(context: Context) {
 }
 
 class MihomoCoreException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/** A core failure for the user: [text] is shown on screen; [detail] goes to the diagnostics report. */
+internal fun coreUserError(text: UiText, detail: String, cause: Throwable? = null): UserMessageException =
+    UserMessageException(text, MihomoCoreException(detail, cause))

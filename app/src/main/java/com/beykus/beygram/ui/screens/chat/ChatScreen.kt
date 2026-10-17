@@ -54,6 +54,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -114,7 +115,7 @@ fun ChatScreen(
     }
     val context = LocalContext.current
     val videoNote = rememberVideoNoteRecorder(
-        onFinished = { media -> scope.launch { conversation.sendMedia(chat.id, media, "", replyId).onSuccess { replyId = null }.onFailure { error = it.message ?: context.getString(R.string.chat_video_note_send_failed) } } },
+        onFinished = { media -> scope.launch { conversation.sendMedia(chat.id, media, "", replyId).onSuccess { replyId = null }.onFailure { error = it.userMessage(context, R.string.chat_video_note_send_failed) } } },
         onError = { error = it }
     )
     val videoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
@@ -152,7 +153,7 @@ fun ChatScreen(
         capabilities = null; capabilitiesError = null
         val result = conversation.messageCapabilities(chat.id, id)
         capabilities = result.getOrNull()
-        capabilitiesError = result.exceptionOrNull()?.message
+        capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
     }
     LaunchedEffect(selectedMediaId) {
         viewerCapabilities = null; viewerPosition = null
@@ -207,7 +208,7 @@ fun ChatScreen(
         delay(300)
         conversation.searchMessages(chat.id, needle, 0L)
             .onSuccess { page -> searchResults = page.messages; searchNextId = page.nextFromMessageId }
-            .onFailure { searchError = it.message ?: context.getString(R.string.chat_search_failed) }
+            .onFailure { searchError = it.userMessage(context, R.string.chat_search_failed) }
         searchBusy = false
     }
     fun loadMoreResults() {
@@ -216,7 +217,7 @@ fun ChatScreen(
             searchBusy = true
             conversation.searchMessages(chat.id, needle, searchNextId)
                 .onSuccess { page -> if (searchQuery.trim() == needle) { searchResults = searchResults + page.messages; searchNextId = page.nextFromMessageId } }
-                .onFailure { if (searchQuery.trim() == needle) { searchError = it.message ?: context.getString(R.string.chat_search_failed) } }
+                .onFailure { if (searchQuery.trim() == needle) { searchError = it.userMessage(context, R.string.chat_search_failed) } }
             if (searchQuery.trim() == needle) { searchBusy = false }
         }
     }
@@ -253,7 +254,7 @@ fun ChatScreen(
                     highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump,
                     onPlayed = { conversation.openMessageContent(chat.id, message.id) })
             }
-            history.error?.let { item(key = "history_error") { Text(it, color = palette.warningText, modifier = Modifier.padding(8.dp)) } }
+            history.error?.let { item(key = "history_error") { Text(it.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp)) } }
             if (history.isLoading) item(key = "history_loading") { Text(stringResource(R.string.chat_history_loading), color = palette.textSecondary, modifier = Modifier.padding(8.dp)) }
             else if (history.hasOlderMessages) item(key = "history_more") { TextButton(onClick = { conversation.loadOlderMessages(chat.id) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.chat_history_load_older)) } }
             else if (messages.isEmpty() && history.error == null) item(key = "history_empty") { Text(stringResource(R.string.chat_history_empty), color = palette.textSecondary, modifier = Modifier.padding(8.dp)) }
@@ -282,7 +283,7 @@ fun ChatScreen(
                     deleteBusy = true; deleteError = null
                     try {
                         val result = conversation.deleteMessage(actionMessage.chatId, actionMessage.id, if (deleteEveryone) DeleteMessageScope.ForEveryone else DeleteMessageScope.ForSelf)
-                        if (result.isSuccess) closeActions() else deleteError = result.exceptionOrNull()?.message
+                        if (result.isSuccess) closeActions() else deleteError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_delete_failed)
                     } finally { deleteBusy = false }
                 } })
         } else if (editMessage != null) {
@@ -328,7 +329,7 @@ fun ChatScreen(
                             editBusy = true; editError = null
                             try {
                                 val result = conversation.editMessage(target.chatId, target.id, editText)
-                                if (result.isSuccess) closeEdit() else editError = result.exceptionOrNull()?.message
+                                if (result.isSuccess) closeEdit() else editError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_edit_failed)
                             } finally { editBusy = false }
                         }
                         attachments.active -> attachments.send(draft) { draft = it }
@@ -336,7 +337,7 @@ fun ChatScreen(
                             sending = true; error = null
                             try {
                                 val result = conversation.sendMessage(chat.id, draft, replyId)
-                                if (result.isSuccess) { draft = ""; replyId = null } else error = result.exceptionOrNull()?.message
+                                if (result.isSuccess) { draft = ""; replyId = null } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
                             } finally { sending = false }
                         }
                     }
@@ -366,7 +367,7 @@ fun ChatScreen(
                 try {
                     val result = conversation.forwardMessage(chat.id, id, target.id)
                     if (result.isSuccess) { forwardId = null; Toast.makeText(context, context.getString(R.string.chat_message_forwarded), Toast.LENGTH_SHORT).show() }
-                    else forwardError = result.exceptionOrNull()?.message ?: context.getString(R.string.chat_forward_failed)
+                    else forwardError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
                 } finally { forwardBusy = false }
             } },
             onClose = { forwardId = null; forwardError = null })
@@ -426,7 +427,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .border(1.dp, palette.accent, RoundedCornerShape(12.dp))
                         .clickable { onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
                         Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                        Text(reply.text, color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 if (hasText) Text(message.text, color = palette.textPrimary, fontSize = 16.sp, lineHeight = 22.sp)

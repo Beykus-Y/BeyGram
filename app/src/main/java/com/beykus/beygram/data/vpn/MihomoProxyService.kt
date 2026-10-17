@@ -9,6 +9,8 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +27,7 @@ import kotlin.coroutines.coroutineContext
 
 enum class ProxyRuntimeStatus { STOPPED, STARTING, RUNNING, STOPPING, FAILED }
 
-data class ProxyRuntimeState(val status: ProxyRuntimeStatus, val message: String? = null)
+data class ProxyRuntimeState(val status: ProxyRuntimeStatus, val message: UiText? = null)
 
 /**
  * Keeps Mihomo's localhost SOCKS listener alive; it does not create an Android VPN.
@@ -76,7 +78,7 @@ class MihomoProxyService : Service() {
         try {
             coroutineContext.ensureActive()
             val bridge = MihomoCoreBridge(applicationContext)
-            if (!bridge.profileExists()) throw IllegalStateException("Сначала загрузите подписку")
+            if (!bridge.profileExists()) throw UserMessageException(UiText.Res(R.string.err_vpn_no_profile), IllegalStateException("Сначала загрузите подписку"))
             bridge.ensureInitialized()
             MihomoRuntimeDiagnostics.event("service", "profile initialized")
             coroutineContext.ensureActive()
@@ -99,7 +101,10 @@ class MihomoProxyService : Service() {
             MihomoRuntimeDiagnostics.failure("service start", error)
             withContext(Dispatchers.Main) {
                 if (ticket == latestTicket) {
-                    _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.FAILED, error.message ?: "Не удалось запустить прокси")
+                    _runtimeState.value = ProxyRuntimeState(
+                        ProxyRuntimeStatus.FAILED,
+                        (error as? UserMessageException)?.text ?: UiText.Res(R.string.err_vpn_start_failed)
+                    )
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     // A start that arrived meanwhile got this failure as its answer too, so stop once every command so far is answered.
                     stopSelf(lastStartId)
@@ -152,8 +157,8 @@ class MihomoProxyService : Service() {
 
     private fun buildNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle("Прокси BeyGram")
-        .setContentText("Прокси работает")
+        .setContentTitle(getString(R.string.proxy_notification_title))
+        .setContentText(getString(R.string.proxy_notification_text))
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
@@ -162,7 +167,7 @@ class MihomoProxyService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Прокси BeyGram", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(CHANNEL_ID, getString(R.string.proxy_notification_title), NotificationManager.IMPORTANCE_LOW)
         )
     }
 

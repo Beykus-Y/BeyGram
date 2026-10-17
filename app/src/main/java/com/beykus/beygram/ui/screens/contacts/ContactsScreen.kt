@@ -54,6 +54,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -89,7 +90,7 @@ fun ContactsScreen(
             loadError = null
             loadContacts()
                 .onSuccess { contacts = it }
-                .onFailure { loadError = it.message ?: context.getString(R.string.contacts_load_failed) }
+                .onFailure { loadError = it.userMessage(context, R.string.contacts_load_failed) }
             loading = false
         }
     }
@@ -100,7 +101,7 @@ fun ContactsScreen(
             openError = null
             openPrivateChat(contact.userId)
                 .onSuccess { chatId -> onChatOpened(chatId) }
-                .onFailure { openError = it.message ?: context.getString(R.string.contacts_open_chat_failed) }
+                .onFailure { openError = it.userMessage(context, R.string.contacts_open_chat_failed) }
             openingUserId = null
         }
     }
@@ -164,7 +165,7 @@ private fun ContactRow(
         TelegramAvatar(contact.initials, Color(contact.avatarColorArgb), 48.dp, contact.photo, observeFile, downloadFile)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(contact.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(contact.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(contact.subtitle, color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -212,7 +213,7 @@ private fun AddContactDialog(
                     error = null
                     onSubmit(firstName.trim(), lastName.trim(), phone.filter { it.isDigit() || it == '+' })
                         .onSuccess { onAdded(); onDismiss() }
-                        .onFailure { error = it.message ?: context.getString(R.string.contacts_add_failed) }
+                        .onFailure { error = it.userMessage(context, R.string.contacts_add_failed) }
                     saving = false
                 }
             }) { Text(if (saving) stringResource(R.string.contacts_adding) else stringResource(R.string.contacts_add)) }

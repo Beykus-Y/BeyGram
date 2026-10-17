@@ -12,12 +12,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.beykus.beygram.data.mock.MockTelegramRepository
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
@@ -48,6 +51,7 @@ import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
 import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyRestoreDialog
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
+import com.beykus.beygram.ui.text.resolve
 
 @Composable
 fun BeyGramApp(
@@ -126,7 +130,7 @@ private fun BeyGramAppContent(
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
-    var notificationError by remember { mutableStateOf<String?>(null) }
+    var notificationError by remember { mutableStateOf<UiText?>(null) }
     // Скрытый архив остаётся скрытым после перезапуска: флаг лежит в настройках приложения.
     val context = LocalContext.current
     val chatPreferences = remember(context) { context.applicationContext.getSharedPreferences("chats", Context.MODE_PRIVATE) }
@@ -174,7 +178,7 @@ private fun BeyGramAppContent(
         else request.chatId?.let { chatId ->
             val result = repository.loadChat(chatId)
             if (result.isSuccess) { selectedChatId = chatId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name }
-            else notificationError = result.exceptionOrNull()?.message ?: "Не удалось открыть чат"
+            else notificationError = (result.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.err_app_open_chat_failed)
         }
         onNotificationHandled(request.token)
     }
@@ -437,7 +441,7 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Proxy.name }
         )
     }
-    notificationError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { notificationError = null }, title = { androidx.compose.material3.Text("Уведомление") },
-        text = { androidx.compose.material3.Text(error) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { notificationError = null }) { androidx.compose.material3.Text("Закрыть") } }) }
+    notificationError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { notificationError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
+        text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { notificationError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
     ProxyRestoreDialog(vpnBackend = vpnBackend)
 }

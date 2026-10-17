@@ -1,6 +1,8 @@
 package com.beykus.beygram.data.vpn
 
 import android.content.Context
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
 import java.net.Authenticator
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
@@ -56,6 +58,6 @@ internal object MihomoProxyClient {
             }
         }
         MihomoRuntimeDiagnostics.event("listener", "port not ready error=${lastError?.javaClass?.simpleName ?: "none"}")
-        throw MihomoCoreException("Прокси не принимает подключения")
+        throw coreUserError(UiText.Res(R.string.err_vpn_listener_not_accepting), "Прокси не принимает подключения")
     }
 }

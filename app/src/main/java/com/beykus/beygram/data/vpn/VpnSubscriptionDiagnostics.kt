@@ -3,6 +3,7 @@ package com.beykus.beygram.data.vpn
 import android.util.Log
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.diagnostics.ConnectionEventLog
+import com.beykus.beygram.domain.UserMessageException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
@@ -19,13 +20,16 @@ internal object VpnSubscriptionDiagnostics {
 
     fun failure(stage: String, error: Throwable) {
         if (error is kotlinx.coroutines.CancellationException) return
-        event(stage, "failed=${failureKind(error)} cause=${causeSummary(error)}")
+        // A user-facing failure is classified by the developer exception it wraps.
+        val source = (error as? UserMessageException)?.cause ?: error
+        event(stage, "failed=${failureKind(source)} cause=${causeSummary(source)}")
     }
 
     private fun causeSummary(error: Throwable): String = generateSequence(error) { it.cause }
         .take(MAX_CAUSE_DEPTH)
         .joinToString(" <- ") { cause ->
-            val message = cause.message.orEmpty()
+            // The message of a UserMessageException is its resource text, which is not a detail for the report.
+            val message = (if (cause is UserMessageException) "" else cause.message.orEmpty())
                 .replace(URL, "[url]")
                 .replace(SECRET) { "${it.groupValues[1]}=[hidden]" }
                 .replace(ENDPOINT, "[endpoint]")
@@ -38,14 +42,14 @@ internal object VpnSubscriptionDiagnostics {
         is SocketTimeoutException -> "network_timeout"
         is UnknownHostException -> "name_resolution_failure"
         is SSLException -> "secure_connection_failure"
-        is SubscriptionException -> when {
-            error.message?.startsWith("Сервер подписки ответил ошибкой ") == true -> "http_error"
-            error.message?.startsWith("Ссылка не похожа на подписку") == true -> "unsupported_profile"
-            error.message?.startsWith("В подписке нет серверов") == true -> "decoded_content_no_servers"
-            error.message?.startsWith("Введите правильную ссылку") == true -> "invalid_url"
-            error.message?.startsWith("Ссылка на подписку должна") == true -> "url_policy_rejected"
-            error.message?.contains("слишком большая") == true -> "response_too_large"
-            else -> "subscription_rejected"
+        is SubscriptionException -> when (error.failure) {
+            SubscriptionFailure.HTTP_ERROR -> "http_error"
+            SubscriptionFailure.UNSUPPORTED_PROFILE -> "unsupported_profile"
+            SubscriptionFailure.NO_SERVERS -> "decoded_content_no_servers"
+            SubscriptionFailure.INVALID_URL -> "invalid_url"
+            SubscriptionFailure.URL_POLICY_REJECTED -> "url_policy_rejected"
+            SubscriptionFailure.TOO_LARGE -> "response_too_large"
+            SubscriptionFailure.REJECTED -> "subscription_rejected"
         }
         is MihomoCoreException -> "core_rejected_profile"
         else -> error.javaClass.simpleName.take(48).ifBlank { "unknown_error" }

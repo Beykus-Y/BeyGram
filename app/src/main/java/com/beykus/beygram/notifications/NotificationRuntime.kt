@@ -3,6 +3,7 @@ package com.beykus.beygram.notifications
 import android.content.Context
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
+import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.*
@@ -19,11 +20,11 @@ class NotificationRuntime private constructor(private val context: Context) {
     private val invalidations = MutableStateFlow(0L)
     private val _service = MutableStateFlow(false)
     val serviceRunning = _service.asStateFlow()
-    private val _serviceError = MutableStateFlow<String?>(null)
+    private val _serviceError = MutableStateFlow<UiText?>(null)
     val serviceError = _serviceError.asStateFlow()
     private val _authorized = MutableStateFlow(false)
     val authorized = _authorized.asStateFlow()
-    fun serviceState(running: Boolean, error: String? = null) { _service.value = running; if (running || error != null) _serviceError.value = error }
+    fun serviceState(running: Boolean, error: UiText? = null) { _service.value = running; if (running || error != null) _serviceError.value = error }
 
     @Synchronized fun attach(source: TelegramRepository) {
         if (repository != null) return

@@ -1,5 +1,8 @@
 package com.beykus.beygram.data.vpn
 
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.VpnNetworkState
 import com.beykus.beygram.domain.model.VpnSettings
@@ -75,7 +78,7 @@ internal class TelegramAutoSelector(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            report(AutoSelectEvent.Failed(error.message ?: "Не удалось прочитать список серверов"))
+            report(AutoSelectEvent.Failed((error as? UserMessageException)?.text ?: UiText.Res(R.string.err_vpn_servers_load_failed)))
             return
         }
         if (connections.isEmpty()) {
@@ -112,7 +115,7 @@ internal class TelegramAutoSelector(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            report(AutoSelectEvent.Failed(error.message ?: "Не удалось выбрать сервер"))
+            report(AutoSelectEvent.Failed((error as? UserMessageException)?.text ?: UiText.Res(R.string.err_vpn_server_select_failed)))
         }
     }
 
@@ -136,7 +139,7 @@ sealed interface AutoSelectEvent {
     data class Probed(val result: com.beykus.beygram.domain.model.MihomoProbeResult) : AutoSelectEvent
     data class Switched(val connectionName: String, val delayMillis: Long) : AutoSelectEvent
     data class Kept(val connectionName: String, val delayMillis: Long) : AutoSelectEvent
-    data class Failed(val message: String) : AutoSelectEvent
+    data class Failed(val message: UiText) : AutoSelectEvent
     data object NoConnections : AutoSelectEvent
     data object NoReachableConnection : AutoSelectEvent
 }

@@ -1,5 +1,8 @@
 package com.beykus.beygram.data.mock
 
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
@@ -35,7 +38,10 @@ import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.text.DateFormat
+import java.util.Date
 
+/** Демо-данные (имена, тексты, время) заданы прямо здесь, а не в ресурсах: это мок для разработки. */
 class MockTelegramRepository : TelegramRepository {
 
     override suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit> = Result.success(Unit)
@@ -55,10 +61,10 @@ class MockTelegramRepository : TelegramRepository {
     override val notificationPresentation = MutableStateFlow(NotificationPresentation()).asStateFlow()
     override suspend fun dismissNotifications(groupId: Int, maxNotificationId: Int) = Result.success(Unit)
     override fun observeChat(chatId: Long) = MutableStateFlow((_chats.value + _archivedChats.value).firstOrNull { it.id == chatId }).asStateFlow()
-    override suspend fun loadChat(chatId: Long): Result<Unit> = if ((_chats.value + _archivedChats.value).any { it.id == chatId }) Result.success(Unit) else Result.failure(IllegalStateException("Чат недоступен"))
+    override suspend fun loadChat(chatId: Long): Result<Unit> = if ((_chats.value + _archivedChats.value).any { it.id == chatId }) Result.success(Unit) else Result.failure(UserMessageException(UiText.Res(R.string.err_chat_unavailable)))
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> {
         val archivedChat = _archivedChats.value.firstOrNull { it.id == chatId }
-        val chat = archivedChat ?: _chats.value.firstOrNull { it.id == chatId } ?: return Result.failure(IllegalStateException("Чат недоступен"))
+        val chat = archivedChat ?: _chats.value.firstOrNull { it.id == chatId } ?: return Result.failure(UserMessageException(UiText.Res(R.string.err_chat_unavailable)))
         if ((archivedChat != null) == archived) return Result.success(Unit)
         if (archived) {
             val nextArchiveOrder = (_archivedChats.value.maxOfOrNull { it.archiveOrder } ?: 0L) + 1L
@@ -88,12 +94,12 @@ class MockTelegramRepository : TelegramRepository {
     override suspend fun loadContacts(): Result<List<ContactPreview>> = Result.success(mockContacts.sortedBy { it.title.lowercase() })
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> {
         val title = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ")
-        if (title.isBlank()) return Result.failure(IllegalStateException("Введите имя"))
+        if (title.isBlank()) return Result.failure(UserMessageException(UiText.Res(R.string.err_name_empty)))
         mockContacts += ContactPreview(nextContactId++, title, phone, null, 0xFF5B4BC4)
         return Result.success(Unit)
     }
     override suspend fun openPrivateChat(userId: Long): Result<Long> =
-        if ((_chats.value + _archivedChats.value).any { it.id == userId }) Result.success(userId) else Result.failure(IllegalStateException("Чат недоступен"))
+        if ((_chats.value + _archivedChats.value).any { it.id == userId }) Result.success(userId) else Result.failure(UserMessageException(UiText.Res(R.string.err_chat_unavailable)))
     private val mockCalls = run {
         val now = System.currentTimeMillis() / 1000
         listOf(
@@ -179,7 +185,7 @@ class MockTelegramRepository : TelegramRepository {
     }
 
     override suspend fun enableProxy(id: Int): Result<Unit> {
-        if (savedProxies.none { it.id == id }) return Result.failure(IllegalStateException("Прокси не найден"))
+        if (savedProxies.none { it.id == id }) return Result.failure(UserMessageException(UiText.Res(R.string.err_proxy_not_found)))
         updateSavedProxies { it.copy(enabled = it.id == id) }
         return Result.success(Unit)
     }
@@ -212,19 +218,19 @@ class MockTelegramRepository : TelegramRepository {
         state.value = state.value.copy(lastReadInboxMessageId = maxOf(state.value.lastReadInboxMessageId, messageIds.maxOrNull() ?: 0))
     }
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> {
-        val message = messagesByChatId[chatId]?.firstOrNull { it.id == messageId } ?: return Result.failure(IllegalStateException("Сообщение недоступно"))
+        val message = messagesByChatId[chatId]?.firstOrNull { it.id == messageId } ?: return Result.failure(UserMessageException(UiText.Res(R.string.chat_message_unavailable)))
         return Result.success(MessageCapabilities(true, true, message.isOutgoing, true, message.isOutgoing, canForward = true, canSave = true))
     }
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition> {
         val sameKind = messagesByChatId[chatId].orEmpty().filter { it.media?.kind == kind }
         val index = sameKind.indexOfFirst { it.id == messageId }
-        if (index < 0) return Result.failure(IllegalStateException("Сообщение недоступно"))
+        if (index < 0) return Result.failure(UserMessageException(UiText.Res(R.string.chat_message_unavailable)))
         return Result.success(MediaPosition(index + 1, sameKind.size))
     }
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String): Result<Unit> {
-        val messages = messagesByChatId[chatId] ?: return Result.failure(IllegalStateException("Сообщение недоступно"))
+        val messages = messagesByChatId[chatId] ?: return Result.failure(UserMessageException(UiText.Res(R.string.chat_message_unavailable)))
         val index = messages.indexOfFirst { it.id == messageId }
-        if (index < 0) return Result.failure(IllegalStateException("Сообщение недоступно"))
+        if (index < 0) return Result.failure(UserMessageException(UiText.Res(R.string.chat_message_unavailable)))
         messages[index] = messages[index].copy(text = text, isEdited = true)
         historyStates[chatId]?.let { it.value = it.value.copy(messages = messages.toList()) }
         return Result.success(Unit)
@@ -235,10 +241,10 @@ class MockTelegramRepository : TelegramRepository {
         return Result.success(Unit)
     }
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit> = Result.success(Unit)
-    override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = Result.success(MessageContext(chatId, "Чат", messageId, messagesByChatId[chatId].orEmpty().toList()))
+    override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = Result.success(MessageContext(chatId, (_chats.value + _archivedChats.value).firstOrNull { it.id == chatId }?.title.orEmpty(), messageId, messagesByChatId[chatId].orEmpty().toList()))
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> =
         Result.success(MessageSearchPage(messagesByChatId[chatId].orEmpty().filter { it.text.contains(query, ignoreCase = true) }, 0L))
-    private fun reply(chatId: Long, id: Long?) = messagesByChatId[chatId]?.firstOrNull { it.id == id }?.let { MessageReply(chatId, it.id, it.text, "Собеседник") }
+    private fun reply(chatId: Long, id: Long?) = messagesByChatId[chatId]?.firstOrNull { it.id == id }?.let { MessageReply(chatId, it.id, UiText.Raw(it.text), "Собеседник") }
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = fileStates.getOrPut(fileId) { MutableStateFlow(MediaFileState(fileId)) }.asStateFlow()
     override fun downloadFile(fileId: Int) = Unit
     override fun openMessageContent(chatId: Long, messageId: Long) = Unit
@@ -246,7 +252,7 @@ class MockTelegramRepository : TelegramRepository {
         val id = nextMessageId++
         val fileId = id.toInt()
         fileStates[fileId] = MutableStateFlow(MediaFileState(fileId, media.size, media.path))
-        val message = ChatMessage(id, chatId, caption, "сейчас", true, reply = reply(chatId, replyToMessageId),
+        val message = ChatMessage(id, chatId, caption, nowTime(), true, reply = reply(chatId, replyToMessageId),
             media = MessageMedia(media.kind, fileId, fileName = media.fileName, mimeType = media.mimeType, width = media.width, height = media.height, durationSeconds = media.durationSeconds))
         messagesByChatId.getOrPut(chatId) { mutableListOf() }.add(message)
         observeChatHistory(chatId)
@@ -267,7 +273,7 @@ class MockTelegramRepository : TelegramRepository {
             id = nextMessageId++,
             chatId = chatId,
             text = text,
-            time = "сейчас",
+            time = nowTime(),
             isOutgoing = true,
             reply = reply(chatId, replyToMessageId)
         )
@@ -276,7 +282,7 @@ class MockTelegramRepository : TelegramRepository {
         historyStates.getValue(chatId).value = ChatHistory(messagesByChatId[chatId].orEmpty().toList(), hasOlderMessages = false)
 
         val updated = _chats.value.map { chat ->
-            if (chat.id == chatId) chat.copy(lastMessage = text, lastMessageTime = "сейчас", order = (_chats.value.maxOfOrNull { it.order } ?: 0L) + 1L)
+            if (chat.id == chatId) chat.copy(lastMessage = UiText.Raw(text), lastMessageTime = nowTime(), order = (_chats.value.maxOfOrNull { it.order } ?: 0L) + 1L)
             else chat
         }
         _chats.value = orderedMainChats(updated)
@@ -290,7 +296,7 @@ private fun buildMockChats() = listOf(
         id = 1L,
         title = "Beykus",
         initials = "BK",
-        lastMessage = "Закинул архитектуру под новый клиент.",
+        lastMessage = UiText.Raw("Закинул архитектуру под новый клиент."),
         lastMessageTime = "12:48",
         unreadCount = 2,
         avatarColorArgb = 0xFF2AABEE,
@@ -301,7 +307,7 @@ private fun buildMockChats() = listOf(
         id = 2L,
         title = "Android Dev",
         initials = "AD",
-        lastMessage = "Compose оставляем только во view-слое.",
+        lastMessage = UiText.Raw("Compose оставляем только во view-слое."),
         lastMessageTime = "11:20",
         unreadCount = 0,
         avatarColorArgb = 0xFF14B8A6,
@@ -313,8 +319,8 @@ private fun buildMockChats() = listOf(
         id = 3L,
         title = "Product Notes",
         initials = "PN",
-        lastMessage = "Дальше нужны реальные состояния авторизации.",
-        lastMessageTime = "Вчера",
+        lastMessage = UiText.Raw("Дальше нужны реальные состояния авторизации."),
+        lastMessageTime = "18:07",
         unreadCount = 5,
         avatarColorArgb = 0xFF8B5CF6,
         isGroup = true,
@@ -324,8 +330,8 @@ private fun buildMockChats() = listOf(
         id = 4L,
         title = "Design Lab",
         initials = "DL",
-        lastMessage = "Убираем лишнюю декоративность.",
-        lastMessageTime = "Пн",
+        lastMessage = UiText.Raw("Убираем лишнюю декоративность."),
+        lastMessageTime = "09:15",
         unreadCount = 0,
         avatarColorArgb = 0xFFEF4444,
         order = 10L
@@ -334,8 +340,8 @@ private fun buildMockChats() = listOf(
         id = 5L,
         title = "Насальникова",
         initials = "Н",
-        lastMessage = "Ок, пришлю файлы завтра",
-        lastMessageTime = "Вчера",
+        lastMessage = UiText.Raw("Ок, пришлю файлы завтра"),
+        lastMessageTime = "18:07",
         unreadCount = 1,
         avatarColorArgb = 0xFF2F8A7B,
         archiveOrder = 20L
@@ -344,8 +350,8 @@ private fun buildMockChats() = listOf(
         id = 6L,
         title = "Команда «Релиз»",
         initials = "Р",
-        lastMessage = "Артём: сборка 1.4 готова",
-        lastMessageTime = "Пн",
+        lastMessage = UiText.Raw("Артём: сборка 1.4 готова"),
+        lastMessageTime = "09:15",
         unreadCount = 14,
         avatarColorArgb = 0xFF5B4BC4,
         isGroup = true,
@@ -353,3 +359,6 @@ private fun buildMockChats() = listOf(
         archiveOrder = 10L
     )
 )
+
+/** Текущее время в формате, который показывает экран чата. */
+private fun nowTime(): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())

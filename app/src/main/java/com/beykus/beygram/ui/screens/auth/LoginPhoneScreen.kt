@@ -36,6 +36,7 @@ import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.AuthScaffold
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
+import com.beykus.beygram.ui.text.resolve
 
 @Composable
 fun LoginPhoneScreen(
@@ -49,7 +50,7 @@ fun LoginPhoneScreen(
     var phone by rememberSaveable { mutableStateOf("+7 ") }
     val isLoading = authState is AuthState.Loading
     val errorMessage = when (authState) {
-        is AuthState.Error -> authState.message
+        is AuthState.Error -> authState.text.resolve()
         AuthState.ConnectionTimeout -> stringResource(R.string.auth_phone_connection_timeout)
         else -> null
     }

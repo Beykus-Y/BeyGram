@@ -3,6 +3,9 @@ package com.beykus.beygram.data.tdlib
 import android.content.Context
 import android.os.Build
 import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
@@ -106,7 +109,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            Result.failure(IllegalStateException("Нет ответа от сервера"))
+            Result.failure(UserMessageException(UiText.Res(R.string.err_proxy_no_response), error))
         }
     }
 
@@ -164,11 +167,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun TelegramProxyDraft.toTdProxy(): TdApi.Proxy {
         val host = server.trim()
-        require(host.isNotEmpty()) { "Укажите адрес сервера" }
-        require(port in 1..65_535) { "Порт должен быть от 1 до 65535" }
+        if (host.isEmpty()) throw UserMessageException(UiText.Res(R.string.err_proxy_server_empty))
+        if (port !in 1..65_535) throw UserMessageException(UiText.Res(R.string.err_proxy_port_invalid, listOf(1, 65_535)))
         val type: TdApi.ProxyType = when (kind) {
             TelegramProxyKind.MTPROTO -> {
-                require(secret.isNotBlank()) { "Укажите секрет прокси" }
+                if (secret.isBlank()) throw UserMessageException(UiText.Res(R.string.err_proxy_secret_empty))
                 TdApi.ProxyTypeMtproto(secret.trim())
             }
             TelegramProxyKind.SOCKS5 -> TdApi.ProxyTypeSocks5(username.trim(), password)
@@ -219,7 +222,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         TdRequests { client }(TdApi.AddChatToList(chatId, list)); Unit
     }
     override suspend fun markChatRead(chatId: Long): Result<Unit> = conversationResult {
-        val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L } ?: throw IllegalStateException("Нет сообщений для отметки")
+        val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L } ?: throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
         TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true)); Unit
     }
     private val contactBook = TdContacts({ client }, profiles)
@@ -358,7 +361,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         client.send(TdApi.DownloadFile(fileId, 16, 0, 0, false), Client.ResultHandler { result ->
             when (result) {
                 is TdApi.File -> mediaFiles.update(result.toMediaFileState())
-                is TdApi.Error -> mediaFiles.fail(fileId, "Не удалось загрузить файл: ${result.message}")
+                is TdApi.Error -> mediaFiles.fail(fileId, UiText.Res(R.string.err_media_download_failed))
             }
         })
     }
@@ -402,7 +405,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "History page received: ${page.size} messages")
                     if (continueLoading) requestHistory(chatId, nextFrom, remaining - page.size, pagesLeft - 1)
                 }
-                is TdApi.Error -> messageHistory.fail(chatId, "Не удалось загрузить историю: ${result.message}")
+                is TdApi.Error -> messageHistory.fail(chatId, UiText.Res(R.string.err_chat_history_load_failed))
             }
         })
     }
@@ -555,7 +558,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun handleChatLastMessage(chatId: Long, lastMessage: TdApi.Message?, positions: Array<TdApi.ChatPosition>) {
         val existing = chatCache[chatId] ?: return
         chatCache[chatId] = existing.copy(
-            lastMessage = lastMessage?.toTextPreview().orEmpty(),
+            lastMessage = lastMessage?.toTextPreview() ?: UiText.Raw(""),
             lastMessageTime = lastMessage?.toTimeString().orEmpty(),
             lastMessageId = lastMessage?.id ?: 0L
         ).withPositions(positions)
@@ -613,7 +616,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         isEdited = editDate > 0,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
-                reply.quote?.text?.text?.takeIf { it.isNotBlank() } ?: reply.content?.let { contentText(it, mediaMapper.media(it) != null).ifBlank { "Медиа" } } ?: "Сообщение")
+                reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
         }
     )
     }
@@ -637,7 +640,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             id = id,
             title = chatTitle,
             initials = chatTitle.initials(),
-            lastMessage = lastMessage?.toTextPreview() ?: "",
+            lastMessage = lastMessage?.toTextPreview() ?: UiText.Raw(""),
             lastMessageTime = lastMessage?.toTimeString() ?: "",
             unreadCount = unreadCount,
             avatarColorArgb = id.stableColor(),
@@ -652,20 +655,31 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     private fun contentText(content: TdApi.MessageContent, hasMedia: Boolean): String =
-        if (hasMedia) mediaMapper.caption(content) else previewText(content)
+        if (hasMedia) mediaMapper.caption(content) else (content as? TdApi.MessageText)?.text?.text.orEmpty()
 
-    private fun TdApi.Message.toTextPreview(): String = previewText(content)
+    /** Текст ответа: цитата, подпись или текст; у медиа без подписи и у пустого текста — «Медиа». */
+    private fun replyText(content: TdApi.MessageContent): UiText {
+        val hasMedia = mediaMapper.media(content) != null
+        val text = contentText(content, hasMedia)
+        return when {
+            text.isNotBlank() -> UiText.Raw(text)
+            hasMedia || content is TdApi.MessageText -> UiText.Res(R.string.chat_reply_media)
+            else -> previewText(content)
+        }
+    }
 
-    private fun previewText(c: TdApi.MessageContent): String =
+    private fun TdApi.Message.toTextPreview(): UiText = previewText(content)
+
+    private fun previewText(c: TdApi.MessageContent): UiText =
         when (c) {
-            is TdApi.MessageText      -> c.text.text
-            is TdApi.MessagePhoto     -> "\uD83D\uDCF7 Фото"
-            is TdApi.MessageVideo     -> "\uD83C\uDFA5 Видео"
-            is TdApi.MessageAudio     -> "\uD83C\uDFB5 Аудио"
-            is TdApi.MessageDocument  -> "\uD83D\uDCC4 Документ"
-            is TdApi.MessageSticker   -> "${c.sticker.emoji} Стикер"
-            is TdApi.MessageVoiceNote -> "\uD83C\uDFA4 Голосовое"
-            else                      -> "Сообщение"
+            is TdApi.MessageText      -> UiText.Raw(c.text.text)
+            is TdApi.MessagePhoto     -> UiText.Res(R.string.chat_preview_photo)
+            is TdApi.MessageVideo     -> UiText.Res(R.string.chat_preview_video)
+            is TdApi.MessageAudio     -> UiText.Res(R.string.chat_preview_audio)
+            is TdApi.MessageDocument  -> UiText.Res(R.string.chat_preview_document)
+            is TdApi.MessageSticker   -> UiText.Res(R.string.chat_preview_sticker, listOf(c.sticker.emoji))
+            is TdApi.MessageVoiceNote -> UiText.Res(R.string.chat_preview_voice)
+            else                      -> UiText.Res(R.string.message_title)
         }
 
     private fun TdApi.Message.toTimeString(): String =
@@ -683,9 +697,22 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         Client.ResultHandler { result ->
             if (result is TdApi.Error) {
                 authTimeoutJob?.cancel()
-                _authState.value = AuthState.Error(result.message)
+                _authState.value = AuthState.Error(authErrorText(result.message))
             }
         }
+
+    /** Известные коды TDLib переводим в текст; остальные сообщения TDLib на экран не выводим. */
+    private fun authErrorText(message: String?): UiText {
+        val text = message.orEmpty()
+        return when {
+            text.contains("PHONE_NUMBER_INVALID") -> UiText.Res(R.string.err_phone_invalid)
+            text.contains("PHONE_CODE_INVALID") -> UiText.Res(R.string.err_auth_code_invalid)
+            text.contains("PHONE_CODE_EXPIRED") -> UiText.Res(R.string.err_auth_code_expired)
+            text.contains("PASSWORD_HASH_INVALID") -> UiText.Res(R.string.err_auth_password_invalid)
+            text.contains("FLOOD_WAIT") || text.contains("Too Many Requests") -> UiText.Res(R.string.err_tdlib_flood_wait)
+            else -> UiText.Res(R.string.err_auth_failed)
+        }
+    }
 
     private fun startAuthTimeout() {
         authTimeoutJob?.cancel()

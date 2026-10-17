@@ -41,6 +41,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.resolve
 
 @Composable
 fun StartScreen(
@@ -68,7 +69,7 @@ fun StartScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "BeyGram",
+                text = stringResource(R.string.app_name),
                 color = palette.textPrimary,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
@@ -115,7 +116,7 @@ fun StartScreen(
             Spacer(modifier = Modifier.height(28.dp))
 
             Text(
-                text = "BeyGram",
+                text = stringResource(R.string.app_name),
                 color = palette.textPrimary,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
@@ -198,7 +199,7 @@ private fun TdLibStatusPanel(
                 text = if (isReady) {
                     stringResource(R.string.start_ready_hint)
                 } else {
-                    readiness.issues.joinToString(separator = "\n") { "- $it" }
+                    readiness.issues.map { it.resolve() }.joinToString(separator = "\n") { "- $it" }
                 },
                 color = if (isReady) palette.successText else palette.warningText,
                 style = MaterialTheme.typography.bodySmall,

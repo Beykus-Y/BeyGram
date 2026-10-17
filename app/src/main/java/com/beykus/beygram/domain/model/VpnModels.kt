@@ -1,5 +1,7 @@
 package com.beykus.beygram.domain.model
 
+import com.beykus.beygram.domain.UiText
+
 enum class VpnTransport { WIFI, CELLULAR, ETHERNET, VPN, OTHER, NONE }
 
 data class VpnNetworkState(
@@ -23,7 +25,7 @@ data class MihomoProbeResult(
     val telegramReachable: Boolean,
     val delayMillis: Long?,
     val checkedAtMillis: Long,
-    val error: String? = null
+    val error: UiText? = null
 )
 
 data class VpnSettings(
