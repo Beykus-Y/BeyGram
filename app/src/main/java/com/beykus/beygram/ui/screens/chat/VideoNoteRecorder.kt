@@ -79,6 +79,8 @@ private const val SIDE_PX = 480
 /** Сдвиг пальца влево, после которого отпускание отменяет запись. */
 private const val CANCEL_DRAG_DP = 96f
 private const val TAG = "BeyGramRecorder"
+/** Пока кадр не обрезается по кругу, новые кружки не записываются: пиксели вне круга иначе уходят в файл. */
+internal const val VIDEO_NOTE_RECORDING_ENABLED = false
 
 internal val videoNotePermissions = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
 
@@ -139,7 +141,6 @@ internal class VideoNoteRecorder(
         locked = false
         canceling = false
         elapsedMs = 0L
-        startedAt = SystemClock.elapsedRealtime()
         val current = ++attempt
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
@@ -155,16 +156,6 @@ internal class VideoNoteRecorder(
                 fail(context.getString(R.string.recorder_camera_open_failed))
             }
         }, ContextCompat.getMainExecutor(context))
-        timer = scope.launch {
-            while (active) {
-                elapsedMs = SystemClock.elapsedRealtime() - startedAt
-                if (elapsedMs >= maxDurationMs) {
-                    stop(preview = locked)
-                    break
-                }
-                delay(100)
-            }
-        }
     }
 
     /** Палец ушёл влево за порог: при отпускании запись будет отменена. */
@@ -184,7 +175,9 @@ internal class VideoNoteRecorder(
         timer = null
         val current = take
         if (current == null) {
+            // Камера ещё открывается: записи пока нет. Отпускание без отмены сообщает о короткой записи, а не теряет нажатие.
             provider?.unbindAll()
+            if (!cancel) onError(context.getString(R.string.recorder_too_short))
             return
         }
         current.discard = current.discard || cancel
@@ -291,6 +284,22 @@ internal class VideoNoteRecorder(
         cameraProvider.bindToLifecycle(lifecycleOwner, selector, group)
     }
 
+    /** Отсчёт идёт с момента, когда CameraX сообщил о старте записи, а не с нажатия: открытие камеры в минуту не входит. */
+    private fun startClock() {
+        startedAt = SystemClock.elapsedRealtime()
+        timer?.cancel()
+        timer = scope.launch {
+            while (active) {
+                elapsedMs = SystemClock.elapsedRealtime() - startedAt
+                if (elapsedMs >= maxDurationMs) {
+                    stop(preview = locked)
+                    break
+                }
+                delay(100)
+            }
+        }
+    }
+
     private fun startRecording(settings: VideoMessageSettings) {
         val capture = videoCapture ?: return
         // Файл лежит в uploads, как и вложения: кэш система может очистить до отправки, а поставленное в очередь сообщение тогда сломается.
@@ -302,6 +311,7 @@ internal class VideoNoteRecorder(
                 .prepareRecording(context, FileOutputOptions.Builder(current.file).build())
                 .withAudioEnabled()
                 .start(ContextCompat.getMainExecutor(context)) { event ->
+                    if (event is VideoRecordEvent.Start && take === current && active) startClock()
                     if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
                 }
             Log.i(TAG, "video_recording_started session=${directory.name}")

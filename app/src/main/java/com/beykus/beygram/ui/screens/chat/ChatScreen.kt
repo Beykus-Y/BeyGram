@@ -188,6 +188,8 @@ fun ChatScreen(
         if (recordingMode == ComposerRecordingMode.Voice) {
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) audioNote.press()
             else audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+        } else if (!VIDEO_NOTE_RECORDING_ENABLED) {
+            error = context.getString(R.string.recorder_video_note_unavailable)
         } else if (videoNoteAllowed(context)) videoNote.press() else videoPermissions.launch(videoNotePermissions)
     }
     val messages = history.messages
