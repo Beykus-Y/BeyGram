@@ -108,6 +108,7 @@
     <string name="chats_group_preview">Группа</string>
     <string name="chats_my_profile_description">Мой профиль</string>
     <string name="chats_notifications_description">Уведомления</string>
+    <string name="chats_preview_sender">%1$s: </string>
     <string name="chats_search_placeholder">Поиск сообщений и чатов</string>
     <string name="chats_section_all">ВСЕ ЧАТЫ</string>
     <string name="chats_section_pinned">ЗАКРЕПЛЁННЫЕ</string>

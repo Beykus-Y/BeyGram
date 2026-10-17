@@ -19,6 +19,12 @@ data class ChatPreview(
     val archiveOrder: Long = 0L,
     /** Id of the last message, used to mark the chat as read; zero when unknown. */
     val lastMessageId: Long = 0L,
+    val lastMessageOutgoing: Boolean = false,
+    /** Имя отправителя последнего сообщения; пусто, если TDLib его не знает. */
+    val lastMessageSender: String = "",
+    val lastMessageSendState: MessageSendState = MessageSendState.Sent,
+    /** Last outgoing message the other side has read; zero when unknown. */
+    val lastReadOutboxMessageId: Long = 0L,
     val photo: AvatarPhoto? = null
 )
 
