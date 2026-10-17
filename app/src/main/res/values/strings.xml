@@ -213,6 +213,7 @@
     <string name="err_username_invalid">Недопустимое имя пользователя</string>
     <string name="err_username_purchase">Это имя пользователя доступно только для покупки</string>
     <string name="err_username_taken">Это имя пользователя уже занято</string>
+    <string name="err_telegram_not_running">Telegram на этом устройстве пока не запущен.</string>
     <string name="err_vpn_core_bad_response">Прокси вернул некорректный ответ</string>
     <string name="err_vpn_core_incompatible">Прокси не поддерживается в этой версии приложения.</string>
     <string name="err_vpn_core_load_failed">Не удалось запустить прокси на этом устройстве.</string>

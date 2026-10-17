@@ -145,7 +145,7 @@ fun StartScreen(
                 TelegramConnectionState.Updating -> stringResource(R.string.start_connection_updating) to palette.warningText
                 TelegramConnectionState.Unknown -> stringResource(R.string.start_connection_checking) to palette.textSecondary
             }
-            Text(connectionText, color = connectionColor, fontSize = 13.sp)
+            if (tdLibReadiness.canCreateClient) Text(connectionText, color = connectionColor, fontSize = 13.sp)
             TextButton(onClick = onProxySettings) { Text(stringResource(R.string.start_proxy_settings)) }
         }
 

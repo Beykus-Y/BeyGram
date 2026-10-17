@@ -49,7 +49,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override val notifications: StateFlow<TelegramNotifications> = MutableStateFlow(TelegramNotifications()).asStateFlow()
     override val notificationPresentation: StateFlow<NotificationPresentation> = MutableStateFlow(NotificationPresentation()).asStateFlow()
 
-    private fun <T> unavailable(): Result<T> = Result.failure(UserMessageException(UiText.Res(R.string.start_sign_in_unavailable)))
+    private fun <T> unavailable(): Result<T> = Result.failure(UserMessageException(UiText.Res(R.string.err_telegram_not_running)))
 
     override fun observeChatInfo(chatId: Long): StateFlow<ProfileState> = noProfile
     override fun refreshChatInfo(chatId: Long) {}
@@ -78,7 +78,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun removeProxy(id: Int): Result<Unit> = unavailable()
     override suspend fun measureProxyLatency(server: String, port: Int): Result<Long> = unavailable()
     override suspend fun isMihomoProxyEnabled(): Result<Boolean> = Result.success(false)
-    override suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit> = Result.success(Unit)
+    override suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit> = if (enabled) unavailable() else Result.success(Unit)
 
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = MutableStateFlow(MediaFileState(fileId)).asStateFlow()
     override fun downloadFile(fileId: Int) {}

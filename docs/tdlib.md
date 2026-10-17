@@ -5,7 +5,7 @@ The project includes generated Java bindings (`app/libs/tdlib-java.jar`) and an 
 ## Current project hooks
 
 - `TelegramRepository` is the app-facing contract.
-- `MockTelegramRepository` keeps the UI usable while TDLib is not packaged.
+- `UnavailableTelegramRepository` stands in while TDLib cannot start: the start screen explains why, and no chats are shown.
 - `TdLibConfig` reads `api_id`, `api_hash`, TDLib database path, files path, device model, language, and app version.
 - `TdLibRuntime` checks whether the native `tdjni` library can be loaded.
 
@@ -74,4 +74,4 @@ app/src/main/jniLibs/x86_64/libtdjni.so
 ```
 
 After those files are present, `BeyGramApp` automatically selects `TdLibTelegramRepository`.
-Without complete artifacts it continues to use `MockTelegramRepository`, so the project remains buildable.
+Without complete artifacts it uses `UnavailableTelegramRepository`, so the project remains buildable and the start screen explains what is missing.
