@@ -85,8 +85,7 @@ fun CallsScreen(
             error = null
             loadCalls(offset)
                 .onSuccess { page ->
-                    state.calls = if (offset.isEmpty()) page.calls else state.calls + page.calls
-                    state.nextOffset = page.nextOffset
+                    if (offset.isEmpty()) state.replaceFirstPage(page) else state.appendPage(page)
                 }
                 .onFailure { error = it.userMessage(context, R.string.calls_load_failed) }
             loading = false
