@@ -24,8 +24,22 @@ data class ProfileBirthday(val day: Int, val month: Int, val year: Int?)
 
 enum class ProfileMemberRole { Owner, Admin, Member }
 
-/** Участник группы или канала; онлайн-статус известен только для тех, кого TDLib уже прислал. */
-data class ProfileMember(val name: String, val role: ProfileMemberRole, val online: Boolean)
+/**
+ * Участник группы или канала. [tag] — тег участника; у владельца и администратора без тега здесь их звание.
+ * [online] известен только для тех, кого TDLib уже прислал; у ботов он всегда false.
+ */
+data class ProfileMember(
+    val userId: Long,
+    val name: String,
+    val role: ProfileMemberRole,
+    val online: Boolean,
+    val isBot: Boolean,
+    val tag: String,
+    val photo: AvatarPhoto?,
+    val avatarColorArgb: Long
+) {
+    val initials: String get() = initialsOf(name)
+}
 
 /**
  * Страница участников. [fetched] — сколько записей TDLib вернул до фильтрации: именно он двигает смещение следующей страницы,
@@ -34,7 +48,7 @@ data class ProfileMember(val name: String, val role: ProfileMemberRole, val onli
 data class ChatMembersPage(val total: Int, val members: List<ProfileMember>, val fetched: Int)
 
 /** Владелец или администратор группы/канала; роль берётся из статуса участника в TDLib. */
-data class ProfileAdmin(val name: String, val isOwner: Boolean, val customTitle: String)
+data class ProfileAdmin(val userId: Long, val name: String, val isOwner: Boolean, val customTitle: String)
 
 /** Число сообщений с медиа, файлами, ссылками и голосовыми в чате; null, если TDLib не ответил по этому типу. */
 data class SharedCounts(val media: Int?, val files: Int?, val links: Int?, val voice: Int?)
@@ -72,9 +86,12 @@ data class ProfileInfo(
     val isPremium: Boolean = false,
     val isVerified: Boolean = false
 ) {
-    val initials: String get() = title.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.take(2).joinToString("") { it.first().uppercase() }
+    val initials: String get() = initialsOf(title)
 }
 
 data class ProfileState(val info: ProfileInfo? = null, val isLoading: Boolean = false, val error: UiText? = null)
 
 data class ProfileEdit(val firstName: String, val lastName: String, val username: String, val bio: String)
+
+/** Инициалы для аватара без фото: первые буквы первых двух слов. */
+internal fun initialsOf(name: String): String = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.take(2).joinToString("") { it.first().uppercase() }
