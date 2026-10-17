@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun InlineBotButtons(message: ChatMessage, conversation: ConversationRepository) {
+    if (message.inlineKeyboard.isEmpty()) return
     val context = LocalContext.current
     val uri = LocalUriHandler.current
     val scope = rememberCoroutineScope()

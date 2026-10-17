@@ -41,6 +41,41 @@ data class BotButton(val text: String, val kind: BotButtonKind, val value: Strin
 data class BotKeyboard(val messageId: Long, val rows: List<List<BotButton>>, val oneTime: Boolean = false, val persistent: Boolean = false, val placeholder: String = "", val forceReply: Boolean = false)
 data class BotCallbackAnswer(val text: String, val showAlert: Boolean, val url: String)
 
+data class MessageTextPart(val text: String, val entities: List<MessageTextEntity>, val block: TextStyleKind? = null)
+
+/** Extract actual quote/code blocks while keeping nested styles relative to each fragment. */
+fun splitMessageText(text: String, source: List<MessageTextEntity>): List<MessageTextPart> {
+    val entities = validTextEntities(text, source)
+    val blocks = entities.filter { it.kind == TextStyleKind.Quote || it.kind == TextStyleKind.Pre }.sortedBy { it.offset }
+    if (blocks.isEmpty()) return listOf(MessageTextPart(text, entities))
+    return buildList {
+        fun part(from: Int, to: Int, kind: TextStyleKind?) {
+            var start = from
+            var end = to
+            if (kind == null) {
+                if (start > 0 && start < end && text[start] == '\n') start++
+                if (end < text.length && end > start && text[end - 1] == '\n') end--
+            }
+            if (start >= end) return
+            val nested = entities.filter { it.kind != TextStyleKind.Quote && it.kind != TextStyleKind.Pre }.mapNotNull {
+                val left = maxOf(start, it.offset)
+                val right = minOf(end, it.offset + it.length)
+                if (left < right) it.copy(offset = left - start, length = right - left) else null
+            }
+            add(MessageTextPart(text.substring(start, end), nested, kind))
+        }
+        var cursor = 0
+        blocks.forEach {
+            if (it.offset >= cursor) {
+                part(cursor, it.offset, null)
+                part(it.offset, it.offset + it.length, it.kind)
+                cursor = it.offset + it.length
+            }
+        }
+        part(cursor, text.length, null)
+    }
+}
+
 fun applyTextFormat(text: String, entities: List<MessageTextEntity>, from: Int, until: Int, kind: TextStyleKind?): List<MessageTextEntity> {
     if (from !in 0..text.length || until !in 0..text.length || from >= until) return entities
     val start = if (kind == TextStyleKind.Quote || kind == TextStyleKind.Pre) text.lastIndexOf('\n', from - 1).let { it + 1 } else from
