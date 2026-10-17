@@ -12,11 +12,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -69,8 +66,9 @@ internal object VideoNoteExportCenter {
     private val _results = MutableStateFlow<List<VideoNoteExportResult>>(emptyList())
     val results: StateFlow<List<VideoNoteExportResult>> = _results.asStateFlow()
 
-    private val _failures = MutableSharedFlow<Long>(extraBufferCapacity = 16)
-    val failures: SharedFlow<Long> = _failures.asSharedFlow()
+    /** Ошибки удерживаются до открытия чата: SharedFlow без replay терял их при закрытом чате. */
+    private val _failures = MutableStateFlow<List<Long>>(emptyList())
+    val failures: StateFlow<List<Long>> = _failures.asStateFlow()
 
     fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean) {
         val appContext = context.applicationContext
@@ -83,15 +81,20 @@ internal object VideoNoteExportCenter {
                 _results.update { it + VideoNoteExportResult(chatId, media, previewFirst) }
             } catch (failure: Exception) {
                 Log.e(TAG, "video_processing_failed session=$sessionName type=${failure.javaClass.simpleName}", failure)
-                _failures.tryEmit(chatId)
+                _failures.update { it + chatId }
             }
         }
     }
 
-    /** Доставляет и убирает готовые результаты этого чата. */
-    fun consume(chatId: Long): List<VideoNoteExportResult> {
-        val mine = _results.value.filter { it.chatId == chatId }
-        if (mine.isNotEmpty()) _results.update { current -> current - mine.toSet() }
-        return mine
+    /** Убирает результат после подтверждённой доставки: показа превью или постановки в очередь отправки. */
+    fun consume(chatId: Long, result: VideoNoteExportResult) {
+        _results.update { current -> current.filterNot { it.chatId == chatId && it == result } }
+    }
+
+    /** Забирает накопленную ошибку экспорта чата. */
+    fun consumeFailure(chatId: Long): Boolean {
+        val had = chatId in _failures.value
+        if (had) _failures.update { current -> current - chatId }
+        return had
     }
 }

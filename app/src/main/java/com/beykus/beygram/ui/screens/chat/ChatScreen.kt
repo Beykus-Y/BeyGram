@@ -132,22 +132,29 @@ fun ChatScreen(
     var sentRecordingPaths by remember(chat.id) { mutableStateOf(emptySet<String>()) }
     var recordingQueueSending by remember(chat.id) { mutableStateOf(false) }
     var recordingQueueProgress by remember(chat.id) { mutableIntStateOf(0) }
-    fun sendRecordedMedia(mediaList: List<OutgoingMedia>) {
-        scope.launch {
-            if (recordingQueueSending) return@launch
-            recordingQueueSending = true
+    val pendingRecordingSends = remember(chat.id) { ArrayDeque<List<OutgoingMedia>>() }
+    fun startRecordingSendWorker() {
+        if (recordingQueueSending) return
+        if (pendingRecordingSends.isEmpty()) return
+        recordingQueueSending = true
+        // Worker живёт в scope восстановления записи: переживает recomposition и не бросает очередь на полпути.
+        recordingRecovery.processingScope.launch {
             try {
-                mediaList.forEachIndexed { index, media ->
-                    if (media.path in sentRecordingPaths) return@forEachIndexed
-                    recordingQueueProgress = index + 1
-                    val result = conversation.sendMedia(chat.id, media, "", replyId)
-                    if (result.isSuccess) {
-                        sentRecordingPaths = sentRecordingPaths + media.path
-                        replyId = null
-                    } else {
-                        recordingRecovery.showPreview(mediaList, index)
-                        error = result.exceptionOrNull().userMessage(context, R.string.chat_video_note_send_failed)
-                        return@launch
+                while (pendingRecordingSends.isNotEmpty()) {
+                    val mediaList = pendingRecordingSends.removeFirst()
+                    mediaList.forEachIndexed { index, media ->
+                        if (media.path in sentRecordingPaths) return@forEachIndexed
+                        recordingQueueProgress = index + 1
+                        val result = conversation.sendMedia(chat.id, media, "", replyId)
+                        if (result.isSuccess) {
+                            sentRecordingPaths = sentRecordingPaths + media.path
+                            replyId = null
+                        } else {
+                            recordingRecovery.showPreview(mediaList, index)
+                            error = result.exceptionOrNull().userMessage(context, R.string.chat_video_note_send_failed)
+                            pendingRecordingSends.clear()
+                            return@launch
+                        }
                     }
                 }
                 sentRecordingPaths = emptySet()
@@ -156,6 +163,11 @@ fun ChatScreen(
                 recordingQueueSending = false
             }
         }
+    }
+    /** Ставит запись в отправку. Пропусков нет: занятый worker сам подхватит очередь. */
+    fun sendRecordedMedia(mediaList: List<OutgoingMedia>) {
+        pendingRecordingSends.addLast(mediaList)
+        startRecordingSendWorker()
     }
     fun retryFailedMessages(messageIds: List<Long>) {
         scope.launch {
@@ -167,9 +179,15 @@ fun ChatScreen(
         if (previewFirst) recordingRecovery.showPreview(listOf(media))
         else sendRecordedMedia(listOf(media))
     }
-    fun capturedVideoRecording(mediaList: List<OutgoingMedia>, previewFirst: Boolean) {
-        if (previewFirst || mediaList.size > 1) recordingRecovery.showPreview(mediaList)
-        else sendRecordedMedia(mediaList)
+    /** Доставка результата экспорта: ACK в центре только после показа превью или постановки в очередь отправки. */
+    fun deliverExportResult(result: VideoNoteExportResult) {
+        if (result.previewFirst || result.media.size > 1) {
+            recordingRecovery.showPreview(result.media)
+            VideoNoteExportCenter.consume(chat.id, result)
+        } else {
+            sendRecordedMedia(result.media)
+            VideoNoteExportCenter.consume(chat.id, result)
+        }
     }
     val attachments = rememberAttachmentState(chat.id) { media, caption ->
         val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities)
@@ -182,15 +200,12 @@ fun ChatScreen(
     LaunchedEffect(chat.id) {
         launch {
             VideoNoteExportCenter.results.collect { list ->
-                val mine = list.filter { it.chatId == chat.id }
-                if (mine.isEmpty()) return@collect
-                VideoNoteExportCenter.consume(chat.id)
-                mine.forEach { capturedVideoRecording(it.media, it.previewFirst) }
+                list.filter { it.chatId == chat.id }.forEach { deliverExportResult(it) }
             }
         }
         launch {
-            VideoNoteExportCenter.failures.collect { failedChatId ->
-                if (failedChatId == chat.id) error = context.getString(R.string.recorder_save_failed)
+            VideoNoteExportCenter.failures.collect {
+                if (VideoNoteExportCenter.consumeFailure(chat.id)) error = context.getString(R.string.recorder_save_failed)
             }
         }
     }
