@@ -18,6 +18,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
 /** The updater is deliberately independent of TDLib and never runs without a user action. */
@@ -141,10 +142,11 @@ class StableUpdateRepository(private val context: Context) {
                 throw IOException("Эта версия уже установлена или устарела.")
             }
             if (!updateDir.exists() && !updateDir.mkdirs()) throw IOException("Нет места для загрузки.")
-            val temp = File(updateDir, "stable.apk.part")
-            val target = File(updateDir, "stable.apk")
-            temp.delete()
-            target.delete()
+            // Never reuse/delete a path already granted to Android Package Installer.
+            // Every user-initiated download gets its own private immutable APK path.
+            val downloadId = UUID.randomUUID().toString()
+            val temp = File(updateDir, "stable-$downloadId.part")
+            val target = File(updateDir, "stable-$downloadId.apk")
             if (updateDir.usableSpace < release.size + 20_000_000L) {
                 throw IOException("Недостаточно свободного места для APK.")
             }
@@ -189,6 +191,7 @@ class StableUpdateRepository(private val context: Context) {
                 verifyPackage(target, release)
                 target
             } catch (error: Throwable) {
+                // Only files created by this *failed* attempt may be removed.
                 temp.delete()
                 target.delete()
                 throw error
