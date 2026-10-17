@@ -117,8 +117,6 @@ private fun BeyGramAppContent(
 ) {
     // ---- Реактивное состояние ------------------------------------------------
     val authState by repository.authState.collectAsStateWithLifecycle()
-    val chats by repository.chats.collectAsStateWithLifecycle()
-    val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
     val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
     val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
     val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
@@ -227,6 +225,94 @@ private fun BeyGramAppContent(
     }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
 
+    // Потоки собирает сам раздел, которому они нужны: обновление списка чатов перерисовывает только открытый раздел, а не всё приложение.
+    val chatsTab: @Composable () -> Unit = {
+        val chats by repository.chats.collectAsStateWithLifecycle()
+        val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        MainTabsScaffold(MainTab.Chats.route.name, MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
+            ChatsScreen(
+                chats = chats,
+                archivedChats = archivedChats,
+                myProfile = myProfile.info,
+                onNotifications = { openNotifications(AppRoute.Chats) },
+                observeFile = repository::observeFile,
+                downloadFile = repository::downloadFile,
+                onMyProfile = { routeName = AppRoute.MyProfile.name },
+                onArchiveClick = { routeName = AppRoute.Archive.name },
+                onMarkRead = markChatRead,
+                onArchive = archiveChat,
+                archiveHidden = archiveHidden,
+                onArchiveHiddenChange = onArchiveHiddenChange,
+                onChatClick = { chat ->
+                    selectedChatId = chat.id
+                    chatBackRouteName = AppRoute.Chats.name
+                    routeName = AppRoute.Chat.name
+                }
+            )
+        }
+    }
+    val archiveRoute: @Composable () -> Unit = {
+        val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        ArchiveScreen(
+            chats = archivedChats,
+            observeFile = repository::observeFile,
+            downloadFile = repository::downloadFile,
+            onMarkRead = markChatRead,
+            onUnarchive = unarchiveChat,
+            onBack = { routeName = AppRoute.Chats.name },
+            onChatClick = { chat ->
+                selectedChatId = chat.id
+                chatBackRouteName = AppRoute.Archive.name
+                routeName = AppRoute.Chat.name
+            }
+        )
+    }
+    val chatRoute: @Composable () -> Unit = {
+        val chats by repository.chats.collectAsStateWithLifecycle()
+        val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
+        val chat = selectedChat ?: chats.firstOrNull { it.id == selectedChatId }
+        LaunchedEffect(authState, selectedChatId) {
+            if (authState == AuthState.Ready && chat == null && selectedChatId != 0L) repository.loadChat(selectedChatId)
+        }
+        if (chat == null) {
+            chatsTab()
+        } else {
+            val historyFlow = remember(repository, selectedChatId) { repository.observeChatHistory(selectedChatId) }
+            val history by historyFlow.collectAsStateWithLifecycle()
+            val chatInfoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
+            val chatInfo by chatInfoFlow.collectAsStateWithLifecycle()
+            DisposableEffect(repository, selectedChatId) {
+                val openedChatId = selectedChatId
+                repository.openChat(openedChatId)
+                onDispose { repository.closeChat(openedChatId) }
+            }
+            key(selectedChatId) {
+                ChatScreen(
+                    chat = chat,
+                    info = chatInfo.info,
+                    history = history,
+                    conversation = repository,
+                    chats = chats,
+                    observeFile = repository::observeFile,
+                    onDownloadFile = repository::downloadFile,
+                    onBack = { routeName = chatBackRouteName },
+                    onChatInfo = { routeName = AppRoute.ChatInfo.name },
+                    connectionState = connectionState,
+                    recordingSettings = recordingSettings
+                )
+            }
+        }
+    }
+    val chatInfoRoute: @Composable () -> Unit = {
+        val infoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
+        val info by infoFlow.collectAsStateWithLifecycle()
+        LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
+        ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
+            onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
+            onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
+            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
+    }
+
     when (route) {
         AppRoute.Start -> StartScreen(
             isDarkTheme = isDarkTheme,
@@ -290,106 +376,12 @@ private fun BeyGramAppContent(
             )
         }
 
-        AppRoute.Chats -> MainTabsScaffold(MainTab.Chats.route.name, MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
-            ChatsScreen(
-                chats = chats,
-                archivedChats = archivedChats,
-                myProfile = myProfile.info,
-                onNotifications = { openNotifications(AppRoute.Chats) },
-                observeFile = repository::observeFile,
-                downloadFile = repository::downloadFile,
-                onMyProfile = { routeName = AppRoute.MyProfile.name },
-                onArchiveClick = { routeName = AppRoute.Archive.name },
-                onMarkRead = markChatRead,
-                onArchive = archiveChat,
-                archiveHidden = archiveHidden,
-                onArchiveHiddenChange = onArchiveHiddenChange,
-                onChatClick = { chat ->
-                    selectedChatId = chat.id
-                    chatBackRouteName = AppRoute.Chats.name
-                    routeName = AppRoute.Chat.name
-                }
-            )
-        }
+        AppRoute.Chats -> chatsTab()
 
-        AppRoute.Archive -> ArchiveScreen(
-            chats = archivedChats,
-            observeFile = repository::observeFile,
-            downloadFile = repository::downloadFile,
-            onMarkRead = markChatRead,
-            onUnarchive = unarchiveChat,
-            onBack = { routeName = AppRoute.Chats.name },
-            onChatClick = { chat ->
-                selectedChatId = chat.id
-                chatBackRouteName = AppRoute.Archive.name
-                routeName = AppRoute.Chat.name
-            }
-        )
+        AppRoute.Archive -> archiveRoute()
 
-        AppRoute.Chat -> {
-            val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
-            val chat = selectedChat ?: chats.firstOrNull { it.id == selectedChatId }
-            LaunchedEffect(authState, selectedChatId) {
-                if (authState == AuthState.Ready && chat == null && selectedChatId != 0L) repository.loadChat(selectedChatId)
-            }
-            if (chat == null) {
-                MainTabsScaffold(MainTab.Chats.route.name, MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
-                    ChatsScreen(
-                        chats = chats,
-                        archivedChats = archivedChats,
-                        myProfile = myProfile.info,
-                        onNotifications = { openNotifications(AppRoute.Chats) },
-                        observeFile = repository::observeFile,
-                        downloadFile = repository::downloadFile,
-                        onMyProfile = { routeName = AppRoute.MyProfile.name },
-                        onArchiveClick = { routeName = AppRoute.Archive.name },
-                        onMarkRead = markChatRead,
-                        onArchive = archiveChat,
-                        archiveHidden = archiveHidden,
-                        onArchiveHiddenChange = onArchiveHiddenChange,
-                        onChatClick = { selectedChat ->
-                            selectedChatId = selectedChat.id
-                            chatBackRouteName = AppRoute.Chats.name
-                            routeName = AppRoute.Chat.name
-                        }
-                    )
-                }
-            } else {
-                val historyFlow = remember(repository, selectedChatId) { repository.observeChatHistory(selectedChatId) }
-                val history by historyFlow.collectAsStateWithLifecycle()
-                val chatInfoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
-                val chatInfo by chatInfoFlow.collectAsStateWithLifecycle()
-                DisposableEffect(repository, selectedChatId) {
-                    val openedChatId = selectedChatId
-                    repository.openChat(openedChatId)
-                    onDispose { repository.closeChat(openedChatId) }
-                }
-                key(selectedChatId) {
-                    ChatScreen(
-                        chat = chat,
-                        info = chatInfo.info,
-                        history = history,
-                        conversation = repository,
-                        chats = chats,
-                        observeFile = repository::observeFile,
-                        onDownloadFile = repository::downloadFile,
-                        onBack = { routeName = chatBackRouteName },
-                        onChatInfo = { routeName = AppRoute.ChatInfo.name },
-                        connectionState = connectionState,
-                        recordingSettings = recordingSettings
-                    )
-                }
-            }
-        }
-        AppRoute.ChatInfo -> {
-            val infoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
-            val info by infoFlow.collectAsStateWithLifecycle()
-            LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
-            ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
-                onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
-                onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
-                isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
-        }
+        AppRoute.Chat -> chatRoute()
+        AppRoute.ChatInfo -> chatInfoRoute()
         AppRoute.MyProfile -> {
             LaunchedEffect(repository) { repository.refreshMyProfile() }
             ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile,
