@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.media
 
 import android.content.Context
+import android.os.Build
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +24,13 @@ data class VideoMessageSettings(
     val longRecordingEnabled: Boolean = false,
     val mirrorFrontCamera: Boolean = true
 )
+
+/**
+ * Переключатель отзеркаливания нужен только на API 33 и выше: по документации CameraX Preview.setMirrorMode
+ * до API 33 не действует, а превью фронтальной камеры отражает сам PreviewView. Там запись всегда отражается,
+ * как и превью, поэтому переключатель не показываем.
+ */
+internal fun videoMirrorToggleSupported(sdkInt: Int = Build.VERSION.SDK_INT): Boolean = sdkInt >= Build.VERSION_CODES.TIRAMISU
 
 /** App-private settings for chat recording. These preferences do not touch the TDLib database. */
 class VideoMessageSettingsStore(context: Context) {
