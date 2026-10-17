@@ -9,6 +9,20 @@ plugins {
 fun String.asBuildConfigString(): String =
     "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
+// A production release is versioned before the main build is signed. The publish job
+// only reuses that immutable APK and validates its embedded version against the tag.
+val stableVersion = rootProject.file("release-version.properties").inputStream().use { input ->
+    Properties().apply { load(input) }.getProperty("versionName")
+        ?: error("release-version.properties must define versionName")
+}
+val stableVersionParts = stableVersion.split('.').map { it.toIntOrNull() ?: error("Invalid release version") }
+require(stableVersionParts.size == 4 && stableVersionParts[0] in 0..20 &&
+    stableVersionParts[1] in 0..99 && stableVersionParts[2] in 0..99 &&
+    stableVersionParts[3] in 0..9999) { "Expected version X.X.X.X, bounded to Android versionCode range" }
+val stableVersionCode = stableVersionParts[0] * 100_000_000 +
+    stableVersionParts[1] * 1_000_000 + stableVersionParts[2] * 10_000 + stableVersionParts[3]
+require(stableVersionCode > 0 && stableVersionCode <= 2_100_000_000) { "Invalid Android versionCode" }
+
 val secretsFile = rootProject.file("secrets.properties")
 val secretsProperties = Properties().apply {
     if (secretsFile.isFile) {
@@ -71,8 +85,8 @@ android {
         minSdk = 29
         targetSdk = 36
         ndk { abiFilters += "arm64-v8a" }
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = stableVersionCode
+        versionName = stableVersion
 
         buildConfigField("int", "TELEGRAM_API_ID", telegramApiId)
         buildConfigField("String", "TELEGRAM_API_HASH", telegramApiHash.asBuildConfigString())
