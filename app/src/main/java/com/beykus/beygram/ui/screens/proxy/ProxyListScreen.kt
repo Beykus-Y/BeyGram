@@ -32,10 +32,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
 import com.beykus.beygram.data.vpn.ProxyRuntimeStatus
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.domain.model.MihomoConnection
@@ -129,16 +131,16 @@ internal fun ProxyListScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
     ) {
         ProxyTopBar(
-            title = "Прокси",
+            title = stringResource(R.string.proxy_list_title),
             onBack = onBack,
             actions = {
                 IconButton(onClick = onAddProxy) {
-                    Icon(Icons.Rounded.Add, contentDescription = "Добавить прокси", tint = palette.accent)
+                    Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.proxy_list_add_proxy), tint = palette.accent)
                 }
             }
         )
         Text(
-            "Выберите прокси из сохранённых. Выбранный применяется сразу.",
+            stringResource(R.string.proxy_list_hint),
             color = palette.textSecondary,
             fontSize = 14.sp,
             lineHeight = 20.sp,
@@ -146,11 +148,11 @@ internal fun ProxyListScreen(
         )
 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            ProxySectionLabel("ПОДПИСКИ")
+            ProxySectionLabel(stringResource(R.string.proxy_list_section_subscriptions))
             ProxyCard {
                 ProxyRadioRow(
                     selected = mihomoEnabled,
-                    title = "Основная",
+                    title = stringResource(R.string.proxy_list_subscription_main),
                     subtitle = subscriptionSubtitle(connections, probes, settings.subscriptionUrl),
                     onClick = selectSubscription,
                     trailing = {
@@ -158,7 +160,7 @@ internal fun ProxyListScreen(
                             Modifier.clickable(onClick = onSubscriptionServers).padding(start = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Серверы", color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.proxy_list_servers), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             Icon(
                                 Icons.Rounded.ChevronRight,
                                 contentDescription = null,
@@ -170,12 +172,12 @@ internal fun ProxyListScreen(
                 )
             }
 
-            ProxySectionLabel("ВРУЧНУЮ")
+            ProxySectionLabel(stringResource(R.string.proxy_list_section_manual))
             ProxyCard {
                 ProxyRadioRow(
                     selected = !mihomoEnabled && saved.none { it.enabled },
-                    title = "Без прокси",
-                    subtitle = "Соединение напрямую",
+                    title = stringResource(R.string.proxy_list_no_proxy),
+                    subtitle = stringResource(R.string.proxy_list_direct_connection),
                     onClick = selectDirect
                 )
                 saved.forEach { proxy ->
@@ -190,7 +192,7 @@ internal fun ProxyListScreen(
                             IconButton(onClick = { removeSaved(proxy) }, modifier = Modifier.size(36.dp)) {
                                 Icon(
                                     Icons.Rounded.Delete,
-                                    contentDescription = "Удалить прокси",
+                                    contentDescription = stringResource(R.string.proxy_list_delete_proxy),
                                     tint = palette.textSecondary,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -211,7 +213,7 @@ internal fun ProxyListScreen(
         }
 
         ProxyPrimaryButton(
-            text = "Добавить прокси",
+            text = stringResource(R.string.proxy_list_add_proxy),
             onClick = onAddProxy,
             icon = Icons.Rounded.Add,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp)
@@ -224,21 +226,21 @@ private fun ProxyLatencyLabel(latency: Map<Int, Long?>, id: Int) {
     val palette = beyGramPalette()
     val (text, color) = when {
         !latency.containsKey(id) -> "…" to palette.textSecondary
-        latency[id] == null -> "нет связи" to palette.danger
+        latency[id] == null -> stringResource(R.string.proxy_no_connection) to palette.danger
         else -> latencyStyle(latency[id]!!, palette)
     }
     Text(text, color = color, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(end = 4.dp))
 }
 
-private fun subscriptionSubtitle(
+@Composable private fun subscriptionSubtitle(
     connections: List<MihomoConnection>,
     probes: Map<String, MihomoProbeResult>,
     url: String
 ): String = when {
-    connections.isEmpty() && url.isBlank() -> "Добавьте ссылку на подписку"
-    connections.isEmpty() -> "Серверы не загружены"
+    connections.isEmpty() && url.isBlank() -> stringResource(R.string.proxy_list_add_subscription_link)
+    connections.isEmpty() -> stringResource(R.string.proxy_list_servers_not_loaded)
     else -> {
         val best = bestReachable(probes)
-        serversCountText(connections.size) + best?.let { " · лучший ${it.first}, ${it.second} мс" }.orEmpty()
+        serversCountText(connections.size) + best?.let { " · " + stringResource(R.string.proxy_list_best_server, it.first, it.second) }.orEmpty()
     }
 }

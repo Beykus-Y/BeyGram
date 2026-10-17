@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -44,8 +46,8 @@ internal fun ChatSearchBar(query: String, onQueryChange: (String) -> Unit, onClo
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Закрыть поиск", tint = palette.textPrimary) }
-            Box(Modifier.weight(1f)) { SearchField(query, onQueryChange, placeholder = "Поиск в чате") }
+            IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.search_close_description), tint = palette.textPrimary) }
+            Box(Modifier.weight(1f)) { SearchField(query, onQueryChange, placeholder = stringResource(R.string.search_placeholder)) }
         }
         HorizontalDivider(color = palette.divider)
     }
@@ -61,16 +63,16 @@ internal fun ChatSearchResults(
     val needle = query.trim()
     Box(Modifier.fillMaxSize().background(palette.screen).imePadding()) {
         when {
-            needle.isEmpty() -> SearchNote("Введите текст, чтобы найти сообщения в этом чате", palette.textSecondary)
+            needle.isEmpty() -> SearchNote(stringResource(R.string.search_type_to_search), palette.textSecondary)
             busy && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = palette.accent)
             }
-            results.isEmpty() -> if (error != null) SearchNote(error, palette.danger) else SearchNote("Ничего не найдено", palette.textSecondary)
+            results.isEmpty() -> if (error != null) SearchNote(error, palette.danger) else SearchNote(stringResource(R.string.search_nothing_found), palette.textSecondary)
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
                 items(results, key = { it.id }) { message -> SearchResultRow(message, needle) { onOpen(message) } }
                 if (hasMore) item(key = "search_more") {
                     TextButton(onClick = onMore, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (busy) "Загружаем…" else "Показать ещё")
+                        Text(if (busy) stringResource(R.string.search_loading_more) else stringResource(R.string.search_show_more))
                     }
                 }
                 error?.let { message ->
@@ -87,7 +89,7 @@ private fun SearchResultRow(message: ChatMessage, query: String, onClick: () -> 
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (message.isOutgoing) "Вы" else message.senderName, color = palette.accentInk, fontSize = 13.sp,
+                if (message.isOutgoing) stringResource(R.string.search_you) else message.senderName, color = palette.accentInk, fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
             )
             Text(formatSearchDate(message.dateSeconds), color = palette.textSecondary, fontSize = 12.sp)

@@ -35,11 +35,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
 import com.beykus.beygram.domain.model.TelegramConnectionState
@@ -78,8 +80,8 @@ internal fun ColumnScope.ProxySubscriptionPane(
     val probeAll: () -> Unit = {
         scope.launch {
             vpnBackend.probeAllConnections()
-                .onSuccess { actionMessage = "Проверено серверов: ${it.size}" }
-                .onFailure { actionMessage = it.message ?: "Не удалось проверить серверы" }
+                .onSuccess { actionMessage = context.getString(R.string.proxy_sub_probed_count, it.size) }
+                .onFailure { actionMessage = it.message ?: context.getString(R.string.proxy_sub_probe_failed) }
         }
     }
     val applySelected: () -> Unit = {
@@ -87,7 +89,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
         if (name != null) {
             scope.launch {
                 vpnBackend.selectConnection(name)
-                    .onSuccess { actionMessage = "Выбрано подключение: $name" }
+                    .onSuccess { actionMessage = context.getString(R.string.proxy_sub_selected_connection, name) }
                     .onFailure { actionMessage = it.message }
             }
         }
@@ -95,7 +97,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
 
     Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
         ProxyField(
-            label = "Ссылка на подписку",
+            label = stringResource(R.string.proxy_sub_link_label),
             value = url,
             onValueChange = onUrlChange,
             keyboardType = KeyboardType.Uri
@@ -107,7 +109,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
         Spacer(Modifier.height(12.dp))
         // «Применить» включает автоматический выбор сервера, «Вручную» оставляет выбор за пользователем.
         ProxySegmented(
-            labels = listOf("Применить", "Вручную"),
+            labels = listOf(stringResource(R.string.proxy_sub_apply), stringResource(R.string.proxy_sub_manual)),
             selectedIndex = if (settings.autoSelectEnabled) 0 else 1,
             onSelect = { index -> vpnBackend.updateAutoSelect(index == 0) }
         )
@@ -116,8 +118,8 @@ internal fun ColumnScope.ProxySubscriptionPane(
             Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Серверы · ${connections.size}", color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            Text("Пинг, мс", color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(stringResource(R.string.proxy_sub_servers_count, connections.size), color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(stringResource(R.string.proxy_sub_ping_header), color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
 
         LazyColumn(
@@ -130,7 +132,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
             if (connections.isEmpty()) {
                 item {
                     Text(
-                        if (url.isBlank()) "Вставьте ссылку на подписку и нажмите обновление вверху." else "Серверы пока не загружены. Нажмите обновление вверху.",
+                        if (url.isBlank()) stringResource(R.string.proxy_sub_paste_link_hint) else stringResource(R.string.proxy_sub_servers_not_loaded_hint),
                         color = palette.textSecondary,
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
@@ -143,7 +145,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
                 val probe = probes[connection.name]
                 val delay = probe?.delayMillis ?: connection.delayMillis
                 val (pingText, pingColor) = when {
-                    probe != null && !probe.telegramReachable -> "нет связи" to palette.danger
+                    probe != null && !probe.telegramReachable -> stringResource(R.string.proxy_no_connection) to palette.danger
                     delay == null -> "—" to palette.textSecondary
                     else -> latencyStyle(delay, palette)
                 }
@@ -152,7 +154,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
                     title = connection.name,
                     subtitle = null,
                     onClick = { onSelect(connection.name) },
-                    badge = if (connection.name == bestName) "лучший" else null,
+                    badge = if (connection.name == bestName) stringResource(R.string.proxy_sub_best_badge) else null,
                     trailing = {
                         Text(
                             pingText,
@@ -171,7 +173,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             ProxyTonalButton(
-                text = "Проверить пинг",
+                text = stringResource(R.string.proxy_sub_check_ping),
                 icon = Icons.Rounded.Speed,
                 background = palette.surface2,
                 enabled = !probing && !busy && connections.isNotEmpty(),
@@ -179,7 +181,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
                 modifier = Modifier.weight(1f)
             )
             ProxyTonalButton(
-                text = "Применить",
+                text = stringResource(R.string.proxy_sub_apply),
                 icon = Icons.Rounded.Check,
                 background = palette.accentSoft,
                 enabled = selectedName != null && !busy,
@@ -188,19 +190,19 @@ internal fun ColumnScope.ProxySubscriptionPane(
             )
         }
 
-        (progress?.let { "Проверяем: ${it.completed} из ${it.total}" } ?: actionMessage)?.let {
+        (progress?.let { stringResource(R.string.proxy_sub_probing_progress, it.completed, it.total) } ?: actionMessage)?.let {
             Text(it, color = palette.accent, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
         }
         TextButton(
             onClick = {
                 scope.launch {
                     actionMessage = shareConnectionDiagnosticsOrError(context, connectionState)
-                        ?: "Отчёт с логами подписки готов к отправке"
+                        ?: context.getString(R.string.proxy_sub_logs_ready)
                 }
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Поделиться логами", color = palette.accent, fontSize = 14.sp)
+            Text(stringResource(R.string.proxy_sub_share_logs), color = palette.accent, fontSize = 14.sp)
         }
     }
 }

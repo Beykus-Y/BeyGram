@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,12 +41,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -60,6 +63,7 @@ import kotlinx.coroutines.launch
  */
 @Stable
 internal class AttachmentState(
+    private val context: Context,
     private val importer: OutgoingMediaImporter,
     private val scope: CoroutineScope,
     private val pendingState: MutableState<ArrayList<OutgoingMedia>>,
@@ -82,7 +86,7 @@ internal class AttachmentState(
 
     fun prepare(uris: List<android.net.Uri>, asDocument: Boolean) {
         if (uris.isEmpty()) return
-        if (uris.size > 10) { errorState.value = "Выберите не более 10 вложений за раз"; return }
+        if (uris.size > 10) { errorState.value = context.getString(R.string.composer_too_many_attachments); return }
         importJob = scope.launch {
             importing = true
             errorState.value = null
@@ -92,7 +96,7 @@ internal class AttachmentState(
                     pendingState.value = ArrayList(pending + prepared)
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { errorState.value = failure.message ?: "Не удалось подготовить вложение. Попробуйте отправить его как файл." }
+            catch (failure: Exception) { errorState.value = failure.message ?: context.getString(R.string.composer_prepare_failed) }
             finally { importing = false }
         }
     }
@@ -123,13 +127,13 @@ internal class AttachmentState(
             try {
                 for (item in pending.toList()) {
                     val result = sendMedia(item, nextCaption)
-                    if (result.isFailure) { errorState.value = result.exceptionOrNull()?.message ?: "Не удалось отправить вложение"; break }
+                    if (result.isFailure) { errorState.value = result.exceptionOrNull()?.message ?: context.getString(R.string.composer_send_failed); break }
                     pendingState.value = ArrayList(pending.filterNot { it.path == item.path })
                     nextCaption = ""
                     onCaptionChange("")
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { errorState.value = failure.message ?: "Не удалось отправить вложение" }
+            catch (failure: Exception) { errorState.value = failure.message ?: context.getString(R.string.composer_send_failed) }
             finally { sending = false }
         }
     }
@@ -146,7 +150,7 @@ internal fun rememberAttachmentState(
     val pending = rememberSaveable(chatId) { mutableStateOf(arrayListOf<OutgoingMedia>()) }
     val error = rememberSaveable(chatId) { mutableStateOf<String?>(null) }
     val currentSend by androidx.compose.runtime.rememberUpdatedState(sendMedia)
-    val state = remember(chatId) { AttachmentState(importer, scope, pending, error) { media, caption -> currentSend(media, caption) } }
+    val state = remember(chatId) { AttachmentState(context, importer, scope, pending, error) { media, caption -> currentSend(media, caption) } }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
     state.pickPhotos = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
@@ -157,8 +161,9 @@ internal fun rememberAttachmentState(
 @Composable
 internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
     IconButton(onClick = { state.menuOpen = !state.menuOpen }, enabled = enabled && !state.sending,
-        modifier = Modifier.size(44.dp).semantics { contentDescription = "Прикрепить медиа или файл" }) {
+        modifier = Modifier.size(44.dp).semantics { contentDescription = context.getString(R.string.composer_attach_description) }) {
         Icon(Icons.Rounded.AttachFile, contentDescription = null, tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary, modifier = Modifier.size(24.dp))
     }
 }
@@ -167,17 +172,18 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
 @Composable
 internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLimit: Int) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
     val visible = state.menuOpen || state.active || state.error != null
     if (!visible) return
     Column(Modifier.fillMaxWidth().background(palette.surface).padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 2.dp)) {
         if (!state.active) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (state.menuOpen) {
-                    TypeChip(Icons.Rounded.Image, "Фото и видео") { state.menuOpen = false; state.pickPhotos() }
-                    TypeChip(Icons.Rounded.Description, "Файл") { state.menuOpen = false; state.pickDocuments() }
+                    TypeChip(Icons.Rounded.Image, stringResource(R.string.composer_type_photo_video)) { state.menuOpen = false; state.pickPhotos() }
+                    TypeChip(Icons.Rounded.Description, stringResource(R.string.composer_type_file)) { state.menuOpen = false; state.pickDocuments() }
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { state.discardAll() }) { Icon(Icons.Rounded.Close, "Закрыть", tint = palette.textSecondary) }
+                IconButton(onClick = { state.discardAll() }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textSecondary) }
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -188,15 +194,15 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                             else Icon(Icons.Rounded.Description, null, tint = palette.accentInk, modifier = Modifier.size(36.dp).background(palette.accentSoft, RoundedCornerShape(8.dp)).padding(8.dp))
                             Column(Modifier.padding(horizontal = 8.dp).width(112.dp)) {
                                 Text(item.fileName, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text("${item.kind.label()} · ${formatMediaSize(item.size)}", color = palette.textSecondary, fontSize = 12.sp, maxLines = 1)
+                                Text("${item.kind.label(context)} · ${formatMediaSize(item.size)}", color = palette.textSecondary, fontSize = 12.sp, maxLines = 1)
                             }
-                            Icon(Icons.Rounded.Close, "Убрать", tint = palette.textSecondary,
+                            Icon(Icons.Rounded.Close, stringResource(R.string.composer_remove_attachment), tint = palette.textSecondary,
                                 modifier = Modifier.size(28.dp).clip(CircleShape).clickable(enabled = !state.sending && !state.importing) { state.remove(item) }.padding(5.dp))
                         }
                     }
                     if (state.importing) CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent, strokeWidth = 2.dp)
                 }
-                IconButton(onClick = { state.discardAll() }, enabled = !state.sending) { Icon(Icons.Rounded.Close, "Отменить вложения", tint = palette.textSecondary) }
+                IconButton(onClick = { state.discardAll() }, enabled = !state.sending) { Icon(Icons.Rounded.Close, stringResource(R.string.composer_cancel_attachments), tint = palette.textSecondary) }
             }
             val count = caption.codePointCount(0, caption.length)
             Text("$count / $captionLimit", color = if (count > captionLimit) palette.danger else palette.textSecondary, fontSize = 12.sp,

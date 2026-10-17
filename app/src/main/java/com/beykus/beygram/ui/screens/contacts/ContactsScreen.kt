@@ -41,11 +41,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.SearchField
@@ -65,6 +68,7 @@ fun ContactsScreen(
     onChatOpened: (chatId: Long) -> Unit
 ) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var contacts by remember { mutableStateOf<List<ContactPreview>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -85,7 +89,7 @@ fun ContactsScreen(
             loadError = null
             loadContacts()
                 .onSuccess { contacts = it }
-                .onFailure { loadError = it.message ?: "Не удалось загрузить контакты" }
+                .onFailure { loadError = it.message ?: context.getString(R.string.contacts_load_failed) }
             loading = false
         }
     }
@@ -96,7 +100,7 @@ fun ContactsScreen(
             openError = null
             openPrivateChat(contact.userId)
                 .onSuccess { chatId -> onChatOpened(chatId) }
-                .onFailure { openError = it.message ?: "Не удалось открыть чат" }
+                .onFailure { openError = it.message ?: context.getString(R.string.contacts_open_chat_failed) }
             openingUserId = null
         }
     }
@@ -108,11 +112,11 @@ fun ContactsScreen(
             .imePadding()
     ) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Контакты", color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            IconButton(onClick = { showAddDialog = true }) { Icon(Icons.Rounded.PersonAdd, "Добавить контакт", tint = palette.accent) }
+            Text(stringResource(R.string.contacts_title), color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            IconButton(onClick = { showAddDialog = true }) { Icon(Icons.Rounded.PersonAdd, stringResource(R.string.contacts_add_contact_description), tint = palette.accent) }
         }
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-            SearchField(query = query, onChange = { query = it }, placeholder = "Поиск контактов")
+            SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.contacts_search_placeholder))
         }
         if (loading && contacts.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         openError?.let { Text(it, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
@@ -126,10 +130,10 @@ fun ContactsScreen(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(loadError.orEmpty(), color = palette.danger, textAlign = TextAlign.Center)
-                TextButton(onClick = { reload() }) { Text("Повторить") }
+                TextButton(onClick = { reload() }) { Text(stringResource(R.string.common_retry)) }
             }
-            contacts.isEmpty() -> EmptyState("Контактов пока нет", Modifier.weight(1f))
-            visible.isEmpty() -> EmptyState("Ничего не найдено", Modifier.weight(1f))
+            contacts.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_none), Modifier.weight(1f))
+            visible.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_no_results), Modifier.weight(1f))
             else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(visible, key = { it.userId }) { contact ->
                     ContactRow(contact, observeFile, downloadFile, enabled = openingUserId == null) { openChat(contact) }
@@ -181,6 +185,7 @@ private fun AddContactDialog(
     onAdded: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Личные данные нового контакта не уходят в saved state: после пересоздания экрана поля очищаются.
     var firstName by remember { mutableStateOf("") }
@@ -191,12 +196,12 @@ private fun AddContactDialog(
     val canSave = !saving && firstName.isNotBlank() && phone.any { it.isDigit() }
     AlertDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text("Новый контакт") },
+        title = { Text(stringResource(R.string.contacts_add_dialog_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(firstName, { firstName = it.take(64) }, label = { Text("Имя") }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(lastName, { lastName = it.take(64) }, label = { Text("Фамилия") }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(phone, { phone = it.take(20) }, label = { Text("Телефон") }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(firstName, { firstName = it.take(64) }, label = { Text(stringResource(R.string.contacts_field_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(lastName, { lastName = it.take(64) }, label = { Text(stringResource(R.string.contacts_field_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(phone, { phone = it.take(20) }, label = { Text(stringResource(R.string.contacts_field_phone)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth())
                 error?.let { Text(it, color = palette.danger, fontSize = 14.sp) }
             }
         },
@@ -207,11 +212,11 @@ private fun AddContactDialog(
                     error = null
                     onSubmit(firstName.trim(), lastName.trim(), phone.filter { it.isDigit() || it == '+' })
                         .onSuccess { onAdded(); onDismiss() }
-                        .onFailure { error = it.message ?: "Не удалось добавить контакт" }
+                        .onFailure { error = it.message ?: context.getString(R.string.contacts_add_failed) }
                     saving = false
                 }
-            }) { Text(if (saving) "Добавляем…" else "Добавить") }
+            }) { Text(if (saving) stringResource(R.string.contacts_adding) else stringResource(R.string.contacts_add)) }
         },
-        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("Отмена") } }
+        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
     )
 }

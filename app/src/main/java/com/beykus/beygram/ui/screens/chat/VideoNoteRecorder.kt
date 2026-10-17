@@ -43,12 +43,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -120,7 +122,7 @@ internal class VideoNoteRecorder(
                 bind(cameraProvider)
                 startRecording()
             } catch (_: Exception) {
-                fail("Не удалось открыть камеру")
+                fail(context.getString(R.string.recorder_camera_open_failed))
             }
         }, ContextCompat.getMainExecutor(context))
         timer = scope.launch {
@@ -210,7 +212,7 @@ internal class VideoNoteRecorder(
         } catch (_: Exception) {
             take = null
             current.file.parentFile?.deleteRecursively()
-            fail("Не удалось начать запись")
+            fail(context.getString(R.string.recorder_start_failed))
         }
     }
 
@@ -222,12 +224,12 @@ internal class VideoNoteRecorder(
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
         if (current.discard || seconds < MIN_DURATION_SECONDS || event.hasError()) {
             current.file.parentFile?.deleteRecursively()
-            if (!current.discard && seconds >= MIN_DURATION_SECONDS) onError("Не удалось сохранить кружок")
+            if (!current.discard && seconds >= MIN_DURATION_SECONDS) onError(context.getString(R.string.recorder_save_failed))
             return
         }
         onFinished(
             OutgoingMedia(
-                path = current.file.absolutePath, fileName = "Видеосообщение.mp4", mimeType = "video/mp4",
+                path = current.file.absolutePath, fileName = context.getString(R.string.recorder_file_name), mimeType = "video/mp4",
                 kind = MediaKind.VideoNote, width = SIDE_PX, height = SIDE_PX, durationSeconds = seconds
             )
         )
@@ -282,7 +284,7 @@ internal fun VideoNoteRecordButton(recorder: VideoNoteRecorder, enabled: Boolean
             },
         contentAlignment = Alignment.Center
     ) {
-        Icon(Icons.Rounded.Videocam, if (recording) "Идёт запись кружка" else "Записать кружок",
+        Icon(Icons.Rounded.Videocam, if (recording) stringResource(R.string.recorder_recording_description) else stringResource(R.string.recorder_start_description),
             tint = if (recording) Color.White else palette.textSecondary, modifier = Modifier.size(22.dp))
     }
 }
@@ -294,7 +296,7 @@ internal fun VideoNoteRecordingHint(modifier: Modifier = Modifier) {
     Row(modifier.height(40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
         Icon(Icons.Rounded.Delete, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(8.dp))
-        Text("‹ Сдвиньте влево для отмены", color = palette.textSecondary, fontSize = 14.sp, maxLines = 1,
+        Text(stringResource(R.string.recorder_swipe_left_hint), color = palette.textSecondary, fontSize = 14.sp, maxLines = 1,
             modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(palette.surface2).padding(horizontal = 16.dp, vertical = 9.dp))
     }
 }
@@ -331,7 +333,7 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
             }
         }
         Spacer(Modifier.height(16.dp))
-        Text(if (recorder.canceling) "Отпустите, чтобы отменить." else "Отпустите, чтобы отправить.", color = palette.textPrimary, fontSize = 14.sp)
-        Text("Влево — отменить", color = if (recorder.canceling) palette.danger else palette.textSecondary, fontSize = 14.sp)
+        Text(if (recorder.canceling) stringResource(R.string.recorder_release_to_cancel) else stringResource(R.string.recorder_release_to_send), color = palette.textPrimary, fontSize = 14.sp)
+        Text(stringResource(R.string.recorder_swipe_left_cancel), color = if (recorder.canceling) palette.danger else palette.textSecondary, fontSize = 14.sp)
     }
 }

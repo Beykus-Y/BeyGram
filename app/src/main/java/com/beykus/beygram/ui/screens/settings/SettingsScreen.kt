@@ -27,9 +27,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Настройки приложения: нижнее меню и уведомления. */
@@ -41,15 +43,15 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
     ) {
         Text(
-            "Настройки", color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold,
+            stringResource(R.string.settings_title), color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
         )
         Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
-            SettingsLink(Icons.Rounded.Dashboard, "Нижнее меню", onNavigationSettings)
+            SettingsLink(Icons.Rounded.Dashboard, stringResource(R.string.nav_title), onNavigationSettings)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
-            SettingsLink(Icons.Rounded.Lock, "Прокси для Telegram", onProxy)
+            SettingsLink(Icons.Rounded.Lock, stringResource(R.string.start_proxy_settings), onProxy)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
-            SettingsLink(Icons.Rounded.Notifications, "Уведомления", onNotifications)
+            SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
         }
     }
 }

@@ -24,7 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.beykus.beygram.R
 
 /** Поле поиска в виде пилюли. [placeholder] показывается, пока поле пустое. */
 @Composable
@@ -46,7 +48,7 @@ internal fun SearchField(query: String, onChange: (String) -> Unit, placeholder:
                     inner()
                 }
                 if (query.isNotEmpty()) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Очистить", tint = palette.textSecondary,
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.components_clear_search), tint = palette.textSecondary,
                         modifier = Modifier.size(32.dp).clip(CircleShape).clickable { onChange("") }.padding(5.dp))
                 }
             }

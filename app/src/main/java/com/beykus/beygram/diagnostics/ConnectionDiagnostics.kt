@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.FileProvider
 import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +49,7 @@ suspend fun copyConnectionDiagnosticsToClipboardOrError(
 } catch (cancelled: CancellationException) {
     throw cancelled
 } catch (failure: Exception) {
-    "Не удалось скопировать логи (${failure.javaClass.simpleName})"
+    context.getString(R.string.diagnostics_copy_failed, failure.javaClass.simpleName)
 }
 
 /**
@@ -62,7 +63,7 @@ suspend fun shareConnectionDiagnosticsOrError(context: Context, connection: Tele
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failure: Exception) {
-        "Не удалось подготовить логи (${failure.javaClass.simpleName})"
+        context.getString(R.string.diagnostics_prepare_failed, failure.javaClass.simpleName)
     }
 
 /** Открывает системное «Поделиться» для уже записанного отчёта. */
@@ -71,11 +72,11 @@ fun shareConnectionDiagnostics(context: Context, file: File) {
     val send = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_STREAM, uri)
-        putExtra(Intent.EXTRA_SUBJECT, "BeyGram: диагностика подключения")
+        putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.diagnostics_share_subject))
         clipData = ClipData.newRawUri(null, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(send, "Поделиться логами"))
+    context.startActivity(Intent.createChooser(send, context.getString(R.string.diagnostics_share_chooser)))
 }
 
 internal fun TelegramConnectionState.diagnosticsLabel(): String = when (this) {
@@ -102,7 +103,7 @@ internal fun buildDiagnosticsReport(
     appendLine("[Устройство]")
     appendLine("производитель: ${Build.MANUFACTURER}")
     appendLine("модель: ${Build.MODEL}")
-    appendLine("Android: ${Build.VERSION.RELEASE}")
+    appendLine("Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
     appendLine("процессор: ${Build.SUPPORTED_ABIS.firstOrNull() ?: "неизвестно"}")
     val ignoresBattery = context.getSystemService(PowerManager::class.java)
         ?.isIgnoringBatteryOptimizations(context.packageName) == true
