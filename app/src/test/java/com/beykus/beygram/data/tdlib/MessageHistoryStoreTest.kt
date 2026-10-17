@@ -71,6 +71,16 @@ class MessageHistoryStoreTest {
         assertEquals(listOf(50L), store.observe(1L).value.messages.map { it.id })
     }
 
+    @Test fun sentConfirmationReplacesUnsentMessageInsideAJumpWindow() {
+        val store = MessageHistoryStore()
+        store.replaceWithWindow(1L, listOf(message(50L, 50L)), reachesLatest = false)
+        store.put(message(10L, state = MessageSendState.Sending))
+        store.put(message(100L, 70L), replaces = 10L)
+        val messages = store.observe(1L).value.messages
+        assertEquals(listOf(50L, 100L), messages.map { it.id })
+        assertEquals(listOf(MessageSendState.Sent, MessageSendState.Sent), messages.map { it.sendState })
+    }
+
     @Test fun loadStartedBeforeJumpWindowCannotMergeIntoIt() {
         val store = MessageHistoryStore()
         val epoch = store.beginLoad(1L)!!

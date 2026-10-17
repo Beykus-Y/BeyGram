@@ -42,7 +42,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         if (replaces != null && replaces != message.id) retire(message.chatId, listOf(replaces))
         val state = flow(message.chatId)
         // A jump window does not reach the newest messages, so an incoming message would leave a gap; it shows once they load.
-        if (state.value.hasNewerMessages && message.sendState == MessageSendState.Sent && state.value.messages.none { it.id == message.id }) return@synchronized
+        if (state.value.hasNewerMessages && replaces == null && message.sendState == MessageSendState.Sent && state.value.messages.none { it.id == message.id }) return@synchronized
         state.value = state.value.copy(messages = merge(message.chatId, state.value.messages, listOf(message)))
         keepCached(message.chatId)
     }
