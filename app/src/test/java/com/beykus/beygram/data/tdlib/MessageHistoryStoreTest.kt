@@ -46,6 +46,26 @@ class MessageHistoryStoreTest {
         assertFalse(store.observe(1L).value.isLoading)
     }
 
+    @Test fun jumpWindowReplacesLoadedMessagesButKeepsUnsentOnes() {
+        val store = MessageHistoryStore()
+        store.put(message(1L))
+        store.put(message(2L, 2L, state = MessageSendState.Sending))
+        store.replaceWithWindow(1L, listOf(message(50L, 50L), message(51L, 51L)))
+        val history = store.observe(1L).value
+        assertEquals(listOf(2L, 50L, 51L), history.messages.map { it.id })
+        assertTrue(history.hasNewerMessages)
+        assertTrue(history.hasOlderMessages)
+        assertFalse(history.isLoading)
+    }
+
+    @Test fun resetToLatestDropsTheJumpWindowUntilTheNextLoad() {
+        val store = MessageHistoryStore()
+        store.replaceWithWindow(1L, listOf(message(50L, 50L)))
+        store.resetToLatest(1L)
+        assertEquals(emptyList<ChatMessage>(), store.observe(1L).value.messages)
+        assertFalse(store.observe(1L).value.hasNewerMessages)
+    }
+
     @Test fun snapshotRequestedBeforeAnUpdateCannotRollItBack() {
         val store = MessageHistoryStore()
         store.put(message(1L))

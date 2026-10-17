@@ -432,6 +432,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationEffects.opened(chatId)
         messageHistory.opened(chatId)
         client.send(TdApi.OpenChat(chatId), Client.ResultHandler { })
+        messageHistory.resetToLatest(chatId)
         if (messageHistory.beginLoad(chatId)) requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3)
     }
 
@@ -445,6 +446,17 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun loadOlderMessages(chatId: Long) {
         val oldest = messageHistory.observe(chatId).value.messages.firstOrNull()?.id ?: 0L
         if (messageHistory.beginLoad(chatId)) requestHistory(chatId, oldest, remaining = 50, pagesLeft = 3)
+    }
+
+    override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Unit> =
+        conversationActions.window(chatId, messageId).onSuccess { messages ->
+            messageHistory.replaceWithWindow(chatId, messages.map { it.toChatMessage() })
+            messages.forEach(conversationActions::hydrateReply)
+        }.map { Unit }
+
+    override fun loadLatestMessages(chatId: Long) {
+        messageHistory.resetToLatest(chatId)
+        if (messageHistory.beginLoad(chatId)) requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3)
     }
 
     private fun requestHistory(chatId: Long, fromMessageId: Long, remaining: Int, pagesLeft: Int) {

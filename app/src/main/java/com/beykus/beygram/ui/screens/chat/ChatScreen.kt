@@ -99,6 +99,8 @@ fun ChatScreen(
     var contextChatId by rememberSaveable(chat.id) { mutableStateOf(0L) }
     var contextMessageId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var highlighted by remember { mutableStateOf<Long?>(null) }
+    // A message outside the loaded history is scrolled to once the window around it reaches the list.
+    var pendingJumpId by remember(chat.id) { mutableStateOf<Long?>(null) }
     var searching by rememberSaveable(chat.id) { mutableStateOf(false) }
     var searchQuery by rememberSaveable(chat.id) { mutableStateOf("") }
     var searchResults by remember(chat.id) { mutableStateOf<List<ChatMessage>>(emptyList()) }
@@ -276,7 +278,15 @@ fun ChatScreen(
         }
     }
     LaunchedEffect(chat.id, newest?.id) {
-        if (messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) listState.animateScrollToItem(0)
+        if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) listState.animateScrollToItem(0)
+    }
+    LaunchedEffect(pendingJumpId, messageListItems) {
+        val target = pendingJumpId ?: return@LaunchedEffect
+        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == target } }
+        if (index < 0) return@LaunchedEffect
+        pendingJumpId = null
+        listState.animateScrollToItem(index)
+        highlighted = target
     }
     LaunchedEffect(highlighted) { if (highlighted != null) { delay(2200); highlighted = null } }
     fun jump(reply: MessageReply) {
@@ -317,6 +327,15 @@ fun ChatScreen(
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = message.id }
         else { contextChatId = chat.id; contextMessageId = message.id }
     }
+    fun jumpToPinned(message: ChatMessage) {
+        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == message.id } }
+        if (index >= 0) { scope.launch { listState.animateScrollToItem(index); highlighted = message.id }; return }
+        scope.launch {
+            conversation.loadMessagesAround(chat.id, message.id)
+                .onSuccess { pendingJumpId = message.id }
+                .onFailure { error = it.userMessage(context, R.string.chat_pinned_failed) }
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (actionMessage != null) MessageActionsBar(
@@ -328,7 +347,7 @@ fun ChatScreen(
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
         else ChatTopBar(chat, chatPresenceLine(chat, info).resolve(), onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
-        PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected, ::openSearchResult)
+        PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected, ::jumpToPinned)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -363,7 +382,10 @@ fun ChatScreen(
         }
         val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
         if (away) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).clip(RoundedCornerShape(50)).background(palette.surface)
-            .border(1.dp, palette.divider, RoundedCornerShape(50)).clickable { scope.launch { listState.animateScrollToItem(0) } }
+            .border(1.dp, palette.divider, RoundedCornerShape(50)).clickable {
+                if (history.hasNewerMessages) { conversation.loadLatestMessages(chat.id); scope.launch { listState.scrollToItem(0) } }
+                else scope.launch { listState.animateScrollToItem(0) }
+            }
             .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.ArrowDownward, null, tint = palette.accent, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))

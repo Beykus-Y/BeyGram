@@ -43,6 +43,32 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         keepCached(message.chatId)
     }
 
+    /** Replaces the loaded messages with a window around a jumped-to message; unsent messages stay. */
+    fun replaceWithWindow(chatId: Long, messages: List<ChatMessage>) = synchronized(lock) {
+        val state = flow(chatId)
+        val unsent = state.value.messages.filter { it.sendState != MessageSendState.Sent }
+        state.value = state.value.copy(
+            messages = merge(chatId, unsent, messages),
+            isLoading = false,
+            hasOlderMessages = true,
+            hasNewerMessages = true,
+            error = null
+        )
+        endLoad(chatId)
+        keepCached(chatId)
+    }
+
+    /** Drops the jumped-to window so the next load starts again from the newest messages. */
+    fun resetToLatest(chatId: Long) = synchronized(lock) {
+        val state = flow(chatId)
+        if (!state.value.hasNewerMessages) return@synchronized
+        state.value = state.value.copy(
+            messages = state.value.messages.filter { it.sendState != MessageSendState.Sent },
+            hasOlderMessages = true,
+            hasNewerMessages = false
+        )
+    }
+
     fun beginLoad(chatId: Long): Boolean = synchronized(lock) {
         val state = flow(chatId)
         if (state.value.isLoading) false else {
