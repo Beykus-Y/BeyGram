@@ -1,8 +1,6 @@
 package com.beykus.beygram.data.media
 
 import android.content.Context
-import android.media.MediaExtractor
-import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.media3.common.MediaItem
@@ -18,7 +16,6 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
-import com.beykus.beygram.data.media.VideoProcessingMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -35,16 +32,7 @@ class VideoNoteProcessor(private val context: Context) {
         require(sourceDurationMs > 0L) { "Не удалось прочитать длительность записи" }
         val target = settings.targetProfile()
         val directory = source.parentFile ?: error("Нет папки записи")
-        // CameraX выбирает кодек по устройству, а TDLib принимает кружок только в H.264: иное перекодируем.
-        val sourceIsH264 = withContext(Dispatchers.IO) { isH264Video(source) }
-        val canPassThrough = sourceIsH264 && sourceDurationMs <= MAX_SEGMENT_MS && when (settings.processing) {
-            VideoProcessingMode.Direct -> true
-            VideoProcessingMode.Automatic -> sourceInfo.width == target.side && sourceInfo.height == target.side
-            VideoProcessingMode.Transcode -> false
-        }
-        if (canPassThrough) {
-            return listOf(outgoingMedia(source, sourceInfo, 1))
-        }
+        // CameraX пишет кадр целиком, включая углы вне круга, а TDLib принимает кружок только в H.264: поэтому файл всегда перекодируется.
         val result = mutableListOf<OutgoingMedia>()
         var startMs = 0L
         var index = 0
@@ -72,18 +60,6 @@ class VideoNoteProcessor(private val context: Context) {
             throw failure
         }
     }
-
-    /** Проверяет, что видеодорожка уже H.264: только такой файл уходит без перекодирования. Если прочитать не удалось, файл перекодируется. */
-    private fun isH264Video(file: File): Boolean = runCatching {
-        MediaExtractor().run {
-            try {
-                setDataSource(file.absolutePath)
-                (0 until trackCount)
-                    .map { getTrackFormat(it).getString(MediaFormat.KEY_MIME) }
-                    .firstOrNull { it?.startsWith("video/") == true } == MimeTypes.VIDEO_H264
-            } finally { release() }
-        }
-    }.getOrDefault(false)
 
     private fun outgoingMedia(file: File, info: VideoMetadata, index: Int) = OutgoingMedia(
         path = file.absolutePath,
