@@ -372,6 +372,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationEffects.contentOpened(chatId, messageId)
     }
 
+    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?): Result<Unit> =
+        conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId)
+
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?): Result<Unit> =
         conversationActions.sendMedia(chatId, media, caption, replyToMessageId)
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> =

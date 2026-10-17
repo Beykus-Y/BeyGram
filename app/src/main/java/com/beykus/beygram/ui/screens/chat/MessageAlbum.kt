@@ -97,7 +97,7 @@ internal fun MessageAlbumBubble(
         MessageSendState.Sent -> ""
     }
 
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (latest.isOutgoing) Arrangement.End else Arrangement.Start) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = if (latest.isOutgoing) Arrangement.End else Arrangement.Start) {
         Column(Modifier.widthIn(max = 292.dp).clip(shape)
             .then(if (highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
             .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble)) {
@@ -107,7 +107,7 @@ internal fun MessageAlbumBubble(
             }
             val rows = chronological.chunked(columns)
             rows.forEachIndexed { index, rowMessages ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     rowMessages.forEach { message ->
                         val media = message.media ?: return@forEach
                         AlbumMediaTile(media, observeFile, onDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) }, Modifier.weight(1f))

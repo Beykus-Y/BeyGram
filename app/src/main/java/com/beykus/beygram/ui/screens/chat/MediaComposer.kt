@@ -69,7 +69,7 @@ internal class AttachmentState(
     private val scope: CoroutineScope,
     private val pendingState: MutableState<ArrayList<OutgoingMedia>>,
     private val errorState: MutableState<String?>,
-    private val sendMedia: suspend (OutgoingMedia, String) -> Result<Unit>
+    private val sendMedia: suspend (List<OutgoingMedia>, String) -> Result<Unit>
 ) {
     var menuOpen by mutableStateOf(false)
     var importing by mutableStateOf(false)
@@ -126,10 +126,12 @@ internal class AttachmentState(
             errorState.value = null
             var nextCaption = caption
             try {
-                for (item in pending.toList()) {
-                    val result = sendMedia(item, nextCaption)
+                val items = pending.toList()
+                val batches = if (items.size in 2..10 && items.all { it.kind == com.beykus.beygram.domain.model.MediaKind.Photo || it.kind == com.beykus.beygram.domain.model.MediaKind.Video }) listOf(items) else items.map { listOf(it) }
+                for (batch in batches) {
+                    val result = sendMedia(batch, nextCaption)
                     if (result.isFailure) { errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed); break }
-                    pendingState.value = ArrayList(pending.filterNot { it.path == item.path })
+                    pendingState.value = ArrayList(pending.filterNot { item -> batch.any { it.path == item.path } })
                     nextCaption = ""
                     onCaptionChange("")
                 }
@@ -143,7 +145,7 @@ internal class AttachmentState(
 @Composable
 internal fun rememberAttachmentState(
     chatId: Long,
-    sendMedia: suspend (OutgoingMedia, String) -> Result<Unit>
+    sendMedia: suspend (List<OutgoingMedia>, String) -> Result<Unit>
 ): AttachmentState {
     val context = LocalContext.current
     val importer = remember { OutgoingMediaImporter(context) }

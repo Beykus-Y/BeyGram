@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -40,7 +41,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 
 private val IDLE_SIZE = 220.dp
-private val PLAYING_SIZE = 292.dp
 internal val VideoNoteBackground = Brush.linearGradient(listOf(Color(0xFF2B2640), Color(0xFF17151D)))
 
 /** Голосовое и кружок играют прямо в ленте, поэтому тап по пузырю для них не открывает просмотрщик. */
@@ -180,7 +180,14 @@ internal fun VideoNoteBubble(
     var played by remember(media.fileId) { mutableStateOf(false) }
     val path = file.localPath
     val currentOnPlayed by rememberUpdatedState(onPlayed)
-    val size by animateDpAsState(targetValue = if (holder.started) PLAYING_SIZE else IDLE_SIZE, label = "video note size")
+    val playingSize = LocalConfiguration.current.screenWidthDp.dp
+    var showControls by remember(media.fileId) { mutableStateOf(false) }
+    LaunchedEffect(holder.started, holder.playing) {
+        showControls = holder.started
+        delay(500)
+        showControls = false
+    }
+    val size by animateDpAsState(targetValue = if (holder.started) playingSize else IDLE_SIZE, label = "video note size")
     DisposableEffect(holder) { onDispose { holder.dispose() } }
     // Нажатие до окончания загрузки запоминается: как только файл готов, кружок начинает играть.
     LaunchedEffect(path, wantPlay) {
@@ -234,7 +241,7 @@ internal fun VideoNoteBubble(
                     drawArc(palette.textSecondary.copy(alpha = 0.3f), startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
                     drawArc(palette.accent, startAngle = -90f, sweepAngle = 360f * fraction, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
                 }
-                if (holder.started) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                if (holder.started && showControls) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
                     Icon(if (holder.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
                 }
                 if (path == null && (wantPlay || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)

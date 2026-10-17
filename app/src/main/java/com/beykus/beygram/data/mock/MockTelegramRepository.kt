@@ -261,6 +261,17 @@ class MockTelegramRepository : TelegramRepository {
         historyStates.getValue(chatId).value = ChatHistory(messagesByChatId[chatId].orEmpty().toList(), hasOlderMessages = false)
         return Result.success(Unit)
     }
+    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?): Result<Unit> {
+        val albumId = nextMessageId
+        media.forEachIndexed { index, item ->
+            sendMedia(chatId, item, if (index == 0) caption else "", replyToMessageId)
+            val messages = messagesByChatId.getValue(chatId)
+            messages[messages.lastIndex] = messages.last().copy(mediaAlbumId = albumId)
+        }
+        historyStates.getValue(chatId).value = ChatHistory(messagesByChatId[chatId].orEmpty().toList(), hasOlderMessages = false)
+        return Result.success(Unit)
+    }
+
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = Result.success(Unit)
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = historyStates.getOrPut(chatId) {

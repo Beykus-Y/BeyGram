@@ -68,6 +68,24 @@ internal class TdConversationActions(
         send(chatId, media.toInputContent(caption), replyId)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?): Result<Unit> = conversationResult {
+        require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
+        if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
+        val replyTarget = replyId?.let {
+            if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+            request(TdApi.GetMessage(chatId, it))
+        }
+        val messages = request(TdApi.SendMessageAlbum().apply {
+            this.chatId = chatId
+            inputMessageContents = media.mapIndexed { index, item -> item.toInputContent(if (index == 0) caption else "") }.toTypedArray()
+            if (replyTarget != null) {
+                topicId = replyTarget.topicId
+                replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+            }
+        })
+        messages.messages.filterNotNull().forEach { message -> history.put(map(message)); hydrateReply(message) }
+    }
+
     suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = conversationResult {
         val orderedIds = messageIds.distinct().sorted()
         require(orderedIds.isNotEmpty()) { "Нет сообщений для повтора" }
