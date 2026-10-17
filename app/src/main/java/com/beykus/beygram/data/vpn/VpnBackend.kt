@@ -312,6 +312,16 @@ internal class VpnBackend private constructor(
         }
     }
 
+    /** Проверяет доступность Telegram через один сервер и возвращает свежий результат. */
+    suspend fun probeConnection(name: String): Result<MihomoProbeResult> = withContext(Dispatchers.IO) {
+        try {
+            Result.success(mihomo.checkTelegram(name))
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            Result.failure(error)
+        }
+    }
+
     suspend fun probeAllConnections(): Result<List<MihomoProbeResult>> = withContext(Dispatchers.IO) {
         try {
             val current = mihomo.listConnections(settings.value.connectionGroup)

@@ -85,12 +85,22 @@ private suspend fun measureLatency(
         onSuccess = { LatencyCheck.Measured(it) },
         onFailure = { recordConnectionFailure(ConnectionFailure.Proxy); LatencyCheck.NoAnswer }
     )
-    // Замер через локальный прокси подписки ничего не скажет о сервере. Берём задержку выбранного сервера.
-    TelegramRoute.Subscription -> vpnBackend.refreshConnections().getOrNull()
-        ?.firstOrNull { it.selected }
-        ?.delayMillis
-        ?.let { LatencyCheck.Measured(it) }
-        ?: LatencyCheck.NotMeasured
+    TelegramRoute.Subscription -> measureSubscriptionLatency(vpnBackend)
+}
+
+/** Замер через локальный прокси подписки ничего не скажет о сервере, поэтому проверяем выбранный сервер заново. */
+private suspend fun measureSubscriptionLatency(vpnBackend: VpnBackend): LatencyCheck {
+    val selected = vpnBackend.refreshConnections().getOrNull()?.firstOrNull { it.selected }
+        ?: return LatencyCheck.NotMeasured
+    return vpnBackend.probeConnection(selected.name).fold(
+        onSuccess = { probe ->
+            when {
+                !probe.telegramReachable -> LatencyCheck.NoAnswer
+                else -> probe.delayMillis?.let { LatencyCheck.Measured(it) } ?: LatencyCheck.NotMeasured
+            }
+        },
+        onFailure = { LatencyCheck.NoAnswer }
+    )
 }
 
 /** HTTPS-запрос к сервису адреса. Возвращает адрес или ошибку, но не бросает исключений. */
