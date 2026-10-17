@@ -296,6 +296,9 @@
     <string name="proxy_list_subscription_main">Основная</string>
     <string name="proxy_list_title">Прокси</string>
     <string name="proxy_no_connection">нет связи</string>
+    <string name="proxy_restore_failed_question">Telegram не смог подключиться через Proxy, повторить ещё раз?</string>
+    <string name="proxy_restore_retry">Повторить</string>
+    <string name="proxy_restore_turn_off">Выключить прокси</string>
     <string name="proxy_servers_few">сервера</string>
     <string name="proxy_servers_many">серверов</string>
     <string name="proxy_servers_one">сервер</string>
