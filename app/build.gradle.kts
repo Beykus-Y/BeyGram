@@ -21,6 +21,32 @@ fun secretProperty(name: String, defaultValue: String): String =
         .orElse(providers.provider { secretsProperties.getProperty(name, defaultValue) })
         .get()
 
+val telegramApiId = secretProperty("telegramApiId", "0").ifBlank { "0" }
+val telegramApiHash = secretProperty("telegramApiHash", "")
+// An APK without these values cannot sign in, so assembling or installing one stops with the reason.
+// Pull request builds in CI get no secrets by design (see android-release.yml) and are not checked.
+val failWithoutTelegramCredentials =
+    (telegramApiId.toIntOrNull() == 0 || telegramApiHash.isBlank()) &&
+        providers.environmentVariable("GITHUB_EVENT_NAME").orNull != "pull_request" &&
+        providers.gradleProperty("allowMissingTelegramCredentials").orNull != "true"
+
+val checkTelegramCredentials = tasks.register("checkTelegramCredentials") {
+    val failBuild = failWithoutTelegramCredentials
+    doLast {
+        if (failBuild) {
+            throw GradleException(
+                "Telegram API credentials are not set: add telegramApiId and telegramApiHash to " +
+                    "secrets.properties in the project root or to ~/.gradle/gradle.properties. " +
+                    "Add -PallowMissingTelegramCredentials=true to build without them."
+            )
+        }
+    }
+}
+
+tasks.matching { Regex("(assemble|install)(Dev|Prod)(Debug|Release)").matches(it.name) }.configureEach {
+    dependsOn(checkTelegramCredentials)
+}
+
 // Pin the Android bridge/core artifact and verify the release checksum before it can
 // enter an APK. The AAR is kept in build/ rather than committed as a large binary.
 val mihomoAndroidVersion = "0.3.11"
@@ -48,8 +74,6 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        val telegramApiId = secretProperty("telegramApiId", "0").ifBlank { "0" }
-        val telegramApiHash = secretProperty("telegramApiHash", "")
         buildConfigField("int", "TELEGRAM_API_ID", telegramApiId)
         buildConfigField("String", "TELEGRAM_API_HASH", telegramApiHash.asBuildConfigString())
 

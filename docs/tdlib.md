@@ -25,6 +25,10 @@ BuildConfig.TELEGRAM_API_ID
 BuildConfig.TELEGRAM_API_HASH
 ```
 
+Gradle reads the same two keys from `~/.gradle/gradle.properties` too. That file is shared by every `git worktree` of the repository, so a new worktree needs no copied `secrets.properties`. `git clean -x` deletes ignored files, including `secrets.properties`.
+
+Assembling or installing a Dev or Prod APK without these values stops the build with a message. Pull request builds in CI are exempt, because GitHub does not pass secrets to them. Pushes to `main` and manual runs receive the repository secrets `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`. To build without credentials anyway, pass `-PallowMissingTelegramCredentials=true`.
+
 ## Build and install native artifacts
 
 Build TDLib with JNI enabled and package the result into the Android app:
