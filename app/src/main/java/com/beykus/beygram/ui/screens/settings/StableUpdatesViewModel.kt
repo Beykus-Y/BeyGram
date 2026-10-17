@@ -22,6 +22,7 @@ sealed interface UpdateStatus {
     data class Available(val release: StableRelease) : UpdateStatus
     data class Downloading(val release: StableRelease, val progress: Int) : UpdateStatus
     data class Ready(val release: StableRelease, val file: File) : UpdateStatus
+    data class PreparingInstall(val release: StableRelease) : UpdateStatus
     data class Failure(val message: String, val release: StableRelease? = null) : UpdateStatus
 }
 
@@ -34,7 +35,8 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
     private var runningJob: Job? = null
 
     fun check() {
-        if (status is UpdateStatus.Checking || status is UpdateStatus.Downloading) return
+        if (status is UpdateStatus.Checking || status is UpdateStatus.Downloading ||
+            status is UpdateStatus.PreparingInstall) return
         installHint = null
         status = UpdateStatus.Checking
         runningJob = viewModelScope.launch {
@@ -51,7 +53,10 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun download(release: StableRelease) {
-        if (status !is UpdateStatus.Available && status !is UpdateStatus.Failure) return
+        val previous = status
+        if (previous !is UpdateStatus.Available && previous !is UpdateStatus.Failure) return
+        if (previous is UpdateStatus.Available && previous.release != release) return
+        if (previous is UpdateStatus.Failure && previous.release != release) return
         installHint = null
         status = UpdateStatus.Downloading(release, 0)
         runningJob = viewModelScope.launch {
@@ -75,11 +80,12 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
         if (status is UpdateStatus.Downloading) runningJob?.cancel()
     }
 
-    private var verifyingInstall = false
-
     fun install(file: File, release: StableRelease) {
-        if (verifyingInstall || status !is UpdateStatus.Ready) return
-        verifyingInstall = true
+        val ready = status as? UpdateStatus.Ready ?: return
+        if (ready.file != file || ready.release != release) return
+        // Synchronously enter the install state before launching any suspendable work.
+        // A repeated check or download cannot replace the state during this handoff.
+        status = UpdateStatus.PreparingInstall(release)
         installHint = "Проверяем APK перед установкой…"
         viewModelScope.launch {
             try {
@@ -94,7 +100,8 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
             } catch (error: Exception) {
                 installHint = error.message ?: "Не удалось открыть установщик Android."
             } finally {
-                verifyingInstall = false
+                // The APK path is immutable and never used by subsequent downloads.
+                status = UpdateStatus.Ready(release, file)
             }
         }
     }
