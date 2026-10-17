@@ -420,6 +420,9 @@
     <string name="profile_photo_set">Установить</string>
     <string name="profile_photo_title">Фото профиля</string>
     <string name="profile_photo_update_failed">Не удалось обновить фото</string>
+    <string name="profile_row_address">Адрес</string>
+    <string name="profile_row_birthday">День рождения</string>
+    <string name="profile_row_common_groups">Общие группы</string>
     <string name="profile_row_description">Описание</string>
     <string name="profile_row_members">Участников</string>
     <string name="profile_row_phone">Номер телефона</string>

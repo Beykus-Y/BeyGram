@@ -191,14 +191,20 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         }
         return name?.takeIf { it.isNotBlank() }.orEmpty()
     }
-    private fun userInfo(user: TdApi.User): ProfileInfo = ProfileInfo(
-        id = user.id, title = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
-        kind = if (user.type is TdApi.UserTypeBot) ProfileKind.Bot else ProfileKind.Person,
-        photo = user.profilePhoto?.let { photo(it.small, it.big) }, firstName = user.firstName.orEmpty(), lastName = user.lastName.orEmpty(),
-        username = user.usernames?.editableUsername.orEmpty(), usernames = user.usernames?.activeUsernames.orEmpty().toList(),
-        phone = user.phoneNumber.orEmpty(), bio = userFull[user.id]?.bio?.text.orEmpty(), status = status(user),
-        isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true
-    )
+    private fun userInfo(user: TdApi.User): ProfileInfo {
+        val full = userFull[user.id]
+        return ProfileInfo(
+            id = user.id, title = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
+            kind = if (user.type is TdApi.UserTypeBot) ProfileKind.Bot else ProfileKind.Person,
+            photo = user.profilePhoto?.let { photo(it.small, it.big) }, firstName = user.firstName.orEmpty(), lastName = user.lastName.orEmpty(),
+            username = user.usernames?.editableUsername.orEmpty(), usernames = user.usernames?.activeUsernames.orEmpty().toList(),
+            phone = user.phoneNumber.orEmpty(), bio = full?.bio?.text.orEmpty(), status = status(user),
+            birthday = full?.birthdate?.let { ProfileBirthday(it.day, it.month, it.year.takeIf { year -> year > 0 }) },
+            address = full?.businessInfo?.location?.address.orEmpty(),
+            commonGroupCount = full?.groupInCommonCount?.takeIf { it > 0 && user.id != myId },
+            isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true
+        )
+    }
     private fun chatInfo(id: Long): ProfileInfo? {
         val chat = chats[id] ?: return null
         val base = ProfileInfo(id, chat.title, photo = photo(chat.photo), onlineMemberCount = onlineCounts[id]?.takeIf { it > 0 })
