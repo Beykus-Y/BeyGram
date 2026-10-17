@@ -71,7 +71,7 @@ fun ChatScreen(
     chat: ChatPreview, info: ProfileInfo?, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
-    recordingSettings: VideoMessageSettingsStore
+    recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {}
 ) {
     var draft by rememberSaveable(chat.id) { mutableStateOf("") }
     var draftEntities by rememberSaveable(chat.id) { mutableStateOf(arrayListOf<MessageTextEntity>()) }
@@ -355,14 +355,21 @@ fun ChatScreen(
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = message.id }
         else { contextChatId = chat.id; contextMessageId = message.id }
     }
-    fun jumpToPinned(message: ChatMessage) {
-        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == message.id } }
-        if (index >= 0) { scope.launch { listState.animateScrollToItem(index); highlighted = message.id }; return }
+    fun jumpToMessage(messageId: Long, failure: Int) {
+        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
+        if (index >= 0) { scope.launch { listState.animateScrollToItem(index); highlighted = messageId }; return }
         scope.launch {
-            conversation.loadMessagesAround(chat.id, message.id)
-                .onSuccess { applied -> if (applied) pendingJumpId = message.id }
-                .onFailure { error = it.userMessage(context, R.string.chat_pinned_failed) }
+            conversation.loadMessagesAround(chat.id, messageId)
+                .onSuccess { applied -> if (applied) pendingJumpId = messageId }
+                .onFailure { error = it.userMessage(context, failure) }
         }
+    }
+    fun jumpToPinned(message: ChatMessage) = jumpToMessage(message.id, R.string.chat_pinned_failed)
+    // Переход из профиля к вложению: чат открывается у сообщения один раз, после этого запрос сбрасывается.
+    LaunchedEffect(focusMessageId) {
+        if (focusMessageId == 0L) return@LaunchedEffect
+        jumpToMessage(focusMessageId, R.string.chat_message_open_failed)
+        onFocusHandled()
     }
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {

@@ -108,7 +108,7 @@ private fun SearchNote(text: String, color: Color) {
     }
 }
 
-private fun formatSearchDate(seconds: Long): String =
+internal fun formatSearchDate(seconds: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(seconds * 1000))
 
 private const val SNIPPET_LEAD = 40

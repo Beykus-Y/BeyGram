@@ -445,8 +445,14 @@
     <string name="profile_save_hint">Изменения сохранятся в вашем аккаунте Telegram после нажатия «Сохранить».</string>
     <string name="profile_save_partial_hint">Уже принятые сервером изменения сохраняются.</string>
     <string name="profile_secret_chat_status">Секретный чат · %1$s</string>
+    <string name="profile_shared_empty_files">В этом чате пока нет файлов</string>
+    <string name="profile_shared_empty_links">В этом чате пока нет ссылок</string>
+    <string name="profile_shared_empty_media">В этом чате пока нет фото и видео</string>
+    <string name="profile_shared_empty_voice">В этом чате пока нет голосовых</string>
     <string name="profile_shared_files">Файлы</string>
+    <string name="profile_shared_header">ВЛОЖЕНИЯ</string>
     <string name="profile_shared_links">Ссылки</string>
+    <string name="profile_shared_load_failed">Не удалось загрузить вложения</string>
     <string name="profile_shared_media">Медиа</string>
     <string name="profile_shared_voice">Голосовые</string>
     <string name="profile_title_chat">Информация о чате</string>
@@ -620,6 +626,7 @@
     <string name="tabs_chats">Чаты</string>
     <string name="tabs_contacts">Контакты</string>
     <string name="user_name_unknown">Пользователь</string>
+    <string name="chat_message_open_failed">Не удалось открыть сообщение</string>
     <string name="chat_pinned_title">Закреплённые сообщения</string>
     <string name="chat_pinned_count">Закреплённое · %1$d</string>
     <string name="chat_pinned_list">Показать все закреплённые сообщения</string>

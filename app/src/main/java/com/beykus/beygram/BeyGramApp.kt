@@ -141,6 +141,8 @@ private fun BeyGramAppContent(
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
+    // Вложение из профиля открывает чат у своего сообщения; 0 значит, что переход не нужен.
+    var chatFocusMessageId by rememberSaveable { mutableStateOf(0L) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var notificationError by remember { mutableStateOf<UiText?>(null) }
@@ -334,7 +336,8 @@ private fun BeyGramAppContent(
                     onBack = { routeName = chatBackRouteName },
                     onChatInfo = { routeName = AppRoute.ChatInfo.name },
                     connectionState = connectionState,
-                    recordingSettings = recordingSettings
+                    recordingSettings = recordingSettings,
+                    focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L }
                 )
             }
         }
@@ -347,7 +350,9 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name },
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
-            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
+            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange,
+            sharedMessages = { kind, fromMessageId -> repository.sharedMessages(selectedChatId, kind, fromMessageId) },
+            onOpenMessage = { messageId -> chatFocusMessageId = messageId; routeName = AppRoute.Chat.name })
     }
 
     val chatMembersRoute: @Composable () -> Unit = {
