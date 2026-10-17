@@ -208,24 +208,33 @@ class StableUpdateRepository(private val context: Context) {
         // Android's Package Installer remains the final authority for signing lineage and ABI compatibility.
     }
 
-    /** On Android O+ installing from this app requires explicit user permission. */
-    fun install(apk: File, release: StableRelease): Boolean {
+    /** Recheck the bytes off the UI thread immediately before the platform installer. */
+    suspend fun verifyForInstall(apk: File, release: StableRelease) = withContext(Dispatchers.IO) {
         if (!apk.isFile || apk.parentFile?.canonicalFile != updateDir.canonicalFile) {
             throw IOException("Файл обновления не найден.")
         }
-        // Recheck the file immediately before handing it to Android, even if it was verified at download time.
         val bytes = apk.inputStream().use { input ->
             val digest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(64 * 1024)
             while (true) {
+                coroutineContext.ensureActive()
                 val read = input.read(buffer)
                 if (read < 0) break
                 digest.update(buffer, 0, read)
             }
             digest.digest().joinToString("") { "%02x".format(it) }
         }
-        if (apk.length() != release.size || bytes != release.sha256) throw IOException("Контрольная сумма APK изменилась.")
+        if (apk.length() != release.size || bytes != release.sha256) {
+            throw IOException("Контрольная сумма APK изменилась.")
+        }
         verifyPackage(apk, release)
+    }
+
+    /** Android O+ requires consent to install from this source. Must be called on the main thread. */
+    fun install(apk: File): Boolean {
+        if (!apk.isFile || apk.parentFile?.canonicalFile != updateDir.canonicalFile) {
+            throw IOException("Файл обновления не найден.")
+        }
         if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
             val permissionIntent = Intent(
                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
