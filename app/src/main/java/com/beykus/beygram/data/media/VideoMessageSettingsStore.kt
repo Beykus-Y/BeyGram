@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class ComposerRecordingMode { Voice, Video }
 enum class VideoQualityPreset { Standard, High, Maximum, Custom }
 enum class VideoProcessingMode { Automatic, Direct, Transcode }
+enum class VideoFrameRatePriority(val minimumFps: Int) {
+    MaximumQuality(24), Balanced(35), MaximumSmoothness(55)
+}
 
 data class VideoMessageSettings(
     val preset: VideoQualityPreset = VideoQualityPreset.High,
@@ -16,6 +19,7 @@ data class VideoMessageSettings(
     val customVideoBitrateKbps: Int = 1500,
     val customAudioBitrateKbps: Int = 96,
     val processing: VideoProcessingMode = VideoProcessingMode.Automatic,
+    val frameRatePriority: VideoFrameRatePriority = VideoFrameRatePriority.Balanced,
     val longRecordingEnabled: Boolean = false
 )
 
@@ -37,6 +41,7 @@ class VideoMessageSettingsStore(context: Context) {
             .putInt(KEY_CUSTOM_VIDEO_BITRATE, next.customVideoBitrateKbps)
             .putInt(KEY_CUSTOM_AUDIO_BITRATE, next.customAudioBitrateKbps)
             .putString(KEY_PROCESSING, next.processing.name)
+            .putString(KEY_FRAME_RATE_PRIORITY, next.frameRatePriority.name)
             .putBoolean(KEY_LONG_RECORDING, next.longRecordingEnabled)
             .commit()) { "Не удалось сохранить настройки видеосообщений" }
         _settings.value = next
@@ -55,6 +60,7 @@ class VideoMessageSettingsStore(context: Context) {
         customVideoBitrateKbps = preferences.getInt(KEY_CUSTOM_VIDEO_BITRATE, 1500).takeIf { it in VIDEO_BITRATES } ?: 1500,
         customAudioBitrateKbps = preferences.getInt(KEY_CUSTOM_AUDIO_BITRATE, 96).takeIf { it in AUDIO_BITRATES } ?: 96,
         processing = preferences.getString(KEY_PROCESSING, null).enumOr(VideoProcessingMode.Automatic),
+        frameRatePriority = preferences.getString(KEY_FRAME_RATE_PRIORITY, null).enumOr(VideoFrameRatePriority.Balanced),
         longRecordingEnabled = preferences.getBoolean(KEY_LONG_RECORDING, false)
     )
 
@@ -82,6 +88,7 @@ class VideoMessageSettingsStore(context: Context) {
         private const val KEY_CUSTOM_VIDEO_BITRATE = "custom_video_bitrate"
         private const val KEY_CUSTOM_AUDIO_BITRATE = "custom_audio_bitrate"
         private const val KEY_PROCESSING = "processing"
+        private const val KEY_FRAME_RATE_PRIORITY = "frame_rate_priority"
         private const val KEY_LONG_RECORDING = "long_recording"
         private const val KEY_RECORDING_MODE = "recording_mode"
     }
