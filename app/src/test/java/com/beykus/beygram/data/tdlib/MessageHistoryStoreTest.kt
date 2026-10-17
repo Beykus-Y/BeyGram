@@ -4,11 +4,12 @@ import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageSendState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MessageHistoryStoreTest {
-    private fun message(id: Long, date: Long = 1L, state: MessageSendState = MessageSendState.Sent) =
-        ChatMessage(id, 1L, "test", "12:00", true, date, state)
+    private fun message(id: Long, date: Long = 1L, state: MessageSendState = MessageSendState.Sent, chatId: Long = 1L) =
+        ChatMessage(id, chatId, "test", "12:00", true, date, state)
 
     @Test fun successReplacesTemporaryMessageAndLateResponseCannotRestoreIt() {
         val store = MessageHistoryStore()
@@ -42,5 +43,38 @@ class MessageHistoryStoreTest {
         store.finishLoad(1L, listOf(message(1L)), false)
         assertEquals(emptyList<ChatMessage>(), store.observe(1L).value.messages)
         assertFalse(store.observe(1L).value.isLoading)
+    }
+
+    @Test fun snapshotRequestedBeforeAnUpdateCannotRollItBack() {
+        val store = MessageHistoryStore()
+        store.put(message(1L))
+        store.beginLoad(1L)
+        val requestVersion = store.version()
+        store.update(1L, 1L) { it.copy(isEdited = true) }
+        store.finishLoad(1L, listOf(message(1L)), hasOlder = false, requestVersion = requestVersion)
+        assertTrue(store.observe(1L).value.messages.single().isEdited)
+    }
+
+    @Test fun coldChatsBeyondTheLimitLoseMessagesWhileOpenUnsentAndLoadingChatsKeepTheirs() {
+        val store = MessageHistoryStore(maxCachedChats = 2)
+        store.opened(1L)
+        store.put(message(1L, chatId = 1L))
+        store.put(message(2L, chatId = 2L, state = MessageSendState.Sending))
+        store.put(message(3L, chatId = 3L))
+        assertEquals(listOf(3L), store.observe(3L).value.messages.map { it.id })
+        store.put(message(4L, chatId = 4L))
+        assertEquals(listOf(1L), store.observe(1L).value.messages.map { it.id })
+        assertEquals(listOf(2L), store.observe(2L).value.messages.map { it.id })
+        assertEquals(emptyList<ChatMessage>(), store.observe(3L).value.messages)
+        assertEquals(listOf(4L), store.observe(4L).value.messages.map { it.id })
+    }
+
+    @Test fun loadingChatIsNotEvicted() {
+        val store = MessageHistoryStore(maxCachedChats = 1)
+        store.beginLoad(1L)
+        store.put(message(2L, chatId = 2L))
+        store.put(message(3L, chatId = 3L))
+        assertTrue(store.observe(1L).value.isLoading)
+        assertEquals(emptyList<ChatMessage>(), store.observe(2L).value.messages)
     }
 }

@@ -387,6 +387,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun openChat(chatId: Long) {
         _notificationPresentation.update { it.copy(openedChats = it.openedChats + chatId) }
         conversationEffects.opened(chatId)
+        messageHistory.opened(chatId)
         client.send(TdApi.OpenChat(chatId), Client.ResultHandler { })
         if (messageHistory.beginLoad(chatId)) requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3)
     }
@@ -394,6 +395,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun closeChat(chatId: Long) {
         _notificationPresentation.update { it.copy(openedChats = it.openedChats - chatId) }
         conversationEffects.closed(chatId)
+        messageHistory.closed(chatId)
         client.send(TdApi.CloseChat(chatId), Client.ResultHandler { })
     }
 
