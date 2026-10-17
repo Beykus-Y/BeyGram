@@ -16,6 +16,7 @@ import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.ViewPort
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.ExperimentalPersistentRecording
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileOutputOptions
 import androidx.camera.video.Quality
@@ -118,15 +119,20 @@ internal class VideoNoteRecorder(
     var elapsedMs by mutableLongStateOf(0L)
         private set
     val durationLimitMs: Long get() = maxDurationMs
-    /** Выбор камеры сохраняется между записями, пока жив этот рекордер (экран чата). Фронтальная — по умолчанию. */
+    /** Выбор камеры живёт внутри одной записи: каждая запись начинается с фронтальной камеры, а если её нет, с основной. */
     var preferFrontCamera by mutableStateOf(true)
         private set
     /** Переключатель показывается, только если на устройстве есть и фронтальная, и основная камера. */
     var canSwitchCamera by mutableStateOf(false)
         private set
+    /** Запись фактически началась: CameraX сообщил о Start. До этого переключать камеру нельзя. */
+    var started by mutableStateOf(false)
+        private set
 
     private var provider: ProcessCameraProvider? = null
     private var videoCapture: VideoCapture<Recorder>? = null
+    /** Persistent-запись не отвязывается от VideoCapture при перепривязке камеры. Если устройство её не умеет, переключение скрывается. */
+    private var persistentSupported = true
     private var take: VideoTake? = null
     private var timer: Job? = null
     private var startedAt = 0L
@@ -147,11 +153,29 @@ internal class VideoNoteRecorder(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    /** Смена камеры только до начала записи: CameraX не переключает камеру без обрыва текущего кадра. */
+    /** Смена камеры только во время записи: один Recorder и VideoCapture живут всю запись, при переключении перепривязывается та же пара. */
     fun switchCamera() {
-        if (active) return
-        preferFrontCamera = !preferFrontCamera
-        Log.i(TAG, "video_camera_switched front=$preferFrontCamera")
+        val cameraProvider = provider ?: return
+        val capture = videoCapture ?: return
+        val current = take ?: return
+        if (!active || !started || !canSwitchCamera) return
+        val targetFront = !preferFrontCamera
+        val selector = if (targetFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+        if (!cameraProvider.hasCamera(selector)) return
+        val previousSelector = if (preferFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+        Log.i(TAG, "video_camera_switch_started front=$targetFront")
+        try {
+            cameraProvider.unbindAll()
+            bind(cameraProvider, selector, current.settings, capture)
+            preferFrontCamera = targetFront
+            Log.i(TAG, "video_camera_switched front=$preferFrontCamera")
+        } catch (failure: Exception) {
+            Log.e(TAG, "video_camera_switch_failed", failure)
+            // Запись продолжается с прежней камерой: persistent-запись пережила отвязку, возвращаем кадр.
+            runCatching { bind(cameraProvider, previousSelector, current.settings, capture) }
+                .onFailure { Log.e(TAG, "video_camera_restore_failed", it) }
+            onError(context.getString(R.string.recorder_camera_switch_failed))
+        }
     }
 
     /** Нажатие: камера открывается асинхронно, запись начинается, когда она готова. */
@@ -168,6 +192,7 @@ internal class VideoNoteRecorder(
         active = true
         locked = false
         canceling = false
+        started = false
         elapsedMs = 0L
         val current = ++attempt
         val future = ProcessCameraProvider.getInstance(context)
@@ -177,7 +202,16 @@ internal class VideoNoteRecorder(
             try {
                 val cameraProvider = future.get()
                 provider = cameraProvider
-                bind(cameraProvider, settings)
+                canSwitchCamera = cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) &&
+                    cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+                // Каждая запись начинается с фронтальной камеры; без неё — с основной.
+                val startSelector = if (cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
+                    CameraSelector.DEFAULT_FRONT_CAMERA
+                } else CameraSelector.DEFAULT_BACK_CAMERA
+                if (canSwitchCamera) preferFrontCamera = startSelector == CameraSelector.DEFAULT_FRONT_CAMERA
+                val capture = createCapture(cameraProvider, startSelector, settings)
+                videoCapture = capture
+                bind(cameraProvider, startSelector, settings, capture)
                 startRecording(settings)
             } catch (_: Exception) {
                 Log.e(TAG, "video_camera_open_failed")
@@ -239,6 +273,7 @@ internal class VideoNoteRecorder(
         active = false
         locked = false
         canceling = false
+        started = false
         timer?.cancel()
         timer = null
         if (take == null) provider?.unbindAll()
@@ -251,6 +286,7 @@ internal class VideoNoteRecorder(
         active = false
         locked = false
         canceling = false
+        started = false
         timer?.cancel()
         timer = null
         take?.let { current ->
@@ -265,10 +301,12 @@ internal class VideoNoteRecorder(
         current.recording?.stop()
     }
 
-    private fun bind(cameraProvider: ProcessCameraProvider, settings: VideoMessageSettings) {
-        cameraProvider.unbindAll()
-        val useFront = preferFrontCamera && cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
-        val selector = if (useFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+    /** Пара Recorder и VideoCapture создаётся один раз на запись: persistent-запись требует, чтобы при смене камеры она не пересоздавалась. */
+    private fun createCapture(
+        cameraProvider: ProcessCameraProvider,
+        selector: CameraSelector,
+        settings: VideoMessageSettings
+    ): VideoCapture<Recorder> {
         val side = when (settings.preset) {
             VideoQualityPreset.Standard -> 384
             VideoQualityPreset.High -> 480
@@ -288,22 +326,38 @@ internal class VideoNoteRecorder(
             requestedFps,
             supportedFps.map { it.lower..it.upper }
         )
+        val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         // An exact 24–60 / 35–60 / 55–60 AE range is often unavailable.
         // Use a camera-advertised range; CameraX still makes the final session decision.
         Log.i(TAG, "video_fps requested=$requestedFps selected=$chosenFps available=$supportedFps")
-        val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         val qualitySelector = QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(quality))
+        val captureBuilder = VideoCapture.Builder(
+            Recorder.Builder()
+                .setQualitySelector(qualitySelector)
+                .setTargetVideoEncodingBitRate(bitrate)
+                .build()
+        )
+        if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
+        return captureBuilder.build()
+    }
+
+    /** Привязывает превью и уже созданный capture к выбранной камере. При переключении вызывается повторно с тем же capture. */
+    private fun bind(
+        cameraProvider: ProcessCameraProvider,
+        selector: CameraSelector,
+        settings: VideoMessageSettings,
+        capture: VideoCapture<Recorder>
+    ) {
+        val requestedFps = settings.requestedFrameRateRange()
+        val supportedFps = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges
+        val chosenFps = chooseSupportedFrameRateRange(
+            requestedFps,
+            supportedFps.map { it.lower..it.upper }
+        )
+        val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         val previewBuilder = Preview.Builder()
         if (fpsRange != null) previewBuilder.setTargetFrameRate(fpsRange)
         val preview = previewBuilder.build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
-        val recorder = Recorder.Builder()
-            .setQualitySelector(qualitySelector)
-            .setTargetVideoEncodingBitRate(bitrate)
-            .build()
-        val captureBuilder = VideoCapture.Builder(recorder)
-        if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
-        val capture = captureBuilder.build()
-        videoCapture = capture
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
         val group = UseCaseGroup.Builder()
             .addUseCase(preview)
@@ -336,20 +390,46 @@ internal class VideoNoteRecorder(
         val current = VideoTake(directory.resolve("video-note.mp4"), settings)
         take = current
         try {
-            current.recording = capture.output
-                .prepareRecording(context, FileOutputOptions.Builder(current.file).build())
-                .withAudioEnabled()
-                .start(ContextCompat.getMainExecutor(context)) { event ->
-                    if (event is VideoRecordEvent.Start && take === current && active) startClock()
-                    if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
-                }
-            Log.i(TAG, "video_recording_started session=${directory.name}")
+            current.recording = prepare(current, persistent = persistentSupported)
+            Log.i(TAG, "video_recording_started session=${directory.name} persistent=$persistentSupported")
         } catch (_: Exception) {
-            Log.e(TAG, "video_recording_start_failed session=${directory.name}")
-            take = null
-            current.file.parentFile?.deleteRecursively()
-            fail(context.getString(R.string.recorder_start_failed))
+            // Persistent-запись нужна только для смены камеры во время записи: без неё кружок пишется как раньше.
+            if (!persistentSupported) {
+                Log.e(TAG, "video_recording_start_failed session=${directory.name}")
+                take = null
+                current.file.parentFile?.deleteRecursively()
+                fail(context.getString(R.string.recorder_start_failed))
+                return
+            }
+            Log.i(TAG, "video_persistent_unavailable session=${directory.name}")
+            persistentSupported = false
+            canSwitchCamera = false
+            try {
+                current.recording = prepare(current, persistent = false)
+                Log.i(TAG, "video_recording_started session=${directory.name} persistent=false")
+            } catch (_: Exception) {
+                Log.e(TAG, "video_recording_start_failed session=${directory.name}")
+                take = null
+                current.file.parentFile?.deleteRecursively()
+                fail(context.getString(R.string.recorder_start_failed))
+                return
+            }
         }
+    }
+
+    @OptIn(ExperimentalPersistentRecording::class)
+    private fun prepare(current: VideoTake, persistent: Boolean): Recording {
+        val capture = videoCapture ?: error("VideoCapture не готов")
+        val pending = capture.output.prepareRecording(context, FileOutputOptions.Builder(current.file).build())
+        if (persistent) pending.asPersistentRecording()
+        return pending.withAudioEnabled()
+            .start(ContextCompat.getMainExecutor(context)) { event ->
+                if (event is VideoRecordEvent.Start && take === current && active) {
+                    started = true
+                    startClock()
+                }
+                if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
+            }
     }
 
     private fun onFinalize(current: VideoTake, event: VideoRecordEvent.Finalize) {
@@ -451,12 +531,12 @@ internal fun VideoNoteRecordButton(recorder: VideoNoteRecorder, enabled: Boolean
     }
 }
 
-/** Переключатель камеры у кнопки записи: виден только до начала записи, поэтому во время съёмки его нет. */
+/** Переключатель камеры на экране записи: виден с открытия экрана, нажимается после фактического старта записи. */
 @Composable
-internal fun VideoNoteSwitchCameraButton(recorder: VideoNoteRecorder, enabled: Boolean) {
+internal fun VideoNoteSwitchCameraButton(recorder: VideoNoteRecorder, enabled: Boolean, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     Box(
-        Modifier.size(40.dp).clip(CircleShape).background(palette.surface2)
+        modifier.size(40.dp).clip(CircleShape).background(palette.surface2)
             .clickable(enabled = enabled, onClick = recorder::switchCamera),
         contentAlignment = Alignment.Center
     ) {
@@ -513,7 +593,13 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
             Box(Modifier.fillMaxSize().padding(4.dp).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.TopCenter) {
                 // PreviewView переиспользуется между записями: снимаем его со старого контейнера, иначе addView упадёт.
                 AndroidView(factory = { recorder.previewView.also { (it.parent as? ViewGroup)?.removeView(it) } }, modifier = Modifier.fillMaxSize())
-
+                if (recorder.canSwitchCamera) {
+                    VideoNoteSwitchCameraButton(
+                        recorder,
+                        enabled = recorder.started,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)
+                    )
+                }
             }
         }
         Spacer(Modifier.height(16.dp))
