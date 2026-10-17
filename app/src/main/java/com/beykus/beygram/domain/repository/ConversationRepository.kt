@@ -15,8 +15,8 @@ interface ConversationRepository {
     fun openChat(chatId: Long)
     fun closeChat(chatId: Long)
     fun loadOlderMessages(chatId: Long)
-    /** Replaces the loaded history with messages around [messageId]; newer messages load on [loadLatestMessages]. */
-    suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Unit>
+    /** Replaces the loaded history with messages around [messageId]; newer messages load on [loadLatestMessages]. False when a newer jump or latest load superseded it. */
+    suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean>
     fun loadLatestMessages(chatId: Long)
     suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList()): Result<Unit>

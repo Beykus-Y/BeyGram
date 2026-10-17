@@ -284,9 +284,10 @@ fun ChatScreen(
         val target = pendingJumpId ?: return@LaunchedEffect
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == target } }
         if (index < 0) return@LaunchedEffect
-        pendingJumpId = null
         listState.animateScrollToItem(index)
         highlighted = target
+        // Cleared last: changing the key earlier would cancel the scroll that is still running.
+        pendingJumpId = null
     }
     LaunchedEffect(highlighted) { if (highlighted != null) { delay(2200); highlighted = null } }
     fun jump(reply: MessageReply) {
@@ -332,7 +333,7 @@ fun ChatScreen(
         if (index >= 0) { scope.launch { listState.animateScrollToItem(index); highlighted = message.id }; return }
         scope.launch {
             conversation.loadMessagesAround(chat.id, message.id)
-                .onSuccess { pendingJumpId = message.id }
+                .onSuccess { applied -> if (applied) pendingJumpId = message.id }
                 .onFailure { error = it.userMessage(context, R.string.chat_pinned_failed) }
         }
     }

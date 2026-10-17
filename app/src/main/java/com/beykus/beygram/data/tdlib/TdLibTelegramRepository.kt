@@ -308,6 +308,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
      * пересобираются не чаще раза в [CHAT_LIST_PUBLISH_DELAY_MS].
      */
     private val chatCache = ConcurrentHashMap<Long, ChatPreview>()
+    // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
+    private val historyRequests = ConcurrentHashMap<Long, Long>()
     private val chatListScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val chatListPublisher = CoalescedPublisher(chatListScope, CHAT_LIST_PUBLISH_DELAY_MS) {
         // Main-list ordering comes from Telegram, including pins and draft activity.
@@ -451,16 +453,25 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         messageHistory.beginLoad(chatId)?.let { epoch -> requestHistory(chatId, oldest, remaining = 50, pagesLeft = 3, epoch = epoch) }
     }
 
-    override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Unit> =
-        conversationActions.window(chatId, messageId).onSuccess { messages ->
-            val newestId = chatCache[chatId]?.lastMessageId
-            messageHistory.replaceWithWindow(chatId, messages.map { it.toChatMessage() }, reachesLatest = messages.any { it.id == newestId })
-            messages.forEach(conversationActions::hydrateReply)
-        }.map { Unit }
+    override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
+        val request = nextHistoryRequest(chatId)
+        return conversationActions.window(chatId, messageId).map { messages ->
+            // A newer jump or latest load started meanwhile, so this window must not replace its result.
+            if (historyRequests[chatId] != request) false else {
+                val newestId = chatCache[chatId]?.lastMessageId
+                messageHistory.replaceWithWindow(chatId, messages.map { it.toChatMessage() }, reachesLatest = messages.any { it.id == newestId })
+                messages.forEach(conversationActions::hydrateReply)
+                true
+            }
+        }
+    }
 
     override fun loadLatestMessages(chatId: Long) {
+        nextHistoryRequest(chatId)
         requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3, epoch = messageHistory.restartFromLatest(chatId))
     }
+
+    private fun nextHistoryRequest(chatId: Long): Long = historyRequests.merge(chatId, 1L) { current, _ -> current + 1 } ?: 1L
 
     /** Sending from a jump window first returns to the newest messages, so the sent message does not leave a gap. */
     private fun leaveJumpWindow(chatId: Long) {
