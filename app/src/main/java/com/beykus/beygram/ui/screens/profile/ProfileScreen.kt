@@ -110,7 +110,9 @@ fun ProfileScreen(
                         info.birthday?.let { birthdayText(it, Locale.getDefault()) }?.let { add(context.getString(R.string.profile_row_birthday) to it) }
                         if (info.address.isNotBlank()) add(context.getString(R.string.profile_row_address) to info.address)
                         info.commonGroupCount?.let { add(context.getString(R.string.profile_row_common_groups) to it.toString()) }
+                        if (info.inviteLink.isNotBlank()) add(context.getString(R.string.profile_row_invite_link) to info.inviteLink)
                         if (info.memberCount != null) add((if (info.kind == ProfileKind.Channel) context.getString(R.string.profile_row_subscribers) else context.getString(R.string.profile_row_members)) to info.memberCount.toString())
+                        info.administratorCount?.let { add(context.getString(R.string.profile_row_administrators) to it.toString()) }
                         add(context.getString(R.string.profile_row_type) to when (info.kind) {
                             ProfileKind.Person -> if (info.isSelf) context.getString(R.string.profile_type_own_account) else context.getString(R.string.profile_type_private_chat)
                             ProfileKind.Bot -> context.getString(R.string.profile_type_bot)
@@ -172,7 +174,9 @@ fun ProfileScreen(
 }
 
 @Composable private fun ProfileInfo.subtitle(): String = when (kind) {
-    ProfileKind.Group -> memberCount?.let { stringResource(R.string.profile_group_members_count, it) } ?: stringResource(R.string.profile_type_group)
+    ProfileKind.Group -> memberCount?.let { count ->
+        onlineMemberCount?.let { stringResource(R.string.profile_group_members_online_count, count, it) } ?: stringResource(R.string.profile_group_members_count, count)
+    } ?: stringResource(R.string.profile_type_group)
     ProfileKind.Channel -> memberCount?.let { stringResource(R.string.profile_channel_subscribers_count, it) } ?: stringResource(R.string.profile_type_channel)
     ProfileKind.Secret -> stringResource(R.string.profile_secret_chat_status, status?.let { presenceText(it).resolve() }.orEmpty())
     ProfileKind.Bot -> stringResource(R.string.profile_type_bot)

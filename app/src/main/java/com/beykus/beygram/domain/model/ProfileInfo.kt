@@ -42,6 +42,9 @@ data class ProfileInfo(
     val memberCount: Int? = null,
     /** Участники, онлайн прямо сейчас; TDLib присылает число только для открытого чата. */
     val onlineMemberCount: Int? = null,
+    val administratorCount: Int? = null,
+    /** Основная ссылка-приглашение; TDLib отдаёт её не всем, поэтому может быть пусто. */
+    val inviteLink: String = "",
     val isSelf: Boolean = false,
     val isPremium: Boolean = false,
     val isVerified: Boolean = false

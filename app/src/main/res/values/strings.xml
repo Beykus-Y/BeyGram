@@ -408,6 +408,7 @@
     <string name="profile_discard_changes">Отменить</string>
     <string name="profile_first_name">Имя</string>
     <string name="profile_group_members_count">Участников: %1$d</string>
+    <string name="profile_group_members_online_count">Участников: %1$d · в сети: %2$d</string>
     <string name="profile_hidden_tab_hint">скрыто из нижнего меню</string>
     <string name="profile_hidden_tabs_header">РАЗДЕЛЫ</string>
     <string name="profile_info_not_loaded">Сведения ещё не загружены</string>
@@ -423,6 +424,8 @@
     <string name="profile_photo_title">Фото профиля</string>
     <string name="profile_photo_update_failed">Не удалось обновить фото</string>
     <string name="profile_row_address">Адрес</string>
+    <string name="profile_row_administrators">Администраторы</string>
+    <string name="profile_row_invite_link">Ссылка-приглашение</string>
     <string name="profile_row_birthday">День рождения</string>
     <string name="profile_row_common_groups">Общие группы</string>
     <string name="profile_row_description">Описание</string>
