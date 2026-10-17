@@ -47,10 +47,14 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 private val IDLE_SIZE = 220.dp
 internal val VideoNoteBackground = Brush.linearGradient(listOf(Color(0xFF2B2640), Color(0xFF17151D)))
+/** Состояние для кружка без миниатюры: не наблюдаем фиктивный файл с id 0, которого в хранилище нет. */
+private val NoThumbnailState = MutableStateFlow(MediaFileState(0)).asStateFlow()
 
 /** Голосовое и кружок играют прямо в ленте, поэтому тап по пузырю для них не открывает просмотрщик. */
 internal fun MediaKind.playsInline(): Boolean = this == MediaKind.Voice || this == MediaKind.VideoNote
@@ -218,7 +222,7 @@ internal fun VideoNoteBubble(
     }
     // Миниатюра показывается до старта; у секретного кружка её не грузим, иначе кадр виден до просмотра.
     val thumbnailId = media.thumbnailFileId?.takeUnless { media.isSecret }
-    val thumbnail by remember(thumbnailId) { observeFile(thumbnailId ?: 0) }.collectAsStateWithLifecycle()
+    val thumbnail by remember(thumbnailId) { thumbnailId?.let(observeFile) ?: NoThumbnailState }.collectAsStateWithLifecycle()
     LaunchedEffect(thumbnailId) { if (thumbnailId != null) downloadFile(thumbnailId) }
     // Нажатие до окончания загрузки запоминается: как только файл готов, кружок начинает играть.
     LaunchedEffect(path, wantPlay) {
