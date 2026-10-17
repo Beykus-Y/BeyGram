@@ -47,23 +47,19 @@ class VideoNoteProcessor(private val context: Context) {
         withContext(Dispatchers.IO) { outputDirectory.mkdirs() }
         // CameraX пишет кадр целиком, включая углы вне круга, а TDLib принимает кружок только в H.264: поэтому файл всегда перекодируется.
         val result = mutableListOf<OutgoingMedia>()
-        var startMs = 0L
-        var index = 0
-        while (startMs < sourceDurationMs) {
-            val endMs = minOf(startMs + MAX_SEGMENT_MS, sourceDurationMs)
+        for ((index, segment) in videoNoteSegments(sourceDurationMs, settings.longRecordingEnabled).withIndex()) {
+            val (startMs, endMs) = segment
             val output = File(outputDirectory, "video-note-${index + 1}.mp4")
             try {
                 transform(source, output, startMs, endMs, target.side, target.videoBitrate, target.audioBitrate)
                 val info = withContext(Dispatchers.IO) { metadata(output) }
                 require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }
-                require(info.durationMs in 1L..MAX_SEGMENT_MS) { "Длительность сегмента превышает 60 секунд" }
+                require(isAcceptedVideoNoteDuration(info.durationMs)) { "Длительность кружка превышает 60 секунд" }
                 result += outgoingMedia(output, info, index + 1)
             } catch (failure: Exception) {
                 output.delete()
                 throw failure
             }
-            startMs = endMs
-            index++
         }
         source.delete()
         return result
@@ -168,5 +164,28 @@ class VideoNoteProcessor(private val context: Context) {
         VideoQualityPreset.Custom -> TargetProfile(customSide, customVideoBitrateKbps * 1_000, customAudioBitrateKbps * 1_000)
     }
 
-    companion object { private const val MAX_SEGMENT_MS = 60_000L }
 }
+
+/** Предел длительности кружка в Telegram. */
+internal const val VIDEO_NOTE_MAX_MS = 60_000L
+
+/**
+ * Длина сегмента при нарезке. Перекодированный клип выходит длиннее заданного на несколько десятков миллисекунд
+ * (кодировщик и контейнер), и клип ровно в 60 секунд не проходил проверку длительности. Режем раньше предела.
+ */
+internal const val VIDEO_NOTE_SEGMENT_MS = 59_500L
+
+/**
+ * Границы сегментов [startMs, endMs) в миллисекундах. Обычная запись останавливается таймером на минуте,
+ * а CameraX дописывает хвост задержки: он отбрасывается, и получается один кружок. Длинная запись режется подряд.
+ */
+internal fun videoNoteSegments(sourceMs: Long, longRecording: Boolean): List<Pair<Long, Long>> {
+    val totalMs = if (longRecording) sourceMs else minOf(sourceMs, VIDEO_NOTE_SEGMENT_MS)
+    return generateSequence(0L) { it + VIDEO_NOTE_SEGMENT_MS }
+        .takeWhile { it < totalMs }
+        .map { startMs -> startMs to minOf(startMs + VIDEO_NOTE_SEGMENT_MS, totalMs) }
+        .toList()
+}
+
+/** Готовый сегмент принимается, только если его длительность укладывается в предел Telegram. */
+internal fun isAcceptedVideoNoteDuration(durationMs: Long): Boolean = durationMs in 1L..VIDEO_NOTE_MAX_MS
