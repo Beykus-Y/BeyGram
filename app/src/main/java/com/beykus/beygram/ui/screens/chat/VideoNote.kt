@@ -280,8 +280,8 @@ internal fun VideoNoteBubble(
                     Icon(if (holder.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
                 }
                 if (path == null && (wantPlay || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
-            if (path == null && file.error != null && !wantPlay) Text(stringResource(R.string.video_note_download_failed), color = Color.White, fontSize = 12.sp,
-                textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
+                if (path == null && file.error != null && !wantPlay) Text(stringResource(R.string.video_note_download_failed), color = Color.White, fontSize = 12.sp,
+                    textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
                 if (!holder.started) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
                     modifier = Modifier.align(Alignment.TopStart).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
             }
