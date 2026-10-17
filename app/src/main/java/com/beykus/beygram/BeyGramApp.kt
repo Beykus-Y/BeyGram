@@ -157,7 +157,9 @@ private fun BeyGramAppContent(
         if (next.returnOnNewMessage != previous.returnOnNewMessage) {
             archiveSettingsScope.launch {
                 repository.setArchiveReturnsOnNewMessage(next.returnOnNewMessage).onFailure {
-                    archiveSettingsStore.update(archiveSettingsStore.state.value.copy(returnOnNewMessage = previous.returnOnNewMessage))
+                    // Запись не прошла: показываем значение аккаунта, а не то, что было до нажатия.
+                    val actual = repository.archiveReturnsOnNewMessage().getOrDefault(previous.returnOnNewMessage)
+                    archiveSettingsStore.update(archiveSettingsStore.state.value.copy(returnOnNewMessage = actual))
                 }
             }
         }
@@ -272,6 +274,12 @@ private fun BeyGramAppContent(
     }
     val archiveRoute: @Composable () -> Unit = {
         val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        // Переключатель показывает настройку аккаунта: её могли поменять на другом устройстве.
+        LaunchedEffect(repository) {
+            repository.archiveReturnsOnNewMessage().onSuccess { returns ->
+                archiveSettingsStore.update(archiveSettingsStore.state.value.copy(returnOnNewMessage = returns))
+            }
+        }
         ArchiveScreen(
             chats = archivedChats,
             observeFile = repository::observeFile,
