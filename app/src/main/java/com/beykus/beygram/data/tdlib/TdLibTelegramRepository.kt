@@ -443,6 +443,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 val attachment = mediaMapper.media(update.newContent)
                 message.copy(text = contentText(update.newContent, attachment != null), media = attachment)
             }
+            is TdApi.UpdateMessageContentOpened -> messageHistory.update(update.chatId, update.messageId) { message ->
+                message.copy(media = message.media?.copy(isViewed = true))
+            }
             is TdApi.UpdateMessageEdited -> messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0) }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
