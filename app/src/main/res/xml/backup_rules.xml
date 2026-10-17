@@ -5,4 +5,6 @@
     <exclude domain="sharedpref" path="mihomo-loopback.xml" />
     <!-- The diagnostics report draft is session-local; restoring it on another device makes no sense. -->
     <exclude domain="file" path="diagnostics-report" />
+    <!-- Pending sends only: RAW video notes live in no_backup, restored queue files would be orphans. -->
+    <exclude domain="file" path="uploads" />
 </full-backup-content>

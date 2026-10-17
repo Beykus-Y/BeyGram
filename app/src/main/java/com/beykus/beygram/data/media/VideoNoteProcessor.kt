@@ -34,39 +34,39 @@ import kotlin.coroutines.resumeWithException
 /** Re-encodes a recording into sequential square Telegram video notes, one disk-backed clip at a time. */
 @OptIn(UnstableApi::class)
 class VideoNoteProcessor(private val context: Context) {
-    suspend fun process(source: File, settings: VideoMessageSettings): List<OutgoingMedia> {
+    /**
+     * Перекодирует RAW в замаскированные сегменты. RAW может лежать в no_backup, поэтому готовые файлы
+     * складываются в [outputDirectory] (filesDir/uploads, рядом с другими вложениями на отправку).
+     * При сбое сегмента уже готовые сегменты и RAW сохраняются: долгую запись нельзя терять из-за одной ошибки.
+     */
+    suspend fun process(source: File, settings: VideoMessageSettings, outputDirectory: File): List<OutgoingMedia> {
         val sourceInfo = withContext(Dispatchers.IO) { metadata(source) }
         val sourceDurationMs = sourceInfo.durationMs
         require(sourceDurationMs > 0L) { "Не удалось прочитать длительность записи" }
         val target = settings.targetProfile()
-        val directory = source.parentFile ?: error("Нет папки записи")
+        withContext(Dispatchers.IO) { outputDirectory.mkdirs() }
         // CameraX пишет кадр целиком, включая углы вне круга, а TDLib принимает кружок только в H.264: поэтому файл всегда перекодируется.
         val result = mutableListOf<OutgoingMedia>()
         var startMs = 0L
         var index = 0
-        try {
-            while (startMs < sourceDurationMs) {
-                val endMs = minOf(startMs + MAX_SEGMENT_MS, sourceDurationMs)
-                val output = File(directory, "video-note-${index + 1}.mp4")
-                try {
-                    transform(source, output, startMs, endMs, target.side, target.videoBitrate, target.audioBitrate)
-                    val info = withContext(Dispatchers.IO) { metadata(output) }
-                    require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }
-                    require(info.durationMs in 1L..MAX_SEGMENT_MS) { "Длительность сегмента превышает 60 секунд" }
-                    result += outgoingMedia(output, info, index + 1)
-                } catch (failure: Exception) {
-                    output.delete()
-                    throw failure
-                }
-                startMs = endMs
-                index++
+        while (startMs < sourceDurationMs) {
+            val endMs = minOf(startMs + MAX_SEGMENT_MS, sourceDurationMs)
+            val output = File(outputDirectory, "video-note-${index + 1}.mp4")
+            try {
+                transform(source, output, startMs, endMs, target.side, target.videoBitrate, target.audioBitrate)
+                val info = withContext(Dispatchers.IO) { metadata(output) }
+                require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }
+                require(info.durationMs in 1L..MAX_SEGMENT_MS) { "Длительность сегмента превышает 60 секунд" }
+                result += outgoingMedia(output, info, index + 1)
+            } catch (failure: Exception) {
+                output.delete()
+                throw failure
             }
-            source.delete()
-            return result
-        } catch (failure: Exception) {
-            result.forEach { File(it.path).delete() }
-            throw failure
+            startMs = endMs
+            index++
         }
+        source.delete()
+        return result
     }
 
     private fun outgoingMedia(file: File, info: VideoMetadata, index: Int) = OutgoingMedia(

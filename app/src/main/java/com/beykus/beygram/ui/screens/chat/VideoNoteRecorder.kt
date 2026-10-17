@@ -89,7 +89,7 @@ internal fun videoNoteAllowed(context: Context): Boolean =
     videoNotePermissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
 /** Одна запись: пишется или уже останавливается и ждёт финализации CameraX. */
-private class VideoTake(val file: File, val settings: VideoMessageSettings) {
+private class VideoTake(val file: File, val settings: VideoMessageSettings, val sessionName: String) {
     var discard = false
     var recording: Recording? = null
     var previewFirst = false
@@ -160,7 +160,8 @@ internal class VideoNoteRecorder(
         val settings = currentSettings()
         Log.i(TAG, "video_start_requested preset=${settings.preset} long=${settings.longRecordingEnabled}")
         maxDurationMs = if (settings.longRecordingEnabled) LONG_MAX_DURATION_MS else NORMAL_MAX_DURATION_MS
-        val requiredBytes = if (settings.longRecordingEnabled) 2_500L * 1024L * 1024L else 150L * 1024L * 1024L
+        // Проверяем пиковый объём: RAW с камеры и перекодированные сегменты живут на диске одновременно.
+        val requiredBytes = videoPeakStorageBytes(videoCameraBitrate(settings), maxDurationMs / 1000)
         if (StatFs(context.filesDir.absolutePath).availableBytes < requiredBytes) {
             onError(context.getString(R.string.recorder_storage_low))
             return
@@ -275,12 +276,7 @@ internal class VideoNoteRecorder(
             VideoQualityPreset.Maximum -> 640
             VideoQualityPreset.Custom -> settings.customSide
         }
-        val bitrate = when (settings.preset) {
-            VideoQualityPreset.Standard -> 1_000_000
-            VideoQualityPreset.High -> 1_400_000
-            VideoQualityPreset.Maximum -> 4_000_000
-            VideoQualityPreset.Custom -> settings.customVideoBitrateKbps * 1_000
-        }
+        val bitrate = videoCameraBitrate(settings)
         val quality = if (side > 480) Quality.HD else Quality.SD
         val requestedFps = settings.requestedFrameRateRange()
         val supportedFps = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges
@@ -331,9 +327,11 @@ internal class VideoNoteRecorder(
 
     private fun startRecording(settings: VideoMessageSettings) {
         val capture = videoCapture ?: return
-        // Файл лежит в uploads, как и вложения: кэш система может очистить до отправки, а поставленное в очередь сообщение тогда сломается.
-        val directory = File(context.filesDir, "uploads").resolve(UUID.randomUUID().toString()).apply { mkdirs() }
-        val current = VideoTake(directory.resolve("video-note.mp4"), settings)
+        // RAW без маски пишется в no_backup: он не должен попадать в резервные копии и на другое устройство.
+        // Замаскированные сегменты обработчик кладёт в filesDir/uploads, как и вложения: кэш система может очистить до отправки.
+        val sessionName = UUID.randomUUID().toString()
+        val rawDirectory = File(context.noBackupFilesDir, "uploads").resolve(sessionName).apply { mkdirs() }
+        val current = VideoTake(rawDirectory.resolve("video-note.mp4"), settings, sessionName)
         take = current
         try {
             current.recording = capture.output
@@ -343,9 +341,9 @@ internal class VideoNoteRecorder(
                     if (event is VideoRecordEvent.Start && take === current && active) startClock()
                     if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
                 }
-            Log.i(TAG, "video_recording_started session=${directory.name}")
+            Log.i(TAG, "video_recording_started session=$sessionName")
         } catch (_: Exception) {
-            Log.e(TAG, "video_recording_start_failed session=${directory.name}")
+            Log.e(TAG, "video_recording_start_failed session=$sessionName")
             take = null
             current.file.parentFile?.deleteRecursively()
             fail(context.getString(R.string.recorder_start_failed))
@@ -369,9 +367,10 @@ internal class VideoNoteRecorder(
         }
         scope.launch {
             try {
-                Log.i(TAG, "video_processing_started session=${current.file.parentFile?.name}")
-                val media = VideoNoteProcessor(context).process(current.file, current.settings)
-                Log.i(TAG, "video_processing_completed session=${current.file.parentFile?.name} segments=${media.size} bytes=${media.sumOf { it.size }}")
+                val outputDirectory = File(context.filesDir, "uploads").resolve(current.sessionName).apply { mkdirs() }
+                Log.i(TAG, "video_processing_started session=${current.sessionName}")
+                val media = VideoNoteProcessor(context).process(current.file, current.settings, outputDirectory)
+                Log.i(TAG, "video_processing_completed session=${current.sessionName} segments=${media.size} bytes=${media.sumOf { it.size }}")
                 onFinished(media, current.previewFirst || media.size > 1)
             } catch (failure: Exception) {
                 Log.e(TAG, "video_processing_failed session=${current.file.parentFile?.name} type=${failure.javaClass.simpleName}", failure)
@@ -380,6 +379,20 @@ internal class VideoNoteRecorder(
             }
         }
     }
+}
+
+/** Видеобитрейт CameraX для пресета: единый источник для качества записи и расчёта места. */
+internal fun videoCameraBitrate(settings: VideoMessageSettings): Int = when (settings.preset) {
+    VideoQualityPreset.Standard -> 1_000_000
+    VideoQualityPreset.High -> 1_400_000
+    VideoQualityPreset.Maximum -> 4_000_000
+    VideoQualityPreset.Custom -> settings.customVideoBitrateKbps * 1_000
+}
+
+/** Пиковый объём на диске: RAW и перекодированные сегменты живут одновременно. Аудио учтено надбавкой 128 кбит/с на каждый поток, сверху запас на контейнер. */
+internal fun videoPeakStorageBytes(videoBitrate: Int, durationSeconds: Long): Long {
+    val bits = (videoBitrate.toLong() + 128_000L) * durationSeconds
+    return bits / 8 * 2 + 256L * 1024L * 1024L
 }
 
 /** Запись кружка на экране чата: отмена при уходе из композиции, чтобы камера не оставалась открытой. */
