@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.MediaFileState
@@ -71,7 +72,8 @@ fun ContactsScreen(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var contacts by remember { mutableStateOf<List<ContactPreview>>(emptyList()) }
+    val state: ContactsScreenState = viewModel()
+    val contacts = state.contacts
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var openError by remember { mutableStateOf<String?>(null) }
@@ -89,7 +91,7 @@ fun ContactsScreen(
             loading = true
             loadError = null
             loadContacts()
-                .onSuccess { contacts = it }
+                .onSuccess { state.contacts = it }
                 .onFailure { loadError = it.userMessage(context, R.string.contacts_load_failed) }
             loading = false
         }
