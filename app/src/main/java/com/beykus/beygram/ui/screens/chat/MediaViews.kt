@@ -258,7 +258,7 @@ internal fun MediaViewer(
                     }
                 }
             }
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().weight(1f)) { page ->
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().weight(1f), key = { pages[it].messageId }) { page ->
                 val item = pages[page]
                 MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
                     onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed)
@@ -277,7 +277,7 @@ internal fun MediaViewer(
     }
 }
 
-/** Одна страница просмотрщика. [active] — страница, которую сейчас видно целиком: только её видео играет. */
+/** Одна страница просмотрщика. [active] — страница, которую сейчас видно целиком: только её видео играет и только она отмечается просмотренной. */
 @Composable
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
@@ -289,8 +289,8 @@ private fun MediaViewerPage(
     val previewId = media.thumbnailFileId
     val exportable = canExport && !media.isSecret
     val currentOnViewed by rememberUpdatedState(onViewed)
-    LaunchedEffect(media.fileId, file.localPath) {
-        if (file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
+    LaunchedEffect(media.fileId, file.localPath, active) {
+        if (active && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
     }
     LaunchedEffect(media.fileId) { if (!tgs) downloadFile(media.fileId) else previewId?.let(downloadFile) }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

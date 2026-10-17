@@ -221,11 +221,12 @@ fun ChatScreen(
         capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
     }
     LaunchedEffect(selectedMediaId) {
-        viewerCapabilities = null; viewerPosition = null
+        // При свайпе старые значения остаются до ответа, иначе счётчик и кнопки мигают на каждом вложении.
+        if (selectedMediaId == null) { viewerCapabilities = null; viewerPosition = null }
         val id = selectedMediaId ?: return@LaunchedEffect
         viewerCapabilities = conversation.messageCapabilities(chat.id, id).getOrNull()
-        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind ?: return@LaunchedEffect
-        viewerPosition = conversation.mediaPosition(chat.id, id, kind).getOrNull()
+        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind
+        viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
     BackHandler(enabled = searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active) {
         when {
