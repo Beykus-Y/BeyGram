@@ -71,9 +71,9 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
         if (status is UpdateStatus.Downloading) runningJob?.cancel()
     }
 
-    fun install(file: File) {
+    fun install(file: File, release: StableRelease) {
         try {
-            installHint = if (repository.install(file)) {
+            installHint = if (repository.install(file, release)) {
                 "Подтвердите обновление в системном установщике Android."
             } else {
                 "Разрешите установку из BeyGram в настройках Android, затем вернитесь и нажмите «Установить»."
