@@ -25,6 +25,7 @@ import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramNotifications
 import com.beykus.beygram.domain.model.TelegramProxyDraft
@@ -82,6 +83,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun enableProxy(id: Int): Result<Unit> = unavailable()
     override suspend fun disableProxy(): Result<Unit> = unavailable()
     override suspend fun removeProxy(id: Int): Result<Unit> = unavailable()
+    override suspend fun currentRoute(): Result<TelegramRoute> = unavailable()
     override suspend fun measureProxyLatency(server: String, port: Int): Result<Long> = unavailable()
     override suspend fun isMihomoProxyEnabled(): Result<Boolean> = Result.success(false)
     override suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit> = if (enabled) unavailable() else Result.success(Unit)

@@ -31,6 +31,7 @@ import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.NotificationPresentation
 import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.TelegramProxyKind
 import com.beykus.beygram.data.vpn.LoopbackProxyCredentials
@@ -102,6 +103,18 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override suspend fun removeProxy(id: Int): Result<Unit> = proxyMutex.withLock {
         requestResult { tdRequests(TdApi.RemoveProxy(id)); Unit }
+    }
+
+    override suspend fun currentRoute(): Result<TelegramRoute> = requestResult<TelegramRoute> {
+        val enabled = tdRequests(TdApi.GetProxies()).proxies.orEmpty().firstOrNull { it.isEnabled }
+        when {
+            enabled == null -> TelegramRoute.Direct
+            enabled.isMihomoEntry() -> TelegramRoute.Subscription
+            else -> {
+                val proxy = enabled.toSavedProxy() ?: error("Unsupported proxy type")
+                TelegramRoute.Proxy(proxy.kind, proxy.server, proxy.port)
+            }
+        }
     }
 
     override suspend fun isMihomoProxyEnabled(): Result<Boolean> =

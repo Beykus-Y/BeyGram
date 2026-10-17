@@ -41,6 +41,7 @@ import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
+import com.beykus.beygram.ui.screens.diagnostics.ConnectionDiagnosticsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
@@ -424,7 +425,18 @@ private fun BeyGramAppContent(
                 EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)
             } ?: LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
         }
-        AppRoute.Notifications -> NotificationSettingsScreen(notificationRuntime, connectionState, onBack = { routeName = notificationsReturnRouteName })
+        AppRoute.Notifications -> NotificationSettingsScreen(
+            runtime = notificationRuntime,
+            connectionState = connectionState,
+            onBack = { routeName = notificationsReturnRouteName },
+            onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name }
+        )
+        AppRoute.ConnectionDiagnostics -> ConnectionDiagnosticsScreen(
+            repository = repository,
+            vpnBackend = vpnBackend,
+            connectionState = connectionState,
+            onBack = { routeName = AppRoute.Notifications.name }
+        )
         AppRoute.Calls -> MainTabsScaffold(MainTab.Calls.route.name, MainTab.Calls, tabVisibility, selectTab, tabStateHolder) {
             CallsScreen(loadCalls = repository::loadCallHistory, observeFile = repository::observeFile, downloadFile = repository::downloadFile)
         }
