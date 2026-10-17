@@ -27,8 +27,11 @@ enum class ProfileMemberRole { Owner, Admin, Member }
 /** Участник группы или канала; онлайн-статус известен только для тех, кого TDLib уже прислал. */
 data class ProfileMember(val name: String, val role: ProfileMemberRole, val online: Boolean)
 
-/** Страница участников: [total] нужен, чтобы понимать, есть ли следующая страница. */
-data class ChatMembersPage(val total: Int, val members: List<ProfileMember>)
+/**
+ * Страница участников. [fetched] — сколько записей TDLib вернул до фильтрации: именно он двигает смещение следующей страницы,
+ * потому что часть записей (чаты, недоступные пользователи) в [members] не попадает.
+ */
+data class ChatMembersPage(val total: Int, val members: List<ProfileMember>, val fetched: Int)
 
 /** Владелец или администратор группы/канала; роль берётся из статуса участника в TDLib. */
 data class ProfileAdmin(val name: String, val isOwner: Boolean, val customTitle: String)

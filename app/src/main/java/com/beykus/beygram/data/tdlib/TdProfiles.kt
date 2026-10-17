@@ -147,11 +147,15 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         }
     }
     /** Страница участников для экрана списка; у обычной группы TDLib отдаёт список целиком, поэтому страница режется локально. */
-    suspend fun loadMembers(chatId: Long, offset: Int, limit: Int): ChatMembersPage {
-        val (total, members) = withTimeout(25_000) { fetchMembers(chatId, offset, limit) }
-        return ChatMembersPage(total, members.mapNotNull { member ->
+    suspend fun loadMembers(chatId: Long, offset: Int, limit: Int): ChatMembersPage = withTimeout(25_000) {
+        val (total, raw) = fetchMembers(chatId, offset, limit)
+        // Незнакомых пользователей догружаем параллельно: страница до 50 записей не должна тянуть их по одной.
+        val missing = raw.mapNotNull { (it.memberId as? TdApi.MessageSenderUser)?.userId }.distinct()
+            .filter { id -> synchronized(lock) { users[id] } == null }
+        coroutineScope { missing.map { id -> async { fetchUser(id) } }.awaitAll() }
+        ChatMembersPage(total, raw.mapNotNull { member ->
             val id = (member.memberId as? TdApi.MessageSenderUser)?.userId ?: return@mapNotNull null
-            val user = synchronized(lock) { users[id] } ?: fetchUser(id) ?: return@mapNotNull null
+            val user = synchronized(lock) { users[id] } ?: return@mapNotNull null
             ProfileMember(
                 name = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
                 role = when (member.status) {
@@ -161,7 +165,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 },
                 online = (user.status as? TdApi.UserStatusOnline)?.let { it.expires > System.currentTimeMillis() / 1000 } == true
             )
-        })
+        }, fetched = raw.size)
     }
     private suspend fun fetchMembers(chatId: Long, offset: Int, limit: Int): Pair<Int, List<TdApi.ChatMember>> {
         return when (val type = synchronized(lock) { chats[chatId]?.type }) {

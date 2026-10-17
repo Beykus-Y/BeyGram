@@ -35,18 +35,20 @@ fun ChatMembersScreen(loadPage: suspend (offset: Int, limit: Int) -> Result<Chat
     val listState = rememberLazyListState()
     var members by remember { mutableStateOf<List<ProfileMember>>(emptyList()) }
     var total by remember { mutableStateOf<Int?>(null) }
+    var nextOffset by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     fun loadNext() {
-        if (loading || total?.let { members.size >= it } == true) return
+        if (loading || total?.let { nextOffset >= it } == true) return
         loading = true
         error = null
         scope.launch {
-            loadPage(members.size, MEMBERS_PAGE)
+            loadPage(nextOffset, MEMBERS_PAGE)
                 .onSuccess { page ->
                     members = members + page.members
-                    // Пустая страница означает, что список кончился, даже если TDLib назвал другое число.
-                    total = if (page.members.isEmpty()) members.size else page.total
+                    nextOffset += page.fetched
+                    // Пустая страница означает конец списка, даже если TDLib назвал другое число.
+                    total = if (page.fetched == 0) nextOffset else page.total
                 }
                 .onFailure { error = it.userMessage(context, R.string.profile_members_load_failed) }
             loading = false
@@ -62,7 +64,12 @@ fun ChatMembersScreen(loadPage: suspend (offset: Int, limit: Int) -> Result<Chat
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.profile_members_title), onBack)
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
-        error?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp)) }
+        error?.let { message ->
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                Text(message, color = palette.danger)
+                TextButton(onClick = ::loadNext) { Text(stringResource(R.string.common_retry), fontWeight = FontWeight.SemiBold) }
+            }
+        }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
             itemsIndexed(members) { _, member ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
