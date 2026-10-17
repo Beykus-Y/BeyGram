@@ -298,6 +298,7 @@
     <string name="proxy_no_connection">нет связи</string>
     <string name="proxy_restore_failed_question">Telegram не смог подключиться через Proxy, повторить ещё раз?</string>
     <string name="proxy_restore_retry">Повторить</string>
+    <string name="proxy_restore_retrying">Пробую подключиться</string>
     <string name="proxy_restore_turn_off">Выключить прокси</string>
     <string name="proxy_servers_few">сервера</string>
     <string name="proxy_servers_many">серверов</string>

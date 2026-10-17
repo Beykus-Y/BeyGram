@@ -71,6 +71,9 @@ internal class VpnBackend private constructor(
     private val _restoreFailed = MutableStateFlow(false)
     /** True when the automatic restore failed on every try. The user then decides: try again or turn the proxy off. */
     val restoreFailed: StateFlow<Boolean> = _restoreFailed.asStateFlow()
+    private val _restoreRetrying = MutableStateFlow(false)
+    /** True while a retry that the user asked for runs. The dialog then shows a hint instead of the question. */
+    val restoreRetrying: StateFlow<Boolean> = _restoreRetrying.asStateFlow()
 
     init {
         networkMonitor.start()
@@ -85,6 +88,17 @@ internal class VpnBackend private constructor(
     suspend fun restoreFromScreen() {
         if (restoreMutex.isLocked) return
         restore()
+    }
+
+    /** Called when the user taps Retry in the restore dialog. The dialog shows a hint while this round runs. */
+    suspend fun retryRestore() {
+        if (restoreMutex.isLocked) return
+        _restoreRetrying.value = true
+        try {
+            restore()
+        } finally {
+            _restoreRetrying.value = false
+        }
     }
 
     /**
@@ -190,8 +204,9 @@ internal class VpnBackend private constructor(
             MihomoRuntimeDiagnostics.event("backend", "proxy stop requested")
             val tdlib = setTdLibProxy(false)
             if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось выключить прокси")
-            // TDLib no longer uses the proxy, so the restore question is settled even if the listener stop fails below.
+            // TDLib no longer uses the proxy, so the restore question and hint are settled even if the listener stop fails below.
             _restoreFailed.value = false
+            _restoreRetrying.value = false
             stopListenerNow()
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
