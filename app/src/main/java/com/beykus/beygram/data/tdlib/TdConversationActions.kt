@@ -65,6 +65,12 @@ internal class TdConversationActions(
         send(chatId, media.toInputContent(caption), replyId)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }
+    suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = conversationResult {
+        val orderedIds = messageIds.distinct().sorted()
+        require(orderedIds.isNotEmpty()) { "Нет сообщений для повтора" }
+        request(TdApi.ResendMessages(chatId, orderedIds.toLongArray(), null, 0L))
+        Unit
+    }
     private suspend fun send(chatId: Long, content: TdApi.InputMessageContent, replyId: Long?) {
         val replyTarget = replyId?.let {
             check(request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) { "На это сообщение нельзя ответить" }

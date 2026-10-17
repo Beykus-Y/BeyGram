@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,7 +78,8 @@ internal fun MessageAlbumBubble(
     highlighted: Boolean,
     onOpen: (Long) -> Unit,
     onActions: (Long) -> Unit,
-    onReplyClick: (MessageReply) -> Unit
+    onReplyClick: (MessageReply) -> Unit,
+    onRetry: () -> Unit = {}
 ) {
     if (messages.isEmpty()) return
     val palette = beyGramPalette()
@@ -131,6 +133,10 @@ internal fun MessageAlbumBubble(
             Row(Modifier.align(Alignment.End).padding(start = 12.dp, end = 10.dp, top = 2.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 val timeColor = if (latest.sendState == MessageSendState.Failed) palette.warningText else palette.textSecondary
                 Text(latest.time + statusText, color = timeColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                if (latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed }) {
+                    Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText, fontSize = 12.sp,
+                        modifier = Modifier.clickable(onClick = onRetry))
+                }
                 if (latest.isOutgoing && latest.sendState == MessageSendState.Sending) {
                     Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = palette.textSecondary, modifier = Modifier.padding(start = 3.dp).size(14.dp))
                 } else if (latest.isOutgoing && latest.sendState == MessageSendState.Sent) {

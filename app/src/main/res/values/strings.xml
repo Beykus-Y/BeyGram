@@ -368,6 +368,9 @@
     <string name="recorder_delete">Удалить</string>
     <string name="recorder_send">Отправить</string>
     <string name="recorder_cancel">Отмена</string>
+    <string name="voice_recorder_permission_granted_retry">Доступ разрешён. Удерживайте кнопку ещё раз, чтобы начать запись.</string>
+    <string name="chat_retry_send">Повторить</string>
+    <string name="chat_retry_send_failed">Не удалось повторить отправку</string>
     <string name="recorder_preview_title">Предпросмотр записи</string>
     <string name="recorder_preview_duration">Длительность: %1$s</string>
     <string name="recorder_preview_batch">%1$d видеокружков · %2$s</string>

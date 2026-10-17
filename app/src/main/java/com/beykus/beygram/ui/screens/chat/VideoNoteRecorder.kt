@@ -90,6 +90,8 @@ internal fun videoNoteAllowed(context: Context): Boolean =
 private class VideoTake(val file: File, val settings: VideoMessageSettings) {
     var discard = false
     var recording: Recording? = null
+    var previewFirst = false
+    var stopRequested = false
 }
 
 /** Запись кружка через CameraX: квадратный кадр по центру (ViewPort 1:1). Отпускание отправляет, сдвиг влево отменяет. */
@@ -121,7 +123,6 @@ internal class VideoNoteRecorder(
     private var timer: Job? = null
     private var startedAt = 0L
     private var maxDurationMs = NORMAL_MAX_DURATION_MS
-    private var previewFirst = false
     private var attempt = 0
 
     /** Нажатие: камера открывается асинхронно, запись начинается, когда она готова. */
@@ -188,7 +189,7 @@ internal class VideoNoteRecorder(
             return
         }
         current.discard = current.discard || cancel
-        current.recording?.stop()
+        requestStop(current)
     }
 
     fun stopLocked() { if (active && locked) stop(preview = true) }
@@ -211,9 +212,7 @@ internal class VideoNoteRecorder(
         val current = take
         if (current == null) {
             provider?.unbindAll()
-        } else {
-            current.recording?.stop()
-        }
+        } else requestStop(current)
     }
 
     private fun fail(message: String) {
@@ -229,13 +228,21 @@ internal class VideoNoteRecorder(
     private fun stop(preview: Boolean) {
         if (!active) return
         Log.i(TAG, "video_recording_stopping preview=$preview elapsedMs=$elapsedMs")
-        previewFirst = preview
         active = false
         locked = false
         canceling = false
         timer?.cancel()
         timer = null
-        take?.recording?.stop()
+        take?.let { current ->
+            current.previewFirst = preview
+            requestStop(current)
+        }
+    }
+
+    private fun requestStop(current: VideoTake) {
+        if (current.stopRequested) return
+        current.stopRequested = true
+        current.recording?.stop()
     }
 
     private fun bind(cameraProvider: ProcessCameraProvider, settings: VideoMessageSettings) {
@@ -331,7 +338,7 @@ internal class VideoNoteRecorder(
                 Log.i(TAG, "video_processing_started session=${current.file.parentFile?.name}")
                 val media = VideoNoteProcessor(context).process(current.file, current.settings)
                 Log.i(TAG, "video_processing_completed session=${current.file.parentFile?.name} segments=${media.size} bytes=${media.sumOf { it.size }}")
-                onFinished(media, previewFirst || media.size > 1)
+                onFinished(media, current.previewFirst || media.size > 1)
             } catch (failure: Exception) {
                 Log.e(TAG, "video_processing_failed session=${current.file.parentFile?.name} type=${failure.javaClass.simpleName}", failure)
                 onError(context.getString(R.string.recorder_save_failed))
@@ -345,15 +352,15 @@ internal class VideoNoteRecorder(
 @Composable
 internal fun rememberVideoNoteRecorder(
     settings: VideoMessageSettingsStore,
+    processingScope: CoroutineScope,
     onFinished: (List<OutgoingMedia>, previewFirst: Boolean) -> Unit,
     onError: (String) -> Unit
 ): VideoNoteRecorder {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
-    val scope = rememberCoroutineScope()
     val currentOnFinished by rememberUpdatedState(onFinished)
     val currentOnError by rememberUpdatedState(onError)
-    val recorder = remember(owner, settings) { VideoNoteRecorder(context, owner, scope, { settings.settings.value }, { media, preview -> currentOnFinished(media, preview) }, { currentOnError(it) }) }
+    val recorder = remember(owner, settings, processingScope) { VideoNoteRecorder(context, owner, processingScope, { settings.settings.value }, { media, preview -> currentOnFinished(media, preview) }, { currentOnError(it) }) }
     DisposableEffect(recorder) { onDispose { recorder.dispose() } }
     return recorder
 }

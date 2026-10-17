@@ -16,6 +16,7 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.data.media.VideoProcessingMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -27,10 +28,19 @@ import kotlin.coroutines.resumeWithException
 @OptIn(UnstableApi::class)
 class VideoNoteProcessor(private val context: Context) {
     suspend fun process(source: File, settings: VideoMessageSettings): List<OutgoingMedia> {
-        val sourceDurationMs = withContext(Dispatchers.IO) { metadata(source).durationMs }
+        val sourceInfo = withContext(Dispatchers.IO) { metadata(source) }
+        val sourceDurationMs = sourceInfo.durationMs
         require(sourceDurationMs > 0L) { "Не удалось прочитать длительность записи" }
         val target = settings.targetProfile()
         val directory = source.parentFile ?: error("Нет папки записи")
+        val canPassThrough = sourceDurationMs <= MAX_SEGMENT_MS && when (settings.processing) {
+            VideoProcessingMode.Direct -> true
+            VideoProcessingMode.Automatic -> sourceInfo.width == target.side && sourceInfo.height == target.side
+            VideoProcessingMode.Transcode -> false
+        }
+        if (canPassThrough) {
+            return listOf(outgoingMedia(source, sourceInfo, 1))
+        }
         val result = mutableListOf<OutgoingMedia>()
         var startMs = 0L
         var index = 0
@@ -43,16 +53,7 @@ class VideoNoteProcessor(private val context: Context) {
                     val info = withContext(Dispatchers.IO) { metadata(output) }
                     require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }
                     require(info.durationMs in 1L..MAX_SEGMENT_MS) { "Длительность сегмента превышает 60 секунд" }
-                    result += OutgoingMedia(
-                        path = output.absolutePath,
-                        fileName = "video-note-${index + 1}.mp4",
-                        mimeType = "video/mp4",
-                        kind = MediaKind.VideoNote,
-                        width = info.width,
-                        height = info.height,
-                        durationSeconds = ((info.durationMs + 999L) / 1000L).toInt(),
-                        size = output.length()
-                    )
+                    result += outgoingMedia(output, info, index + 1)
                 } catch (failure: Exception) {
                     output.delete()
                     throw failure
@@ -67,6 +68,17 @@ class VideoNoteProcessor(private val context: Context) {
             throw failure
         }
     }
+
+    private fun outgoingMedia(file: File, info: VideoMetadata, index: Int) = OutgoingMedia(
+        path = file.absolutePath,
+        fileName = "video-note-$index.mp4",
+        mimeType = "video/mp4",
+        kind = MediaKind.VideoNote,
+        width = info.width,
+        height = info.height,
+        durationSeconds = ((info.durationMs + 999L) / 1000L).toInt(),
+        size = file.length()
+    )
 
     private suspend fun transform(input: File, output: File, startMs: Long, endMs: Long, side: Int, videoBitrate: Int, audioBitrate: Int) {
         withContext(Dispatchers.Main.immediate) {

@@ -16,6 +16,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -66,13 +67,15 @@ internal fun RecordingPreviewDialog(
                 }
                 Text(stringResource(R.string.recorder_preview_duration, duration(media.durationSeconds)))
                 if (media.kind == MediaKind.VideoNote) {
-                    AndroidView(
-                        factory = { VideoView(it).apply {
-                            setVideoPath(media.path)
-                            setMediaController(MediaController(context))
-                        } },
-                        modifier = Modifier.fillMaxWidth().height(280.dp)
-                    )
+                    key(media.path) {
+                        AndroidView(
+                            factory = { VideoView(it).apply {
+                                setVideoPath(media.path)
+                                setMediaController(MediaController(context))
+                            } },
+                            modifier = Modifier.fillMaxWidth().height(280.dp)
+                        )
+                    }
                 } else {
                     Button(enabled = prepared, onClick = {
                         if (playing) { player?.pause(); playing = false }

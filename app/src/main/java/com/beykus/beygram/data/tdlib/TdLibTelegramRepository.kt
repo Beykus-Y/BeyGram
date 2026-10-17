@@ -371,6 +371,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?): Result<Unit> =
         conversationActions.sendMedia(chatId, media, caption, replyToMessageId)
+    override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> =
+        conversationActions.retryMessages(chatId, messageIds)
 
     override fun openChat(chatId: Long) {
         _notificationPresentation.update { it.copy(openedChats = it.openedChats + chatId) }
@@ -487,7 +489,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             val sessionDirectory = file.parentFile ?: return
             require(sessionDirectory.parentFile?.canonicalFile == uploads) { "Recording path is outside uploads" }
             require(file.path.startsWith(uploads.path + File.separator)) { "Recording path is outside uploads" }
-            if (sessionDirectory.deleteRecursively()) {
+            val deleted = file.delete()
+            if (sessionDirectory.listFiles().isNullOrEmpty()) sessionDirectory.delete()
+            if (deleted) {
                 android.util.Log.i("BeyGramNet", "Uploaded recording cleaned kind=${message.content.javaClass.simpleName} path=$localPath")
             }
         }.onFailure { android.util.Log.w("BeyGramNet", "Could not clean uploaded recording: ${it.message}") }
