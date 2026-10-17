@@ -26,6 +26,8 @@ data class ChatHistory(
     val messages: List<ChatMessage> = emptyList(),
     val isLoading: Boolean = false,
     val hasOlderMessages: Boolean = true,
+    /** True while the messages are a window around a jumped-to message, so newer messages are not loaded yet. */
+    val hasNewerMessages: Boolean = false,
     val error: UiText? = null,
     val lastReadInboxMessageId: Long = 0L,
     val lastReadOutboxMessageId: Long = 0L

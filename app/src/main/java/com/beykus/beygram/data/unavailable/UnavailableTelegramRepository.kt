@@ -113,6 +113,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>): Result<Unit> = unavailable()
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit> = unavailable()
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit> = unavailable()
+    override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> = unavailable()
+    override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) {}
