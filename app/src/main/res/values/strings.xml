@@ -568,6 +568,8 @@
     <string name="settings_video_capability_note">Камера и кодировщик могут ограничивать разрешение, частоту кадров и битрейт. Фактические параметры готовой записи могут отличаться.</string>
     <string name="settings_video_long_recording">Без ограничения длительности</string>
     <string name="settings_video_long_recording_detail">Записывайте до 1 часа. BeyGram автоматически разделит запись на кружки по 60 секунд.</string>
+    <string name="settings_video_mirror_front">Отзеркаливать фронтальную камеру</string>
+    <string name="settings_video_mirror_front_detail">Включено: кружок снимается как в зеркале, как и превью. Выключено: кружок как его видят другие.</string>
     <string name="voice_recorder_start_failed">Не удалось начать запись голосового сообщения</string>
     <string name="voice_recorder_save_failed">Не удалось сохранить голосовое сообщение</string>
     <string name="voice_recorder_too_short">Запись слишком короткая</string>

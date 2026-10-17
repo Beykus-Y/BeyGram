@@ -98,6 +98,18 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
                     Switch(checked = settings.longRecordingEnabled, onCheckedChange = null)
                 }
             }
+
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp)) {
+                Row(Modifier.fillMaxWidth().toggleable(settings.mirrorFrontCamera, role = Role.Switch) { checked ->
+                    store.updateSettings { current -> current.copy(mirrorFrontCamera = checked) }
+                }, verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(stringResource(R.string.settings_video_mirror_front), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(stringResource(R.string.settings_video_mirror_front_detail), color = palette.textSecondary, fontSize = 13.sp)
+                    }
+                    Switch(checked = settings.mirrorFrontCamera, onCheckedChange = null)
+                }
+            }
         }
     }
 }

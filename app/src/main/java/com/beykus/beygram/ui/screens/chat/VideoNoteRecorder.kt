@@ -346,6 +346,10 @@ internal class VideoNoteRecorder(
         current.recording?.stop()
     }
 
+    /** Одно правило и для превью, и для записи: иначе отправленный кружок расходится с тем, что видно при съёмке. */
+    private fun mirrorMode(settings: VideoMessageSettings): Int =
+        if (settings.mirrorFrontCamera) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF
+
     /** Пара Recorder и VideoCapture создаётся один раз на запись: persistent-запись требует, чтобы при смене камеры она не пересоздавалась. */
     private fun createCapture(
         cameraProvider: ProcessCameraProvider,
@@ -378,7 +382,7 @@ internal class VideoNoteRecorder(
                 .build()
         )
         // Запись фронтальной камеры отражается так же, как превью: отправленный кружок совпадает с тем, что видно при записи.
-        captureBuilder.setMirrorMode(MirrorMode.MIRROR_MODE_ON_FRONT_ONLY)
+        captureBuilder.setMirrorMode(mirrorMode(settings))
         if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
         captureFpsRange = fpsRange
         return captureBuilder.build()
@@ -399,7 +403,7 @@ internal class VideoNoteRecorder(
         )
         val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         val previewBuilder = Preview.Builder()
-        previewBuilder.setMirrorMode(MirrorMode.MIRROR_MODE_ON_FRONT_ONLY)
+        previewBuilder.setMirrorMode(mirrorMode(settings))
         if (fpsRange != null) previewBuilder.setTargetFrameRate(fpsRange)
         val preview = previewBuilder.build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
