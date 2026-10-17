@@ -37,6 +37,9 @@ import com.beykus.beygram.domain.model.TelegramProxyKind
 import com.beykus.beygram.data.vpn.LoopbackProxyCredentials
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import com.beykus.beygram.diagnostics.ConnectionEventLog
+import com.beykus.beygram.diagnostics.StructuredEventLog
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -279,6 +282,17 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
     private val conversationEffects = TdConversationEffects({ client }, policy)
+
+    // ---- Канал подтверждения диагностических отчётов --------------------------
+    // Pinning id бота задан публичной конфигурацией сборки; 0 — пиннинг выключен.
+    private val reportBotChannel = TdReportBotChannel({ client }, BuildConfig.REPORT_BOT_USER_ID)
+    override suspend fun openBotChat(expectedBotUserId: Long, username: String) =
+        reportBotChannel.openBotChat(expectedBotUserId, username)
+    override suspend fun sendReportCommand(botChatId: Long, nonce: String) =
+        reportBotChannel.sendReportCommand(botChatId, nonce)
+    override suspend fun awaitBotConfirmation(botChatId: Long, timeoutMillis: Long) =
+        reportBotChannel.awaitBotConfirmation(botChatId, timeoutMillis)
+    override fun cancelBotWait() = reportBotChannel.cancelBotWait()
     override val messageLimits get() = conversationActions.limits
     override suspend fun messageCapabilities(chatId: Long, messageId: Long) = conversationActions.capabilities(chatId, messageId)
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind) = conversationActions.mediaPosition(chatId, messageId, kind)
@@ -337,6 +351,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         client.send(TdApi.SetNetworkType(type), Client.ResultHandler { result ->
             if (result is TdApi.Error) {
                 ConnectionEventLog.shared.record("SetNetworkType: ошибка ${result.code}")
+                StructuredEventLog.shared.record(
+                    kind = EventKind.NETWORK,
+                    severity = Severity.WARNING,
+                    code = "set_network_type_failed",
+                    message = "",
+                    attrs = mapOf("error_code" to result.code.toString())
+                )
                 if (BuildConfig.DEBUG) android.util.Log.w(TelegramNetworkMonitor.TAG, "SetNetworkType failed: ${result.code}")
             }
         })
@@ -547,14 +568,19 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(photo = profiles.photo(update.photo)) }
                 publishChat(update.chatId)
             }
-            is TdApi.UpdateNewMessage         -> handleNewMessage(update.message)
+            is TdApi.UpdateNewMessage         -> {
+                reportBotChannel.onNewMessage(update.message)
+                handleNewMessage(update.message)
+            }
             is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
             is TdApi.UpdateMessageSendSucceeded -> {
+                reportBotChannel.onSendSucceeded(update)
                 cleanupSentRecording(update.message)
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
                 conversationActions.hydrateReply(update.message)
             }
             is TdApi.UpdateMessageSendFailed -> {
+                reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
                 android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} code=${sendError?.code} error=${sendError?.message}")
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
@@ -562,6 +588,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateDeleteMessages -> if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())
             is TdApi.UpdateConnectionState    -> {
                 ConnectionEventLog.shared.record("Соединение с Telegram: ${update.state.logLabel()}")
+                StructuredEventLog.shared.record(
+                    kind = EventKind.TDLIB,
+                    severity = Severity.INFO,
+                    code = "tdlib_connection",
+                    message = update.state.logLabel(),
+                    attrs = mapOf("state" to update.state.wireState())
+                )
                 if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib connection: ${update.state.javaClass.simpleName}")
                 _connectionState.value = when (update.state) {
                     is TdApi.ConnectionStateReady -> TelegramConnectionState.Connected
@@ -601,6 +634,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleAuthorizationState(state: TdApi.AuthorizationState) {
         ConnectionEventLog.shared.record("Вход в аккаунт: ${state.logLabel()}")
+        StructuredEventLog.shared.record(
+            kind = EventKind.TDLIB,
+            severity = Severity.INFO,
+            code = "tdlib_auth",
+            message = state.logLabel(),
+            attrs = mapOf("state" to state.wireState())
+        )
         if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib authorization: ${state.javaClass.simpleName}")
         authTimeoutJob?.cancel()
         when (state) {
@@ -871,6 +911,28 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 _authState.value = AuthState.ConnectionTimeout
             }
         }
+    }
+
+    /** Разрешённое значение состояния соединения для структурированного отчёта (без свободных строк). */
+    private fun TdApi.ConnectionState.wireState(): String = when (this) {
+        is TdApi.ConnectionStateReady -> "ready"
+        is TdApi.ConnectionStateConnecting -> "connecting"
+        is TdApi.ConnectionStateConnectingToProxy -> "connecting_to_proxy"
+        is TdApi.ConnectionStateUpdating -> "updating"
+        is TdApi.ConnectionStateWaitingForNetwork -> "waiting_for_network"
+        else -> "other"
+    }
+
+    /** Разрешённое значение этапа авторизации для структурированного отчёта. */
+    private fun TdApi.AuthorizationState.wireState(): String = when (this) {
+        is TdApi.AuthorizationStateWaitTdlibParameters -> "wait_parameters"
+        is TdApi.AuthorizationStateWaitPhoneNumber -> "wait_phone"
+        is TdApi.AuthorizationStateWaitCode -> "wait_code"
+        is TdApi.AuthorizationStateWaitPassword -> "wait_password"
+        is TdApi.AuthorizationStateReady -> "ready"
+        is TdApi.AuthorizationStateLoggingOut -> "logging_out"
+        is TdApi.AuthorizationStateClosed -> "closed"
+        else -> "other"
     }
 
     companion object {

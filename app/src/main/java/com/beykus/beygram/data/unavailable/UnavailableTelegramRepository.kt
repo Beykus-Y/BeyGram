@@ -29,6 +29,7 @@ import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramNotifications
 import com.beykus.beygram.domain.model.TelegramProxyDraft
+import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -94,6 +95,12 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun dismissNotifications(groupId: Int, maxNotificationId: Int): Result<Unit> = Result.success(Unit)
     override fun observeChat(chatId: Long): StateFlow<ChatPreview?> = MutableStateFlow<ChatPreview?>(null).asStateFlow()
     override suspend fun loadChat(chatId: Long): Result<Unit> = unavailable()
+
+    // Канал подтверждения отчётов недоступен без Telegram-сессии.
+    override suspend fun openBotChat(expectedBotUserId: Long, username: String): Result<Long> = unavailable()
+    override suspend fun sendReportCommand(botChatId: Long, nonce: String): Result<Unit> = unavailable()
+    override suspend fun awaitBotConfirmation(botChatId: Long, timeoutMillis: Long): Result<BotConfirmation> = unavailable()
+    override fun cancelBotWait() {}
 
     override fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?> = MutableStateFlow<BotKeyboard?>(null).asStateFlow()
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit> = unavailable()

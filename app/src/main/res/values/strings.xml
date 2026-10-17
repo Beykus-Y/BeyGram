@@ -635,4 +635,71 @@
     <string name="chat_format_link">Ссылка</string>
     <string name="chat_format_link_address">Адрес ссылки</string>
     <string name="chat_reveal_spoiler">Показать скрытый текст</string>
+
+    <!-- Диагностика: экран и отправка отчёта -->
+    <string name="diagnostics_title">Диагностика</string>
+    <string name="diagnostics_report_problem">Сообщить о проблеме</string>
+    <string name="diagnostics_report_problem_hint">Опишите проблему разработчику и отправьте диагностический отчёт через служебного бота</string>
+    <string name="diagnostics_view_data">Посмотреть диагностические данные</string>
+    <string name="diagnostics_view_data_hint">Текст отчёта: версия, устройство, состояние соединения и недавние события</string>
+    <string name="diagnostics_share_logs">Поделиться логами</string>
+    <string name="diagnostics_share_logs_hint">Сохранить текст отчёта и выбрать приложение для отправки самостоятельно</string>
+    <string name="diagnostics_view_close">Закрыть</string>
+    <string name="diagnostics_view_loading">Готовим данные…</string>
+    <string name="diagnostics_view_failed">Не удалось подготовить данные</string>
+
+    <string name="report_back">Назад</string>
+    <string name="report_title">Сообщить о проблеме</string>
+    <string name="report_description_label">Что произошло?</string>
+    <string name="report_description_placeholder">Опишите проблему: что вы делали, что ожидали и что случилось на самом деле</string>
+    <string name="report_description_error">Опишите проблему, чтобы мы могли её найти</string>
+    <string name="report_description_counter">%1$d / %2$d</string>
+    <string name="report_include_diagnostics">Приложить диагностические события</string>
+    <string name="report_include_diagnostics_hint">Состояния соединения и сети, коды ошибок без адресов и токенов. Содержимое переписок никогда не отправляется</string>
+    <string name="report_attached_title">Что будет отправлено</string>
+    <string name="report_attached_description">Описание проблемы (ваш текст)</string>
+    <string name="report_attached_version">Версия и тип сборки приложения</string>
+    <string name="report_attached_device">Модель устройства и версия Android</string>
+    <string name="report_attached_connection">Флаги состояния соединения, сети и прокси</string>
+    <string name="report_attached_events">Недавние диагностические события (%1$d шт., без приватного содержимого)</string>
+    <string name="report_preview">Просмотреть данные</string>
+    <string name="report_preview_title">Данные отчёта</string>
+    <string name="report_preview_note">Это точный состав отчёта: секреты и адреса заменены пометками ещё на устройстве</string>
+    <string name="report_preview_unavailable">Сначала опишите проблему</string>
+    <string name="report_submit">Отправить отчёт</string>
+    <string name="report_submit_hint">Отправка подтверждается через Telegram-бота @%1$s, затем отчёт уходит на сервер диагностики</string>
+    <string name="report_config_missing">Отправка отчётов ещё не настроена: адрес сервера не задан в этой сборке. Используйте «Поделиться логами»</string>
+    <string name="report_telegram_unavailable">Отправка недоступна: нет авторизации в Telegram. Ручной экспорт работает</string>
+
+    <string name="report_state_preparing">Готовим отчёт…</string>
+    <string name="report_state_awaiting_telegram">Открываем чат с ботом @%1$s…</string>
+    <string name="report_state_awaiting_bot">Ждём подтверждение от бота @%1$s…</string>
+    <string name="report_state_awaiting_bot_timer">Отправлена команда подтверждения. Ждём %1$d из %2$d с</string>
+    <string name="report_state_uploading">Отправляем отчёт на сервер…</string>
+    <string name="report_state_queued">Отчёт №%1$s принят в очередь</string>
+    <string name="report_state_queued_detail">Доставка подтверждается сервером. Статус обновится автоматически</string>
+    <string name="report_state_queued_attempts">Попыток доставки: %1$d</string>
+    <string name="report_state_delivered">Отчёт №%1$s доставлен разработчику. Спасибо!</string>
+    <string name="report_state_delivery_failed">Не удалось доставить отчёт №%1$s</string>
+    <string name="report_refresh_status">Обновить статус</string>
+    <string name="report_share_manually">Поделиться вручную</string>
+    <string name="report_cancel">Отменить</string>
+    <string name="report_cancel_hint">Отчёт ещё не отправлен: отмена прерывает операцию без отправки</string>
+
+    <string name="report_error_telegram_unavailable">Не удалось связаться с Telegram. Проверьте соединение и попробуйте снова</string>
+    <string name="report_error_bot_unavailable">Служебный бот недоступен или его данные не совпадают с конфигурацией. Попробуйте позже</string>
+    <string name="report_error_not_allowed">Этот аккаунт не участвует в закрытой бете отчётов. Используйте «Поделиться вручную»</string>
+    <string name="report_error_confirmation_timeout">Бот не подтвердил код за отведённое время. Нажмите «Повторить» — будет отправлен новый код</string>
+    <string name="report_error_confirmation_rejected">Подтверждение не состоялось. Попробуйте отправить отчёт заново</string>
+    <string name="report_error_nonce_expired">Код подтверждения истёк или отклонён сервером. Нажмите «Повторить» — код будет отправлен заново</string>
+    <string name="report_error_rate_limited">Слишком много отправок. Повторите через %1$d с</string>
+    <string name="report_error_rate_limited_plain">Слишком много отправок. Попробуйте позже</string>
+    <string name="report_error_invalid_payload">Сервер отклонил состав отчёта. Измените описание или отключите события и отправьте заново</string>
+    <string name="report_error_conflict">Сервер сообщил о конфликте для этого отчёта. Составьте новый отчёт с изменённым описанием</string>
+    <string name="report_error_api_unavailable">Сервер отчётов недоступен. Попробуйте позже или поделитесь логами вручную</string>
+    <string name="report_error_payload_too_large">Отчёт не поместился в допустимый размер. Уберите диагностические события и отправьте снова</string>
+    <string name="report_error_delivery_failed">Сервер не смог доставить отчёт разработчику</string>
+    <string name="report_error_server_detail">Ответ сервера: %1$s</string>
+    <string name="report_retry">Повторить</string>
+    <string name="report_new_report">Составить новый отчёт</string>
 </resources>

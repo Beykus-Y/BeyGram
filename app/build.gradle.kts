@@ -77,6 +77,16 @@ android {
         buildConfigField("int", "TELEGRAM_API_ID", telegramApiId)
         buildConfigField("String", "TELEGRAM_API_HASH", telegramApiHash.asBuildConfigString())
 
+        // Публичная конфигурация диагностики (не секреты): адрес сервера отчётов и
+        // служебный бот. Пустой DIAGNOSTICS_API_BASE_URL отключает отправку отчётов.
+        // Переопределяются gradle-свойством или secrets.properties без изменения кода.
+        val diagnosticsApiBaseUrl = secretProperty("diagnosticsApiBaseUrl", "https://beygram.beykus.fun")
+        val reportBotUsername = secretProperty("reportBotUsername", "BeyGram_Bot")
+        val reportBotUserId = secretProperty("reportBotUserId", "8841599020").ifBlank { "0" }
+        buildConfigField("String", "DIAGNOSTICS_API_BASE_URL", diagnosticsApiBaseUrl.asBuildConfigString())
+        buildConfigField("String", "REPORT_BOT_USERNAME", reportBotUsername.asBuildConfigString())
+        buildConfigField("long", "REPORT_BOT_USER_ID", "${reportBotUserId.toLong()}L")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

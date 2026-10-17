@@ -18,6 +18,8 @@ enum class AppRoute {
     Settings,
     NavigationSettings,
     VideoMessageSettings,
+    Diagnostics,
+    ReportProblem,
     Proxy,
     ProxyConnect
 }

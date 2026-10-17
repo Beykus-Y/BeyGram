@@ -3,6 +3,9 @@ package com.beykus.beygram.data.vpn
 import android.util.Log
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.diagnostics.ConnectionEventLog
+import com.beykus.beygram.diagnostics.StructuredEventLog
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UserMessageException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -16,6 +19,7 @@ internal object VpnSubscriptionDiagnostics {
         val safeLine = "VPN subscription $stage: $details"
         if (BuildConfig.DEBUG) Log.i(TAG, safeLine)
         ConnectionEventLog.shared.record(safeLine)
+        recordStructured(stage, Severity.INFO, structuredDetails(details))
     }
 
     fun failure(stage: String, error: Throwable) {
@@ -23,6 +27,33 @@ internal object VpnSubscriptionDiagnostics {
         // A user-facing failure is classified by the developer exception it wraps.
         val source = (error as? UserMessageException)?.cause ?: error
         event(stage, "failed=${failureKind(source)} cause=${causeSummary(source)}")
+    }
+
+    /** Разрешённые атрибуты для структурированного отчёта: только известные поля стадии. */
+    private fun structuredDetails(details: String): Map<String, String> {
+        val attrs = LinkedHashMap<String, String>()
+        Regex("\\bstatus=(\\d{3})\\b").find(details)?.let { attrs["status"] = it.groupValues[1] }
+        Regex("\\bbodyBytes=(\\d+)\\b").find(details)?.let { attrs["body_bytes"] = it.groupValues[1] }
+        Regex("\\bfailed=(\\w+)\\b").find(details)?.let { attrs["failure"] = it.groupValues[1] }
+        return attrs
+    }
+
+    private fun recordStructured(stage: String, severity: Severity, attrs: Map<String, String>) {
+        // stage задаётся самим приложением в конечном наборе значений.
+        val knownStage = when (stage) {
+            "request" -> "request"
+            "route" -> "route"
+            "download" -> "download"
+            "response" -> "response"
+            else -> "other"
+        }
+        StructuredEventLog.shared.record(
+            kind = EventKind.VPN,
+            severity = severity,
+            code = "vpn_subscription",
+            message = knownStage,
+            attrs = attrs
+        )
     }
 
     private fun causeSummary(error: Throwable): String = generateSequence(error) { it.cause }
