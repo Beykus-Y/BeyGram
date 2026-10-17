@@ -22,7 +22,9 @@ data class MessageMedia(
     /** Отсчёты волны голосового сообщения, каждый 0…31; для остальных типов пусто. */
     val waveform: List<Int> = emptyList(),
     /** Кружок ещё не открывали; для остальных типов всегда true. */
-    val isViewed: Boolean = true
+    val isViewed: Boolean = true,
+    /** Минипревью TDLib: крошечный JPEG, который показывают размытым, пока не загружены миниатюра и файл. */
+    val minithumbnail: ByteArray? = null
 )
 
 data class MediaFileState(

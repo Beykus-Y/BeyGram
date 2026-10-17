@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.BitmapDrawable
@@ -18,6 +19,7 @@ import android.webkit.MimeTypeMap
 import android.widget.ImageView
 import android.widget.MediaController
 import android.widget.VideoView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -50,9 +52,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -154,6 +158,37 @@ internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: B
     }
 }
 
+/** Минипревью TDLib: крошечный JPEG, растянутый на весь кадр, поэтому выглядит размытым. */
+@Composable
+internal fun MinithumbnailImage(data: ByteArray, modifier: Modifier = Modifier) {
+    val bitmap = remember(data) { BitmapFactory.decodeByteArray(data, 0, data.size)?.asImageBitmap() }
+    bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier) }
+}
+
+/** Заглушка до загрузки полного файла: миниатюра, уменьшенная до [BLUR_PREVIEW_DIMENSION] px, остаётся только цвет и форма. */
+@Composable
+private fun BlurredMediaPreview(media: MessageMedia, thumbnailPath: String?, modifier: Modifier) {
+    val minithumbnail = media.minithumbnail
+    when {
+        thumbnailPath != null -> LocalMediaImage(thumbnailPath, modifier, maxDimension = BLUR_PREVIEW_DIMENSION)
+        minithumbnail != null -> MinithumbnailImage(minithumbnail, modifier)
+    }
+}
+
+/** Кнопка загрузки поверх заглушки; пока файл грузится, вместо стрелки крутится индикатор. */
+@Composable
+private fun DownloadBadge(downloading: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).clickable(enabled = !downloading, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (downloading) CircularProgressIndicator(Modifier.size(26.dp), color = Color.White, strokeWidth = 2.dp)
+        else Icon(Icons.Rounded.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+    }
+}
+
+private const val BLUR_PREVIEW_DIMENSION = 24
+
 @Composable
 internal fun MediaPreview(
     media: MessageMedia,
@@ -185,14 +220,18 @@ internal fun MediaPreview(
     }
     if (isVisual) {
         val ratio = if (media.width > 0 && media.height > 0) media.width.toFloat() / media.height else 1.5f
+        // Полного файла ещё нет: вместо растянутой миниатюры показываем размытую заглушку и кнопку загрузки.
+        val awaitingFile = revealed && !media.isSecret && file.localPath == null && media.kind != MediaKind.Sticker
         Box(
             Modifier.width(244.dp).height((244 / ratio).coerceIn(120f, 280f).dp)
                 .background(palette.disabled)
                 .combinedClickable(onClick = { if (!revealed) revealed = true else onOpen() }, onLongClick = onLongPress),
             contentAlignment = Alignment.Center
         ) {
-            if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize(), fit = media.kind == MediaKind.Sticker)
+            if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
+            else if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize(), fit = media.kind == MediaKind.Sticker)
             if (!revealed) Text(stringResource(R.string.media_spoiler_hint), color = palette.textPrimary, modifier = Modifier.padding(16.dp))
+            else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, onClick = { downloadFile(media.fileId) })
             else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
                 val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
                 Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,

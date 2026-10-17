@@ -51,7 +51,13 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
 
-internal data class ChatMessageListItem(val key: String, val messages: List<ChatMessage>, val mediaAlbumId: Long = 0L)
+internal data class ChatMessageListItem(
+    val key: String,
+    val messages: List<ChatMessage>,
+    val mediaAlbumId: Long = 0L,
+    /** Автоматический кружок, который ещё не принят TDLib; в ленте показывается вместо сообщения. */
+    val pendingVideoNote: PendingVideoNote? = null
+)
 
 /** Combines messages only when TDLib supplied the same nonzero mediaAlbumId. */
 internal fun groupTelegramMediaAlbums(messages: List<ChatMessage>): List<ChatMessageListItem> {

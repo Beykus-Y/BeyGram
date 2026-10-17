@@ -43,6 +43,18 @@ internal fun VideoNoteExportResult.markSegmentSent(): VideoNoteExportResult =
 internal fun VideoNoteExportResult.markSendFailed(): VideoNoteExportResult =
     copy(sending = false, requiresPreview = true)
 
+/** Автоматический кружок до приёма TDLib: [processing] — идёт обработка, иначе кружок ждёт отправки. */
+internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null)
+
+/**
+ * Кружки чата для ленты: сначала обрабатываемые, затем ждущие отправки. Кружок с предпросмотром здесь не показывается:
+ * он остаётся в диалоге, пока пользователь не отправит или не удалит его. Одна сессия показывается один раз.
+ */
+internal fun pendingVideoNotesFor(chatId: Long, processing: List<PendingVideoNote>, results: List<VideoNoteExportResult>): List<PendingVideoNote> =
+    (processing.filter { it.chatId == chatId } + results.filter { it.chatId == chatId && !it.requiresPreview }
+        .map { PendingVideoNote(it.chatId, it.sessionName, processing = false, previewPath = it.media.firstOrNull()?.thumbnailPath) })
+        .distinctBy { it.sessionName }
+
 private val exportMutex = Mutex()
 
 /** Process-wide count of queued/running exports, used to block further recording. */
@@ -80,6 +92,10 @@ internal object VideoNoteExportCenter {
     private val _failures = MutableStateFlow<List<Long>>(emptyList())
     val failures: StateFlow<List<Long>> = _failures.asStateFlow()
 
+    private val _pendingNotes = MutableStateFlow<List<PendingVideoNote>>(emptyList())
+    /** Автоматические кружки, которые TDLib ещё не принял: лента показывает их сразу, с индикатором. */
+    val pendingNotes: StateFlow<List<PendingVideoNote>> = _pendingNotes.asStateFlow()
+
     /** Used both by the real exporter and deterministic queue tests. */
     internal fun publish(result: VideoNoteExportResult) {
         _results.update { pending ->
@@ -89,6 +105,8 @@ internal object VideoNoteExportCenter {
 
     fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean) {
         val appContext = context.applicationContext
+        // Автоматический кружок виден в ленте сразу после отпускания, а не когда обработка закончится.
+        if (!previewFirst) _pendingNotes.update { it + PendingVideoNote(chatId, sessionName, processing = true) }
         scope.launchExclusiveExport {
             try {
                 val outputDirectory = File(appContext.filesDir, "uploads").resolve(sessionName).apply { mkdirs() }
@@ -101,6 +119,8 @@ internal object VideoNoteExportCenter {
             } catch (failure: Exception) {
                 Log.e(TAG, "video_processing_failed session=" + sessionName, failure)
                 _failures.update { it + chatId }
+            } finally {
+                _pendingNotes.update { current -> current.filterNot { it.sessionName == sessionName } }
             }
         }
     }
@@ -166,7 +186,10 @@ internal object VideoNoteExportCenter {
         }
         scope.launch(Dispatchers.IO) {
             // Previously accepted parts may still be in TDLib's upload queue; delete only unsent.
-            discarded.media.drop(discarded.nextIndex).forEach { runCatching { File(it.path).delete() } }
+            discarded.media.drop(discarded.nextIndex).forEach { media ->
+                runCatching { File(media.path).delete() }
+                media.thumbnailPath?.let { path -> runCatching { File(path).delete() } }
+            }
         }
     }
 
