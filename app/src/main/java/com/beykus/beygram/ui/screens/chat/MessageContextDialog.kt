@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -21,6 +22,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 
 /** A separate history window keeps distant replies from creating gaps in the main pagination. */
@@ -38,11 +40,13 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
         exportable = conversation.messageCapabilities(message.chatId, message.id).getOrNull()?.canSave == true
     }
     val palette = beyGramPalette()
+    // Имя context занято состоянием контекста сообщения, поэтому контекст Android берём под другим именем.
+    val androidContext = LocalContext.current
     val list = rememberLazyListState()
     LaunchedEffect(chatId, targetId, attempt) {
         context = null; error = null
         val result = conversation.messageContext(chatId, targetId)
-        context = result.getOrNull(); error = result.exceptionOrNull()?.message
+        context = result.getOrNull(); error = result.exceptionOrNull()?.userMessage(androidContext, R.string.err_chat_history_load_failed)
     }
     LaunchedEffect(context) {
         context?.messages?.indexOfFirst { it.id == targetId }?.takeIf { it >= 0 }?.let { list.scrollToItem(it) }

@@ -52,6 +52,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -96,7 +97,7 @@ internal class AttachmentState(
                     pendingState.value = ArrayList(pending + prepared)
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { errorState.value = failure.message ?: context.getString(R.string.composer_prepare_failed) }
+            catch (failure: Exception) { errorState.value = failure.userMessage(context, R.string.composer_prepare_failed) }
             finally { importing = false }
         }
     }
@@ -127,13 +128,13 @@ internal class AttachmentState(
             try {
                 for (item in pending.toList()) {
                     val result = sendMedia(item, nextCaption)
-                    if (result.isFailure) { errorState.value = result.exceptionOrNull()?.message ?: context.getString(R.string.composer_send_failed); break }
+                    if (result.isFailure) { errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed); break }
                     pendingState.value = ArrayList(pending.filterNot { it.path == item.path })
                     nextCaption = ""
                     onCaptionChange("")
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { errorState.value = failure.message ?: context.getString(R.string.composer_send_failed) }
+            catch (failure: Exception) { errorState.value = failure.userMessage(context, R.string.composer_send_failed) }
             finally { sending = false }
         }
     }

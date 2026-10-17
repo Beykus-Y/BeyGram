@@ -31,6 +31,7 @@ import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.ui.components.AuthScaffold
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
+import com.beykus.beygram.ui.text.resolve
 
 @Composable
 fun LoginCodeScreen(
@@ -43,7 +44,7 @@ fun LoginCodeScreen(
     var code by rememberSaveable { mutableStateOf("") }
     val isLoading = authState is AuthState.Loading
     val errorMessage = when (authState) {
-        is AuthState.Error -> authState.message
+        is AuthState.Error -> authState.text.resolve()
         AuthState.ConnectionTimeout -> stringResource(R.string.auth_code_connection_timeout)
         else -> null
     }
