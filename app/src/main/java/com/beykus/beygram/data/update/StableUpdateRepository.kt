@@ -238,6 +238,16 @@ class StableUpdateRepository(private val context: Context) {
                 .joinToString("") { "%02x".format(it) }
         }?.toSet()
 
+    /** Also exercised by an instrumentation test against the APK installed on API 29. */
+    @Suppress("DEPRECATION")
+    internal fun isArchiveSignerCompatible(apkPath: String): Boolean {
+        val pm = context.packageManager
+        val archive = pm.getPackageArchiveInfo(apkPath, PackageManager.GET_SIGNING_CERTIFICATES)
+            ?: return false
+        val (candidate, history) = archiveSigners(pm, apkPath, archive)
+        return StableApkSignerPolicy.compatible(installedSigners(pm), candidate, history)
+    }
+
     private fun verifyPackage(apk: File, release: StableRelease) {
         val pm = context.packageManager
         @Suppress("DEPRECATION")
@@ -251,9 +261,7 @@ class StableUpdateRepository(private val context: Context) {
         if ((archive.applicationInfo?.minSdkVersion ?: 0) > Build.VERSION.SDK_INT) {
             throw IOException("Версия Android не поддерживается этим APK.")
         }
-        val (downloadedSigners, signingHistory) = archiveSigners(pm, apk.absolutePath, archive)
-        val currentSigners = installedSigners(pm)
-        if (!StableApkSignerPolicy.compatible(currentSigners, downloadedSigners, signingHistory)) {
+        if (!isArchiveSignerCompatible(apk.absolutePath)) {
             throw IOException("Не удалось подтвердить совместимую подпись APK. Установка запрещена.")
         }
         // Android's Package Installer still performs authoritative signing-lineage, ABI and version checks.
