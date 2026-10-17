@@ -136,8 +136,11 @@ fun ChatsScreen(
             matchesQuery && matchesFilter
         }
     }
-    val pinnedChats = if (selectedFilter == ChatFilter.All && query.isBlank()) filteredChats.filter { it.isPinned } else emptyList()
-    val regularChats = filteredChats.filterNot { it in pinnedChats }
+    val pinnedChats = remember(filteredChats, selectedFilter, query) {
+        if (selectedFilter == ChatFilter.All && query.isBlank()) filteredChats.filter { it.isPinned } else emptyList()
+    }
+    val regularChats = remember(filteredChats, pinnedChats) { filteredChats.filterNot { it in pinnedChats } }
+    val unreadTotal = remember(chats) { chats.sumOf { it.unreadCount } }
     val showAllHeader = pinnedChats.isNotEmpty() || (selectedFilter == ChatFilter.All && query.isBlank())
     val archiveAvailable = archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
@@ -145,7 +148,6 @@ fun ChatsScreen(
     val archivePullThresholdPx = with(density) { archivePullThreshold.toPx() }
     // Сколько протянуто вниз, пока архив скрыт. Подсказка растёт до порога, а за порогом архив возвращается при отпускании.
     var pullPx by remember { mutableFloatStateOf(0f) }
-    val shownPx = if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f
     val pullCanReveal by rememberUpdatedState(archiveAvailable && archiveHidden)
     val latestOnArchiveHiddenChange by rememberUpdatedState(onArchiveHiddenChange)
     val pullConnection = remember(listState, archivePullThresholdPx) {
@@ -208,14 +210,14 @@ fun ChatsScreen(
                     FilterChip(
                         title = stringResource(filter.title),
                         selected = selectedFilter == filter,
-                        count = if (filter == ChatFilter.Unread) chats.sumOf { it.unreadCount } else null,
+                        count = if (filter == ChatFilter.Unread) unreadTotal else null,
                         onClick = { selectedFilterName = filter.name }
                     )
                 }
             }
         }
 
-        if (shownPx > 0f) ArchivePullHint(heightDp = with(density) { shownPx.toDp() })
+        ArchivePullSlot(shownPx = { if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f })
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).nestedScroll(pullConnection),
@@ -318,6 +320,14 @@ private fun ArchiveAction(icon: ImageVector, label: String, iconTint: Color, lab
         Spacer(Modifier.width(14.dp))
         Text(label, color = labelColor, fontSize = 16.sp, fontWeight = labelWeight)
     }
+}
+
+/** Читает протяжку внутри себя: частые шаги жеста перерисовывают только подсказку, а не весь экран чатов. */
+@Composable
+private fun ArchivePullSlot(shownPx: () -> Float) {
+    val density = LocalDensity.current
+    val px = shownPx()
+    if (px > 0f) ArchivePullHint(heightDp = with(density) { px.toDp() })
 }
 
 /** Подсказка над списком, пока архив скрыт и список тянут вниз: высота растёт вместе с протяжкой. */
