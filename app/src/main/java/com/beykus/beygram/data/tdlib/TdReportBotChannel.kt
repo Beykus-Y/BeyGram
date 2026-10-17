@@ -83,20 +83,27 @@ internal class TdReportBotChannel(
 
     override suspend fun sendReportCommand(botChatId: Long, nonce: String): Result<Unit> =
         botResult {
-            val content = TdApi.InputMessageText().apply {
-                text = TdApi.FormattedText("/report $nonce", arrayOf())
-            }
-            val sent = request(TdApi.SendMessage().apply {
-                chatId = botChatId
-                inputMessageContent = content
-            })
             // Новый nonce — новая сессия корреляции: старые ответы бота не считаются.
-            session = Session(
+            // Сессия создаётся до отправки: обновление об отправке может прийти раньше, чем вернётся SendMessage.
+            val started = Session(
                 botChatId,
                 BotReplyCorrelator(pinnedBotUserId, botChatId),
                 CompletableDeferred()
             )
-            session!!.correlator.trackSent(sent.id)
+            session = started
+            try {
+                val content = TdApi.InputMessageText().apply {
+                    text = TdApi.FormattedText("/report $nonce", arrayOf())
+                }
+                val sent = request(TdApi.SendMessage().apply {
+                    chatId = botChatId
+                    inputMessageContent = content
+                })
+                started.correlator.trackSent(sent.id)
+            } catch (failure: Throwable) {
+                closeSession(started)
+                throw failure
+            }
             Unit
         }
 
@@ -152,6 +159,8 @@ internal class TdReportBotChannel(
     fun onSendFailed(update: TdApi.UpdateMessageSendFailed) {
         val active = session ?: return
         if (update.message.chatId != active.chatId) return
+        // Ожидание завершаем только за нашу команду, а не за любую неудачную отправку в этом чате.
+        if (!active.correlator.owns(update.oldMessageId)) return
         active.correlator.onSendFailed(update.oldMessageId)
         active.wait.completeExceptionally(
             ReportBotException(ReportBotFailure.SEND_FAILED_PERMANENT, "code=${update.error.code}")

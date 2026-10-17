@@ -165,8 +165,10 @@ class DiagnosticsApiClient(
             }
         // toExternalForm без пути не содержит завершающего "/" — добавляем его явно.
         val url = URL(origin.toExternalForm().trimEnd('/') + "/" + path)
-        val connection = (if (proxyProvider() != null) {
-            url.openConnection(proxyProvider())
+        // Прокси читается один раз: между двумя вызовами он мог исчезнуть.
+        val proxy = proxyProvider()
+        val connection = (if (proxy != null) {
+            url.openConnection(proxy)
         } else {
             url.openConnection()
         }) as HttpURLConnection
