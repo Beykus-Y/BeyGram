@@ -124,6 +124,9 @@ internal class VideoNoteRecorder(
     /** Переключатель показывается, только если на устройстве есть и фронтальная, и основная камера. */
     var canSwitchCamera by mutableStateOf(false)
         private set
+    /** Предыдущая запись ещё перекодируется: новая не стартует, чтобы Transformer'ы и резерв места не множились. */
+    var processing by mutableStateOf(false)
+        private set
 
     private var provider: ProcessCameraProvider? = null
     private var videoCapture: VideoCapture<Recorder>? = null
@@ -157,6 +160,10 @@ internal class VideoNoteRecorder(
     /** Нажатие: камера открывается асинхронно, запись начинается, когда она готова. */
     fun press() {
         if (active || take != null) return
+        if (processing) {
+            onError(context.getString(R.string.recorder_processing_busy))
+            return
+        }
         val settings = currentSettings()
         Log.i(TAG, "video_start_requested preset=${settings.preset} long=${settings.longRecordingEnabled}")
         maxDurationMs = if (settings.longRecordingEnabled) LONG_MAX_DURATION_MS else NORMAL_MAX_DURATION_MS
@@ -365,6 +372,8 @@ internal class VideoNoteRecorder(
             }
             return
         }
+        // Флаг ставится синхронно с Finalize: между финализацией и стартом корутины новую запись начать нельзя.
+        processing = true
         scope.launch {
             try {
                 val outputDirectory = File(context.filesDir, "uploads").resolve(current.sessionName).apply { mkdirs() }
@@ -376,6 +385,8 @@ internal class VideoNoteRecorder(
                 Log.e(TAG, "video_processing_failed session=${current.file.parentFile?.name} type=${failure.javaClass.simpleName}", failure)
                 onError(context.getString(R.string.recorder_save_failed))
                 // The source remains in its private session directory so a failed conversion never destroys it.
+            } finally {
+                processing = false
             }
         }
     }

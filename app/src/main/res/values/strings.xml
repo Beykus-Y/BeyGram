@@ -569,6 +569,8 @@
     <string name="voice_recorder_recording">Запись голосового сообщения</string>
     <string name="voice_recorder_permission_denied">Разрешите доступ к микрофону для записи голосового сообщения</string>
     <string name="recorder_storage_low">Недостаточно свободного места для записи</string>
+
+    <string name="recorder_processing_busy">Предыдущая запись ещё обрабатывается</string>
     <string name="recorder_locked">Запись закреплена</string>
     <string name="recorder_swipe_up_lock">Вверх — закрепить</string>
     <string name="recorder_stop">Остановить</string>
