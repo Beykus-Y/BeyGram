@@ -99,8 +99,8 @@ jobs:
         # and a failed main build cannot be published.
         run: ./gradlew --no-daemon :app:testDevDebugUnitTest
 
-      - name: Build debug and release APKs
-        run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease
+      - name: Build debug, release and instrumented-test APKs (no device tests)
+        run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease :app:assembleDevDebugAndroidTest
 
       - name: Assert install permission is Prod-only
         run: |
