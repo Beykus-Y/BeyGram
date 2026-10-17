@@ -46,9 +46,9 @@ import com.beykus.beygram.ui.components.beyGramTextFieldColors
 /** Название типа прокси, как в макете. */
 internal val TelegramProxyKind.label: String
     get() = when (this) {
-        TelegramProxyKind.MTPROTO -> "MTProto"
-        TelegramProxyKind.SOCKS5 -> "SOCKS5"
-        TelegramProxyKind.HTTP -> "Web"
+        TelegramProxyKind.MTPROTO -> "Прокси Telegram"
+        TelegramProxyKind.SOCKS5 -> "Обычный прокси"
+        TelegramProxyKind.HTTP -> "Веб-прокси"
     }
 
 /** Пинг до 100 мс зелёный, дальше жёлтый: та же шкала во всех списках прокси. */

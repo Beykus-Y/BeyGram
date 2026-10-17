@@ -53,7 +53,7 @@ internal class SubscriptionClient(
             try {
                 val status = connection.responseCode
                 VpnSubscriptionDiagnostics.event(
-                    "http",
+                    "download",
                     "status=$status contentType=${safeMediaType(connection.contentType)} redirect=${redirectNumber > 0}"
                 )
                 when (status) {
@@ -82,7 +82,7 @@ internal class SubscriptionClient(
                     else -> throw SubscriptionException("Сервер подписки ответил ошибкой $status")
                 }
             } catch (error: Exception) {
-                VpnSubscriptionDiagnostics.failure("http", error)
+                VpnSubscriptionDiagnostics.failure("download", error)
                 throw error
             } finally {
                 connection.disconnect()
@@ -130,4 +130,4 @@ internal class SubscriptionClient(
     }
 }
 
-class SubscriptionException(message: String) : Exception(message)
+class SubscriptionException(message: String, cause: Throwable? = null) : Exception(message, cause)

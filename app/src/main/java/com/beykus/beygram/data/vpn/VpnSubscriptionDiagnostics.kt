@@ -36,18 +36,18 @@ internal object VpnSubscriptionDiagnostics {
 
     private fun failureKind(error: Throwable): String = when (error) {
         is SocketTimeoutException -> "network_timeout"
-        is UnknownHostException -> "dns_failure"
-        is SSLException -> "tls_failure"
+        is UnknownHostException -> "name_resolution_failure"
+        is SSLException -> "secure_connection_failure"
         is SubscriptionException -> when {
             error.message?.startsWith("Сервер подписки ответил ошибкой ") == true -> "http_error"
-            error.message?.startsWith("Ссылка не похожа на подписку") == true -> "not_mihomo_yaml"
-            error.message?.startsWith("В подписке нет серверов") == true -> "decoded_content_not_yaml_object"
+            error.message?.startsWith("Ссылка не похожа на подписку") == true -> "unsupported_profile"
+            error.message?.startsWith("В подписке нет серверов") == true -> "decoded_content_no_servers"
             error.message?.startsWith("Введите правильную ссылку") == true -> "invalid_url"
             error.message?.startsWith("Ссылка на подписку должна") == true -> "url_policy_rejected"
             error.message?.contains("слишком большая") == true -> "response_too_large"
             else -> "subscription_rejected"
         }
-        is MihomoCoreException -> "mihomo_rejected_profile"
+        is MihomoCoreException -> "core_rejected_profile"
         else -> error.javaClass.simpleName.take(48).ifBlank { "unknown_error" }
     }
 

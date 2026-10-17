@@ -16,8 +16,8 @@ class ConnectionEventLogTest {
 
     @Test fun prefixesEachEventWithLocalTimestamp() {
         val log = ConnectionEventLog(clock = { 1_700_000_000_000L })
-        log.record("TDLib соединение: ConnectionStateReady")
-        assertTrue(Regex("""^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} TDLib соединение: ConnectionStateReady$""")
+        log.record("Соединение с Telegram: подключено")
+        assertTrue(Regex("""^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} Соединение с Telegram: подключено$""")
             .matches(log.snapshot().single()))
     }
 }

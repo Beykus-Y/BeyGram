@@ -95,9 +95,9 @@ internal class VpnBackend private constructor(
                     .onFailure {
                         if (switchOffOnFailure) {
                             setTdLibProxy(false)
-                            MihomoRuntimeDiagnostics.event("backend", "restore failed; TDLib proxy switched off")
+                            MihomoRuntimeDiagnostics.event("backend", "restore failed; Telegram proxy switched off")
                         } else {
-                            MihomoRuntimeDiagnostics.event("backend", "background restore failed; TDLib proxy kept")
+                            MihomoRuntimeDiagnostics.event("backend", "background restore failed; Telegram proxy kept")
                         }
                     }
                 return
@@ -112,7 +112,7 @@ internal class VpnBackend private constructor(
             isTdLibProxyEnabled().onSuccess { return it }
             if (attempt < TDLIB_STATE_ATTEMPTS - 1) delay(TDLIB_STATE_RETRY_MILLIS)
         }
-        MihomoRuntimeDiagnostics.event("backend", "TDLib proxy state unknown; restore skipped")
+        MihomoRuntimeDiagnostics.event("backend", "Telegram proxy state unknown; restore skipped")
         return null
     }
 

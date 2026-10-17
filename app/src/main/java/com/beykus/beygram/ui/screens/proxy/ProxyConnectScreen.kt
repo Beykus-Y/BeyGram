@@ -43,9 +43,9 @@ import kotlinx.coroutines.launch
 
 /** Вкладки «Подключение к Telegram»: три ручных типа и подписка. Порядок и подписи — как в макете. */
 enum class ProxyConnectTab(val label: String) {
-    MTPROTO("MTProto"),
-    SOCKS5("SOCKS5"),
-    WEB("Web"),
+    MTPROTO("Telegram"),
+    SOCKS5("Обычный"),
+    WEB("Веб"),
     SUBSCRIPTION("Подписка")
 }
 
@@ -222,7 +222,7 @@ internal fun ProxyConnectScreen(
                 }
                 if (tab == ProxyConnectTab.WEB) {
                     Text(
-                        "HTTP(S)-прокси. Доступен для выбора, если Telegram его поддерживает.",
+                        "Веб-прокси. Доступен для выбора, если Telegram его поддерживает.",
                         color = palette.textSecondary,
                         fontSize = 12.sp,
                         lineHeight = 16.sp

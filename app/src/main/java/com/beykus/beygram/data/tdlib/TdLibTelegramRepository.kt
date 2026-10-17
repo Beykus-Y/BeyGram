@@ -168,7 +168,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         require(port in 1..65_535) { "Порт должен быть от 1 до 65535" }
         val type: TdApi.ProxyType = when (kind) {
             TelegramProxyKind.MTPROTO -> {
-                require(secret.isNotBlank()) { "Укажите секрет MTProto" }
+                require(secret.isNotBlank()) { "Укажите секрет прокси" }
                 TdApi.ProxyTypeMtproto(secret.trim())
             }
             TelegramProxyKind.SOCKS5 -> TdApi.ProxyTypeSocks5(username.trim(), password)
@@ -452,7 +452,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateMessageSendFailed -> messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
             is TdApi.UpdateDeleteMessages -> if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())
             is TdApi.UpdateConnectionState    -> {
-                ConnectionEventLog.shared.record("TDLib соединение: ${update.state.javaClass.simpleName}")
+                ConnectionEventLog.shared.record("Соединение с Telegram: ${update.state.logLabel()}")
                 if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib connection: ${update.state.javaClass.simpleName}")
                 _connectionState.value = when (update.state) {
                     is TdApi.ConnectionStateReady -> TelegramConnectionState.Connected
@@ -470,7 +470,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // ---- Авторизация ---------------------------------------------------------
 
     private fun handleAuthorizationState(state: TdApi.AuthorizationState) {
-        ConnectionEventLog.shared.record("TDLib авторизация: ${state.javaClass.simpleName}")
+        ConnectionEventLog.shared.record("Вход в аккаунт: ${state.logLabel()}")
         if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib authorization: ${state.javaClass.simpleName}")
         authTimeoutJob?.cancel()
         when (state) {
@@ -731,4 +731,24 @@ private val CHAT_COLORS = longArrayOf(
 internal fun Long.stableColor(): Long {
     val idx = (this % CHAT_COLORS.size).toInt()
     return CHAT_COLORS[if (idx < 0) idx + CHAT_COLORS.size else idx]
+}
+
+private fun TdApi.ConnectionState.logLabel(): String = when (this) {
+    is TdApi.ConnectionStateWaitingForNetwork -> "ожидание сети"
+    is TdApi.ConnectionStateConnectingToProxy -> "подключение через прокси"
+    is TdApi.ConnectionStateConnecting -> "подключение"
+    is TdApi.ConnectionStateUpdating -> "обновление"
+    is TdApi.ConnectionStateReady -> "подключено"
+    else -> "неизвестно"
+}
+
+private fun TdApi.AuthorizationState.logLabel(): String = when (this) {
+    is TdApi.AuthorizationStateWaitTdlibParameters -> "подготовка"
+    is TdApi.AuthorizationStateWaitPhoneNumber -> "ожидание номера"
+    is TdApi.AuthorizationStateWaitCode -> "ожидание кода"
+    is TdApi.AuthorizationStateWaitPassword -> "ожидание пароля"
+    is TdApi.AuthorizationStateReady -> "вход выполнен"
+    is TdApi.AuthorizationStateLoggingOut -> "выход"
+    is TdApi.AuthorizationStateClosed -> "закрыто"
+    else -> "другой этап"
 }

@@ -27,13 +27,13 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
         }
         val safeYaml = Yaml(SafeConstructor(loaderOptions))
         val parsed = parseYaml(safeYaml, source)
-        VpnSubscriptionDiagnostics.event("yaml", "sourceRoot=${rootKind(parsed)}")
+        VpnSubscriptionDiagnostics.event("profile", "sourceRoot=${rootKind(parsed)}")
         var root = parsed.value as? Map<*, *>
         if (root == null) {
             // A plain list of proxy URIs is not a YAML object, so it is read before the text is treated as Base64.
             val plainUris = parseProxyUriList(source)
             if (plainUris.proxies.isNotEmpty()) {
-                VpnSubscriptionDiagnostics.event("uri", plainUris.summary)
+                VpnSubscriptionDiagnostics.event("links", plainUris.summary)
                 root = linkedMapOf("proxies" to plainUris.proxies)
             }
         }
@@ -42,13 +42,13 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
                 ?: throw SubscriptionException(
                     "Ссылка не похожа на подписку с серверами."
                 )
-            VpnSubscriptionDiagnostics.event("base64", "decoded=true decodedBytes=${decoded.toByteArray(Charsets.UTF_8).size}")
+            VpnSubscriptionDiagnostics.event("encoding", "decoded=true decodedBytes=${decoded.toByteArray(Charsets.UTF_8).size}")
             val decodedParsed = parseYaml(safeYaml, decoded)
-            VpnSubscriptionDiagnostics.event("yaml", "decodedRoot=${rootKind(decodedParsed)}")
+            VpnSubscriptionDiagnostics.event("profile", "decodedRoot=${rootKind(decodedParsed)}")
             root = decodedParsed.value as? Map<*, *>
             if (root == null) {
                 val result = parseProxyUriList(decoded)
-                VpnSubscriptionDiagnostics.event("uri", result.summary)
+                VpnSubscriptionDiagnostics.event("links", result.summary)
                 if (result.proxies.isEmpty()) throw SubscriptionException("В подписке нет серверов, которые можно использовать")
                 root = linkedMapOf("proxies" to result.proxies)
             }
@@ -87,7 +87,7 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
         // blocked on mobile networks and otherwise prevent every proxy from ever dialing.
         dns["proxy-server-nameserver"] = listOf("system")
         config["dns"] = dns
-        MihomoRuntimeDiagnostics.event("profile", "proxy-node DNS resolver=Android system")
+        MihomoRuntimeDiagnostics.event("profile", "server name resolver=Android system")
         val tun = (config["tun"] as? Map<*, *>)?.let { existing ->
             linkedMapOf<String, Any?>().apply {
                 existing.forEach { (key, value) -> (key as? String)?.let { put(it, value) } }
@@ -136,7 +136,7 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
     }
 
     private fun rootKind(parsed: ParsedYaml): String = when {
-        parsed.failed -> "invalidYaml"
+        parsed.failed -> "invalidFormat"
         parsed.value == null -> "null"
         parsed.value is Map<*, *> -> "object"
         parsed.value is List<*> -> "array"

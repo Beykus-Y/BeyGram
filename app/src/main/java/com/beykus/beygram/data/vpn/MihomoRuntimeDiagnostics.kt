@@ -9,7 +9,7 @@ internal object MihomoRuntimeDiagnostics {
     private const val TAG = "BeyGramMihomo"
 
     fun event(stage: String, detail: String) {
-        val line = "Mihomo $stage: $detail"
+        val line = "Proxy $stage: $detail"
         if (BuildConfig.DEBUG) Log.i(TAG, line)
         ConnectionEventLog.shared.record(line)
     }

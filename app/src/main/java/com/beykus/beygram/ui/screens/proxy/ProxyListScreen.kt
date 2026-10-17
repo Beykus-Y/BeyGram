@@ -150,7 +150,7 @@ internal fun ProxyListScreen(
             ProxyCard {
                 ProxyRadioRow(
                     selected = mihomoEnabled,
-                    title = "Основная подписка",
+                    title = "Основная",
                     subtitle = subscriptionSubtitle(connections, probes, settings.subscriptionUrl),
                     onClick = selectSubscription,
                     trailing = {

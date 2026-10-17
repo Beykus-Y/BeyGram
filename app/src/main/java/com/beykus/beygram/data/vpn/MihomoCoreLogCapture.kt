@@ -36,7 +36,7 @@ internal object MihomoCoreLogCapture {
                 .replace(endpoint, "[endpoint]")
                 .filterNot(Char::isISOControl)
                 .take(MAX_PAYLOAD_CHARS)
-            val line = "Mihomo core $level: $safePayload"
+            val line = "Proxy core $level: $safePayload"
             if (BuildConfig.DEBUG) {
                 if (level == "error") Log.e(TAG, line) else Log.w(TAG, line)
             }

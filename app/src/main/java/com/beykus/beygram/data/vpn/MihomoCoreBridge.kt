@@ -37,7 +37,7 @@ internal class MihomoCoreBridge(context: Context) {
         writeAtomically(pending, normalized.yaml.toByteArray(Charsets.UTF_8))
         try {
             val validation = invokeAction("validateConfig", pendingFile.absolutePath) as? String
-            if (!validation.isNullOrBlank()) throw SubscriptionException("Подписка не прошла проверку")
+            if (!validation.isNullOrBlank()) throw SubscriptionException("Подписка не прошла проверку", MihomoCoreException(validation))
 
             val previous = runCatching { profile.readFully() }.getOrNull()
             writeAtomically(profile, normalized.yaml.toByteArray(Charsets.UTF_8))
@@ -71,7 +71,7 @@ internal class MihomoCoreBridge(context: Context) {
                 .put("home-dir", home.absolutePath)
                 .put("version", Build.VERSION.SDK_INT)
             val result = quickSetup(init.toString(), JSONObject().put("selected-map", selectedMap()).toString())
-            if (result.isNotBlank()) throw MihomoCoreException("Не удалось применить подписку")
+            if (result.isNotBlank()) throw MihomoCoreException("Не удалось применить подписку", MihomoCoreException(result))
         }
         startNativeDiagnostics()
     }
@@ -83,7 +83,7 @@ internal class MihomoCoreBridge(context: Context) {
         val normalized = normalizer.normalize(previous.toString(Charsets.UTF_8)).yaml.toByteArray(Charsets.UTF_8)
         if (previous.contentEquals(normalized)) return
         writeAtomically(profile, normalized)
-        MihomoRuntimeDiagnostics.event("profile", "stored profile migrated to app-local SOCKS configuration")
+        MihomoRuntimeDiagnostics.event("profile", "stored profile updated for the app-local proxy")
     }
 
     suspend fun listConnections(groupName: String): List<MihomoConnection> = withContext(Dispatchers.IO) {
@@ -181,10 +181,10 @@ internal class MihomoCoreBridge(context: Context) {
 
     suspend fun startProxyListener() = withContext(Dispatchers.IO) {
         val started = invokeAction("startListener") as? Boolean ?: false
-        MihomoRuntimeDiagnostics.event("listener", "startListener returned=$started")
+        MihomoRuntimeDiagnostics.event("listener", "listener start returned=$started")
         if (!started) throw MihomoCoreException("Прокси не запустился")
         MihomoProxyClient.awaitReady()
-        MihomoRuntimeDiagnostics.event("listener", "SOCKS port is accepting loopback connections")
+        MihomoRuntimeDiagnostics.event("listener", "local proxy port is accepting loopback connections")
     }
 
     suspend fun stopProxyListener() = withContext(Dispatchers.IO) {
@@ -196,7 +196,7 @@ internal class MihomoCoreBridge(context: Context) {
         check(profileExists()) { "Подписка не загружена" }
         val params = JSONObject().put("selected-map", selectedMap()).toString()
         val result = invokeAction("setupConfig", params) as? String
-        if (!result.isNullOrBlank()) throw MihomoCoreException("Не удалось применить подписку")
+        if (!result.isNullOrBlank()) throw MihomoCoreException("Не удалось применить подписку", MihomoCoreException(result))
     }
 
     /** Maps the saved node selection into Mihomo's `selected-map` so the choice survives core re-initialization. */
@@ -243,7 +243,7 @@ internal class MihomoCoreBridge(context: Context) {
                         val code = result.optInt("code", -1)
                         val value = result.opt("data")
                         if (code != 0) {
-                            continuation.resumeWith(Result.failure(MihomoCoreException("Прокси вернул ошибку")))
+                            continuation.resumeWith(Result.failure(MihomoCoreException("Прокси вернул ошибку", MihomoCoreException(value?.toString() ?: "no detail"))))
                         } else {
                             continuation.resume(value)
                         }
@@ -280,4 +280,4 @@ internal class MihomoCoreBridge(context: Context) {
     }
 }
 
-class MihomoCoreException(message: String) : Exception(message)
+class MihomoCoreException(message: String, cause: Throwable? = null) : Exception(message, cause)
