@@ -132,7 +132,10 @@ fun ChatScreen(
     var sentRecordingPaths by remember(chat.id) { mutableStateOf(emptySet<String>()) }
     var recordingQueueSending by remember(chat.id) { mutableStateOf(false) }
     var recordingQueueProgress by remember(chat.id) { mutableIntStateOf(0) }
+    // Voice messages use this local queue; video notes are owned by VideoNoteExportCenter.
     val pendingRecordingSends = remember(chat.id) { ArrayDeque<List<OutgoingMedia>>() }
+    val videoExports by VideoNoteExportCenter.results.collectAsStateWithLifecycle()
+    val videoPreview = videoExports.firstOrNull { it.chatId == chat.id && it.requiresPreview }
     fun startRecordingSendWorker() {
         if (recordingQueueSending) return
         if (pendingRecordingSends.isEmpty()) return
@@ -179,16 +182,6 @@ fun ChatScreen(
         if (previewFirst) recordingRecovery.showPreview(listOf(media))
         else sendRecordedMedia(listOf(media))
     }
-    /** Доставка результата экспорта: ACK в центре только после показа превью или постановки в очередь отправки. */
-    fun deliverExportResult(result: VideoNoteExportResult) {
-        if (result.previewFirst || result.media.size > 1) {
-            recordingRecovery.showPreview(result.media)
-            VideoNoteExportCenter.consume(chat.id, result)
-        } else {
-            sendRecordedMedia(result.media)
-            VideoNoteExportCenter.consume(chat.id, result)
-        }
-    }
     val attachments = rememberAttachmentState(chat.id) { media, caption ->
         val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities)
         else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities)
@@ -196,11 +189,17 @@ fun ChatScreen(
         result
     }
     val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, onError = { error = it })
-    // Экспорт переживает выход из чата: готовые кружки ждут в VideoNoteExportCenter и доставляются при открытии чата.
-    LaunchedEffect(chat.id) {
+    // Video delivery, including TDLib send retries, belongs to the app-wide center.
+    // Only automatic notes are claimed here; preview and failed notes remain visible.
+    LaunchedEffect(chat.id, conversation) {
         launch {
             VideoNoteExportCenter.results.collect { list ->
-                list.filter { it.chatId == chat.id }.forEach { deliverExportResult(it) }
+                list.filter { it.chatId == chat.id && !it.requiresPreview && !it.sending }.forEach { item ->
+                    val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, replyId) { media, targetReply ->
+                        conversation.sendMedia(item.chatId, media, "", targetReply).map { Unit }
+                    }
+                    if (accepted) replyId = null
+                }
             }
         }
         launch {
@@ -531,7 +530,26 @@ fun ChatScreen(
     }
     // Фото и видео листаются вместе; остальные вложения открываются по одному.
     val viewerItems = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it) } } }
-    recordingPreview?.let { mediaList -> RecordingPreviewDialog(
+    // Each unacknowledged video draft remains in the app center. Only the oldest is shown;
+    // later previews are retained, not overwritten by a second showPreview() call.
+    videoPreview?.let { video ->
+        RecordingPreviewDialog(
+            mediaList = video.media,
+            selectedIndex = recordingPreviewIndex,
+            sentPaths = video.media.take(video.nextIndex).mapTo(mutableSetOf()) { it.path },
+            sending = video.sending,
+            progress = (video.nextIndex + 1).coerceAtMost(video.media.size),
+            onSelect = recordingRecovery::select,
+            onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName) },
+            onSend = {
+                val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, replyId) { media, targetReply ->
+                    conversation.sendMedia(video.chatId, media, "", targetReply).map { Unit }
+                }
+                if (accepted) replyId = null
+            }
+        )
+    }
+    if (videoPreview == null) recordingPreview?.let { mediaList -> RecordingPreviewDialog(
         mediaList = mediaList,
         selectedIndex = recordingPreviewIndex,
         sentPaths = sentRecordingPaths,
