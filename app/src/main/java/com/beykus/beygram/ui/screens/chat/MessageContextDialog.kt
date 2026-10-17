@@ -69,7 +69,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                 context == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else -> LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(context!!.messages, key = { it.id }) { message ->
-                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = { selected = message })
+                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = { selected = message }, inlineContent = { InlineBotButtons(message, conversation) })
                     }
                 }
             }

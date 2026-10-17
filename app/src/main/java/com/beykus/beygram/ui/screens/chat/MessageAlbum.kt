@@ -128,7 +128,7 @@ internal fun MessageAlbumBubble(
             if (captions.isNotEmpty()) {
                 Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { onActions(captionMessage.id) })
                     .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp)) {
-                    captions.forEach { Text(it.text, color = palette.textPrimary, fontSize = 16.sp, lineHeight = 22.sp) }
+                    captions.forEach { FormattedMessageText(it) }
                 }
             }
             Row(Modifier.align(Alignment.End).padding(start = 12.dp, end = 10.dp, top = 2.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {

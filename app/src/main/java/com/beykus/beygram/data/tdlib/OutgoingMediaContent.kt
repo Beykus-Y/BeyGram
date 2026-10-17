@@ -1,12 +1,13 @@
 package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.OutgoingMedia
 import org.drinkless.tdlib.TdApi
 
-internal fun OutgoingMedia.toInputContent(caption: String): TdApi.InputMessageContent {
+internal fun OutgoingMedia.toInputContent(caption: String, entities: List<MessageTextEntity> = emptyList()): TdApi.InputMessageContent {
     val local = TdApi.InputFileLocal(path)
-    val formattedCaption = TdApi.FormattedText(caption, emptyArray())
+    val formattedCaption = formattedText(caption, entities)
     val thumb = thumbnailPath?.let { TdApi.InputThumbnail(TdApi.InputFileLocal(it), thumbnailWidth, thumbnailHeight) }
     return when (kind) {
         MediaKind.Photo -> TdApi.InputMessagePhoto().apply {

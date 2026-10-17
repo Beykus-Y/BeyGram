@@ -15,6 +15,8 @@ data class ChatMessage(
     val mediaAlbumId: Long = 0L,
     val senderName: String = "",
     val reply: MessageReply? = null,
+    val entities: List<MessageTextEntity> = emptyList(),
+    val inlineKeyboard: List<List<BotButton>> = emptyList(),
     val isEdited: Boolean = false
 )
 

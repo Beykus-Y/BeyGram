@@ -74,6 +74,9 @@ fun ChatScreen(
     recordingSettings: VideoMessageSettingsStore
 ) {
     var draft by rememberSaveable(chat.id) { mutableStateOf("") }
+    var draftEntities by rememberSaveable(chat.id) { mutableStateOf(arrayListOf<MessageTextEntity>()) }
+    var editEntities by remember(chat.id) { mutableStateOf<List<MessageTextEntity>>(emptyList()) }
+    val botKeyboard by remember(conversation, chat.id) { conversation.observeBotKeyboard(chat.id) }.collectAsStateWithLifecycle()
     var replyId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var actionsId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var editId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
@@ -160,8 +163,8 @@ fun ChatScreen(
         else sendRecordedMedia(mediaList)
     }
     val attachments = rememberAttachmentState(chat.id) { media, caption ->
-        val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId)
-        else conversation.sendMedia(chat.id, media.single(), caption, replyId)
+        val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities)
+        else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities)
         if (result.isSuccess) replyId = null
         result
     }
@@ -208,6 +211,8 @@ fun ChatScreen(
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }
     val actionMessage = messages.firstOrNull { it.id == actionsId }
     val editMessage = messages.firstOrNull { it.id == editId }
+    LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
+    LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) replyId = botKeyboard?.messageId }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
     fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null }
     fun closeEdit() { editId = null; editText = ""; editError = null }
@@ -339,7 +344,7 @@ fun ChatScreen(
                     MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                         highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump,
                         onPlayed = { conversation.openMessageContent(chat.id, message.id) },
-                        onRetry = { retryFailedMessages(listOf(message.id)) })
+                        onRetry = { retryFailedMessages(listOf(message.id)) }, inlineContent = { InlineBotButtons(message, conversation) })
                 }
             }
             history.error?.let { item(key = "history_error") { Text(it.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp)) } }
@@ -401,16 +406,19 @@ fun ChatScreen(
         val recordingCanceling = if (recordingMode == ComposerRecordingMode.Voice) audioNote.canceling else videoNote.canceling
         val showRecord = recordingActive || (!editing && !attachments.active && fieldText.isBlank())
         if (!deleting && !searching && typingNames.isNotEmpty()) TypingRow(typingNames)
-        if (!deleting && !searching) Row(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
+        if (!deleting && !searching) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) AttachmentButton(attachments, enabled = !sending)
                 else Spacer(Modifier.width(8.dp))
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
             else if (videoNote.active) VideoNoteRecordingDock(videoNote, Modifier.weight(1f), onCancel = videoNote::discardLocked)
-            else TextField(fieldText, { if (editing) editText = it else draft = it }, enabled = !busy, modifier = Modifier.weight(1f).defaultMinSize(minHeight = 40.dp),
-                placeholder = { Text(if (attachments.active) stringResource(R.string.chat_caption_placeholder) else stringResource(R.string.chat_message), color = palette.textSecondary) }, maxLines = 5,
-                shape = RoundedCornerShape(20.dp), colors = beyGramFilledTextFieldColors(), isError = overLimit)
+            else FormattingTextField(fieldText, if (editing) editEntities else draftEntities,
+                onChange = { if (editing) editText = it else draft = it },
+                onEntitiesChange = { if (editing) editEntities = it else draftEntities = ArrayList(it) },
+                placeholder = if (attachments.active) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
+                enabled = !busy, isError = overLimit, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
@@ -435,16 +443,19 @@ fun ChatScreen(
                             val target = editMessage ?: return@launch
                             editBusy = true; editError = null
                             try {
-                                val result = conversation.editMessage(target.chatId, target.id, editText)
+                                val result = conversation.editMessage(target.chatId, target.id, editText, editEntities)
                                 if (result.isSuccess) closeEdit() else editError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_edit_failed)
                             } finally { editBusy = false }
                         }
-                        attachments.active -> attachments.send(draft) { draft = it }
+                        attachments.active -> attachments.send(draft) { draft = it; if (it.isEmpty()) draftEntities = arrayListOf() }
                         else -> scope.launch {
                             sending = true; error = null
                             try {
-                                val result = conversation.sendMessage(chat.id, draft, replyId)
-                                if (result.isSuccess) { draft = ""; replyId = null } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
+                                val result = conversation.sendMessage(chat.id, draft, replyId, draftEntities)
+                                if (result.isSuccess) {
+                                    draft = ""; draftEntities = arrayListOf(); replyId = null
+                                    botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
+                                } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
                             } finally { sending = false }
                         }
                     }
@@ -453,6 +464,8 @@ fun ChatScreen(
                 else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, if (editing) stringResource(R.string.common_save) else stringResource(R.string.common_send),
                     tint = palette.onAccent.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
             }
+        }
+        if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation)
         }
     }
     // Фото и видео листаются вместе; остальные вложения открываются по одному.
@@ -515,7 +528,7 @@ private fun ChatTopBar(chat: ChatPreview, presence: String, onBack: () -> Unit, 
 
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}) {
+    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, inlineContent: @Composable () -> Unit = {}) {
     val palette = beyGramPalette()
     val shape = if (message.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     val hasText = message.text.isNotBlank()
@@ -557,7 +570,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
-                if (hasText) Text(message.text, color = palette.textPrimary, fontSize = 16.sp, lineHeight = 22.sp)
+                if (hasText) FormattedMessageText(message)
                 if (!inCircle) Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                     val failed = message.sendState == MessageSendState.Failed
                     val status = if (message.isOutgoing && message.sendState == MessageSendState.Failed) " · " + stringResource(R.string.chat_status_not_sent) else ""
@@ -576,6 +589,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     }
                 }
             }
+            inlineContent()
         }
     }
 }

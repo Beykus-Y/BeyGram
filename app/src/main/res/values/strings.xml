@@ -557,4 +557,21 @@
     <string name="chat_pinned_more">Загрузить ещё</string>
     <string name="chat_pinned_retry">Повторить</string>
     <string name="chat_pinned_message">Сообщение</string>
+    <string name="chat_link_failed">Не удалось открыть ссылку</string>
+    <string name="chat_bot_copied">Текст скопирован</string>
+    <string name="chat_bot_failed">Не удалось выполнить действие бота</string>
+    <string name="chat_bot_unsupported">Этот тип кнопки пока не поддерживается</string>
+    <string name="chat_bot_hide">Скрыть кнопки бота</string>
+    <string name="chat_bot_show">Показать кнопки бота</string>
+    <string name="chat_format">Форматирование</string>
+    <string name="chat_format_bold">Жирный</string>
+    <string name="chat_format_italic">Курсив</string>
+    <string name="chat_format_underline">Подчёркнутый</string>
+    <string name="chat_format_strike">Зачёркнутый</string>
+    <string name="chat_format_code">Моноширинный</string>
+    <string name="chat_format_pre">Блок кода</string>
+    <string name="chat_format_quote">Цитата</string>
+    <string name="chat_format_spoiler">Спойлер</string>
+    <string name="chat_format_clear">Убрать форматирование</string>
+    <string name="chat_format_link">Ссылка</string>
 </resources>
