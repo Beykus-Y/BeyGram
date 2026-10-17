@@ -3,6 +3,8 @@ package com.beykus.beygram.data.tdlib
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -15,6 +17,7 @@ internal class CoalescedPublisher(
     private val publish: () -> Unit
 ) {
     private val queued = AtomicBoolean(false)
+    private val publishing = Mutex()
 
     fun request() {
         if (!queued.compareAndSet(false, true)) return
@@ -22,7 +25,8 @@ internal class CoalescedPublisher(
             delay(delayMs)
             // Clear the flag before publishing, so a change that arrives later schedules the next run.
             queued.set(false)
-            publish()
+            // Runs never overlap, so a slower run cannot write an older snapshot after a newer one.
+            publishing.withLock { publish() }
         }
     }
 }

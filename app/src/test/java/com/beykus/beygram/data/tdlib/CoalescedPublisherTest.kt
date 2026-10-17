@@ -38,4 +38,23 @@ class CoalescedPublisherTest {
 
         assertEquals(2, publishes)
     }
+
+    @Test
+    fun `a request made during a publish schedules the next one`() = runTest {
+        var publishes = 0
+        lateinit var publisher: CoalescedPublisher
+        publisher = CoalescedPublisher(backgroundScope, delayMs = 100L) {
+            publishes++
+            if (publishes == 1) publisher.request()
+        }
+
+        publisher.request()
+        advanceTimeBy(100L)
+        runCurrent()
+        assertEquals(1, publishes)
+
+        advanceTimeBy(100L)
+        runCurrent()
+        assertEquals(2, publishes)
+    }
 }
