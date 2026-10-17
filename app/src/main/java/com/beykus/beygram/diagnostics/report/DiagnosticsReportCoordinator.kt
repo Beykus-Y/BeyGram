@@ -25,7 +25,11 @@ enum class ReportFailureReason {
     CONFLICT,
     API_UNAVAILABLE,
     PAYLOAD_TOO_LARGE,
-    FAILED_DELIVERY,
+    FAILED_DELIVERY;
+
+    /** Отказ, при котором повтор той же отправки бессмысленен: нужен новый отчёт. */
+    val isTerminal: Boolean
+        get() = this == INVALID_PAYLOAD || this == CONFLICT || this == PAYLOAD_TOO_LARGE || this == FAILED_DELIVERY
 }
 
 /**
@@ -260,7 +264,7 @@ class DiagnosticsReportCoordinator(
         val current = _state.value as? ReportFlowState.Failed ?: return
         if (activeJob?.isActive == true) return
         // Для финальных отказов сервера повтор бессмысленен или опасен.
-        if (current.reason in TERMINAL_REASONS) return
+        if (current.reason.isTerminal) return
         val prepared = submission ?: return
         activeJob = scope.launch {
             if (current.canRetrySameReport) {
@@ -281,19 +285,9 @@ class DiagnosticsReportCoordinator(
                 activeJob = null
                 botChannel.cancelBotWait()
                 // Честное состояние: ничего не отправлено, форма снова доступна.
-                _state.value = ReportFlowState.Draft(
-                    description = lastDraftDescription,
-                    includeDiagnostics = lastDraftInclude,
-                    descriptionError = false,
-                    eventCount = eventsProvider().size,
-                    canSubmit = config.isConfigured && telegramReadyProvider() &&
-                        lastDraftDescription.isNotBlank() &&
-                        lastDraftDescription.length <= BugReportPayload.MAX_DESCRIPTION_CHARS,
-                    configReady = config.isConfigured,
-                    telegramReady = telegramReadyProvider()
-                )
                 submission = null
                 statusToken = null
+                returnToDraft()
             }
             else -> Unit
         }
@@ -315,10 +309,24 @@ class DiagnosticsReportCoordinator(
                 submission = null
                 statusToken = null
                 activeJob = null
-                refreshDraftMeta()
+                returnToDraft()
             }
             else -> Unit
         }
+    }
+
+    private fun returnToDraft() {
+        _state.value = ReportFlowState.Draft(
+            description = lastDraftDescription,
+            includeDiagnostics = lastDraftInclude,
+            descriptionError = false,
+            eventCount = eventsProvider().size,
+            canSubmit = config.isConfigured && telegramReadyProvider() &&
+                lastDraftDescription.isNotBlank() &&
+                lastDraftDescription.length <= BugReportPayload.MAX_DESCRIPTION_CHARS,
+            configReady = config.isConfigured,
+            telegramReady = telegramReadyProvider()
+        )
     }
 
     fun dispose() {
@@ -544,14 +552,6 @@ class DiagnosticsReportCoordinator(
 
         /** Умеренный опрос статуса; после последовательности — только вручную. */
         val POLL_INTERVALS_SECONDS = intArrayOf(5, 10, 20, 30)
-
-        /** Отказы, при которых повтор той же отправки бессмысленен. */
-        private val TERMINAL_REASONS = setOf(
-            ReportFailureReason.INVALID_PAYLOAD,
-            ReportFailureReason.CONFLICT,
-            ReportFailureReason.PAYLOAD_TOO_LARGE,
-            ReportFailureReason.FAILED_DELIVERY
-        )
 
         private const val STATUS_DELIVERED = "delivered"
         private const val STATUS_FAILED = "failed"

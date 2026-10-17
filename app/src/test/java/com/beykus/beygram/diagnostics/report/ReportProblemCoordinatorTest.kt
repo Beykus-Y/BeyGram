@@ -312,6 +312,9 @@ class ReportProblemCoordinatorTest {
         pump()
         assertEquals(ReportFailureReason.CONFLICT, (coordinator.state.value as ReportFlowState.Failed).reason)
 
+        // Пользователь возвращается к форме («Составить новый отчёт»), правит описание и отправляет заново.
+        coordinator.startNewReport()
+        assertTrue(coordinator.state.value is ReportFlowState.Draft)
         coordinator.onDescriptionChange("вторая проблема")
         api.postResults.add(accepted())
         coordinator.submit()

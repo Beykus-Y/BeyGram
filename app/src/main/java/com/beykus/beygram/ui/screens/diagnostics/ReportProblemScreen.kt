@@ -352,7 +352,11 @@ private fun FailedView(
         Text(stringResource(R.string.report_state_queued, it), color = palette.textSecondary, fontSize = 13.sp)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Button(onClick = onRetry, shape = RoundedCornerShape(16.dp)) { Text(stringResource(R.string.report_retry)) }
+        Button(
+            onClick = onRetry,
+            enabled = !state.reason.isTerminal,
+            shape = RoundedCornerShape(16.dp)
+        ) { Text(stringResource(R.string.report_retry)) }
         OutlinedButton(onClick = onShareManually) { Text(stringResource(R.string.report_share_manually)) }
     }
     TextButton(onClick = onNewReport) { Text(stringResource(R.string.report_new_report)) }

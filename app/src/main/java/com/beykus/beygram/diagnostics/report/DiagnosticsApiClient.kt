@@ -195,12 +195,16 @@ class DiagnosticsApiClient(
         if (status in 300..399) {
             return ReportApiOutcome.Network(ReportApiNetworkFailure.REDIRECT_REJECTED, "status=$status")
         }
-        val body = readBounded(connection) ?: return ReportApiOutcome.Network(
-            ReportApiNetworkFailure.MALFORMED_RESPONSE,
-            "unreadable body status=$status"
-        )
-        val json = runCatching { ReportJson.parse(body) }.getOrNull()
-        if (status in 200..299) return onSuccess(json)
+        val body = readBounded(connection)
+        if (status in 200..299) {
+            if (body == null) {
+                return ReportApiOutcome.Network(ReportApiNetworkFailure.MALFORMED_RESPONSE, "unreadable body status=$status")
+            }
+            val json = runCatching { ReportJson.parse(body) }.getOrNull()
+            return onSuccess(json)
+        }
+        // Статус известен даже если тело ошибки не читается: не теряем его.
+        val json = body?.let { parsed -> runCatching { ReportJson.parse(parsed) }.getOrNull() }
         return ReportApiOutcome.HttpError(
             httpStatus = status,
             serverCode = json?.let { ReportJson.parseErrorCode(it) },
