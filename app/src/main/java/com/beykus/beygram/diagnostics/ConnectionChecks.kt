@@ -88,6 +88,11 @@ private suspend fun measureLatency(
     TelegramRoute.Subscription -> measureSubscriptionLatency(vpnBackend)
 }
 
+private fun noAnswerThroughProxy(): LatencyCheck {
+    recordConnectionFailure(ConnectionFailure.Proxy)
+    return LatencyCheck.NoAnswer
+}
+
 /** Замер через локальный прокси подписки ничего не скажет о сервере, поэтому проверяем выбранный сервер заново. */
 private suspend fun measureSubscriptionLatency(vpnBackend: VpnBackend): LatencyCheck {
     val selected = vpnBackend.refreshConnections().getOrNull()?.firstOrNull { it.selected }
@@ -95,11 +100,11 @@ private suspend fun measureSubscriptionLatency(vpnBackend: VpnBackend): LatencyC
     return vpnBackend.probeConnection(selected.name).fold(
         onSuccess = { probe ->
             when {
-                !probe.telegramReachable -> LatencyCheck.NoAnswer
+                !probe.telegramReachable -> noAnswerThroughProxy()
                 else -> probe.delayMillis?.let { LatencyCheck.Measured(it) } ?: LatencyCheck.NotMeasured
             }
         },
-        onFailure = { LatencyCheck.NoAnswer }
+        onFailure = { noAnswerThroughProxy() }
     )
 }
 
