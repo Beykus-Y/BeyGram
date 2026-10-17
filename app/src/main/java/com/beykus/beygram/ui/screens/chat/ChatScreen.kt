@@ -551,55 +551,52 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
         message.sendState == MessageSendState.Sent -> if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done
         else -> null
     }
+    // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
+    val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
+        message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
     Box(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = 14.dp)), contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart) {
         // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
-        Column(Modifier.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
-            .then(if (message.media != null && !circle) Modifier.width(244.dp) else Modifier).clip(shape)
-            .background(if (circle) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
-            .then(if (highlighted && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-            .combinedClickable(onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() }, onLongClick = onActions)) {
-            if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
-            // Media sits flush against the bubble's top and side edges; text keeps its own padding.
-            message.media?.let { media ->
-                if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile, onPlayed, onActions,
-                    time = if (inCircle) message.time else "", statusIcon = if (inCircle) statusIcon else null,
-                    statusDescription = when {
-                        !message.isOutgoing -> null
-                        message.sendState == MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
-                        isRead -> stringResource(R.string.chat_read_description)
-                        else -> stringResource(R.string.chat_sent_description)
-                    }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted)
-                else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed)
-            }
-            Column(Modifier.padding(start = 12.dp, end = 12.dp, top = if (circle) 4.dp else 8.dp, bottom = if (circle) 0.dp else 6.dp)) {
-                message.reply?.let { reply ->
-                    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp))
-                        .border(1.dp, palette.accent, RoundedCornerShape(12.dp))
-                        .clickable { onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                        Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                        Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        BubbleLayout(
+            Modifier.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
+                .then(if (message.media != null && !circle) Modifier.width(244.dp) else Modifier).clip(shape)
+                .background(if (circle) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
+                .then(if (highlighted && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
+                .combinedClickable(onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() }, onLongClick = onActions),
+            overlayMeta = overlayMeta,
+            body = {
+                Column {
+                    if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                    // Media sits flush against the bubble's top and side edges; text keeps its own padding.
+                    message.media?.let { media ->
+                        if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile, onPlayed, onActions,
+                            time = if (inCircle) message.time else "", statusIcon = if (inCircle) statusIcon else null,
+                            statusDescription = when {
+                                !message.isOutgoing -> null
+                                message.sendState == MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
+                                isRead -> stringResource(R.string.chat_read_description)
+                                else -> stringResource(R.string.chat_sent_description)
+                            }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted)
+                        else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed)
+                    }
+                    // Без текста и ответа под фото нет строки: время уже стоит поверх него.
+                    if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = 12.dp, end = 12.dp, top = if (circle) 4.dp else 8.dp)) {
+                        message.reply?.let { reply ->
+                            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, palette.accent, RoundedCornerShape(12.dp))
+                                .clickable { onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        if (hasText) FormattedMessageText(message)
                     }
                 }
-                if (hasText) FormattedMessageText(message)
-                if (!inCircle) Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-                    val failed = message.sendState == MessageSendState.Failed
-                    val status = if (message.isOutgoing && message.sendState == MessageSendState.Failed) " · " + stringResource(R.string.chat_status_not_sent) else ""
-                    Text((if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
-                        color = if (failed) palette.warningText else palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    if (message.isOutgoing && failed) Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText,
-                        fontSize = 12.sp, modifier = Modifier.clickable(onClick = onRetry))
-                    if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
-                        Spacer(Modifier.width(3.dp))
-                        Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = palette.textSecondary, modifier = Modifier.size(14.dp))
-                    }
-                    if (message.isOutgoing && message.sendState == MessageSendState.Sent) {
-                        Spacer(Modifier.width(3.dp))
-                        Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done, if (isRead) stringResource(R.string.chat_read_description) else stringResource(R.string.chat_sent_description),
-                            tint = palette.accent, modifier = Modifier.size(16.dp))
-                    }
-                }
-            }
-            inlineContent()
-        }
+            },
+            meta = {
+                if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
+                    overlay = overlayMeta, onRetry = onRetry)
+            },
+            footer = inlineContent
+        )
     }
 }
