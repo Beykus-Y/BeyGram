@@ -82,7 +82,7 @@ class VideoNoteDeliveryStateTest {
         assertFalse(VideoNoteExportCenter.results.value.any { it.chatId == 345L })
     }
 
-    @Test fun outboundJobOutlivesCallerScope() = runBlocking {
+    @Test fun outboundJobOutlivesCallerScope(): Unit = runBlocking {
         val item = VideoNoteExportResult(456L, listOf(media("app-scope")), false, "test-app-scope")
         VideoNoteExportCenter.publish(item)
         val entered = CompletableDeferred<Unit>()
