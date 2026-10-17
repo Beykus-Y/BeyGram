@@ -538,7 +538,6 @@
     <string name="start_connection_connected">Связь с Telegram установлена</string>
     <string name="start_connection_no_network">Нет подключения к сети</string>
     <string name="start_connection_updating">Восстанавливаем связь…</string>
-    <string name="start_continue_demo">Продолжить в демо-режиме</string>
     <string name="start_proxy_settings">Прокси для Telegram</string>
     <string name="start_ready_hint">Можно тестировать реальную авторизацию.</string>
     <string name="start_ready_to_sign_in">Готово ко входу</string>
