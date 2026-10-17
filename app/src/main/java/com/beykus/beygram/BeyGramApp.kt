@@ -48,6 +48,7 @@ import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
+import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
 import com.beykus.beygram.domain.model.NotificationOpenRequest
@@ -342,8 +343,15 @@ private fun BeyGramAppContent(
         LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
+            onMembers = { routeName = AppRoute.ChatMembers.name },
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
             isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
+    }
+
+    val chatMembersRoute: @Composable () -> Unit = {
+        key(selectedChatId) {
+            ChatMembersScreen(loadPage = { offset, limit -> repository.loadChatMembers(selectedChatId, offset, limit) }, onBack = { routeName = AppRoute.ChatInfo.name })
+        }
     }
 
     when (route) {
@@ -413,6 +421,7 @@ private fun BeyGramAppContent(
 
         AppRoute.Chat -> chatRoute()
         AppRoute.ChatInfo -> chatInfoRoute()
+        AppRoute.ChatMembers -> chatMembersRoute()
         AppRoute.MyProfile -> {
             LaunchedEffect(repository) { repository.refreshMyProfile() }
             ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile,

@@ -6,6 +6,7 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.DeleteMessageScope
@@ -59,6 +60,7 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override fun observeChatInfo(chatId: Long): StateFlow<ProfileState> = noProfile
     override fun refreshChatInfo(chatId: Long) {}
+    override suspend fun loadChatMembers(chatId: Long, offset: Int, limit: Int): Result<ChatMembersPage> = unavailable()
     override fun refreshMyProfile() {}
     override suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit> = unavailable()
     override suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit> = unavailable()

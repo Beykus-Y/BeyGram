@@ -3,6 +3,7 @@ package com.beykus.beygram.domain.repository
 import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
@@ -32,6 +33,8 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     val bioLengthLimit: StateFlow<Int>
     fun observeChatInfo(chatId: Long): StateFlow<ProfileState>
     fun refreshChatInfo(chatId: Long)
+    /** Страница участников группы или супергруппы; у каналов без прав TDLib откажет. */
+    suspend fun loadChatMembers(chatId: Long, offset: Int, limit: Int): Result<ChatMembersPage>
     fun refreshMyProfile()
     suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit>
     suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit>

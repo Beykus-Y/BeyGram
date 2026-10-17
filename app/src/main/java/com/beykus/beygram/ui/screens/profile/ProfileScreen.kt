@@ -58,7 +58,7 @@ fun ProfileScreen(
     onBack: () -> Unit, onRefresh: () -> Unit, onEdit: () -> Unit,
     setPhoto: suspend (OutgoingMedia) -> Result<Unit>,
     isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit,
-    onNotifications: () -> Unit = {},
+    onNotifications: () -> Unit = {}, onMembers: () -> Unit = {},
     hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {}
 ) {
     val palette = beyGramPalette()
@@ -133,6 +133,7 @@ fun ProfileScreen(
                     }
                 }
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators)
+                if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, onMembers)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                 if (isOwnProfile) Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -217,6 +218,34 @@ private fun AdministratorsSection(administrators: List<ProfileAdmin>) {
             InfoRow(adminRole(admin), admin.name.ifBlank { stringResource(R.string.user_name_unknown) })
         }
     }
+}
+
+@Composable
+private fun MembersSection(info: ProfileInfo, onMembers: () -> Unit) {
+    val palette = beyGramPalette()
+    Text(stringResource(R.string.profile_members_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
+    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+        info.memberPreview.forEachIndexed { index, member ->
+            if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(member.name.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                Text(memberStatus(member), color = palette.textSecondary, fontSize = 13.sp)
+            }
+        }
+        TextButton(onClick = onMembers, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.profile_members_all, info.memberCount ?: info.memberPreview.size), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+/** Подпись участника: роль для владельца и администраторов, иначе «в сети». */
+@Composable
+internal fun memberStatus(member: ProfileMember): String = when {
+    member.role == ProfileMemberRole.Owner -> stringResource(R.string.profile_admin_owner)
+    member.role == ProfileMemberRole.Admin -> stringResource(R.string.profile_admin_role)
+    member.online -> stringResource(R.string.presence_online)
+    else -> ""
 }
 
 @Composable private fun adminRole(admin: ProfileAdmin): String = when {
