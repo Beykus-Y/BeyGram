@@ -3,4 +3,6 @@
     <exclude domain="sharedpref" path="vpn-settings.xml" />
     <!-- The loopback SOCKS credentials are per installation; a restored copy would share them with another device. -->
     <exclude domain="sharedpref" path="mihomo-loopback.xml" />
+    <!-- The diagnostics report draft is session-local; restoring it on another device makes no sense. -->
+    <exclude domain="file" path="diagnostics-report" />
 </full-backup-content>

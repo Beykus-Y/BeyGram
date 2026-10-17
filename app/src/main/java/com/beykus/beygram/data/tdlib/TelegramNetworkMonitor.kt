@@ -7,6 +7,9 @@ import android.net.NetworkCapabilities
 import android.util.Log
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.diagnostics.ConnectionEventLog
+import com.beykus.beygram.diagnostics.StructuredEventLog
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +66,17 @@ internal class TelegramNetworkMonitor(
         ConnectionEventLog.shared.record(
             "Сеть: интернет=$internet, подтверждена=$validated, Wi-Fi=$wifi, мобильная=$mobile, VPN=$vpn"
         )
+        StructuredEventLog.shared.record(
+            kind = EventKind.NETWORK,
+            severity = Severity.INFO,
+            code = "network_route",
+            message = "",
+            attrs = buildMap {
+                put("type", type.wireName())
+                put("vpn", vpn.toString())
+                put("validated", validated.toString())
+            }
+        )
         onNetworkChanged(type)
         if (BuildConfig.DEBUG) {
             Log.i(TAG, "Default route $route,validated=$validated; reopening TDLib connections")
@@ -105,5 +119,13 @@ internal class TelegramNetworkMonitor(
 
     companion object {
         const val TAG = "BeyGramNet"
+
+        private fun TdApi.NetworkType.wireName(): String = when (this) {
+            is TdApi.NetworkTypeNone -> "none"
+            is TdApi.NetworkTypeWiFi -> "wifi"
+            is TdApi.NetworkTypeMobile -> "mobile"
+            is TdApi.NetworkTypeOther -> "other"
+            else -> "other"
+        }
     }
 }

@@ -34,6 +34,10 @@ suspend fun createConnectionDiagnostics(context: Context, connection: TelegramCo
         writeDiagnosticsFile(context, report, System.currentTimeMillis())
     }
 
+/** Тот же отредактированный текст, что уходит в файл «Поделиться», но без записи на диск. */
+suspend fun connectionDiagnosticsText(context: Context, connection: TelegramConnectionState): String =
+    withContext(Dispatchers.IO) { connectionDiagnosticsReport(context, connection) }
+
 /** Copies the same redacted report used by file sharing. */
 suspend fun copyConnectionDiagnosticsToClipboardOrError(
     context: Context,

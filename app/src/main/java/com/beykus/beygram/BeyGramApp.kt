@@ -38,6 +38,8 @@ import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
+import com.beykus.beygram.ui.screens.diagnostics.DiagnosticsScreen
+import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
@@ -224,6 +226,7 @@ private fun BeyGramAppContent(
         routeName = if (route == AppRoute.ProxyConnect) AppRoute.Proxy.name else proxyReturnRouteName
     }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.Diagnostics || route == AppRoute.ReportProblem) { routeName = AppRoute.Settings.name }
 
     // Потоки собирает сам раздел, которому они нужны: обновление списка чатов перерисовывает только открытый раздел, а не всё приложение.
     val chatsTab: @Composable () -> Unit = {
@@ -418,9 +421,20 @@ private fun BeyGramAppContent(
                 onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
                 onNotifications = { openNotifications(AppRoute.Settings) },
                 onProxy = { openProxy(AppRoute.Settings) },
-                onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name }
+                onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
+                onDiagnostics = { routeName = AppRoute.Diagnostics.name }
             )
         }
+        AppRoute.Diagnostics -> DiagnosticsScreen(
+            connectionState = connectionState,
+            onBack = { routeName = AppRoute.Settings.name },
+            onReportProblem = { routeName = AppRoute.ReportProblem.name }
+        )
+        AppRoute.ReportProblem -> ReportProblemScreen(
+            repository = repository,
+            connectionState = connectionState,
+            onBack = { routeName = AppRoute.Diagnostics.name }
+        )
         AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings) { routeName = AppRoute.Settings.name }
         AppRoute.NavigationSettings -> NavigationSettingsScreen(
             visibility = tabVisibility,

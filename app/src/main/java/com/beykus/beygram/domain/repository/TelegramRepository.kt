@@ -1,5 +1,6 @@
 package com.beykus.beygram.domain.repository
 
+import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.CallHistoryPage
@@ -12,9 +13,10 @@ import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.SavedTelegramProxy
 import com.beykus.beygram.domain.model.TelegramProxyDraft
+import com.beykus.beygram.domain.repository.ReportBotChannel
 import kotlinx.coroutines.flow.StateFlow
 
-interface TelegramRepository : ConversationRepository, NotificationRepository {
+interface TelegramRepository : ConversationRepository, NotificationRepository, ReportBotChannel {
     /** Текущее состояние авторизации. Обновляется реактивно при каждом ответе TDLib. */
     val authState: StateFlow<AuthState>
 
