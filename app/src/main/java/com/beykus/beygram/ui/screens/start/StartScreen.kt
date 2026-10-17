@@ -124,7 +124,7 @@ fun StartScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "Клиент Telegram на TDLib",
+                text = "Клиент Telegram",
                 color = palette.textSecondary,
                 fontSize = 16.sp,
                 textAlign = TextAlign.Center,
@@ -157,7 +157,7 @@ fun StartScreen(
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
             Text(
-                text = if (tdLibReadiness.canCreateClient) "Войти через TDLib" else "Продолжить с моками",
+                text = if (tdLibReadiness.canCreateClient) "Войти" else "Продолжить в демо-режиме",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.sp
@@ -183,7 +183,7 @@ private fun TdLibStatusPanel(
             modifier = Modifier.padding(14.dp)
         ) {
             Text(
-                text = if (isReady) "TDLib готов" else "TDLib не готов",
+                text = if (isReady) "Готово ко входу" else "Вход пока недоступен",
                 color = if (isReady) palette.successText else palette.warningText,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,

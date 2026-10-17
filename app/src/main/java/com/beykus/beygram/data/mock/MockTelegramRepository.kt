@@ -123,7 +123,7 @@ class MockTelegramRepository : TelegramRepository {
         1L to mutableListOf(
             ChatMessage(1L, 1L, "Привет. С чего начнем клиент?", "12:40", false),
             ChatMessage(2L, 1L, "Сначала разделим экраны и данные.", "12:42", true),
-            ChatMessage(3L, 1L, "Закинул архитектуру под TDLib.", "12:48", false)
+            ChatMessage(3L, 1L, "Закинул архитектуру под новый клиент.", "12:48", false)
         ),
         2L to mutableListOf(
             ChatMessage(4L, 2L, "Навигация не должна жить внутри экранов.", "11:14", false),
@@ -290,7 +290,7 @@ private fun buildMockChats() = listOf(
         id = 1L,
         title = "Beykus",
         initials = "BK",
-        lastMessage = "Закинул архитектуру под TDLib.",
+        lastMessage = "Закинул архитектуру под новый клиент.",
         lastMessageTime = "12:48",
         unreadCount = 2,
         avatarColorArgb = 0xFF2AABEE,

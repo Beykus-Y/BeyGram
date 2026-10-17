@@ -222,7 +222,7 @@ internal fun ProxyConnectScreen(
                 }
                 if (tab == ProxyConnectTab.WEB) {
                     Text(
-                        "HTTP(S)-прокси. Доступен для выбора, если TDLib его поддерживает.",
+                        "HTTP(S)-прокси. Доступен для выбора, если Telegram его поддерживает.",
                         color = palette.textSecondary,
                         fontSize = 12.sp,
                         lineHeight = 16.sp
