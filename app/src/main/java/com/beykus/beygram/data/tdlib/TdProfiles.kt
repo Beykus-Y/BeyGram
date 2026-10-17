@@ -26,6 +26,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val superFull = mutableMapOf<Long, TdApi.SupergroupFullInfo>()
     private val onlineCounts = mutableMapOf<Long, Int>()
     private val sharedCounts = mutableMapOf<Long, SharedCounts>()
+    private val chatAdmins = mutableMapOf<Long, List<ProfileAdmin>>()
     private val typingBy = mutableMapOf<Long, MutableMap<String, Typist>>()
     private val typingFlows = ConcurrentHashMap<Long, MutableStateFlow<List<String>>>()
     private val details = ConcurrentHashMap<Long, MutableStateFlow<ProfileState>>()
@@ -120,7 +121,31 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 val counts = runCatching { withTimeout(25_000) { loadSharedCounts(chatId) } }.getOrNull() ?: return@launch
                 synchronized(lock) { sharedCounts[chatId] = counts; publish() }
             }
+            scope.launch {
+                val admins = runCatching { withTimeout(25_000) { loadAdministrators(chatId) } }.getOrNull() ?: return@launch
+                synchronized(lock) { chatAdmins[chatId] = admins; publish() }
+            }
         }
+    }
+    /** Владелец и администраторы групп и каналов. Личным чатам TDLib их не отдаёт, поэтому запрос не отправляем. */
+    private suspend fun loadAdministrators(chatId: Long): List<ProfileAdmin> {
+        val type = synchronized(lock) { chats[chatId]?.type }
+        if (type == null || type is TdApi.ChatTypePrivate || type is TdApi.ChatTypeSecret) return emptyList()
+        val admins = request(TdApi.GetChatAdministrators(chatId)).administrators.take(MAX_ADMINS)
+        return admins.mapNotNull { admin ->
+            val user = synchronized(lock) { users[admin.userId] } ?: fetchUser(admin.userId) ?: return@mapNotNull null
+            ProfileAdmin(
+                name = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
+                isOwner = admin.isOwner, customTitle = admin.customTitle.orEmpty()
+            )
+        }
+    }
+    private suspend fun fetchUser(id: Long): TdApi.User? = try {
+        request(TdApi.GetUser(id)).also { user -> synchronized(lock) { users[id] = user } }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        null
     }
     private suspend fun loadUser(id: Long) {
         val user = request(TdApi.GetUser(id))
@@ -211,7 +236,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true
         )
     }
-    private fun chatInfo(id: Long): ProfileInfo? = chatProfile(id)?.copy(sharedCounts = sharedCounts[id])
+    private fun chatInfo(id: Long): ProfileInfo? = chatProfile(id)?.copy(sharedCounts = sharedCounts[id], administrators = chatAdmins[id].orEmpty())
     private fun chatProfile(id: Long): ProfileInfo? {
         val chat = chats[id] ?: return null
         val base = ProfileInfo(id, chat.title, photo = photo(chat.photo), onlineMemberCount = onlineCounts[id]?.takeIf { it > 0 })
@@ -272,6 +297,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
 }
 
 private const val TYPING_TIMEOUT_MS = 6_000L
+private const val MAX_ADMINS = 20
 
 private class Typist(val sender: TdApi.MessageSender) {
     /** Срок набора: новое действие или отмена отменяют прежний таймер. */

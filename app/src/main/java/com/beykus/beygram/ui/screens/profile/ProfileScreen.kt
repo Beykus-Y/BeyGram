@@ -132,6 +132,7 @@ fun ProfileScreen(
                         InfoRow(label, value)
                     }
                 }
+                if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                 if (isOwnProfile) Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -203,6 +204,25 @@ private fun InfoRow(label: String, value: String) {
         Spacer(Modifier.height(2.dp))
         SelectionContainer { Text(value, color = palette.textPrimary, fontSize = 16.sp, lineHeight = 22.sp) }
     }
+}
+
+@Composable
+private fun AdministratorsSection(administrators: List<ProfileAdmin>) {
+    val palette = beyGramPalette()
+    Text(stringResource(R.string.profile_admins_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
+    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+        administrators.forEachIndexed { index, admin ->
+            if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
+            InfoRow(adminRole(admin), admin.name.ifBlank { stringResource(R.string.user_name_unknown) })
+        }
+    }
+}
+
+@Composable private fun adminRole(admin: ProfileAdmin): String = when {
+    admin.customTitle.isNotBlank() -> admin.customTitle
+    admin.isOwner -> stringResource(R.string.profile_admin_owner)
+    else -> stringResource(R.string.profile_admin_role)
 }
 
 /** Разделы, скрытые из нижнего меню, открываются отсюда так же, как с панели. */

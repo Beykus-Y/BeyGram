@@ -22,6 +22,9 @@ sealed interface ProfilePresence {
 /** День рождения из TDLib; год неизвестен, если аккаунт его не указал. */
 data class ProfileBirthday(val day: Int, val month: Int, val year: Int?)
 
+/** Владелец или администратор группы/канала; роль берётся из статуса участника в TDLib. */
+data class ProfileAdmin(val name: String, val isOwner: Boolean, val customTitle: String)
+
 /** Число сообщений с медиа, файлами, ссылками и голосовыми в чате; null, если TDLib не ответил по этому типу. */
 data class SharedCounts(val media: Int?, val files: Int?, val links: Int?, val voice: Int?)
 
@@ -49,6 +52,7 @@ data class ProfileInfo(
     /** Основная ссылка-приглашение; TDLib отдаёт её не всем, поэтому может быть пусто. */
     val inviteLink: String = "",
     val sharedCounts: SharedCounts? = null,
+    val administrators: List<ProfileAdmin> = emptyList(),
     val isSelf: Boolean = false,
     val isPremium: Boolean = false,
     val isVerified: Boolean = false
