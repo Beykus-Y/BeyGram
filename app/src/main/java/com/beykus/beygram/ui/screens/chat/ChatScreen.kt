@@ -132,22 +132,32 @@ fun ChatScreen(
     var sentRecordingPaths by remember(chat.id) { mutableStateOf(emptySet<String>()) }
     var recordingQueueSending by remember(chat.id) { mutableStateOf(false) }
     var recordingQueueProgress by remember(chat.id) { mutableIntStateOf(0) }
-    fun sendRecordedMedia(mediaList: List<OutgoingMedia>) {
-        scope.launch {
-            if (recordingQueueSending) return@launch
-            recordingQueueSending = true
+    // Voice messages use this local queue; video notes are owned by VideoNoteExportCenter.
+    val pendingRecordingSends = remember(chat.id) { ArrayDeque<List<OutgoingMedia>>() }
+    val videoExports by VideoNoteExportCenter.results.collectAsStateWithLifecycle()
+    val videoPreview = videoExports.firstOrNull { it.chatId == chat.id && it.requiresPreview }
+    fun startRecordingSendWorker() {
+        if (recordingQueueSending) return
+        if (pendingRecordingSends.isEmpty()) return
+        recordingQueueSending = true
+        // Worker живёт в scope восстановления записи: переживает recomposition и не бросает очередь на полпути.
+        recordingRecovery.processingScope.launch {
             try {
-                mediaList.forEachIndexed { index, media ->
-                    if (media.path in sentRecordingPaths) return@forEachIndexed
-                    recordingQueueProgress = index + 1
-                    val result = conversation.sendMedia(chat.id, media, "", replyId)
-                    if (result.isSuccess) {
-                        sentRecordingPaths = sentRecordingPaths + media.path
-                        replyId = null
-                    } else {
-                        recordingRecovery.showPreview(mediaList, index)
-                        error = result.exceptionOrNull().userMessage(context, R.string.chat_video_note_send_failed)
-                        return@launch
+                while (pendingRecordingSends.isNotEmpty()) {
+                    val mediaList = pendingRecordingSends.removeFirst()
+                    mediaList.forEachIndexed { index, media ->
+                        if (media.path in sentRecordingPaths) return@forEachIndexed
+                        recordingQueueProgress = index + 1
+                        val result = conversation.sendMedia(chat.id, media, "", replyId)
+                        if (result.isSuccess) {
+                            sentRecordingPaths = sentRecordingPaths + media.path
+                            replyId = null
+                        } else {
+                            recordingRecovery.showPreview(mediaList, index)
+                            error = result.exceptionOrNull().userMessage(context, R.string.chat_video_note_send_failed)
+                            pendingRecordingSends.clear()
+                            return@launch
+                        }
                     }
                 }
                 sentRecordingPaths = emptySet()
@@ -156,6 +166,11 @@ fun ChatScreen(
                 recordingQueueSending = false
             }
         }
+    }
+    /** Ставит запись в отправку. Пропусков нет: занятый worker сам подхватит очередь. */
+    fun sendRecordedMedia(mediaList: List<OutgoingMedia>) {
+        pendingRecordingSends.addLast(mediaList)
+        startRecordingSendWorker()
     }
     fun retryFailedMessages(messageIds: List<Long>) {
         scope.launch {
@@ -167,20 +182,32 @@ fun ChatScreen(
         if (previewFirst) recordingRecovery.showPreview(listOf(media))
         else sendRecordedMedia(listOf(media))
     }
-    fun capturedVideoRecording(mediaList: List<OutgoingMedia>, previewFirst: Boolean) {
-        if (previewFirst || mediaList.size > 1) recordingRecovery.showPreview(mediaList)
-        else sendRecordedMedia(mediaList)
-    }
     val attachments = rememberAttachmentState(chat.id) { media, caption ->
         val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities)
         else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities)
         if (result.isSuccess) replyId = null
         result
     }
-    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope,
-        onFinished = ::capturedVideoRecording,
-        onError = { error = it }
-    )
+    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, onError = { error = it })
+    // Video delivery, including TDLib send retries, belongs to the app-wide center.
+    // Only automatic notes are claimed here; preview and failed notes remain visible.
+    LaunchedEffect(chat.id, conversation) {
+        launch {
+            VideoNoteExportCenter.results.collect { list ->
+                list.filter { it.chatId == chat.id && !it.requiresPreview && !it.sending }.forEach { item ->
+                    val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, replyId) { media, targetReply ->
+                        conversation.sendMedia(item.chatId, media, "", targetReply).map { Unit }
+                    }
+                    if (accepted) replyId = null
+                }
+            }
+        }
+        launch {
+            VideoNoteExportCenter.failures.collect {
+                if (VideoNoteExportCenter.consumeFailure(chat.id)) error = context.getString(R.string.recorder_save_failed)
+            }
+        }
+    }
     val audioNote = rememberAudioNoteRecorder(::capturedRecording) { error = it }
     val videoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (!granted.values.all { it }) error = context.getString(R.string.chat_video_note_permission_denied)
@@ -503,7 +530,26 @@ fun ChatScreen(
     }
     // Фото и видео листаются вместе; остальные вложения открываются по одному.
     val viewerItems = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it) } } }
-    recordingPreview?.let { mediaList -> RecordingPreviewDialog(
+    // Each unacknowledged video draft remains in the app center. Only the oldest is shown;
+    // later previews are retained, not overwritten by a second showPreview() call.
+    videoPreview?.let { video ->
+        RecordingPreviewDialog(
+            mediaList = video.media,
+            selectedIndex = recordingPreviewIndex,
+            sentPaths = video.media.take(video.nextIndex).mapTo(mutableSetOf()) { it.path },
+            sending = video.sending,
+            progress = (video.nextIndex + 1).coerceAtMost(video.media.size),
+            onSelect = recordingRecovery::select,
+            onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName) },
+            onSend = {
+                val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, replyId) { media, targetReply ->
+                    conversation.sendMedia(video.chatId, media, "", targetReply).map { Unit }
+                }
+                if (accepted) replyId = null
+            }
+        )
+    }
+    if (videoPreview == null) recordingPreview?.let { mediaList -> RecordingPreviewDialog(
         mediaList = mediaList,
         selectedIndex = recordingPreviewIndex,
         sentPaths = sentRecordingPaths,

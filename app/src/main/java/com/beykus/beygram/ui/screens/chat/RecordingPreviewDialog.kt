@@ -99,7 +99,7 @@ internal fun RecordingPreviewDialog(
             }
         },
         confirmButton = { Button(enabled = !sending, onClick = onSend) { Text(stringResource(if (mediaList.size > 1) R.string.recorder_send_all else R.string.recorder_send)) } },
-        dismissButton = { TextButton(onClick = onDelete) { Text(stringResource(R.string.recorder_delete)) } }
+        dismissButton = { TextButton(enabled = !sending, onClick = onDelete) { Text(stringResource(R.string.recorder_delete)) } }
     )
 }
 

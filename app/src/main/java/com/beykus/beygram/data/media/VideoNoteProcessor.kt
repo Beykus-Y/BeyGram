@@ -1,13 +1,19 @@
 package com.beykus.beygram.data.media
 
 import android.content.Context
-import android.media.MediaExtractor
-import android.media.MediaFormat
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.BitmapOverlay
+import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.AudioEncoderSettings
 import androidx.media3.transformer.EditedMediaItem
@@ -18,7 +24,6 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
-import com.beykus.beygram.data.media.VideoProcessingMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -29,61 +34,40 @@ import kotlin.coroutines.resumeWithException
 /** Re-encodes a recording into sequential square Telegram video notes, one disk-backed clip at a time. */
 @OptIn(UnstableApi::class)
 class VideoNoteProcessor(private val context: Context) {
-    suspend fun process(source: File, settings: VideoMessageSettings): List<OutgoingMedia> {
+    /**
+     * Перекодирует RAW в замаскированные сегменты. RAW может лежать в no_backup, поэтому готовые файлы
+     * складываются в [outputDirectory] (filesDir/uploads, рядом с другими вложениями на отправку).
+     * При сбое сегмента уже готовые сегменты и RAW сохраняются: долгую запись нельзя терять из-за одной ошибки.
+     */
+    suspend fun process(source: File, settings: VideoMessageSettings, outputDirectory: File): List<OutgoingMedia> {
         val sourceInfo = withContext(Dispatchers.IO) { metadata(source) }
         val sourceDurationMs = sourceInfo.durationMs
         require(sourceDurationMs > 0L) { "Не удалось прочитать длительность записи" }
         val target = settings.targetProfile()
-        val directory = source.parentFile ?: error("Нет папки записи")
-        // CameraX выбирает кодек по устройству, а TDLib принимает кружок только в H.264: иное перекодируем.
-        val sourceIsH264 = withContext(Dispatchers.IO) { isH264Video(source) }
-        val canPassThrough = sourceIsH264 && sourceDurationMs <= MAX_SEGMENT_MS && when (settings.processing) {
-            VideoProcessingMode.Direct -> true
-            VideoProcessingMode.Automatic -> sourceInfo.width == target.side && sourceInfo.height == target.side
-            VideoProcessingMode.Transcode -> false
-        }
-        if (canPassThrough) {
-            return listOf(outgoingMedia(source, sourceInfo, 1))
-        }
+        withContext(Dispatchers.IO) { outputDirectory.mkdirs() }
+        // CameraX пишет кадр целиком, включая углы вне круга, а TDLib принимает кружок только в H.264: поэтому файл всегда перекодируется.
         val result = mutableListOf<OutgoingMedia>()
         var startMs = 0L
         var index = 0
-        try {
-            while (startMs < sourceDurationMs) {
-                val endMs = minOf(startMs + MAX_SEGMENT_MS, sourceDurationMs)
-                val output = File(directory, "video-note-${index + 1}.mp4")
-                try {
-                    transform(source, output, startMs, endMs, target.side, target.videoBitrate, target.audioBitrate)
-                    val info = withContext(Dispatchers.IO) { metadata(output) }
-                    require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }
-                    require(info.durationMs in 1L..MAX_SEGMENT_MS) { "Длительность сегмента превышает 60 секунд" }
-                    result += outgoingMedia(output, info, index + 1)
-                } catch (failure: Exception) {
-                    output.delete()
-                    throw failure
-                }
-                startMs = endMs
-                index++
-            }
-            source.delete()
-            return result
-        } catch (failure: Exception) {
-            result.forEach { File(it.path).delete() }
-            throw failure
-        }
-    }
-
-    /** Проверяет, что видеодорожка уже H.264: только такой файл уходит без перекодирования. Если прочитать не удалось, файл перекодируется. */
-    private fun isH264Video(file: File): Boolean = runCatching {
-        MediaExtractor().run {
+        while (startMs < sourceDurationMs) {
+            val endMs = minOf(startMs + MAX_SEGMENT_MS, sourceDurationMs)
+            val output = File(outputDirectory, "video-note-${index + 1}.mp4")
             try {
-                setDataSource(file.absolutePath)
-                (0 until trackCount)
-                    .map { getTrackFormat(it).getString(MediaFormat.KEY_MIME) }
-                    .firstOrNull { it?.startsWith("video/") == true } == MimeTypes.VIDEO_H264
-            } finally { release() }
+                transform(source, output, startMs, endMs, target.side, target.videoBitrate, target.audioBitrate)
+                val info = withContext(Dispatchers.IO) { metadata(output) }
+                require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }
+                require(info.durationMs in 1L..MAX_SEGMENT_MS) { "Длительность сегмента превышает 60 секунд" }
+                result += outgoingMedia(output, info, index + 1)
+            } catch (failure: Exception) {
+                output.delete()
+                throw failure
+            }
+            startMs = endMs
+            index++
         }
-    }.getOrDefault(false)
+        source.delete()
+        return result
+    }
 
     private fun outgoingMedia(file: File, info: VideoMetadata, index: Int) = OutgoingMedia(
         path = file.absolutePath,
@@ -109,7 +93,11 @@ class VideoNoteProcessor(private val context: Context) {
                 )
                 .build()
             val edited = EditedMediaItem.Builder(mediaItem)
-                .setEffects(Effects(emptyList(), listOf(Presentation.createForWidthAndHeight(side, side, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP))))
+                .setEffects(Effects(emptyList(), listOf(
+                    Presentation.createForWidthAndHeight(side, side, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP),
+                    // Кадр за пределами круга очищается: TDLib ожидает «no data outside of the visible circle».
+                    OverlayEffect(listOf(BitmapOverlay.createStaticBitmapOverlay(circularMask(side))))
+                )))
                 .build()
             suspendCancellableCoroutine { continuation ->
                 val transformer = Transformer.Builder(context)
@@ -142,6 +130,21 @@ class VideoNoteProcessor(private val context: Context) {
             }
             check(output.isFile && output.length() > 0L) { "Пустой результат обработки" }
         }
+    }
+
+    /** Непрозрачный кадр с вырезанным кругом: углы становятся чёрными, данные камеры за пределами круга не сохраняются. */
+    private fun circularMask(side: Int): Bitmap {
+        val mask = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+        Canvas(mask).apply {
+            drawColor(Color.BLACK)
+            drawCircle(
+                side / 2f,
+                side / 2f,
+                side / 2f,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
+            )
+        }
+        return mask
     }
 
     private fun metadata(file: File): VideoMetadata = MediaMetadataRetriever().run {

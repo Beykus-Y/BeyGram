@@ -59,11 +59,9 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaKind
-import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoQualityPreset
-import com.beykus.beygram.data.media.VideoNoteProcessor
 import com.beykus.beygram.data.media.requestedFrameRateRange
 import com.beykus.beygram.data.media.chooseSupportedFrameRateRange
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -81,8 +79,8 @@ private const val SIDE_PX = 480
 /** Сдвиг пальца влево, после которого отпускание отменяет запись. */
 private const val CANCEL_DRAG_DP = 96f
 private const val TAG = "BeyGramRecorder"
-/** Пока кадр не обрезается по кругу, новые кружки не записываются: пиксели вне круга иначе уходят в файл. */
-internal const val VIDEO_NOTE_RECORDING_ENABLED = false
+/** Кадр обрезается по кругу при обработке (маска в VideoNoteProcessor), поэтому запись кружков включена. */
+internal const val VIDEO_NOTE_RECORDING_ENABLED = true
 
 internal val videoNotePermissions = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
 
@@ -90,7 +88,7 @@ internal fun videoNoteAllowed(context: Context): Boolean =
     videoNotePermissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
 /** Одна запись: пишется или уже останавливается и ждёт финализации CameraX. */
-private class VideoTake(val file: File, val settings: VideoMessageSettings) {
+private class VideoTake(val file: File, val settings: VideoMessageSettings, val sessionName: String) {
     var discard = false
     var recording: Recording? = null
     var previewFirst = false
@@ -103,7 +101,8 @@ internal class VideoNoteRecorder(
     private val lifecycleOwner: LifecycleOwner,
     private val scope: CoroutineScope,
     private val currentSettings: () -> VideoMessageSettings,
-    private val onFinished: (List<OutgoingMedia>, previewFirst: Boolean) -> Unit,
+    /** Сырая запись готова к экспорту: обработку выполняет VideoNoteExportCenter, переживая выход из чата. */
+    private val onTakeReady: (raw: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean) -> Unit,
     private val onError: (String) -> Unit
 ) {
     val previewView = PreviewView(context).apply {
@@ -217,10 +216,16 @@ internal class VideoNoteRecorder(
     /** Нажатие: камера открывается асинхронно, запись начинается, когда она готова. */
     fun press() {
         if (active || take != null) return
+        if (VideoNoteExportGate.busy) {
+            // Шлюз процесс-глобальный: экспорт прошлой записи продолжается даже из другого чата или после пересоздания экрана.
+            onError(context.getString(R.string.recorder_processing_busy))
+            return
+        }
         val settings = currentSettings()
         Log.i(TAG, "video_start_requested preset=${settings.preset} long=${settings.longRecordingEnabled}")
         maxDurationMs = if (settings.longRecordingEnabled) LONG_MAX_DURATION_MS else NORMAL_MAX_DURATION_MS
-        val requiredBytes = if (settings.longRecordingEnabled) 2_500L * 1024L * 1024L else 150L * 1024L * 1024L
+        // Проверяем пиковый объём: RAW с камеры и перекодированные сегменты живут на диске одновременно.
+        val requiredBytes = videoPeakStorageBytes(videoCameraBitrate(settings), maxDurationMs / 1000)
         if (StatFs(context.filesDir.absolutePath).availableBytes < requiredBytes) {
             onError(context.getString(R.string.recorder_storage_low))
             return
@@ -352,12 +357,7 @@ internal class VideoNoteRecorder(
             VideoQualityPreset.Maximum -> 640
             VideoQualityPreset.Custom -> settings.customSide
         }
-        val bitrate = when (settings.preset) {
-            VideoQualityPreset.Standard -> 1_000_000
-            VideoQualityPreset.High -> 1_400_000
-            VideoQualityPreset.Maximum -> 4_000_000
-            VideoQualityPreset.Custom -> settings.customVideoBitrateKbps * 1_000
-        }
+        val bitrate = videoCameraBitrate(settings)
         val quality = if (side > 480) Quality.HD else Quality.SD
         val requestedFps = settings.requestedFrameRateRange()
         val supportedFps = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges
@@ -425,30 +425,32 @@ internal class VideoNoteRecorder(
 
     private fun startRecording(settings: VideoMessageSettings) {
         val capture = videoCapture ?: return
-        // Файл лежит в uploads, как и вложения: кэш система может очистить до отправки, а поставленное в очередь сообщение тогда сломается.
-        val directory = File(context.filesDir, "uploads").resolve(UUID.randomUUID().toString()).apply { mkdirs() }
-        val current = VideoTake(directory.resolve("video-note.mp4"), settings)
+        // RAW без маски пишется в no_backup: он не должен попадать в резервные копии и на другое устройство.
+        // Замаскированные сегменты обработчик кладёт в filesDir/uploads, как и вложения: кэш система может очистить до отправки.
+        val sessionName = UUID.randomUUID().toString()
+        val rawDirectory = File(context.noBackupFilesDir, "uploads").resolve(sessionName).apply { mkdirs() }
+        val current = VideoTake(rawDirectory.resolve("video-note.mp4"), settings, sessionName)
         take = current
         try {
             current.recording = prepare(current, persistent = persistentSupported)
-            Log.i(TAG, "video_recording_started session=${directory.name} persistent=$persistentSupported")
+            Log.i(TAG, "video_recording_started session=$sessionName persistent=$persistentSupported")
         } catch (_: Exception) {
             // Persistent-запись нужна только для смены камеры во время записи: без неё кружок пишется как раньше.
             if (!persistentSupported) {
-                Log.e(TAG, "video_recording_start_failed session=${directory.name}")
+                Log.e(TAG, "video_recording_start_failed session=$sessionName")
                 take = null
                 current.file.parentFile?.deleteRecursively()
                 fail(context.getString(R.string.recorder_start_failed))
                 return
             }
-            Log.i(TAG, "video_persistent_unavailable session=${directory.name}")
+            Log.i(TAG, "video_persistent_unavailable session=$sessionName")
             persistentSupported = false
             canSwitchCamera = false
             try {
                 current.recording = prepare(current, persistent = false)
-                Log.i(TAG, "video_recording_started session=${directory.name} persistent=false")
+                Log.i(TAG, "video_recording_started session=$sessionName persistent=false")
             } catch (_: Exception) {
-                Log.e(TAG, "video_recording_start_failed session=${directory.name}")
+                Log.e(TAG, "video_recording_start_failed session=$sessionName")
                 take = null
                 current.file.parentFile?.deleteRecursively()
                 fail(context.getString(R.string.recorder_start_failed))
@@ -497,18 +499,7 @@ internal class VideoNoteRecorder(
                 current.file.parentFile?.deleteRecursively()
                 onError(context.getString(R.string.recorder_save_failed))
             }
-            VideoTakeOutcome.Send -> scope.launch {
-                try {
-                    Log.i(TAG, "video_processing_started session=${current.file.parentFile?.name}")
-                    val media = VideoNoteProcessor(context).process(current.file, current.settings)
-                    Log.i(TAG, "video_processing_completed session=${current.file.parentFile?.name} segments=${media.size} bytes=${media.sumOf { it.size }}")
-                    onFinished(media, current.previewFirst || media.size > 1)
-                } catch (failure: Exception) {
-                    Log.e(TAG, "video_processing_failed session=${current.file.parentFile?.name} type=${failure.javaClass.simpleName}", failure)
-                    onError(context.getString(R.string.recorder_save_failed))
-                    // The source remains in its private session directory so a failed conversion never destroys it.
-                }
-            }
+            VideoTakeOutcome.Send -> onTakeReady(current.file, current.settings, current.sessionName, current.previewFirst)
         }
     }
 }
@@ -533,19 +524,39 @@ internal fun videoTakeOutcome(error: Int, discard: Boolean, durationSeconds: Int
 internal fun videoSwitchCameraAvailable(persistentSupported: Boolean, hasFrontCamera: Boolean, hasBackCamera: Boolean): Boolean =
     persistentSupported && hasFrontCamera && hasBackCamera
 
+/** Видеобитрейт CameraX для пресета: единый источник для качества записи и расчёта места. */
+internal fun videoCameraBitrate(settings: VideoMessageSettings): Int = when (settings.preset) {
+    VideoQualityPreset.Standard -> 1_000_000
+    VideoQualityPreset.High -> 1_400_000
+    VideoQualityPreset.Maximum -> 4_000_000
+    VideoQualityPreset.Custom -> settings.customVideoBitrateKbps * 1_000
+}
+
+/** Пиковый объём на диске: RAW и перекодированные сегменты живут одновременно. Аудио учтено надбавкой 128 кбит/с на каждый поток, сверху запас на контейнер. */
+internal fun videoPeakStorageBytes(videoBitrate: Int, durationSeconds: Long): Long {
+    val bits = (videoBitrate.toLong() + 128_000L) * durationSeconds
+    return bits / 8 * 2 + 256L * 1024L * 1024L
+}
+
 /** Запись кружка на экране чата: отмена при уходе из композиции, чтобы камера не оставалась открытой. */
 @Composable
 internal fun rememberVideoNoteRecorder(
     settings: VideoMessageSettingsStore,
     processingScope: CoroutineScope,
-    onFinished: (List<OutgoingMedia>, previewFirst: Boolean) -> Unit,
+    chatId: Long,
     onError: (String) -> Unit
 ): VideoNoteRecorder {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
-    val currentOnFinished by rememberUpdatedState(onFinished)
+    val currentChatId by rememberUpdatedState(chatId)
     val currentOnError by rememberUpdatedState(onError)
-    val recorder = remember(owner, settings, processingScope) { VideoNoteRecorder(context, owner, processingScope, { settings.settings.value }, { media, preview -> currentOnFinished(media, preview) }, { currentOnError(it) }) }
+    val recorder = remember(owner, settings, processingScope) {
+        VideoNoteRecorder(context, owner, processingScope, { settings.settings.value },
+            onTakeReady = { raw, takeSettings, sessionName, previewFirst ->
+                VideoNoteExportCenter.enqueue(context.applicationContext, currentChatId, raw, takeSettings, sessionName, previewFirst)
+            },
+            onError = { currentOnError(it) })
+    }
     DisposableEffect(recorder) { onDispose { recorder.dispose() } }
     return recorder
 }
