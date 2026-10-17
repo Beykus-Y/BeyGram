@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -61,6 +62,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
@@ -71,22 +73,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Locale
 
-internal fun MediaKind.label(): String = when (this) {
-    MediaKind.Photo -> "Фото"
-    MediaKind.Video -> "Видео"
+internal fun MediaKind.label(context: Context): String = when (this) {
+    MediaKind.Photo -> context.getString(R.string.media_kind_photo)
+    MediaKind.Video -> context.getString(R.string.media_kind_video)
     MediaKind.Animation -> "GIF"
-    MediaKind.Sticker -> "Стикер"
-    MediaKind.Audio -> "Аудио"
-    MediaKind.Document -> "Файл"
-    MediaKind.Voice -> "Голосовое"
-    MediaKind.VideoNote -> "Видеосообщение"
+    MediaKind.Sticker -> context.getString(R.string.media_kind_sticker)
+    MediaKind.Audio -> context.getString(R.string.media_kind_audio)
+    MediaKind.Document -> context.getString(R.string.media_kind_file)
+    MediaKind.Voice -> context.getString(R.string.media_kind_voice)
+    MediaKind.VideoNote -> context.getString(R.string.media_kind_video_note)
 }
 
-internal fun formatMediaSize(bytes: Long): String = when {
-    bytes >= 1024 * 1024 -> String.format(Locale.getDefault(), "%.1f МБ", bytes / 1048576.0)
-    bytes > 0 -> "${(bytes / 1024).coerceAtLeast(1)} КБ"
+@Composable internal fun formatMediaSize(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> stringResource(R.string.media_size_mb, bytes / 1048576.0)
+    bytes > 0 -> stringResource(R.string.media_size_kb, (bytes / 1024).coerceAtLeast(1))
     else -> ""
 }
 
@@ -95,6 +96,7 @@ internal fun duration(seconds: Int) = "%d:%02d".format(seconds / 60, seconds % 6
 @Composable
 internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: Boolean = false, maxDimension: Int = 1024) {
     var failed by remember(path) { mutableStateOf(false) }
+    val context = LocalContext.current
     val drawable by produceState<Drawable?>(null, path, maxDimension) {
         val decoded = withContext(Dispatchers.IO) { runCatching {
             ImageDecoder.decodeDrawable(ImageDecoder.createSource(File(path))) { decoder, info, _ ->
@@ -112,13 +114,13 @@ internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: B
     Box(modifier, contentAlignment = Alignment.Center) {
         when {
             drawable != null -> AndroidView(
-                factory = { ImageView(it).apply { contentDescription = "Изображение" } },
+                factory = { ImageView(it).apply { contentDescription = context.getString(R.string.media_image_description) } },
                 update = { view ->
                     view.scaleType = if (fit) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
                     if (view.drawable !== drawable) view.setImageDrawable(drawable)
                 }, modifier = Modifier.fillMaxSize()
             )
-            failed -> Text("Не удалось прочитать изображение", color = Color.LightGray, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
+            failed -> Text(stringResource(R.string.media_image_read_failed), color = Color.LightGray, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
             else -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
         }
     }
@@ -138,6 +140,7 @@ internal fun MediaPreview(
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val palette = beyGramPalette()
+    val context = LocalContext.current
     val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation, MediaKind.Sticker)
     val imageFile = if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
     LaunchedEffect(thumbId, revealed) {
@@ -160,14 +163,14 @@ internal fun MediaPreview(
             contentAlignment = Alignment.Center
         ) {
             if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize(), fit = media.kind == MediaKind.Sticker)
-            if (!revealed) Text("Спойлер · нажмите, чтобы открыть", color = palette.textPrimary, modifier = Modifier.padding(16.dp))
+            if (!revealed) Text(stringResource(R.string.media_spoiler_hint), color = palette.textPrimary, modifier = Modifier.padding(16.dp))
             else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
                 val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
                 Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
                     modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
             }
             if (revealed) Text(
-                media.kind.label() + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
+                media.kind.label(context) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
                 color = Color.White, fontSize = 11.sp,
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
             )
@@ -182,7 +185,7 @@ internal fun MediaPreview(
                 modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(10.dp))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(if (media.kind == MediaKind.Audio) media.fileName.ifBlank { "Аудио" } else media.fileName.ifBlank { "Файл" }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(if (media.kind == MediaKind.Audio) media.fileName.ifBlank { stringResource(R.string.media_kind_audio) } else media.fileName.ifBlank { stringResource(R.string.media_kind_file) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "", color = palette.textSecondary, fontSize = 13.sp)
                 if (file.isDownloading || file.isUploading) LinearProgressIndicator(progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
             }
@@ -223,12 +226,12 @@ internal fun MediaViewer(
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (media.isSecret) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Закрыть", tint = Color.White) }
+                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
                 Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                    Text(title ?: media.fileName.ifBlank { media.kind.label() }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(title ?: media.fileName.ifBlank { media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
-                if (exportPath != null) IconButton(onClick = { fileNotice = shareMedia(context, exportPath, media.mimeType) }) { Icon(Icons.Rounded.Share, "Поделиться", tint = Color.White) }
+                if (exportPath != null) IconButton(onClick = { fileNotice = shareMedia(context, exportPath, media.mimeType) }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
             }
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 val path = file.localPath
@@ -238,30 +241,30 @@ internal fun MediaViewer(
                             val preview by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
                             preview.localPath?.let { LocalMediaImage(it, Modifier.size(240.dp), fit = true) }
                         }
-                        Text("Анимированный стикер: доступно превью", color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                        Text(stringResource(R.string.media_animated_sticker_preview), color = Color.LightGray, modifier = Modifier.padding(16.dp))
                     }
                     path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                         if (file.isDownloading) CircularProgressIndicator()
-                        Text(file.error ?: "Загрузка ${formatMediaSize(file.downloadedBytes)} / ${formatMediaSize(file.size)}", color = Color.LightGray, modifier = Modifier.padding(16.dp))
-                        if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text("Загрузить") }
+                        Text(file.error ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                        if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
                     }
                     media.mimeType.startsWith("image/") -> ZoomableImage(path)
                     media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") -> LocalVideo(path, media.kind == MediaKind.Animation, onViewed)
                     media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> LocalAudio(path, onViewed)
                     else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(formatMediaSize(file.size), color = Color.LightGray)
-                        if (exportPath != null) TextButton(onClick = { openExternal(path) }) { Text("Открыть файл") }
+                        if (exportPath != null) TextButton(onClick = { openExternal(path) }) { Text(stringResource(R.string.media_open_file)) }
                     }
                 }
             }
-            if (exportPath != null) TextButton(onClick = { openExternal(exportPath) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Открыть в другом приложении") }
+            if (exportPath != null) TextButton(onClick = { openExternal(exportPath) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(stringResource(R.string.media_open_in_other_app)) }
             if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                if (actions != null && actions.canForward) ViewerAction("Переслать", Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
-                if (exportPath != null) ViewerAction("Сохранить", Icons.Rounded.Download) {
+                if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
+                if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
                     scope.launch { fileNotice = withContext(Dispatchers.IO) { saveToDevice(context, exportPath, media) } }
                 }
-                if (actions != null && actions.canEdit) ViewerAction("Изменить", Icons.Rounded.Edit, onClick = actions.onEdit)
-                if (actions != null && actions.canDelete) ViewerAction("Удалить", Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
+                if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
+                if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
             }
             externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp)) }
             fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
@@ -315,7 +318,7 @@ private fun LocalVideo(path: String, loop: Boolean, onStarted: () -> Unit) {
         video.setVideoPath(path)
         onDispose { video.stopPlayback() }
     }
-    if (error) Text("Формат видео не поддерживается устройством. Откройте его в другом приложении.", color = Color.LightGray, modifier = Modifier.padding(24.dp))
+    if (error) Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray, modifier = Modifier.padding(24.dp))
     else AndroidView(factory = { video }, modifier = Modifier.fillMaxSize())
 }
 
@@ -349,11 +352,11 @@ private fun LocalAudio(path: String, onStarted: () -> Unit) {
     LaunchedEffect(playing) { while (playing) { position = runCatching { player.currentPosition }.getOrDefault(0); delay(250) } }
     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("♫", color = Color.White, fontSize = 56.sp)
-        if (error) Text("Не удалось воспроизвести аудио", color = Color.LightGray)
+        if (error) Text(stringResource(R.string.media_audio_play_failed), color = Color.LightGray)
         else {
             Slider(value = position.toFloat().coerceIn(0f, total.coerceAtLeast(1).toFloat()), onValueChange = { position = it.toInt(); player.seekTo(position) }, valueRange = 0f..total.coerceAtLeast(1).toFloat(), enabled = ready)
             Text("${duration(position / 1000)} / ${duration(total / 1000)}", color = Color.White)
-            TextButton(enabled = ready, onClick = { if (playing) player.pause() else { player.start(); onStarted() }; playing = !playing }) { Text(if (playing) "Пауза" else "Воспроизвести") }
+            TextButton(enabled = ready, onClick = { if (playing) player.pause() else { player.start(); onStarted() }; playing = !playing }) { Text(if (playing) stringResource(R.string.common_pause) else stringResource(R.string.common_play)) }
         }
     }
 }
@@ -361,7 +364,7 @@ private fun LocalAudio(path: String, onStarted: () -> Unit) {
 private fun openExternalMedia(context: Context, path: String, mime: String): String? = runCatching {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
     context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
-}.exceptionOrNull()?.let { "Нет приложения для открытия этого формата" }
+}.exceptionOrNull()?.let { context.getString(R.string.media_no_app_for_format) }
 
 /** Передаёт файл через системное меню «Поделиться». Возвращает текст ошибки или null. */
 private fun shareMedia(context: Context, path: String, mime: String): String? = runCatching {
@@ -369,7 +372,7 @@ private fun shareMedia(context: Context, path: String, mime: String): String? = 
     val send = Intent(Intent.ACTION_SEND).setType(mime.ifBlank { "*/*" }).putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     send.clipData = ClipData.newRawUri(null, uri)
     context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-}.exceptionOrNull()?.let { "Не удалось поделиться файлом" }
+}.exceptionOrNull()?.let { context.getString(R.string.media_share_failed) }
 
 /** Копирует файл в галерею (фото и видео) или в «Загрузки» через MediaStore; без разрешения на хранилище на API 29+. */
 private fun saveToDevice(context: Context, path: String, media: MessageMedia): String = runCatching {
@@ -400,5 +403,5 @@ private fun saveToDevice(context: Context, path: String, media: MessageMedia): S
         resolver.delete(uri, null, null)
         throw failure
     }
-    if (image || video) "Сохранено в галерею" else "Сохранено в «Загрузки»"
-}.getOrElse { "Не удалось сохранить файл" }
+    if (image || video) context.getString(R.string.media_saved_gallery) else context.getString(R.string.media_saved_downloads)
+}.getOrElse { context.getString(R.string.media_save_failed) }

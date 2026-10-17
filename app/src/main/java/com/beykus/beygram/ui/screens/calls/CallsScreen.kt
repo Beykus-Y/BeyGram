@@ -41,11 +41,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.CallRecord
 import com.beykus.beygram.domain.model.CallStatus
@@ -66,6 +69,7 @@ fun CallsScreen(
     downloadFile: (Int) -> Unit
 ) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var calls by remember { mutableStateOf<List<CallRecord>>(emptyList()) }
     var nextOffset by remember { mutableStateOf("") }
@@ -81,7 +85,7 @@ fun CallsScreen(
                     calls = if (offset.isEmpty()) page.calls else calls + page.calls
                     nextOffset = page.nextOffset
                 }
-                .onFailure { error = it.message ?: "Не удалось загрузить звонки" }
+                .onFailure { error = it.message ?: context.getString(R.string.calls_load_failed) }
             loading = false
         }
     }
@@ -92,7 +96,7 @@ fun CallsScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
     ) {
         Text(
-            "Звонки", color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold,
+            stringResource(R.string.calls_title), color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
         )
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
@@ -104,10 +108,10 @@ fun CallsScreen(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(error.orEmpty(), color = palette.danger, textAlign = TextAlign.Center)
-                TextButton(onClick = { load("") }) { Text("Повторить") }
+                TextButton(onClick = { load("") }) { Text(stringResource(R.string.common_retry)) }
             }
             calls.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text("Звонков пока нет", color = palette.textSecondary)
+                Text(stringResource(R.string.calls_empty), color = palette.textSecondary)
             }
             else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(calls, key = { "${it.chatId}:${it.messageId}" }) { call ->
@@ -115,7 +119,7 @@ fun CallsScreen(
                 }
                 if (nextOffset.isNotEmpty()) item {
                     TextButton(onClick = { load(nextOffset) }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (loading) "Загружаем…" else "Показать ещё")
+                        Text(if (loading) stringResource(R.string.calls_loading) else stringResource(R.string.calls_show_more))
                     }
                 }
                 error?.let { message ->
@@ -147,19 +151,19 @@ private fun CallRow(call: CallRecord, observeFile: (Int) -> StateFlow<MediaFileS
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(formatCallDate(call.dateSeconds), color = palette.textSecondary, fontSize = 12.sp)
-            IconButton(onClick = {}, enabled = false) { Icon(Icons.Rounded.Call, "Позвонить", tint = palette.textSecondary) }
+            IconButton(onClick = {}, enabled = false) { Icon(Icons.Rounded.Call, stringResource(R.string.calls_call_description), tint = palette.textSecondary) }
         }
     }
 }
 
-private fun CallRecord.summary(): String {
-    val kind = if (isVideo) "видеозвонок" else "звонок"
-    val direction = if (isOutgoing) "Исходящий" else "Входящий"
+@Composable private fun CallRecord.summary(): String {
+    val kind = if (isVideo) stringResource(R.string.calls_kind_video) else stringResource(R.string.calls_kind_call)
+    val direction = if (isOutgoing) stringResource(R.string.calls_direction_outgoing) else stringResource(R.string.calls_direction_incoming)
     return when (status) {
         CallStatus.Answered -> listOf(direction, kind, formatDuration(durationSeconds)).joinToString(" · ")
-        CallStatus.Missed -> "Пропущенный · $kind"
-        CallStatus.Declined -> "Отклонён · $kind"
-        CallStatus.NoAnswer -> "$direction · без ответа"
+        CallStatus.Missed -> stringResource(R.string.calls_summary_missed, kind)
+        CallStatus.Declined -> stringResource(R.string.calls_summary_declined, kind)
+        CallStatus.NoAnswer -> stringResource(R.string.calls_summary_no_answer, direction)
     }
 }
 

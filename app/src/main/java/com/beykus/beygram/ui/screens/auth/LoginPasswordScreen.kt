@@ -18,12 +18,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.ui.components.AuthScaffold
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -40,19 +43,20 @@ fun LoginPasswordScreen(
     val isLoading = authState is AuthState.Loading
     val errorMessage = when (authState) {
         is AuthState.Error -> authState.message
-        AuthState.ConnectionTimeout -> "Не удалось связаться с Telegram. Проверьте сеть и попробуйте снова."
+        AuthState.ConnectionTimeout -> stringResource(R.string.auth_password_connection_timeout)
         else -> null
     }
     val canSubmit = password.isNotBlank() && !isLoading
     val palette = beyGramPalette()
+    val context = LocalContext.current
 
     val subtitle = buildString {
-        append("Введите облачный пароль Telegram.")
-        if (hint.isNotBlank()) append("\nПодсказка: $hint")
+        append(context.getString(R.string.auth_password_subtitle))
+        if (hint.isNotBlank()) append("\n" + context.getString(R.string.auth_password_hint, hint))
     }
 
     AuthScaffold(
-        title = "Двухфакторная\nаутентификация",
+        title = stringResource(R.string.auth_password_title),
         subtitle = subtitle,
         onBack = onBack
     ) {
@@ -60,7 +64,7 @@ fun LoginPasswordScreen(
             value = password,
             onValueChange = { password = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Пароль") },
+            label = { Text(stringResource(R.string.auth_password_label)) },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(
@@ -98,7 +102,7 @@ fun LoginPasswordScreen(
                 )
             } else {
                 Text(
-                    text = "Войти",
+                    text = stringResource(R.string.auth_sign_in),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.sp

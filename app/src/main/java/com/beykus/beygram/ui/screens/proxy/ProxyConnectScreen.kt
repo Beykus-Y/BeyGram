@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.proxy
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,11 +29,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramProxyDraft
@@ -42,11 +46,11 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.launch
 
 /** Вкладки «Подключение к Telegram»: три ручных типа и подписка. Порядок и подписи — как в макете. */
-enum class ProxyConnectTab(val label: String) {
-    MTPROTO("Telegram"),
-    SOCKS5("Обычный"),
-    WEB("Веб"),
-    SUBSCRIPTION("Подписка")
+enum class ProxyConnectTab(@StringRes val labelRes: Int) {
+    MTPROTO(R.string.proxy_connect_tab_mtproto),
+    SOCKS5(R.string.proxy_connect_tab_socks5),
+    WEB(R.string.proxy_connect_tab_web),
+    SUBSCRIPTION(R.string.proxy_connect_tab_subscription)
 }
 
 /** Порты, которые экран подставляет сам; при переключении вкладки заменяются на порт новой вкладки. */
@@ -73,6 +77,7 @@ internal fun ProxyConnectScreen(
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val settings by vpnBackend.settings.collectAsStateWithLifecycle()
     val connections by vpnBackend.connections.collectAsStateWithLifecycle()
     val busy by vpnBackend.busy.collectAsStateWithLifecycle()
@@ -111,7 +116,7 @@ internal fun ProxyConnectScreen(
         scope.launch {
             subscriptionError = null
             vpnBackend.fetchSubscription(subscriptionUrl.trim())
-                .onFailure { subscriptionError = it.message ?: "Не удалось загрузить подписку" }
+                .onFailure { subscriptionError = it.message ?: context.getString(R.string.proxy_connect_subscription_load_failed) }
         }
     }
     val connect: () -> Unit = {
@@ -126,14 +131,14 @@ internal fun ProxyConnectScreen(
                         vpnBackend.stopListener()
                         onBack()
                     }
-                    .onFailure { error = it.message ?: "Не удалось добавить прокси" }
+                    .onFailure { error = it.message ?: context.getString(R.string.proxy_connect_add_failed) }
                 sending = false
             } else {
                 val name = effectiveSelected ?: return@launch
                 vpnBackend.selectConnection(name)
                     .mapCatching { vpnBackend.startProxy().getOrThrow() }
                     .onSuccess { onBack() }
-                    .onFailure { error = it.message ?: "Не удалось подключиться" }
+                    .onFailure { error = it.message ?: context.getString(R.string.proxy_connect_connect_failed) }
             }
         }
     }
@@ -145,7 +150,7 @@ internal fun ProxyConnectScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
     ) {
         ProxyTopBar(
-            title = "Подключение к Telegram",
+            title = stringResource(R.string.proxy_connect_title),
             onBack = onBack,
             actions = {
                 if (tab == ProxyConnectTab.SUBSCRIPTION) {
@@ -153,7 +158,7 @@ internal fun ProxyConnectScreen(
                     IconButton(onClick = loadSubscription, enabled = canRefresh) {
                         Icon(
                             Icons.Rounded.Refresh,
-                            contentDescription = "Обновить подписку",
+                            contentDescription = stringResource(R.string.proxy_connect_refresh_subscription),
                             tint = if (canRefresh) palette.accent else palette.textSecondary
                         )
                     }
@@ -162,7 +167,7 @@ internal fun ProxyConnectScreen(
         )
         if (tab != ProxyConnectTab.SUBSCRIPTION) {
             Text(
-                "Введите данные прокси. Их можно получить у провайдера или администратора сервера.",
+                stringResource(R.string.proxy_connect_hint),
                 color = palette.textSecondary,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
@@ -170,7 +175,7 @@ internal fun ProxyConnectScreen(
             )
         }
         ProxyPillTabs(
-            labels = ProxyConnectTab.entries.map { it.label },
+            labels = ProxyConnectTab.entries.map { stringResource(it.labelRes) },
             selectedIndex = tab.ordinal,
             onSelect = { selectTab(ProxyConnectTab.entries[it]) },
             modifier = Modifier.padding(bottom = 14.dp)
@@ -191,30 +196,30 @@ internal fun ProxyConnectScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 ProxyField(
-                    label = "Сервер",
+                    label = stringResource(R.string.proxy_connect_field_server),
                     value = server,
                     onValueChange = { server = it }
                 )
                 ProxyField(
-                    label = "Порт",
+                    label = stringResource(R.string.proxy_connect_field_port),
                     value = port,
                     onValueChange = { port = it.filter(Char::isDigit).take(5) },
                     keyboardType = KeyboardType.Number
                 )
                 if (tab == ProxyConnectTab.MTPROTO) {
                     ProxyField(
-                        label = "Секрет",
+                        label = stringResource(R.string.proxy_connect_field_secret),
                         value = secret,
                         onValueChange = { secret = it.trim() }
                     )
                 } else {
                     ProxyField(
-                        label = "Логин (если нужен)",
+                        label = stringResource(R.string.proxy_connect_field_login),
                         value = login,
                         onValueChange = { login = it }
                     )
                     ProxyField(
-                        label = "Пароль (если нужен)",
+                        label = stringResource(R.string.proxy_connect_field_password),
                         value = password,
                         onValueChange = { password = it },
                         secret = true
@@ -222,7 +227,7 @@ internal fun ProxyConnectScreen(
                 }
                 if (tab == ProxyConnectTab.WEB) {
                     Text(
-                        "Веб-прокси. Доступен для выбора, если Telegram его поддерживает.",
+                        stringResource(R.string.proxy_connect_web_hint),
                         color = palette.textSecondary,
                         fontSize = 12.sp,
                         lineHeight = 16.sp
@@ -238,11 +243,11 @@ internal fun ProxyConnectScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onBack) {
-                Text("Отмена", color = palette.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.common_cancel), color = palette.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
             TextButton(onClick = connect, enabled = canConnect) {
                 Text(
-                    "Подключить",
+                    stringResource(R.string.proxy_connect_action_connect),
                     color = if (canConnect) palette.accent else palette.textSecondary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold

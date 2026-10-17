@@ -28,21 +28,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.TabVisibility
 
 /** Подпись раздела в нижнем меню. */
 internal val MainTab.title: String
-    get() = when (this) {
-        MainTab.Chats -> "Чаты"
-        MainTab.Calls -> "Звонки"
-        MainTab.Contacts -> "Контакты"
-        MainTab.Settings -> "Настройки"
+    @Composable get() = when (this) {
+        MainTab.Chats -> stringResource(R.string.tabs_chats)
+        MainTab.Calls -> stringResource(R.string.tabs_calls)
+        MainTab.Contacts -> stringResource(R.string.tabs_contacts)
+        MainTab.Settings -> stringResource(R.string.settings_title)
     }
 
 /** Иконка раздела в нижнем меню. */

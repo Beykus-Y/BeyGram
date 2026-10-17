@@ -9,6 +9,7 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -17,13 +18,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
 import kotlinx.coroutines.launch
-import com.beykus.beygram.diagnostics.diagnosticsLabel
 import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.notifications.NotificationRuntime
@@ -77,40 +79,40 @@ fun NotificationSettingsScreen(runtime: NotificationRuntime, connectionState: Te
     BackHandler(onBack = onBack)
     fun open(intent: Intent) { runCatching { context.startActivity(intent) } }
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar("Уведомления", onBack)
+        ProfileToolbar(stringResource(R.string.notif_title), onBack)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Без Google-сервисов", color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text("BeyGram получает сообщения напрямую от Telegram. Google Play Services и Firebase не используются.", color = palette.textSecondary)
-            SettingToggle("Уведомления о сообщениях", "Учитывают настройки чатов в Telegram", config.enabled) { runtime.preferences.update(config.copy(enabled = it)); runtime.refresh() }
-            SettingToggle("Получать в фоне", "Поддерживать подключение после закрытия экрана приложения. В шторке будет тихое постоянное уведомление.", config.background, config.enabled) { runtime.preferences.update(config.copy(background = it)) }
-            SettingToggle("Показывать текст сообщения", "Секретные чаты и запрет предпросмотра в Telegram всегда скрывают содержимое", config.previews, config.enabled) { runtime.preferences.update(config.copy(previews = it)) }
+            Text(stringResource(R.string.notif_no_google_title), color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.notif_no_google_body), color = palette.textSecondary)
+            SettingToggle(stringResource(R.string.notif_toggle_messages), stringResource(R.string.notif_toggle_messages_hint), config.enabled) { runtime.preferences.update(config.copy(enabled = it)); runtime.refresh() }
+            SettingToggle(stringResource(R.string.notif_toggle_background), stringResource(R.string.notif_toggle_background_hint), config.background, config.enabled) { runtime.preferences.update(config.copy(background = it)) }
+            SettingToggle(stringResource(R.string.notif_toggle_previews), stringResource(R.string.notif_toggle_previews_hint), config.previews, config.enabled) { runtime.preferences.update(config.copy(previews = it)) }
             HorizontalDivider(color = palette.divider)
-            Text(if (allowed) "Разрешение Android: выдано" else "Уведомления запрещены в Android", color = if (allowed) palette.textPrimary else palette.warningText)
-            Text(if (running) "Фоновое подключение работает" else "Фоновое подключение остановлено", color = palette.textSecondary)
+            Text(if (allowed) stringResource(R.string.notif_permission_granted) else stringResource(R.string.notif_permission_denied), color = if (allowed) palette.textPrimary else palette.warningText)
+            Text(if (running) stringResource(R.string.notif_background_running) else stringResource(R.string.notif_background_stopped), color = palette.textSecondary)
             if (!allowed) Button(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), onClick = {
                 if (Build.VERSION.SDK_INT >= 33 && !runtime.preferences.permissionAsked) { runtime.preferences.permissionAsked = true; permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
                 else open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
-            }) { Text("Разрешить уведомления") }
-            TextButton(onClick = { open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text("Звук и системные настройки") }
+            }) { Text(stringResource(R.string.notif_allow_notifications)) }
+            TextButton(onClick = { open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text(stringResource(R.string.notif_sound_settings)) }
             HorizontalDivider(color = palette.divider)
-            Text(if (unrestricted) "Батарея: работа без оптимизации разрешена" else "Батарея: Android может задерживать получение сообщений во сне", color = palette.textSecondary)
+            Text(if (unrestricted) stringResource(R.string.notif_battery_unrestricted) else stringResource(R.string.notif_battery_restricted), color = palette.textSecondary)
             if (!unrestricted) OutlinedButton(onClick = {
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
                 if (intent.resolveActivity(context.packageManager) != null) open(intent) else open(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-            }) { Text("Разрешить работу во сне") }
-            Text("Постоянное подключение расходует больше батареи. После принудительной остановки приложения откройте BeyGram снова. Для Telegram по-прежнему нужен доступ к сети или работающий VPN/прокси.", color = palette.textSecondary, fontSize = 13.sp)
+            }) { Text(stringResource(R.string.notif_allow_background_work)) }
+            Text(stringResource(R.string.notif_battery_note), color = palette.textSecondary, fontSize = 13.sp)
             error?.let { Text(it, color = palette.danger) }
             HorizontalDivider(color = palette.divider)
-            Text("Диагностика подключения", color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Text("Связь с Telegram: ${connectionState.diagnosticsLabel()}", color = palette.textSecondary)
-            Text("Соберёт модель устройства, состояние соединения, тип сети и недавние события подключения. Номера, коды, пароли и токены в файл не попадают. Файл никуда не отправляется: вы сами выбираете, куда поделиться.", color = palette.textSecondary, fontSize = 13.sp)
+            Text(stringResource(R.string.notif_diagnostics_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.notif_connection_status, stringResource(connectionState.statusLabelRes())), color = palette.textSecondary)
+            Text(stringResource(R.string.notif_diagnostics_note), color = palette.textSecondary, fontSize = 13.sp)
             OutlinedButton(enabled = !sharing, onClick = {
                 scope.launch {
                     sharing = true; shareError = null
                     try { shareError = shareConnectionDiagnosticsOrError(context, connectionState) }
                     finally { sharing = false }
                 }
-            }) { Text(if (sharing) "Собираем логи…" else "Поделиться логами") }
+            }) { Text(if (sharing) stringResource(R.string.auth_share_logs_progress) else stringResource(R.string.auth_share_logs)) }
             shareError?.let { Text(it, color = palette.danger) }
         }
     }
@@ -126,4 +128,13 @@ private fun SettingToggle(title: String, description: String, checked: Boolean, 
         }
         Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
+}
+
+@StringRes
+private fun TelegramConnectionState.statusLabelRes(): Int = when (this) {
+    TelegramConnectionState.Connected -> R.string.connection_state_connected
+    TelegramConnectionState.Connecting -> R.string.connection_state_connecting
+    TelegramConnectionState.Updating -> R.string.connection_state_updating
+    TelegramConnectionState.WaitingForNetwork -> R.string.connection_state_waiting_network
+    TelegramConnectionState.Unknown -> R.string.connection_state_unknown
 }

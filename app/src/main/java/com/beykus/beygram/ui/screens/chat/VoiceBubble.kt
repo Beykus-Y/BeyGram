@@ -22,9 +22,11 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -182,7 +184,7 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
             contentAlignment = Alignment.Center
         ) {
             if (loading) CircularProgressIndicator(modifier = Modifier.size(22.dp), color = palette.accentInk, strokeWidth = 2.dp)
-            else Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = if (playing) "Пауза" else "Воспроизвести", tint = palette.accentInk, modifier = Modifier.size(24.dp))
+            else Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = if (playing) stringResource(R.string.common_pause) else stringResource(R.string.common_play), tint = palette.accentInk, modifier = Modifier.size(24.dp))
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {

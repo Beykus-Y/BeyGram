@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,12 +46,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
+import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -111,11 +114,11 @@ fun ChatScreen(
     }
     val context = LocalContext.current
     val videoNote = rememberVideoNoteRecorder(
-        onFinished = { media -> scope.launch { conversation.sendMedia(chat.id, media, "", replyId).onSuccess { replyId = null }.onFailure { error = it.message ?: "Не удалось отправить кружок" } } },
+        onFinished = { media -> scope.launch { conversation.sendMedia(chat.id, media, "", replyId).onSuccess { replyId = null }.onFailure { error = it.message ?: context.getString(R.string.chat_video_note_send_failed) } } },
         onError = { error = it }
     )
     val videoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        if (!granted.values.all { it }) error = "Для кружков нужны камера и микрофон"
+        if (!granted.values.all { it }) error = context.getString(R.string.chat_video_note_permission_denied)
     }
     fun startVideoNote() { if (videoNoteAllowed(context)) videoNote.press() else videoPermissions.launch(videoNotePermissions) }
     val messages = history.messages
@@ -190,7 +193,7 @@ fun ChatScreen(
     }
     LaunchedEffect(highlighted) { if (highlighted != null) { delay(2200); highlighted = null } }
     fun jump(reply: MessageReply) {
-        if (reply.isUnavailable || reply.messageId <= 0) { error = "Оригинал удалён или недоступен"; return }
+        if (reply.isUnavailable || reply.messageId <= 0) { error = context.getString(R.string.chat_reply_original_unavailable); return }
         val index = messages.asReversed().indexOfFirst { it.id == reply.messageId && it.chatId == reply.chatId }
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = reply.messageId }
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
@@ -204,7 +207,7 @@ fun ChatScreen(
         delay(300)
         conversation.searchMessages(chat.id, needle, 0L)
             .onSuccess { page -> searchResults = page.messages; searchNextId = page.nextFromMessageId }
-            .onFailure { searchError = it.message ?: "Не удалось выполнить поиск" }
+            .onFailure { searchError = it.message ?: context.getString(R.string.chat_search_failed) }
         searchBusy = false
     }
     fun loadMoreResults() {
@@ -213,7 +216,7 @@ fun ChatScreen(
             searchBusy = true
             conversation.searchMessages(chat.id, needle, searchNextId)
                 .onSuccess { page -> if (searchQuery.trim() == needle) { searchResults = searchResults + page.messages; searchNextId = page.nextFromMessageId } }
-                .onFailure { if (searchQuery.trim() == needle) { searchError = it.message ?: "Не удалось выполнить поиск" } }
+                .onFailure { if (searchQuery.trim() == needle) { searchError = it.message ?: context.getString(R.string.chat_search_failed) } }
             if (searchQuery.trim() == needle) { searchBusy = false }
         }
     }
@@ -229,18 +232,18 @@ fun ChatScreen(
             capabilities = capabilities, error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
             onClose = ::closeActions, onRetry = { capabilitiesAttempt++ },
             onReply = { replyId = actionMessage.id; closeActions() },
-            onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText("Сообщение", actionMessage.text)); closeActions() },
+            onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
-        else ChatTopBar(chat, chatPresenceLine(chat, info), onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
+        else ChatTopBar(chat, chatPresenceLine(chat, info).resolve(), onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Rounded.WifiOff, null, tint = palette.warningText, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Нет сети. Сообщения отправятся позже", color = palette.warningText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(stringResource(R.string.chat_network_waiting), color = palette.warningText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
@@ -251,9 +254,9 @@ fun ChatScreen(
                     onPlayed = { conversation.openMessageContent(chat.id, message.id) })
             }
             history.error?.let { item(key = "history_error") { Text(it, color = palette.warningText, modifier = Modifier.padding(8.dp)) } }
-            if (history.isLoading) item(key = "history_loading") { Text("Загружаем историю…", color = palette.textSecondary, modifier = Modifier.padding(8.dp)) }
-            else if (history.hasOlderMessages) item(key = "history_more") { TextButton(onClick = { conversation.loadOlderMessages(chat.id) }, modifier = Modifier.fillMaxWidth()) { Text("Загрузить более ранние сообщения") } }
-            else if (messages.isEmpty() && history.error == null) item(key = "history_empty") { Text("В чате пока нет сообщений", color = palette.textSecondary, modifier = Modifier.padding(8.dp)) }
+            if (history.isLoading) item(key = "history_loading") { Text(stringResource(R.string.chat_history_loading), color = palette.textSecondary, modifier = Modifier.padding(8.dp)) }
+            else if (history.hasOlderMessages) item(key = "history_more") { TextButton(onClick = { conversation.loadOlderMessages(chat.id) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.chat_history_load_older)) } }
+            else if (messages.isEmpty() && history.error == null) item(key = "history_empty") { Text(stringResource(R.string.chat_history_empty), color = palette.textSecondary, modifier = Modifier.padding(8.dp)) }
         }
         val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
         if (away) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).clip(RoundedCornerShape(50)).background(palette.surface)
@@ -261,7 +264,7 @@ fun ChatScreen(
             .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.ArrowDownward, null, tint = palette.accent, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
-            Text("К последним", color = palette.accentInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.chat_jump_to_latest), color = palette.accentInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
         if (searching) ChatSearchResults(searchQuery, searchResults, searchBusy, searchError, hasMore = searchNextId != 0L,
             onOpen = ::openSearchResult, onMore = ::loadMoreResults)
@@ -269,7 +272,7 @@ fun ChatScreen(
         }
         error?.let { failure -> Row(Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(failure, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
-            IconButton(onClick = { error = null }) { Icon(Icons.Rounded.Close, "Закрыть", tint = palette.warningText) }
+            IconButton(onClick = { error = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.warningText) }
         } }
         val replyTarget = messages.firstOrNull { it.id == replyId }
         if (deleting && actionMessage != null) {
@@ -288,10 +291,10 @@ fun ChatScreen(
             AttachmentPanel(attachments, draft, limits.caption)
             if (replyId != null) Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("Ответ · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) "Вы" else chat.title } ?: "Сообщение"), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text(replyTarget?.summary() ?: "Сообщение недоступно", color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
+                    Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable), color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
                 }
-                IconButton(enabled = !sending, onClick = { replyId = null }) { Icon(Icons.Rounded.Close, "Отменить ответ", tint = palette.textSecondary) }
+                IconButton(enabled = !sending, onClick = { replyId = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary) }
             }
         }
         val editing = editMessage != null
@@ -313,7 +316,7 @@ fun ChatScreen(
             }
             if (videoNote.active) VideoNoteRecordingHint(Modifier.weight(1f))
             else TextField(fieldText, { if (editing) editText = it else draft = it }, enabled = !busy, modifier = Modifier.weight(1f).defaultMinSize(minHeight = 40.dp),
-                placeholder = { Text(if (attachments.active) "Подпись" else "Сообщение", color = palette.textSecondary) }, maxLines = 5,
+                placeholder = { Text(if (attachments.active) stringResource(R.string.chat_caption_placeholder) else stringResource(R.string.chat_message), color = palette.textSecondary) }, maxLines = 5,
                 shape = RoundedCornerShape(20.dp), colors = beyGramFilledTextFieldColors(), isError = overLimit)
             Spacer(Modifier.width(8.dp))
             if (showRecord) VideoNoteRecordButton(videoNote, enabled = !sending && !busy, onPress = ::startVideoNote)
@@ -339,14 +342,14 @@ fun ChatScreen(
                     }
                 }, contentAlignment = Alignment.Center) {
                 if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
-                else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, if (editing) "Сохранить" else "Отправить",
+                else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, if (editing) stringResource(R.string.common_save) else stringResource(R.string.common_send),
                     tint = palette.onAccent.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
             }
         }
     }
     messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(media, observeFile, onDownloadFile,
         onViewed = { selectedMediaId?.let { conversation.openMessageContent(chat.id, it) } }, onClose = { selectedMediaId = null },
-        title = if (viewed.isOutgoing) "Вы" else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { "${it.number} из ${it.total}" }).joinToString(" · "),
+        title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
         canExport = viewerCapabilities?.canSave == true,
         actions = MediaViewerActions(
             canForward = viewerCapabilities?.canForward == true,
@@ -362,8 +365,8 @@ fun ChatScreen(
                 forwardBusy = true; forwardError = null
                 try {
                     val result = conversation.forwardMessage(chat.id, id, target.id)
-                    if (result.isSuccess) { forwardId = null; Toast.makeText(context, "Сообщение переслано", Toast.LENGTH_SHORT).show() }
-                    else forwardError = result.exceptionOrNull()?.message ?: "Не удалось переслать сообщение"
+                    if (result.isSuccess) { forwardId = null; Toast.makeText(context, context.getString(R.string.chat_message_forwarded), Toast.LENGTH_SHORT).show() }
+                    else forwardError = result.exceptionOrNull()?.message ?: context.getString(R.string.chat_forward_failed)
                 } finally { forwardBusy = false }
             } },
             onClose = { forwardId = null; forwardError = null })
@@ -376,14 +379,14 @@ private fun ChatTopBar(chat: ChatPreview, presence: String, onBack: () -> Unit, 
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", tint = palette.textPrimary) }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
             TelegramAvatar(chat.initials, Color(chat.avatarColorArgb), 40.dp, chat.photo, observeFile, downloadFile, Modifier.clickable(onClick = onInfo))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f).clickable(onClick = onInfo)) {
                 Text(chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(presence, color = palette.textSecondary, fontSize = 13.sp)
             }
-            IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, "Поиск в чате", tint = palette.textSecondary) }
+            IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
         }
         HorizontalDivider(color = palette.divider)
     }
@@ -422,23 +425,23 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp))
                         .border(1.dp, palette.accent, RoundedCornerShape(12.dp))
                         .clickable { onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                        Text(reply.senderName.ifBlank { "Ответ на сообщение" }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                         Text(reply.text, color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 if (hasText) Text(message.text, color = palette.textPrimary, fontSize = 16.sp, lineHeight = 22.sp)
                 if (!inCircle) Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                     val failed = message.sendState == MessageSendState.Failed
-                    val status = if (message.isOutgoing && message.sendState == MessageSendState.Failed) " · не отправлено" else ""
-                    Text((if (message.isEdited) "изменено · " else "") + message.time + status,
+                    val status = if (message.isOutgoing && message.sendState == MessageSendState.Failed) " · " + stringResource(R.string.chat_status_not_sent) else ""
+                    Text((if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
                         color = if (failed) palette.warningText else palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
                         Spacer(Modifier.width(3.dp))
-                        Icon(Icons.Rounded.Schedule, "Отправляется", tint = palette.textSecondary, modifier = Modifier.size(14.dp))
+                        Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = palette.textSecondary, modifier = Modifier.size(14.dp))
                     }
                     if (message.isOutgoing && message.sendState == MessageSendState.Sent) {
                         Spacer(Modifier.width(3.dp))
-                        Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done, if (isRead) "Прочитано" else "Отправлено",
+                        Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done, if (isRead) stringResource(R.string.chat_read_description) else stringResource(R.string.chat_sent_description),
                             tint = palette.accent, modifier = Modifier.size(16.dp))
                     }
                 }

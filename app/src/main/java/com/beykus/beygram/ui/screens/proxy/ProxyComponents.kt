@@ -32,12 +32,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.TelegramProxyKind
 import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -45,15 +47,15 @@ import com.beykus.beygram.ui.components.beyGramTextFieldColors
 
 /** Название типа прокси, как в макете. */
 internal val TelegramProxyKind.label: String
-    get() = when (this) {
-        TelegramProxyKind.MTPROTO -> "Прокси Telegram"
-        TelegramProxyKind.SOCKS5 -> "Обычный прокси"
-        TelegramProxyKind.HTTP -> "Веб-прокси"
+    @Composable get() = when (this) {
+        TelegramProxyKind.MTPROTO -> stringResource(R.string.proxy_kind_mtproto)
+        TelegramProxyKind.SOCKS5 -> stringResource(R.string.proxy_kind_socks5)
+        TelegramProxyKind.HTTP -> stringResource(R.string.proxy_kind_http)
     }
 
 /** Пинг до 100 мс зелёный, дальше жёлтый: та же шкала во всех списках прокси. */
-internal fun latencyStyle(delayMillis: Long, palette: BeyGramPalette): Pair<String, Color> =
-    "$delayMillis мс" to if (delayMillis < 100) palette.successText else palette.warningText
+@Composable internal fun latencyStyle(delayMillis: Long, palette: BeyGramPalette): Pair<String, Color> =
+    stringResource(R.string.proxy_latency_ms, delayMillis) to if (delayMillis < 100) palette.successText else palette.warningText
 
 /** Лучший доступный сервер подписки: имя и пинг. */
 internal fun bestReachable(probes: Map<String, com.beykus.beygram.domain.model.MihomoProbeResult>): Pair<String, Long>? =
@@ -62,13 +64,13 @@ internal fun bestReachable(probes: Map<String, com.beykus.beygram.domain.model.M
         .minByOrNull { it.second }
 
 /** «1 сервер», «2 сервера», «5 серверов» по правилам русского языка. */
-internal fun serversCountText(count: Int): String {
+@Composable internal fun serversCountText(count: Int): String {
     val lastTwo = count % 100
     val last = count % 10
     val word = when {
-        last == 1 && lastTwo != 11 -> "сервер"
-        last in 2..4 && lastTwo !in 12..14 -> "сервера"
-        else -> "серверов"
+        last == 1 && lastTwo != 11 -> stringResource(R.string.proxy_servers_one)
+        last in 2..4 && lastTwo !in 12..14 -> stringResource(R.string.proxy_servers_few)
+        else -> stringResource(R.string.proxy_servers_many)
     }
     return "$count $word"
 }
@@ -85,7 +87,7 @@ internal fun ProxyTopBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Назад", tint = palette.textPrimary)
+            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = palette.textPrimary)
         }
         Text(
             title,

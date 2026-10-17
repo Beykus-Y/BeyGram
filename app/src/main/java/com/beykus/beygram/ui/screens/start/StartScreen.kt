@@ -32,10 +32,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -77,7 +79,7 @@ fun StartScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isDarkTheme) "Темная" else "Светлая",
+                    text = if (isDarkTheme) stringResource(R.string.start_theme_dark) else stringResource(R.string.start_theme_light),
                     color = palette.textSecondary,
                     fontSize = 13.sp,
                     letterSpacing = 0.sp
@@ -124,7 +126,7 @@ fun StartScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "Клиент Telegram",
+                text = stringResource(R.string.start_subtitle),
                 color = palette.textSecondary,
                 fontSize = 16.sp,
                 textAlign = TextAlign.Center,
@@ -136,14 +138,14 @@ fun StartScreen(
             TdLibStatusPanel(readiness = tdLibReadiness)
             Spacer(modifier = Modifier.height(10.dp))
             val (connectionText, connectionColor) = when (connectionState) {
-                TelegramConnectionState.Connected -> "Связь с Telegram установлена" to palette.successText
-                TelegramConnectionState.WaitingForNetwork -> "Нет подключения к сети" to palette.warningText
-                TelegramConnectionState.Connecting -> "Подключаемся к Telegram…" to palette.warningText
-                TelegramConnectionState.Updating -> "Восстанавливаем связь…" to palette.warningText
-                TelegramConnectionState.Unknown -> "Проверяем доступность Telegram…" to palette.textSecondary
+                TelegramConnectionState.Connected -> stringResource(R.string.start_connection_connected) to palette.successText
+                TelegramConnectionState.WaitingForNetwork -> stringResource(R.string.start_connection_no_network) to palette.warningText
+                TelegramConnectionState.Connecting -> stringResource(R.string.auth_status_connecting) to palette.warningText
+                TelegramConnectionState.Updating -> stringResource(R.string.start_connection_updating) to palette.warningText
+                TelegramConnectionState.Unknown -> stringResource(R.string.start_connection_checking) to palette.textSecondary
             }
             Text(connectionText, color = connectionColor, fontSize = 13.sp)
-            TextButton(onClick = onProxySettings) { Text("Прокси для Telegram") }
+            TextButton(onClick = onProxySettings) { Text(stringResource(R.string.start_proxy_settings)) }
         }
 
         Button(
@@ -157,7 +159,7 @@ fun StartScreen(
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
             Text(
-                text = if (tdLibReadiness.canCreateClient) "Войти" else "Продолжить в демо-режиме",
+                text = if (tdLibReadiness.canCreateClient) stringResource(R.string.auth_sign_in) else stringResource(R.string.start_continue_demo),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.sp
@@ -183,7 +185,7 @@ private fun TdLibStatusPanel(
             modifier = Modifier.padding(14.dp)
         ) {
             Text(
-                text = if (isReady) "Готово ко входу" else "Вход пока недоступен",
+                text = if (isReady) stringResource(R.string.start_ready_to_sign_in) else stringResource(R.string.start_sign_in_unavailable),
                 color = if (isReady) palette.successText else palette.warningText,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
@@ -194,7 +196,7 @@ private fun TdLibStatusPanel(
 
             Text(
                 text = if (isReady) {
-                    "Можно тестировать реальную авторизацию."
+                    stringResource(R.string.start_ready_hint)
                 } else {
                     readiness.issues.joinToString(separator = "\n") { "- $it" }
                 },
