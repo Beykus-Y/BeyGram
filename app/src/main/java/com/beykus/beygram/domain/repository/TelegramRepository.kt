@@ -37,6 +37,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository {
     /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
     suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>
 
+    /** Настройка аккаунта: возвращать ли непрочитанный архивный чат в основной список при новом сообщении. */
+    suspend fun archiveReturnsOnNewMessage(): Result<Boolean>
+
+    /** Меняет настройку аккаунта, поэтому она действует на все устройства, где вошёл этот аккаунт. */
+    suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit>
+
     /** Отмечает прочитанными все сообщения чата, в том числе у архивных чатов. */
     suspend fun markChatRead(chatId: Long): Result<Unit>
 
