@@ -59,11 +59,9 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaKind
-import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoQualityPreset
-import com.beykus.beygram.data.media.VideoNoteProcessor
 import com.beykus.beygram.data.media.requestedFrameRateRange
 import com.beykus.beygram.data.media.chooseSupportedFrameRateRange
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -103,7 +101,8 @@ internal class VideoNoteRecorder(
     private val lifecycleOwner: LifecycleOwner,
     private val scope: CoroutineScope,
     private val currentSettings: () -> VideoMessageSettings,
-    private val onFinished: (List<OutgoingMedia>, previewFirst: Boolean) -> Unit,
+    /** Сырая запись готова к экспорту: обработку выполняет VideoNoteExportCenter, переживая выход из чата. */
+    private val onTakeReady: (raw: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean) -> Unit,
     private val onError: (String) -> Unit
 ) {
     val previewView = PreviewView(context).apply {
@@ -500,19 +499,7 @@ internal class VideoNoteRecorder(
                 current.file.parentFile?.deleteRecursively()
                 onError(context.getString(R.string.recorder_save_failed))
             }
-            VideoTakeOutcome.Send -> scope.launchExclusiveExport {
-                try {
-                    val outputDirectory = File(context.filesDir, "uploads").resolve(current.sessionName).apply { mkdirs() }
-                    Log.i(TAG, "video_processing_started session=${current.sessionName}")
-                    val media = VideoNoteProcessor(context).process(current.file, current.settings, outputDirectory)
-                    Log.i(TAG, "video_processing_completed session=${current.sessionName} segments=${media.size} bytes=${media.sumOf { it.size }}")
-                    onFinished(media, current.previewFirst || media.size > 1)
-                } catch (failure: Exception) {
-                    Log.e(TAG, "video_processing_failed session=${current.sessionName} type=${failure.javaClass.simpleName}", failure)
-                    onError(context.getString(R.string.recorder_save_failed))
-                    // The source remains in its private session directory so a failed conversion never destroys it.
-                }
-            }
+            VideoTakeOutcome.Send -> onTakeReady(current.file, current.settings, current.sessionName, current.previewFirst)
         }
     }
 }
@@ -551,45 +538,25 @@ internal fun videoPeakStorageBytes(videoBitrate: Int, durationSeconds: Long): Lo
     return bits / 8 * 2 + 256L * 1024L * 1024L
 }
 
-/**
- * Процесс-глобальный шлюз экспорта кружков: один Transformer за раз. Живёт вне экрана чата,
- * поэтому смена чата или поворот экрана не позволяет запустить второй экспорт параллельно.
- */
-internal object VideoNoteExportGate {
-    var activeExports by mutableStateOf(0)
-        private set
-    val busy: Boolean get() = activeExports > 0
-
-    fun begin() { activeExports++ }
-
-    fun end() { activeExports = (activeExports - 1).coerceAtLeast(0) }
-}
-
-/**
- * Запускает экспорт под процесс-глобальным шлюзом. Освобождение привязано к самому Job через
- * [Job.invokeOnCompletion]: если scope уже отменён и тело корутины не выполнится, шлюз всё равно
- * освободится — иначе после ухода из чата с поздним Finalize запись осталась бы busy до перезапуска процесса.
- */
-internal fun CoroutineScope.launchExclusiveExport(block: suspend () -> Unit): Job {
-    VideoNoteExportGate.begin()
-    val job = launch { block() }
-    job.invokeOnCompletion { VideoNoteExportGate.end() }
-    return job
-}
-
 /** Запись кружка на экране чата: отмена при уходе из композиции, чтобы камера не оставалась открытой. */
 @Composable
 internal fun rememberVideoNoteRecorder(
     settings: VideoMessageSettingsStore,
     processingScope: CoroutineScope,
-    onFinished: (List<OutgoingMedia>, previewFirst: Boolean) -> Unit,
+    chatId: Long,
     onError: (String) -> Unit
 ): VideoNoteRecorder {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
-    val currentOnFinished by rememberUpdatedState(onFinished)
+    val currentChatId by rememberUpdatedState(chatId)
     val currentOnError by rememberUpdatedState(onError)
-    val recorder = remember(owner, settings, processingScope) { VideoNoteRecorder(context, owner, processingScope, { settings.settings.value }, { media, preview -> currentOnFinished(media, preview) }, { currentOnError(it) }) }
+    val recorder = remember(owner, settings, processingScope) {
+        VideoNoteRecorder(context, owner, processingScope, { settings.settings.value },
+            onTakeReady = { raw, takeSettings, sessionName, previewFirst ->
+                VideoNoteExportCenter.enqueue(context.applicationContext, currentChatId, raw, takeSettings, sessionName, previewFirst)
+            },
+            onError = { currentOnError(it) })
+    }
     DisposableEffect(recorder) { onDispose { recorder.dispose() } }
     return recorder
 }

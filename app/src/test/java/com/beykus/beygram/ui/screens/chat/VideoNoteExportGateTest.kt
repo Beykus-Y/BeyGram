@@ -1,10 +1,12 @@
 package com.beykus.beygram.ui.screens.chat
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,5 +60,36 @@ class VideoNoteExportGateTest {
         scope.cancel()
         job.join()
         assertFalse(VideoNoteExportGate.busy)
+    }
+
+    @Test fun exclusiveExportsNeverOverlap() = runBlocking {
+        val scope = CoroutineScope(Job())
+        val firstEntered = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val secondEntered = CompletableDeferred<Unit>()
+        var concurrent = 0
+        var maxConcurrent = 0
+        val first = scope.launchExclusiveExport {
+            firstEntered.complete(Unit)
+            concurrent += 1
+            maxConcurrent = maxOf(maxConcurrent, concurrent)
+            releaseFirst.await()
+            concurrent -= 1
+        }
+        firstEntered.await()
+        val second = scope.launchExclusiveExport {
+            secondEntered.complete(Unit)
+            concurrent += 1
+            maxConcurrent = maxOf(maxConcurrent, concurrent)
+            concurrent -= 1
+        }
+        // Пока первое тело держит мьютекс, второе не стартует: никаких двух Transformer параллельно.
+        assertTrue(secondEntered.isActive)
+        releaseFirst.complete(Unit)
+        first.join()
+        second.join()
+        assertEquals(1, maxConcurrent)
+        assertFalse(VideoNoteExportGate.busy)
+        scope.cancel()
     }
 }

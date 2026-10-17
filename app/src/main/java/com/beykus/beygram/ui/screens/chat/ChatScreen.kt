@@ -177,10 +177,23 @@ fun ChatScreen(
         if (result.isSuccess) replyId = null
         result
     }
-    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope,
-        onFinished = ::capturedVideoRecording,
-        onError = { error = it }
-    )
+    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, onError = { error = it })
+    // Экспорт переживает выход из чата: готовые кружки ждут в VideoNoteExportCenter и доставляются при открытии чата.
+    LaunchedEffect(chat.id) {
+        launch {
+            VideoNoteExportCenter.results.collect { list ->
+                val mine = list.filter { it.chatId == chat.id }
+                if (mine.isEmpty()) return@collect
+                VideoNoteExportCenter.consume(chat.id)
+                mine.forEach { capturedVideoRecording(it.media, it.previewFirst) }
+            }
+        }
+        launch {
+            VideoNoteExportCenter.failures.collect { failedChatId ->
+                if (failedChatId == chat.id) error = context.getString(R.string.recorder_save_failed)
+            }
+        }
+    }
     val audioNote = rememberAudioNoteRecorder(::capturedRecording) { error = it }
     val videoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (!granted.values.all { it }) error = context.getString(R.string.chat_video_note_permission_denied)
