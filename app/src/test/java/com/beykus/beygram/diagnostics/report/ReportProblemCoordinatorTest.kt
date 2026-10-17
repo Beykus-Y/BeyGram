@@ -93,15 +93,22 @@ class ReportProblemCoordinatorTest {
         AcceptedReport(reportId, status, 1.0, "token-1", idempotentReplay = false, detail = "")
     )
 
-    private fun TestScope.newCoordinator(bot: FakeBotChannel, api: FakeTransport): DiagnosticsReportCoordinator =
+    private fun TestScope.newCoordinator(
+        bot: FakeBotChannel,
+        api: FakeTransport,
+        events: List<DiagnosticEvent> = emptyList(),
+        overflowed: Boolean = false,
+        total: Long = 0L,
+    ): DiagnosticsReportCoordinator =
         DiagnosticsReportCoordinator(
             scope = backgroundScope,
             config = DiagnosticsApiConfig("https://reports.example.com", "BeyGram_Bot", botUserId),
             botChannel = bot,
             apiClient = api,
             ioDispatcher = UnconfinedTestDispatcher(testScheduler),
-            eventsProvider = { emptyList() },
-            overflowedProvider = { false },
+            eventsProvider = { events },
+            overflowedProvider = { overflowed },
+            totalEventsProvider = { total },
             metaProvider = { ReportClientMeta(appVersion = "1.0-test", platform = "android") }
         )
 
@@ -439,6 +446,7 @@ class ReportProblemCoordinatorTest {
             ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             eventsProvider = { emptyList() },
             overflowedProvider = { false },
+            totalEventsProvider = { 0L },
             metaProvider = { ReportClientMeta() }
         )
         coordinator.fillDescription()
@@ -448,5 +456,35 @@ class ReportProblemCoordinatorTest {
         coordinator.submit()
         pump()
         assertEquals(0, api.posts.size)
+    }
+
+    @Test
+    fun `event loss metadata marks trimmed events in the posted body`() = runTest {
+        val bot = FakeBotChannel()
+        val api = FakeTransport().apply { postResults.add(accepted()) }
+        // Больше бюджета тела: fitToBudget обрежет старые события.
+        val events = List(600) { index ->
+            DiagnosticEvent(seq = index.toLong(), kind = EventKind.NETWORK, code = "net", message = "x".repeat(500))
+        }
+        val coordinator = newCoordinator(bot, api, events = events, total = 1000L)
+        coordinator.fillDescription()
+        coordinator.submit()
+        pump()
+        val body = api.bodyText()
+        assertTrue(body.contains("\"event_count_total\":1000"))
+        assertTrue(body.contains("\"buffer_overflowed\":true"))
+    }
+
+    @Test
+    fun `buffer overflow alone is reported in the posted body`() = runTest {
+        val bot = FakeBotChannel()
+        val api = FakeTransport().apply { postResults.add(accepted()) }
+        val coordinator = newCoordinator(bot, api, events = listOf(DiagnosticEvent(seq = 5L)), overflowed = true, total = 300L)
+        coordinator.fillDescription()
+        coordinator.submit()
+        pump()
+        val body = api.bodyText()
+        assertTrue(body.contains("\"event_count_total\":300"))
+        assertTrue(body.contains("\"buffer_overflowed\":true"))
     }
 }
