@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -174,7 +175,7 @@ class StableUpdateRepository(private val context: Context) {
 
     fun installedCode(): Long {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
-        return if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
+        return info.longVersionCode
     }
 
     private fun verifyPackage(apk: File, release: StableRelease) {
@@ -208,10 +209,23 @@ class StableUpdateRepository(private val context: Context) {
     }
 
     /** On Android O+ installing from this app requires explicit user permission. */
-    fun install(apk: File): Boolean {
+    fun install(apk: File, release: StableRelease): Boolean {
         if (!apk.isFile || apk.parentFile?.canonicalFile != updateDir.canonicalFile) {
             throw IOException("Файл обновления не найден.")
         }
+        // Recheck the file immediately before handing it to Android, even if it was verified at download time.
+        val bytes = apk.inputStream().use { input ->
+            val digest = MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        }
+        if (apk.length() != release.size || bytes != release.sha256) throw IOException("Контрольная сумма APK изменилась.")
+        verifyPackage(apk, release)
         if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
             val permissionIntent = Intent(
                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
@@ -263,14 +277,14 @@ class StableUpdateRepository(private val context: Context) {
         throw IOException("Слишком много перенаправлений при скачивании.")
     }
 
-    private fun readText(url: String, limit: Int): String {
+    private suspend fun readText(url: String, limit: Int): String {
         val connection = connect(url)
         try {
             connection.inputStream.use { input ->
                 val output = java.io.ByteArrayOutputStream()
                 val buffer = ByteArray(8192)
                 while (true) {
-                    coroutineContextPlaceholder()
+                    currentCoroutineContext().ensureActive()
                     val count = input.read(buffer)
                     if (count == -1) break
                     if (output.size() + count > limit) throw IOException("Ответ GitHub слишком большой.")
@@ -281,9 +295,5 @@ class StableUpdateRepository(private val context: Context) {
         } finally {
             connection.disconnect()
         }
-    }
-
-    private fun coroutineContextPlaceholder() {
-        if (Thread.currentThread().isInterrupted) throw IOException("Операция прервана.")
     }
 }
