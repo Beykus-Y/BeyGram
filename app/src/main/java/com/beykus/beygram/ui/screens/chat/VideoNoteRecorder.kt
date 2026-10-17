@@ -131,6 +131,8 @@ internal class VideoNoteRecorder(
 
     private var provider: ProcessCameraProvider? = null
     private var videoCapture: VideoCapture<Recorder>? = null
+    /** Диапазон FPS, зашитый в текущий VideoCapture на этапе создания: пересоздать его без обрыва записи нельзя. */
+    private var captureFpsRange: Range<Int>? = null
     /** Persistent-запись не отвязывается от VideoCapture при перепривязке камеры. Если устройство её не умеет, переключение скрывается. */
     private var persistentSupported = true
     private var take: VideoTake? = null
@@ -158,10 +160,22 @@ internal class VideoNoteRecorder(
         val cameraProvider = provider ?: return
         val capture = videoCapture ?: return
         val current = take ?: return
-        if (!active || !started || !canSwitchCamera) return
+        if (!active || !started || !canSwitchCamera || !persistentSupported) return
         val targetFront = !preferFrontCamera
         val selector = if (targetFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
         if (!cameraProvider.hasCamera(selector)) return
+        // FPS у capture задан на этапе создания; если целевая камера такой диапазон не поддерживает, переключение запрещаем:
+        // пересоздать capture без обрыва persistent-записи нельзя.
+        val captureFps = captureFpsRange
+        if (captureFps != null) {
+            val targetSupported = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges.map { it.lower..it.upper }
+            val compatible = targetSupported.any { range -> range.first <= captureFps.lower && captureFps.upper <= range.last }
+            if (!compatible) {
+                Log.i(TAG, "video_camera_switch_refused fps=$captureFps supported=$targetSupported")
+                onError(context.getString(R.string.recorder_camera_switch_failed))
+                return
+            }
+        }
         val previousSelector = if (preferFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
         Log.i(TAG, "video_camera_switch_started front=$targetFront")
         try {
@@ -202,8 +216,11 @@ internal class VideoNoteRecorder(
             try {
                 val cameraProvider = future.get()
                 provider = cameraProvider
-                canSwitchCamera = cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) &&
+                canSwitchCamera = videoSwitchCameraAvailable(
+                    persistentSupported,
+                    cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA),
                     cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+                )
                 // Каждая запись начинается с фронтальной камеры; без неё — с основной.
                 val startSelector = if (cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
                     CameraSelector.DEFAULT_FRONT_CAMERA
@@ -338,6 +355,7 @@ internal class VideoNoteRecorder(
                 .build()
         )
         if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
+        captureFpsRange = fpsRange
         return captureBuilder.build()
     }
 
@@ -436,31 +454,57 @@ internal class VideoNoteRecorder(
         if (take === current) {
             take = null
             provider?.unbindAll()
+            // Внеплановый Finalize без stop(): гасим состояние записи, иначе интерфейс остаётся «идёт запись».
+            active = false
+            locked = false
+            canceling = false
+            started = false
+            timer?.cancel()
+            timer = null
         }
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
-        if (current.discard || seconds < MIN_DURATION_SECONDS) {
-            current.file.parentFile?.deleteRecursively()
-            if (!current.discard) {
-                val message = if (seconds < MIN_DURATION_SECONDS) R.string.recorder_too_short else R.string.recorder_save_failed
-                onError(context.getString(message))
+        when (videoTakeOutcome(event.error, current.discard, seconds)) {
+            VideoTakeOutcome.Discarded -> current.file.parentFile?.deleteRecursively()
+            VideoTakeOutcome.TooShort -> {
+                current.file.parentFile?.deleteRecursively()
+                onError(context.getString(R.string.recorder_too_short))
             }
-            return
-        }
-        scope.launch {
-            try {
-                Log.i(TAG, "video_processing_started session=${current.file.parentFile?.name}")
-                val media = VideoNoteProcessor(context).process(current.file, current.settings)
-                Log.i(TAG, "video_processing_completed session=${current.file.parentFile?.name} segments=${media.size} bytes=${media.sumOf { it.size }}")
-                onFinished(media, current.previewFirst || media.size > 1)
-            } catch (failure: Exception) {
-                Log.e(TAG, "video_processing_failed session=${current.file.parentFile?.name} type=${failure.javaClass.simpleName}", failure)
+            VideoTakeOutcome.SaveFailed -> {
+                // Частичный файл после ошибки кодека или внезапного Finalize отправлять нельзя.
+                current.file.parentFile?.deleteRecursively()
                 onError(context.getString(R.string.recorder_save_failed))
-                // The source remains in its private session directory so a failed conversion never destroys it.
+            }
+            VideoTakeOutcome.Send -> scope.launch {
+                try {
+                    Log.i(TAG, "video_processing_started session=${current.file.parentFile?.name}")
+                    val media = VideoNoteProcessor(context).process(current.file, current.settings)
+                    Log.i(TAG, "video_processing_completed session=${current.file.parentFile?.name} segments=${media.size} bytes=${media.sumOf { it.size }}")
+                    onFinished(media, current.previewFirst || media.size > 1)
+                } catch (failure: Exception) {
+                    Log.e(TAG, "video_processing_failed session=${current.file.parentFile?.name} type=${failure.javaClass.simpleName}", failure)
+                    onError(context.getString(R.string.recorder_save_failed))
+                    // The source remains in its private session directory so a failed conversion never destroys it.
+                }
             }
         }
     }
 }
+
+/** Итог завершённой записи. Отдельная политика, чтобы покрывать её юнит-тестами без CameraX. */
+internal enum class VideoTakeOutcome { Send, Discarded, TooShort, SaveFailed }
+
+/** Ошибка важнее отмены: даже отменённая запись с ошибкой кодека не должна отличаться от сломанной. */
+internal fun videoTakeOutcome(error: Int, discard: Boolean, durationSeconds: Int): VideoTakeOutcome = when {
+    error != 0 -> VideoTakeOutcome.SaveFailed
+    discard -> VideoTakeOutcome.Discarded
+    durationSeconds < MIN_DURATION_SECONDS -> VideoTakeOutcome.TooShort
+    else -> VideoTakeOutcome.Send
+}
+
+/** Переключение камеры доступно только при работающей persistent-записи и наличии обеих камер. */
+internal fun videoSwitchCameraAvailable(persistentSupported: Boolean, hasFrontCamera: Boolean, hasBackCamera: Boolean): Boolean =
+    persistentSupported && hasFrontCamera && hasBackCamera
 
 /** Запись кружка на экране чата: отмена при уходе из композиции, чтобы камера не оставалась открытой. */
 @Composable
@@ -593,13 +637,14 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
             Box(Modifier.fillMaxSize().padding(4.dp).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.TopCenter) {
                 // PreviewView переиспользуется между записями: снимаем его со старого контейнера, иначе addView упадёт.
                 AndroidView(factory = { recorder.previewView.also { (it.parent as? ViewGroup)?.removeView(it) } }, modifier = Modifier.fillMaxSize())
-                if (recorder.canSwitchCamera) {
-                    VideoNoteSwitchCameraButton(
-                        recorder,
-                        enabled = recorder.started,
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)
-                    )
-                }
+            }
+            // Кнопка живёт вне контейнера с clip(CircleShape): в углу квадрата она оказалась бы за вписанной окружностью и обрезалась.
+            if (recorder.canSwitchCamera) {
+                VideoNoteSwitchCameraButton(
+                    recorder,
+                    enabled = recorder.started,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp)
+                )
             }
         }
         Spacer(Modifier.height(16.dp))
