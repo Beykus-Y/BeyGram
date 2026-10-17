@@ -71,38 +71,69 @@ internal class VpnBackend private constructor(
     val probeProgress: StateFlow<ProbeProgress?> = _probeProgress.asStateFlow()
 
     private val restoreMutex = Mutex()
+    private val _restoreFailed = MutableStateFlow(false)
+    /** True when the automatic restore failed on every try. The user then decides: try again or turn the proxy off. */
+    val restoreFailed: StateFlow<Boolean> = _restoreFailed.asStateFlow()
+    private val _restoreRetrying = MutableStateFlow(false)
+    /** True while a retry that the user asked for runs. The dialog then shows a hint instead of the question. */
+    val restoreRetrying: StateFlow<Boolean> = _restoreRetrying.asStateFlow()
 
     init {
         networkMonitor.start()
         selector.start()
-        scope.launch(Dispatchers.IO) { restore(switchOffOnFailure = false) }
+        scope.launch(Dispatchers.IO) { restore() }
     }
 
-    /** Called when an app screen opens: a restore that failed in the background is tried again, and a failure switches TDLib back. */
-    suspend fun restoreFromScreen() = restore(switchOffOnFailure = true)
+    /**
+     * Called when an app screen opens, and when the user asks again after the automatic restore failed. It starts a
+     * fresh round of attempts, unless a round is already running and will report the result.
+     */
+    suspend fun restoreFromScreen() {
+        if (restoreMutex.isLocked) return
+        restore()
+    }
+
+    /** Called when the user taps Retry in the restore dialog. The dialog shows a hint while this round runs. */
+    suspend fun retryRestore() {
+        if (restoreMutex.isLocked) return
+        _restoreRetrying.value = true
+        try {
+            restore()
+        } finally {
+            _restoreRetrying.value = false
+        }
+    }
 
     /**
      * TDLib keeps its enabled proxy across process restarts. When that proxy is BeyGram's listener, start the listener
-     * again. A background start must not switch TDLib off: the system may refuse a background service start, and TDLib
-     * would then lose its proxy until the app opens, so the app screen retries instead.
+     * again, trying a few times because a start can fail while the app is in the background. When every try fails,
+     * the proxy setting stays on and [restoreFailed] asks the user. Telegram switches to a direct connection only when
+     * the user chooses that.
      */
-    private suspend fun restore(switchOffOnFailure: Boolean) {
+    private suspend fun restore() {
         restoreMutex.withLock {
+            // A new round starts, so a question left by an earlier round is hidden until this round fails.
+            _restoreFailed.value = false
             if (listenerInUse()) return
             val enabled = awaitTdLibProxyState() ?: return
             // A start or stop may have begun while TDLib was asked; that request owns the listener now.
             if (listenerInUse()) return
             if (enabled) {
-                startProxy()
-                    .onSuccess { refreshConnections() }
-                    .onFailure {
-                        if (switchOffOnFailure) {
-                            setTdLibProxy(false)
-                            MihomoRuntimeDiagnostics.event("backend", "restore failed; Telegram proxy switched off")
-                        } else {
-                            MihomoRuntimeDiagnostics.event("backend", "background restore failed; Telegram proxy kept")
-                        }
+                val settled = retryUntilSuccess(MAX_RESTORE_ATTEMPTS, RESTORE_RETRY_MILLIS) { attempt ->
+                    // The user may have turned the proxy off during the round. That choice wins, so the round ends.
+                    if (isTdLibProxyEnabled().getOrNull() == false) {
+                        MihomoRuntimeDiagnostics.event("backend", "restore stopped; proxy turned off meanwhile")
+                        return@retryUntilSuccess true
                     }
+                    startProxy()
+                        .onSuccess { refreshConnections() }
+                        .onFailure { MihomoRuntimeDiagnostics.event("backend", "restore attempt $attempt failed") }
+                        .isSuccess
+                }
+                if (!settled) {
+                    _restoreFailed.value = true
+                    MihomoRuntimeDiagnostics.event("backend", "restore failed $MAX_RESTORE_ATTEMPTS times; user decides")
+                }
                 return
             }
             if (mihomo.profileExists()) prepareCoreWithoutListener()
@@ -176,6 +207,9 @@ internal class VpnBackend private constructor(
             MihomoRuntimeDiagnostics.event("backend", "proxy stop requested")
             val tdlib = setTdLibProxy(false)
             if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: UserMessageException(UiText.Res(R.string.err_vpn_stop_failed))
+            // TDLib no longer uses the proxy, so the restore question and hint are settled even if the listener stop fails below.
+            _restoreFailed.value = false
+            _restoreRetrying.value = false
             stopListenerNow()
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
@@ -309,6 +343,8 @@ internal class VpnBackend private constructor(
         private const val MAX_PARALLEL_PROBES = 4
         private const val TDLIB_STATE_ATTEMPTS = 3
         private const val TDLIB_STATE_RETRY_MILLIS = 2_000L
+        private const val MAX_RESTORE_ATTEMPTS = 5
+        private const val RESTORE_RETRY_MILLIS = 2_000L
 
         @Volatile private var instance: VpnBackend? = null
 
