@@ -60,7 +60,7 @@ Prod не содержит отладочного режима; для расп�
 
 | Ключ `BuildConfig` | Свойство/`secrets.properties` | Значение по умолчанию | Назначение |
 | --- | --- | --- | --- |
-| `DIAGNOSTICS_API_BASE_URL` | `diagnosticsApiBaseUrl` | пусто | HTTPS-origin сервера отчётов (например, `https://reports.example.com`). Пусто — отправка отчётов выключена, ручной экспорт продолжает работать |
+| `DIAGNOSTICS_API_BASE_URL` | `diagnosticsApiBaseUrl` | `https://beygram.beykus.fun` | HTTPS-origin сервера отчётов. Пусто — отправка отчётов выключена, ручной экспорт продолжает работать |
 | `REPORT_BOT_USERNAME` | `reportBotUsername` | `BeyGram_Bot` | Username служебного бота без `@` |
 | `REPORT_BOT_USER_ID` | `reportBotUserId` | `8841599020` | Telegram user id того же бота; пиннинг проверяется при открытии чата |
 
