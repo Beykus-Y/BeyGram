@@ -76,7 +76,7 @@ class MihomoProxyService : Service() {
         try {
             coroutineContext.ensureActive()
             val bridge = MihomoCoreBridge(applicationContext)
-            if (!bridge.profileExists()) throw IllegalStateException("Сначала загрузите подписку Mihomo")
+            if (!bridge.profileExists()) throw IllegalStateException("Сначала загрузите подписку")
             bridge.ensureInitialized()
             MihomoRuntimeDiagnostics.event("service", "profile initialized")
             coroutineContext.ensureActive()
@@ -153,7 +153,7 @@ class MihomoProxyService : Service() {
     private fun buildNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle("Прокси BeyGram")
-        .setContentText("Локальный SOCKS5: 127.0.0.1:${MihomoProxyClient.PORT}")
+        .setContentText("Прокси работает")
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
         .setOngoing(true)
         .setOnlyAlertOnce(true)

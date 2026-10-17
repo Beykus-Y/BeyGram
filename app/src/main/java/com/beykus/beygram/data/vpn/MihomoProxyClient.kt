@@ -55,6 +55,7 @@ internal object MihomoProxyClient {
                 Thread.sleep(100)
             }
         }
-        throw MihomoCoreException("Mihomo SOCKS listener did not bind to 127.0.0.1:$PORT${lastError?.let { ": ${it.javaClass.simpleName}" }.orEmpty()}")
+        MihomoRuntimeDiagnostics.event("listener", "port not ready error=${lastError?.javaClass?.simpleName}")
+        throw MihomoCoreException("Прокси не принимает подключения")
     }
 }

@@ -39,12 +39,12 @@ internal object VpnSubscriptionDiagnostics {
         is UnknownHostException -> "dns_failure"
         is SSLException -> "tls_failure"
         is SubscriptionException -> when {
-            error.message?.startsWith("Subscription server returned HTTP ") == true -> "http_error"
-            error.message?.startsWith("Subscription is not a Mihomo YAML profile") == true -> "not_mihomo_yaml"
-            error.message?.startsWith("Decoded subscription") == true -> "decoded_content_not_yaml_object"
-            error.message?.startsWith("Enter a valid HTTPS") == true -> "invalid_url"
-            error.message?.startsWith("Subscription URL must use HTTPS") == true -> "url_policy_rejected"
-            error.message?.contains("larger than 5 MiB") == true -> "response_too_large"
+            error.message?.startsWith("Сервер подписки ответил ошибкой ") == true -> "http_error"
+            error.message?.startsWith("Ссылка не похожа на подписку") == true -> "not_mihomo_yaml"
+            error.message?.startsWith("В подписке нет серверов") == true -> "decoded_content_not_yaml_object"
+            error.message?.startsWith("Введите правильную ссылку") == true -> "invalid_url"
+            error.message?.startsWith("Ссылка на подписку должна") == true -> "url_policy_rejected"
+            error.message?.contains("слишком большая") == true -> "response_too_large"
             else -> "subscription_rejected"
         }
         is MihomoCoreException -> "mihomo_rejected_profile"

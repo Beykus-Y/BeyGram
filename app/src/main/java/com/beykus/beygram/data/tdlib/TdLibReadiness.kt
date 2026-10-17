@@ -13,13 +13,13 @@ data class TdLibReadiness(
     val issues: List<String>
         get() = buildList {
             if (!credentialsConfigured) {
-                add("Не заполнены telegramApiId/telegramApiHash в secrets.properties.")
+                add("Не настроен доступ к Telegram в этой сборке.")
             }
             if (javaBindingsStatus is TdLibRuntimeStatus.Missing) {
-                add("Нет Java bindings org.drinkless.tdlib в APK.")
+                add("В приложении не хватает компонентов Telegram.")
             }
             if (nativeLibraryStatus is TdLibRuntimeStatus.Missing) {
-                add("Нет native-библиотеки libtdjni.so в app/src/main/jniLibs.")
+                add("В приложении не хватает библиотеки Telegram.")
             }
         }
 }

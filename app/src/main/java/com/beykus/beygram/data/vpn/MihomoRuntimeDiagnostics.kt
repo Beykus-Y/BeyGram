@@ -17,8 +17,8 @@ internal object MihomoRuntimeDiagnostics {
     fun failure(stage: String, error: Throwable) {
         if (error is kotlinx.coroutines.CancellationException) return
         val known = error.message?.takeIf {
-            it.startsWith("Mihomo SOCKS listener") || it.startsWith("Mihomo did not start") ||
-                it.startsWith("Сначала загрузите подписку") || it.startsWith("Не удалось загрузить ядро Mihomo")
+            it.startsWith("Прокси не принимает подключения") || it.startsWith("Прокси не запустился") ||
+                it.startsWith("Сначала загрузите подписку") || it.startsWith("Не удалось загрузить модуль прокси")
         }
         event(stage, "failed=${error.javaClass.simpleName}${known?.let { " detail=$it" }.orEmpty()}")
     }
