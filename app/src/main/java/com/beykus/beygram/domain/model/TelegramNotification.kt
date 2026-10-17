@@ -1,6 +1,8 @@
 package com.beykus.beygram.domain.model
 
-data class TelegramNotice(val id: Int, val dateSeconds: Long, val sender: String, val text: String, val previewAllowed: Boolean)
+import com.beykus.beygram.domain.UiText
+
+data class TelegramNotice(val id: Int, val dateSeconds: Long, val sender: String, val text: UiText, val previewAllowed: Boolean)
 data class TelegramNoticeGroup(
     val id: Int, val chatId: Long, val title: String = "Telegram", val isGroup: Boolean = false,
     val isSecret: Boolean = false, val totalCount: Int, val notices: List<TelegramNotice>, val alertId: Int = 0, val metadataReady: Boolean = false

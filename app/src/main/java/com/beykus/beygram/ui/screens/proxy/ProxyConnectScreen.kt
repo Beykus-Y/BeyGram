@@ -43,6 +43,7 @@ import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.TelegramProxyKind
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 
 /** Вкладки «Подключение к Telegram»: три ручных типа и подписка. Порядок и подписи — как в макете. */
@@ -116,7 +117,7 @@ internal fun ProxyConnectScreen(
         scope.launch {
             subscriptionError = null
             vpnBackend.fetchSubscription(subscriptionUrl.trim())
-                .onFailure { subscriptionError = it.message ?: context.getString(R.string.proxy_connect_subscription_load_failed) }
+                .onFailure { subscriptionError = it.userMessage(context, R.string.proxy_connect_subscription_load_failed) }
         }
     }
     val connect: () -> Unit = {
@@ -131,14 +132,14 @@ internal fun ProxyConnectScreen(
                         vpnBackend.stopListener()
                         onBack()
                     }
-                    .onFailure { error = it.message ?: context.getString(R.string.proxy_connect_add_failed) }
+                    .onFailure { error = it.userMessage(context, R.string.proxy_connect_add_failed) }
                 sending = false
             } else {
                 val name = effectiveSelected ?: return@launch
                 vpnBackend.selectConnection(name)
                     .mapCatching { vpnBackend.startProxy().getOrThrow() }
                     .onSuccess { onBack() }
-                    .onFailure { error = it.message ?: context.getString(R.string.proxy_connect_connect_failed) }
+                    .onFailure { error = it.userMessage(context, R.string.proxy_connect_connect_failed) }
             }
         }
     }

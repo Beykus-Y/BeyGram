@@ -1,10 +1,12 @@
 package com.beykus.beygram.domain.model
 
+import com.beykus.beygram.domain.UiText
+
 data class ChatPreview(
     val id: Long,
     val title: String,
     val initials: String,
-    val lastMessage: String,
+    val lastMessage: UiText,
     val lastMessageTime: String,
     val unreadCount: Int,
     val avatarColorArgb: Long,

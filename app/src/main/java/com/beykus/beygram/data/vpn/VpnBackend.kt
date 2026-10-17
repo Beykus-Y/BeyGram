@@ -3,6 +3,9 @@ package com.beykus.beygram.data.vpn
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MihomoConnection
 import com.beykus.beygram.domain.model.MihomoProbeResult
 import com.beykus.beygram.domain.model.TelegramConnectionState
@@ -143,18 +146,18 @@ internal class VpnBackend private constructor(
     suspend fun startProxy(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy start requested")
-            if (!mihomo.profileExists()) throw IllegalStateException("Сначала загрузите подписку")
+            if (!mihomo.profileExists()) throw UserMessageException(UiText.Res(R.string.err_vpn_no_profile), IllegalStateException("Сначала загрузите подписку"))
             // An earlier failure must not answer this start, so it is cleared before the intent is sent.
             MihomoProxyService.clearFailure()
             ContextCompat.startForegroundService(appContext, Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_START))
             val state = withTimeout(30_000) {
                 MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.RUNNING || it.status == ProxyRuntimeStatus.FAILED }
             }
-            if (state.status == ProxyRuntimeStatus.FAILED) throw IllegalStateException(state.message ?: "Не удалось запустить прокси")
+            if (state.status == ProxyRuntimeStatus.FAILED) throw UserMessageException(state.message ?: UiText.Res(R.string.err_vpn_start_failed), IllegalStateException("Proxy service reported FAILED"))
             val tdlib = setTdLibProxy(true)
             if (tdlib.isFailure) {
                 appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
-                throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось подключить Telegram к прокси")
+                throw tdlib.exceptionOrNull() ?: UserMessageException(UiText.Res(R.string.err_vpn_telegram_connect_failed))
             }
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
@@ -162,7 +165,7 @@ internal class VpnBackend private constructor(
             // The service keeps starting in its own scope after this caller gives up; stop it instead of leaving a foreground notification.
             // startService throws when the app is in the background; that must not replace the timeout failure below.
             runCatching { appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP)) }
-            Result.failure(IllegalStateException("Прокси не запустился вовремя. Попробуйте ещё раз."))
+            Result.failure(UserMessageException(UiText.Res(R.string.err_vpn_start_timeout)))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend start", error); Result.failure(error) }
     }
@@ -172,12 +175,12 @@ internal class VpnBackend private constructor(
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy stop requested")
             val tdlib = setTdLibProxy(false)
-            if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось выключить прокси")
+            if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: UserMessageException(UiText.Res(R.string.err_vpn_stop_failed))
             stopListenerNow()
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
             MihomoRuntimeDiagnostics.event("backend", "stop timed out")
-            Result.failure(IllegalStateException("Прокси не остановился вовремя. Попробуйте ещё раз."))
+            Result.failure(UserMessageException(UiText.Res(R.string.err_vpn_stop_timeout)))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend stop", error); Result.failure(error) }
     }
@@ -192,7 +195,7 @@ internal class VpnBackend private constructor(
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
             MihomoRuntimeDiagnostics.event("backend", "listener stop timed out")
-            Result.failure(IllegalStateException("Прокси не остановился вовремя. Попробуйте ещё раз."))
+            Result.failure(UserMessageException(UiText.Res(R.string.err_vpn_stop_timeout)))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend listener stop", error); Result.failure(error) }
     }
@@ -205,7 +208,7 @@ internal class VpnBackend private constructor(
 
     suspend fun fetchSubscription(url: String = settings.value.subscriptionUrl): Result<List<MihomoConnection>> =
         withContext(Dispatchers.IO) {
-            if (_busy.value) return@withContext Result.failure(IllegalStateException("Подписка уже обновляется. Дождитесь окончания."))
+            if (_busy.value) return@withContext Result.failure(UserMessageException(UiText.Res(R.string.err_vpn_subscription_busy)))
             _busy.value = true
             try {
                 VpnSubscriptionDiagnostics.event("fetch", "started")

@@ -1,5 +1,6 @@
 package com.beykus.beygram.domain.model
 
+import com.beykus.beygram.domain.UiText
 import java.io.Serializable
 
 enum class MediaKind { Photo, Video, Animation, Sticker, Audio, Document, Voice, VideoNote }
@@ -32,7 +33,7 @@ data class MediaFileState(
     val isDownloading: Boolean = false,
     val uploadedBytes: Long = 0,
     val isUploading: Boolean = false,
-    val error: String? = null
+    val error: UiText? = null
 ) {
     val downloadProgress: Float get() = if (size > 0) (downloadedBytes.toFloat() / size).coerceIn(0f, 1f) else 0f
     val uploadProgress: Float get() = if (size > 0) (uploadedBytes.toFloat() / size).coerceIn(0f, 1f) else 0f

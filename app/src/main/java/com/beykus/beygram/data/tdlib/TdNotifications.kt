@@ -1,5 +1,7 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -79,20 +81,22 @@ internal class TdNotifications(client: () -> Client, private val senderName: (Td
     private fun publish() { _state.value = _state.value.copy(groups = groups.values.sortedBy { it.id }) }
     private fun notice(notification: TdApi.Notification): TelegramNotice? = when (val type = notification.type) {
         is TdApi.NotificationTypeNewMessage -> TelegramNotice(notification.id, notification.date.toLong(), senderName(type.message.senderId),
-            if (type.showPreview) preview(type.message.content) else "Новое сообщение", type.showPreview)
-        is TdApi.NotificationTypeNewSecretChat -> TelegramNotice(notification.id, notification.date.toLong(), "", "Новый секретный чат", false)
+            if (type.showPreview) preview(type.message.content) else UiText.Res(R.string.notif_new_message), type.showPreview)
+        is TdApi.NotificationTypeNewSecretChat -> TelegramNotice(notification.id, notification.date.toLong(), "", UiText.Res(R.string.notif_new_secret_chat), false)
         else -> null // No FCM registration; push payloads and unimplemented calls are not rendered.
     }
-    private fun preview(content: TdApi.MessageContent): String = when (content) {
-        is TdApi.MessageText -> content.text.text
-        is TdApi.MessagePhoto -> "Фото" + content.caption?.text.orEmpty().let { if (it.isBlank()) "" else ": $it" }
-        is TdApi.MessageVideo -> "Видео" + content.caption?.text.orEmpty().let { if (it.isBlank()) "" else ": $it" }
-        is TdApi.MessageAnimation -> "GIF"
-        is TdApi.MessageVoiceNote -> "Голосовое сообщение"
-        is TdApi.MessageVideoNote -> "Видеосообщение"
-        is TdApi.MessageAudio -> "Аудио"
-        is TdApi.MessageDocument -> "Файл: ${content.document.fileName}"
-        is TdApi.MessageSticker -> "${content.sticker.emoji} Стикер"
-        else -> "Новое сообщение"
-    }.take(1000)
+    private fun preview(content: TdApi.MessageContent): UiText = when (content) {
+        is TdApi.MessageText -> UiText.Raw(content.text.text.take(1000))
+        is TdApi.MessagePhoto -> captioned(content.caption?.text, R.string.notif_preview_photo_caption, R.string.media_kind_photo)
+        is TdApi.MessageVideo -> captioned(content.caption?.text, R.string.notif_preview_video_caption, R.string.media_kind_video)
+        is TdApi.MessageAnimation -> UiText.Res(R.string.media_kind_animation)
+        is TdApi.MessageVoiceNote -> UiText.Res(R.string.notif_preview_voice)
+        is TdApi.MessageVideoNote -> UiText.Res(R.string.media_kind_video_note)
+        is TdApi.MessageAudio -> UiText.Res(R.string.media_kind_audio)
+        is TdApi.MessageDocument -> UiText.Res(R.string.notif_preview_document, listOf(content.document.fileName.take(1000)))
+        is TdApi.MessageSticker -> UiText.Res(R.string.chat_preview_sticker, listOf(content.sticker.emoji))
+        else -> UiText.Res(R.string.notif_new_message)
+    }
+    private fun captioned(caption: String?, withCaption: Int, plain: Int): UiText =
+        caption?.takeIf { it.isNotBlank() }?.let { UiText.Res(withCaption, listOf(it.take(1000))) } ?: UiText.Res(plain)
 }

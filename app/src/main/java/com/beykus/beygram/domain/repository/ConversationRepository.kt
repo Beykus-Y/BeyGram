@@ -26,6 +26,6 @@ interface ConversationRepository {
     fun setAppForeground(foreground: Boolean)
     fun refreshInteractionPolicy()
     fun openMessageContent(chatId: Long, messageId: Long)
-    /** Names of the people typing in the chat right now; empty when nobody is. */
+    /** Names of the people typing in the chat right now; empty when nobody is. A blank name means the sender's name is unknown. */
     fun observeTyping(chatId: Long): StateFlow<List<String>>
 }

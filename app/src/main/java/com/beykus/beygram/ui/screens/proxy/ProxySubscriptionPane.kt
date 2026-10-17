@@ -46,6 +46,7 @@ import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 
 /**
@@ -81,7 +82,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
         scope.launch {
             vpnBackend.probeAllConnections()
                 .onSuccess { actionMessage = context.getString(R.string.proxy_sub_probed_count, it.size) }
-                .onFailure { actionMessage = it.message ?: context.getString(R.string.proxy_sub_probe_failed) }
+                .onFailure { actionMessage = it.userMessage(context, R.string.proxy_sub_probe_failed) }
         }
     }
     val applySelected: () -> Unit = {
@@ -90,7 +91,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
             scope.launch {
                 vpnBackend.selectConnection(name)
                     .onSuccess { actionMessage = context.getString(R.string.proxy_sub_selected_connection, name) }
-                    .onFailure { actionMessage = it.message }
+                    .onFailure { actionMessage = it.userMessage(context, R.string.err_vpn_server_select_failed) }
             }
         }
     }

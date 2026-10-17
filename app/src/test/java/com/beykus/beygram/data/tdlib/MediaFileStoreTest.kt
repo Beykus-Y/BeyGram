@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.MediaFileState
 import org.junit.Assert.*
 import org.junit.Test
@@ -18,7 +19,7 @@ class MediaFileStoreTest {
         val store = MediaFileStore()
         assertTrue(store.beginDownload(4))
         assertFalse(store.beginDownload(4))
-        store.fail(4, "offline")
+        store.fail(4, UiText.Raw("offline"))
         assertTrue(store.beginDownload(4))
         assertNull(store.observe(4).value.error)
     }

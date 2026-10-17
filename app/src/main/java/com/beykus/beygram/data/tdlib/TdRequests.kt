@@ -1,5 +1,8 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -23,17 +26,17 @@ internal class TdRequests(private val client: () -> Client) {
     }
 }
 
-private const val MESSAGE_TIMEOUT = "Сервер не ответил вовремя. Проверьте состояние сообщения перед повторной попыткой."
-private const val REQUEST_TIMEOUT = "Telegram не ответил вовремя. Попробуйте ещё раз."
+private val MESSAGE_TIMEOUT = UiText.Res(R.string.err_tdlib_message_timeout)
+private val REQUEST_TIMEOUT = UiText.Res(R.string.err_tdlib_request_timeout)
 
 /** Запросы к сообщениям: здесь 404 и MESSAGE_ID_INVALID значат, что сообщение удалено или недоступно. */
-internal suspend fun <T> conversationResult(timeoutMessage: String = MESSAGE_TIMEOUT, block: suspend () -> T): Result<T> =
+internal suspend fun <T> conversationResult(timeoutMessage: UiText = MESSAGE_TIMEOUT, block: suspend () -> T): Result<T> =
     telegramResult(timeoutMessage, block) { error ->
         when {
-            error.message?.contains("MESSAGE_NOT_MODIFIED") == true -> "Сообщение не изменилось"
-            error.message?.contains("MESSAGE_EDIT_TIME_EXPIRED") == true -> "Время редактирования истекло"
-            error.message?.contains("MESSAGE_ID_INVALID") == true || (error as? TdRequestError)?.code == 404 -> "Сообщение удалено или недоступно"
-            error.message?.contains("MESSAGE_DELETE_FORBIDDEN") == true -> "Удаление этого сообщения недоступно"
+            error.message?.contains("MESSAGE_NOT_MODIFIED") == true -> UiText.Res(R.string.err_tdlib_message_not_modified)
+            error.message?.contains("MESSAGE_EDIT_TIME_EXPIRED") == true -> UiText.Res(R.string.err_tdlib_message_edit_expired)
+            error.message?.contains("MESSAGE_ID_INVALID") == true || (error as? TdRequestError)?.code == 404 -> UiText.Res(R.string.err_tdlib_message_unavailable)
+            error.message?.contains("MESSAGE_DELETE_FORBIDDEN") == true -> UiText.Res(R.string.err_tdlib_message_delete_forbidden)
             else -> requestErrorText(error)
         }
     }
@@ -41,12 +44,13 @@ internal suspend fun <T> conversationResult(timeoutMessage: String = MESSAGE_TIM
 /** Контакты, звонки и чаты: сообщений здесь нет, поэтому 404 не значит удалённое сообщение. */
 internal suspend fun <T> requestResult(block: suspend () -> T): Result<T> = telegramResult(REQUEST_TIMEOUT, block, ::requestErrorText)
 
-private suspend fun <T> telegramResult(timeoutMessage: String, block: suspend () -> T, errorText: (Exception) -> String): Result<T> = try { Result.success(block()) }
-catch (_: TimeoutCancellationException) { Result.failure(IllegalStateException(timeoutMessage)) }
+private suspend fun <T> telegramResult(timeoutMessage: UiText, block: suspend () -> T, errorText: (Exception) -> UiText): Result<T> = try { Result.success(block()) }
+catch (timeout: TimeoutCancellationException) { Result.failure(UserMessageException(timeoutMessage, timeout)) }
 catch (cancelled: CancellationException) { throw cancelled }
-catch (error: Exception) { Result.failure(IllegalStateException(errorText(error))) }
+catch (error: UserMessageException) { Result.failure(error) }
+catch (error: Exception) { Result.failure(UserMessageException(errorText(error), error)) }
 
-private fun requestErrorText(error: Exception): String = when {
-    error.message?.contains("FLOOD_WAIT") == true || (error as? TdRequestError)?.code == 429 -> "Слишком много запросов. Попробуйте позже"
-    else -> error.message ?: "Не удалось выполнить действие"
+private fun requestErrorText(error: Exception): UiText = when {
+    error.message?.contains("FLOOD_WAIT") == true || (error as? TdRequestError)?.code == 429 -> UiText.Res(R.string.err_tdlib_flood_wait)
+    else -> UiText.Res(R.string.err_tdlib_action_failed)
 }
