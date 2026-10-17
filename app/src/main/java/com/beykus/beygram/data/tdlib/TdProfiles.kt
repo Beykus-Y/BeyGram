@@ -211,11 +211,18 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         return when (val type = chat.type) {
             is TdApi.ChatTypePrivate -> users[type.userId]?.let { userInfo(it).copy(id = id, title = chat.title, photo = photo(chat.photo) ?: it.profilePhoto?.let { p -> photo(p.small, p.big) }) } ?: base
             is TdApi.ChatTypeSecret -> users[type.userId]?.let { userInfo(it).copy(id = id, title = chat.title, kind = ProfileKind.Secret) } ?: base.copy(kind = ProfileKind.Secret)
-            is TdApi.ChatTypeBasicGroup -> base.copy(kind = ProfileKind.Group, bio = groupFull[type.basicGroupId]?.description.orEmpty(), memberCount = groups[type.basicGroupId]?.memberCount)
+            is TdApi.ChatTypeBasicGroup -> {
+                val full = groupFull[type.basicGroupId]
+                base.copy(kind = ProfileKind.Group, bio = full?.description.orEmpty(), memberCount = groups[type.basicGroupId]?.memberCount,
+                    administratorCount = full?.members?.count { it.status is TdApi.ChatMemberStatusCreator || it.status is TdApi.ChatMemberStatusAdministrator }?.takeIf { it > 0 },
+                    inviteLink = full?.inviteLink?.inviteLink.orEmpty())
+            }
             is TdApi.ChatTypeSupergroup -> {
                 val group = supers[type.supergroupId]
+                val full = superFull[type.supergroupId]
                 base.copy(kind = if (type.isChannel) ProfileKind.Channel else ProfileKind.Group,
-                    bio = superFull[type.supergroupId]?.description.orEmpty(), memberCount = superFull[type.supergroupId]?.memberCount?.takeIf { it > 0 } ?: group?.memberCount,
+                    bio = full?.description.orEmpty(), memberCount = full?.memberCount?.takeIf { it > 0 } ?: group?.memberCount,
+                    administratorCount = full?.administratorCount?.takeIf { it > 0 }, inviteLink = full?.inviteLink?.inviteLink.orEmpty(),
                     usernames = group?.usernames?.activeUsernames.orEmpty().toList(), isVerified = group?.verificationStatus?.isVerified == true)
             }
             else -> base

@@ -51,7 +51,7 @@ For subsequent Dev updates, use `scripts/update-dev.ps1`. It requires an existin
 
 Chat-list and conversation-header avatars download the small TDLib photo through the shared file store. Profile photos open at full size. `UpdateChatPhoto`, user/group updates and `UpdateFile` refresh the UI without storing public image URLs.
 
-Tap a chat's name or avatar in the conversation header to view its information: user status, available phone/username/bio/birthday, business address, number of groups in common, or group/channel description and member count. Visibility follows what TDLib makes available to the current account. Hidden phone numbers are not inferred.
+Tap a chat's name or avatar in the conversation header to view its information: user status, available phone/username/bio/birthday, business address, number of groups in common, or group/channel description, invite link, member, administrator and online counts. Visibility follows what TDLib makes available to the current account. Hidden phone numbers are not inferred.
 
 The avatar at the top right of the chat list opens My Profile. Name, surname, editable username and bio can be changed with Save; the bio limit comes from TDLib's `bio_length_max` option. Server errors remain on the editor, and partially accepted changes are refreshed rather than rolled back silently. Choosing a new profile photo shows a centered square preview and requires Set Photo before uploading. These operations target the real Telegram account and must only be submitted by the user.
 
