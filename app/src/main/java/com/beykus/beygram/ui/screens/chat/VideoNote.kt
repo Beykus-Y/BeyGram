@@ -170,6 +170,7 @@ internal fun VideoNoteBubble(
     onLongPress: (() -> Unit)? = null,
     time: String = "",
     statusIcon: ImageVector? = null,
+    statusDescription: String? = null,
     unseen: Boolean = false
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
@@ -206,51 +207,57 @@ internal fun VideoNoteBubble(
     val fraction = if (holder.durationMs > 0) (holder.positionMs.toFloat() / holder.durationMs).coerceIn(0f, 1f) else 0f
     // Во время проигрывания показывается оставшееся время, как в оригинальном клиенте.
     val shownSeconds = if (holder.started && holder.durationMs > 0) (holder.durationMs - holder.positionMs + 500) / 1000 else media.durationSeconds
-    Box(Modifier.size(size)) {
-        Box(
-            Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
-                .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress),
-            contentAlignment = Alignment.Center
-        ) {
-            if (holder.started) AndroidView(
-                factory = { context ->
-                    TextureView(context).apply {
-                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) = holder.attach(Surface(texture))
-                            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) = Unit
-                            override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean { holder.detach(); return true }
-                            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-            if (holder.started) Canvas(Modifier.fillMaxSize()) {
-                val stroke = 4.dp.toPx()
-                val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
-                val inset = Offset(stroke / 2, stroke / 2)
-                drawArc(palette.textSecondary.copy(alpha = 0.3f), startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
-                drawArc(palette.accent, startAngle = -90f, sweepAngle = 360f * fraction, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
-            }
-            if (holder.started) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                Icon(if (holder.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
-            }
-            if (path == null && (wantPlay || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
-            if (!holder.started) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
-                modifier = Modifier.align(Alignment.TopStart).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
-            Text(duration(shownSeconds), color = Color.White, fontSize = 12.sp,
-                modifier = Modifier.align(Alignment.BottomStart).padding(10.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
-            if (time.isNotBlank()) Row(
-                Modifier.align(Alignment.BottomEnd).padding(10.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
+    Column(horizontalAlignment = Alignment.End) {
+        Box(Modifier.size(size)) {
+            Box(
+                Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
+                    .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress),
+                contentAlignment = Alignment.Center
             ) {
-                Text(time, color = Color.White, fontSize = 12.sp)
-                if (statusIcon != null) {
-                    Spacer(Modifier.width(3.dp))
-                    Icon(statusIcon, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                if (holder.started) AndroidView(
+                    factory = { context ->
+                        TextureView(context).apply {
+                            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) = holder.attach(Surface(texture))
+                                override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) = Unit
+                                override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean { holder.detach(); return true }
+                                override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+                if (holder.started) Canvas(Modifier.fillMaxSize()) {
+                    val stroke = 4.dp.toPx()
+                    val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
+                    val inset = Offset(stroke / 2, stroke / 2)
+                    drawArc(palette.textSecondary.copy(alpha = 0.3f), startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
+                    drawArc(palette.accent, startAngle = -90f, sweepAngle = 360f * fraction, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
                 }
+                if (holder.started) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                    Icon(if (holder.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                }
+                if (path == null && (wantPlay || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
+                if (!holder.started) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
+                    modifier = Modifier.align(Alignment.TopStart).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
+
+
+            }
+            if (unseen && !played) Box(Modifier.align(Alignment.CenterEnd).size(10.dp).background(palette.accent, CircleShape))
+        }
+        Row(
+            Modifier.padding(top = 4.dp).background(palette.surface, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(duration(shownSeconds), color = palette.textSecondary, fontSize = 12.sp)
+            if (time.isNotBlank()) {
+                Spacer(Modifier.width(12.dp))
+                Text(time, color = palette.textSecondary, fontSize = 12.sp)
+            }
+            if (statusIcon != null) {
+                Spacer(Modifier.width(3.dp))
+                Icon(statusIcon, contentDescription = statusDescription, tint = palette.accent, modifier = Modifier.size(14.dp))
             }
         }
-        if (unseen && !played) Box(Modifier.align(Alignment.CenterEnd).size(10.dp).background(palette.accent, CircleShape))
     }
 }

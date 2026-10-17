@@ -518,7 +518,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val shape = if (message.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     val hasText = message.text.isNotBlank()
     val circle = message.media?.kind == MediaKind.VideoNote
-    // Кружок показывает время и статус поверх себя; при ошибке отправки статус остаётся под пузырём.
+    // Время и статус кружка находятся под кругом, вне обрезки видео.
     val inCircle = circle && message.sendState != MessageSendState.Failed
     val statusIcon = when {
         !message.isOutgoing -> null
@@ -528,14 +528,21 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     }
     Box(Modifier.fillMaxWidth(), contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart) {
         // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
-        Column(Modifier.widthIn(max = 292.dp).clip(shape)
+        Column(Modifier.widthIn(max = 292.dp)
+            .then(if (message.media != null && !circle) Modifier.width(244.dp) else Modifier).clip(shape)
             .background(if (circle) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
             .then(if (highlighted) Modifier.border(2.dp, palette.accent, if (circle) CircleShape else shape) else Modifier)
             .combinedClickable(onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() }, onLongClick = onActions)) {
             // Media sits flush against the bubble's top and side edges; text keeps its own padding.
             message.media?.let { media ->
                 if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile, onPlayed, onActions,
-                    time = if (inCircle) message.time else "", statusIcon = if (inCircle) statusIcon else null, unseen = !message.isOutgoing && !media.isViewed)
+                    time = if (inCircle) message.time else "", statusIcon = if (inCircle) statusIcon else null,
+                    statusDescription = when {
+                        !message.isOutgoing -> null
+                        message.sendState == MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
+                        isRead -> stringResource(R.string.chat_read_description)
+                        else -> stringResource(R.string.chat_sent_description)
+                    }, unseen = !message.isOutgoing && !media.isViewed)
                 else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed)
             }
             Column(Modifier.padding(start = 12.dp, end = 12.dp, top = if (circle) 4.dp else 8.dp, bottom = if (circle) 0.dp else 6.dp)) {
