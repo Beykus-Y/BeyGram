@@ -1,5 +1,8 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -121,12 +124,12 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     }
 
     suspend fun edit(edit: ProfileEdit): Result<Unit> = runCatching {
-        val current = me.value.info ?: error("Профиль ещё не загружен")
-        require(edit.firstName.trim().isNotEmpty()) { "Введите имя" }
-        require(edit.firstName.length <= 64 && edit.lastName.length <= 64) { "Имя и фамилия — не более 64 символов" }
-        require(edit.bio.codePointCount(0, edit.bio.length) <= bioLimit.value) { "Описание — не более ${bioLimit.value} символов" }
+        val current = me.value.info ?: throw UserMessageException(UiText.Res(R.string.err_profile_not_loaded))
+        if (edit.firstName.trim().isEmpty()) throw UserMessageException(UiText.Res(R.string.err_name_empty))
+        if (edit.firstName.length > 64 || edit.lastName.length > 64) throw UserMessageException(UiText.Res(R.string.err_name_too_long, listOf(64)))
+        if (edit.bio.codePointCount(0, edit.bio.length) > bioLimit.value) throw UserMessageException(UiText.Res(R.string.err_bio_too_long, listOf(bioLimit.value)))
         val username = edit.username.trim().removePrefix("@")
-        require(username.isBlank() || username.matches(Regex("[A-Za-z][A-Za-z0-9_]{4,31}")) || username == current.username) { "Имя пользователя: 5–32 латинских символа, цифры и _, начинается с буквы" }
+        if (!(username.isBlank() || username.matches(Regex("[A-Za-z][A-Za-z0-9_]{4,31}")) || username == current.username)) throw UserMessageException(UiText.Res(R.string.err_username_format))
         // Each accepted change is immediately published by TDLib. Refresh even after a partial failure.
         try {
             withTimeout(30_000) {
@@ -186,10 +189,10 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             is TdApi.MessageSenderChat -> chats[sender.chatId]?.title
             else -> null
         }
-        return name?.takeIf { it.isNotBlank() } ?: "Кто-то"
+        return name?.takeIf { it.isNotBlank() }.orEmpty()
     }
     private fun userInfo(user: TdApi.User): ProfileInfo = ProfileInfo(
-        id = user.id, title = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "Пользователь" },
+        id = user.id, title = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
         kind = if (user.type is TdApi.UserTypeBot) ProfileKind.Bot else ProfileKind.Person,
         photo = user.profilePhoto?.let { photo(it.small, it.big) }, firstName = user.firstName.orEmpty(), lastName = user.lastName.orEmpty(),
         username = user.usernames?.editableUsername.orEmpty(), usernames = user.usernames?.activeUsernames.orEmpty().toList(),
@@ -212,16 +215,16 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             else -> base
         }
     }
-    private fun status(user: TdApi.User): String {
-        if (user.type is TdApi.UserTypeBot) return "Бот"
-        if (user.type is TdApi.UserTypeDeleted) return "Удалённый аккаунт"
+    private fun status(user: TdApi.User): ProfilePresence {
+        if (user.type is TdApi.UserTypeBot) return ProfilePresence.Bot
+        if (user.type is TdApi.UserTypeDeleted) return ProfilePresence.DeletedAccount
         return when (val status = user.status) {
-            is TdApi.UserStatusOnline -> if (status.expires > System.currentTimeMillis() / 1000) "В сети" else "Был(а) недавно"
-            is TdApi.UserStatusOffline -> if (status.wasOnline > 0) "Был(а) ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(status.wasOnline * 1000L))}" else "Был(а) давно"
-            is TdApi.UserStatusRecently -> "Был(а) недавно"
-            is TdApi.UserStatusLastWeek -> "Был(а) на этой неделе"
-            is TdApi.UserStatusLastMonth -> "Был(а) в этом месяце"
-            else -> "Был(а) давно"
+            is TdApi.UserStatusOnline -> if (status.expires > System.currentTimeMillis() / 1000) ProfilePresence.Online else ProfilePresence.Recently
+            is TdApi.UserStatusOffline -> if (status.wasOnline > 0) ProfilePresence.LastSeen(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(status.wasOnline * 1000L))) else ProfilePresence.LongAgo
+            is TdApi.UserStatusRecently -> ProfilePresence.Recently
+            is TdApi.UserStatusLastWeek -> ProfilePresence.LastWeek
+            is TdApi.UserStatusLastMonth -> ProfilePresence.LastMonth
+            else -> ProfilePresence.LongAgo
         }
     }
     private suspend fun <T : TdApi.Object> request(function: TdApi.Function<T>): T = suspendCancellableCoroutine { continuation ->
@@ -241,12 +244,13 @@ private class Typist(val sender: TdApi.MessageSender) {
     var expiry: Job? = null
 }
 
-private fun Throwable.profileError(): String = when {
-    this is TimeoutCancellationException -> "Сервер не ответил вовремя. Обновите сведения и проверьте, сохранились ли изменения."
-    message?.contains("USERNAME_OCCUPIED") == true -> "Это имя пользователя уже занято"
-    message?.contains("USERNAME_INVALID") == true -> "Недопустимое имя пользователя"
-    message?.contains("USERNAME_PURCHASE_AVAILABLE") == true -> "Это имя пользователя доступно только для покупки"
-    message?.contains("FLOOD_WAIT") == true || message?.contains("Too Many Requests") == true -> "Слишком много изменений. Попробуйте позже"
-    else -> message ?: "Не удалось загрузить сведения"
+private fun Throwable.profileError(): UiText = when {
+    this is UserMessageException -> text
+    this is TimeoutCancellationException -> UiText.Res(R.string.err_profile_timeout)
+    message?.contains("USERNAME_OCCUPIED") == true -> UiText.Res(R.string.err_username_taken)
+    message?.contains("USERNAME_INVALID") == true -> UiText.Res(R.string.err_username_invalid)
+    message?.contains("USERNAME_PURCHASE_AVAILABLE") == true -> UiText.Res(R.string.err_username_purchase)
+    message?.contains("FLOOD_WAIT") == true || message?.contains("Too Many Requests") == true -> UiText.Res(R.string.err_profile_flood_wait)
+    else -> UiText.Res(R.string.err_profile_load_failed)
 }
-private fun Result<Unit>.mapProfileError(): Result<Unit> = fold({ Result.success(Unit) }, { Result.failure(IllegalStateException(it.profileError())) })
+private fun Result<Unit>.mapProfileError(): Result<Unit> = fold({ Result.success(Unit) }, { Result.failure(UserMessageException(it.profileError(), it)) })

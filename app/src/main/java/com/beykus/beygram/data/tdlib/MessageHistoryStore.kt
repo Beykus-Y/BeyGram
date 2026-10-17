@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageSendState
@@ -62,7 +63,7 @@ internal class MessageHistoryStore {
         state.value = state.value.copy(lastReadOutboxMessageId = maxOf(state.value.lastReadOutboxMessageId, messageId))
     }
 
-    fun fail(chatId: Long, error: String, endLoading: Boolean = true) = synchronized(lock) {
+    fun fail(chatId: Long, error: UiText, endLoading: Boolean = true) = synchronized(lock) {
         val state = flow(chatId)
         state.value = state.value.copy(error = error, isLoading = if (endLoading) false else state.value.isLoading)
     }

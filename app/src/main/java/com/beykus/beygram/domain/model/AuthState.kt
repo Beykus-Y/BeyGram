@@ -1,5 +1,7 @@
 package com.beykus.beygram.domain.model
 
+import com.beykus.beygram.domain.UiText
+
 sealed interface AuthState {
     /** Начальное состояние — TDLib ещё не инициализирован. */
     data object Idle : AuthState
@@ -22,6 +24,6 @@ sealed interface AuthState {
     /** TDLib не ответила на сетевой запрос за отведённое время. */
     data object ConnectionTimeout : AuthState
 
-    /** Что-то пошло не так; [message] — текст ошибки от TDLib. */
-    data class Error(val message: String) : AuthState
+    /** Что-то пошло не так; [text] — текст ошибки для показа. */
+    data class Error(val text: UiText) : AuthState
 }

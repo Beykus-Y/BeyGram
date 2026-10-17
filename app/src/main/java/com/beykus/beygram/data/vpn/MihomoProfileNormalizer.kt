@@ -1,7 +1,10 @@
 package com.beykus.beygram.data.vpn
 
-import com.beykus.beygram.domain.model.VpnSettings
 import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.VpnSettings
 import org.yaml.snakeyaml.DumperOptions
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
@@ -17,8 +20,11 @@ import org.json.JSONObject
 /** Validates the provider document structure and forces app-private traffic settings. */
 internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCredentials) {
     fun normalize(source: String): NormalizedMihomoProfile {
-        require(source.isNotBlank()) { "Подписка пустая" }
-        require(source.toByteArray(Charsets.UTF_8).size <= MAX_PROFILE_BYTES) { "Подписка слишком большая (больше 5 МБ)" }
+        if (source.isBlank()) throw UserMessageException(UiText.Res(R.string.err_vpn_sub_empty), IllegalArgumentException("Подписка пустая"))
+        if (source.toByteArray(Charsets.UTF_8).size > MAX_PROFILE_BYTES) throw UserMessageException(
+            UiText.Res(R.string.err_vpn_sub_too_large, listOf(MAX_PROFILE_BYTES / (1024 * 1024))),
+            IllegalArgumentException("Подписка слишком большая (больше 5 МБ)")
+        )
 
         val loaderOptions = LoaderOptions().apply {
             codePointLimit = MAX_PROFILE_BYTES
@@ -39,7 +45,9 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
         }
         if (root == null) {
             val decoded = decodeBase64Yaml(source)
-                ?: throw SubscriptionException(
+                ?: throw subscriptionUserError(
+                    SubscriptionFailure.UNSUPPORTED_PROFILE,
+                    UiText.Res(R.string.err_vpn_sub_unsupported),
                     "Ссылка не похожа на подписку с серверами."
                 )
             VpnSubscriptionDiagnostics.event("encoding", "decoded=true decodedBytes=${decoded.toByteArray(Charsets.UTF_8).size}")
@@ -49,13 +57,13 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
             if (root == null) {
                 val result = parseProxyUriList(decoded)
                 VpnSubscriptionDiagnostics.event("links", result.summary)
-                if (result.proxies.isEmpty()) throw SubscriptionException("В подписке нет серверов, которые можно использовать")
+                if (result.proxies.isEmpty()) throw subscriptionUserError(SubscriptionFailure.NO_SERVERS, UiText.Res(R.string.err_vpn_sub_no_servers), "В подписке нет серверов, которые можно использовать")
                 root = linkedMapOf("proxies" to result.proxies)
             }
         }
         val config = linkedMapOf<String, Any?>()
         root!!.forEach { (key, value) ->
-            val stringKey = key as? String ?: throw SubscriptionException("В подписке есть некорректные данные")
+            val stringKey = key as? String ?: throw subscriptionUserError(SubscriptionFailure.REJECTED, UiText.Res(R.string.err_vpn_sub_invalid_data), "В подписке есть некорректные данные")
             config[stringKey] = value
         }
 
@@ -103,7 +111,11 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
             val existingGroup = groups[groupIndex] as? Map<*, *>
             val type = (existingGroup?.get("type") as? String)?.lowercase()
             if (type != "select") {
-                throw SubscriptionException("В подписке уже есть группа с именем ${VpnSettings.DEFAULT_CONNECTION_GROUP}")
+                throw subscriptionUserError(
+                    SubscriptionFailure.REJECTED,
+                    UiText.Res(R.string.err_vpn_sub_group_taken, listOf(VpnSettings.DEFAULT_CONNECTION_GROUP)),
+                    "В подписке уже есть группа с именем ${VpnSettings.DEFAULT_CONNECTION_GROUP}"
+                )
             }
             groups[groupIndex] = linkedMapOf<String, Any?>().apply {
                 existingGroup?.forEach { (key, value) -> (key as? String)?.let { put(it, value) } }
@@ -130,7 +142,7 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
             width = MAX_PROFILE_BYTES
         }
         val normalized = runCatching { Yaml(dumperOptions).dump(config) }
-            .getOrElse { throw SubscriptionException("Не удалось обработать подписку") }
+            .getOrElse { throw subscriptionUserError(SubscriptionFailure.REJECTED, UiText.Res(R.string.err_vpn_sub_process_failed), "Не удалось обработать подписку") }
         VpnSubscriptionDiagnostics.event("normalize", "accepted topLevelFields=${config.size}")
         return NormalizedMihomoProfile(normalized, groupName)
     }

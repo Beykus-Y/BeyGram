@@ -1,5 +1,8 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ContactPreview
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -27,15 +30,15 @@ internal class TdContacts(private val client: () -> Client, private val profiles
 
     /** Если номера нет в Telegram, TDLib возвращает идентификатор 0 вместо пользователя. */
     suspend fun add(firstName: String, lastName: String, phone: String) {
-        if (phone.count { it.isDigit() } < MIN_PHONE_DIGITS) throw IllegalStateException("Введите номер телефона полностью")
+        if (phone.count { it.isDigit() } < MIN_PHONE_DIGITS) throw UserMessageException(UiText.Res(R.string.err_phone_incomplete))
         val note = TdApi.FormattedText("", emptyArray<TdApi.TextEntity>())
         val imported = try {
             requests(TdApi.ImportContacts(arrayOf(TdApi.ImportedContact(phone, firstName, lastName, note))))
         } catch (error: TdRequestError) {
-            if (error.message?.contains("PHONE_NUMBER_INVALID") == true) throw IllegalStateException("Некорректный номер телефона")
+            if (error.message?.contains("PHONE_NUMBER_INVALID") == true) throw UserMessageException(UiText.Res(R.string.err_phone_invalid), error)
             throw error
         }
-        if (imported.userIds.none { it != 0L }) throw IllegalStateException("Такого номера нет в Telegram")
+        if (imported.userIds.none { it != 0L }) throw UserMessageException(UiText.Res(R.string.err_phone_not_on_telegram))
     }
 
     /** Один пользователь, которого TDLib не отдал, не должен скрывать весь список контактов. */
@@ -49,7 +52,7 @@ internal class TdContacts(private val client: () -> Client, private val profiles
 
     private fun TdApi.User.toContact(): ContactPreview = ContactPreview(
         userId = id,
-        title = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "Пользователь" },
+        title = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" "),
         subtitle = subtitle(),
         photo = profilePhoto?.let { profiles.photo(it.small, it.big) },
         avatarColorArgb = id.stableColor()

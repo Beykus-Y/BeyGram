@@ -1,11 +1,12 @@
 package com.beykus.beygram.domain.model
 
+import com.beykus.beygram.domain.UiText
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ChatOrderingTest {
     private fun chat(id: Long, order: Long, pinned: Boolean = false) =
-        ChatPreview(id, "chat", "C", "message", "12:00", 0, 0L, isPinned = pinned, order = order)
+        ChatPreview(id, "chat", "C", UiText.Raw("message"), "12:00", 0, 0L, isPinned = pinned, order = order)
 
     @Test fun serverPositionOverridesChatId() {
         assertEquals(listOf(1L, 99L), orderedMainChats(listOf(chat(99L, 1L), chat(1L, 10L))).map { it.id })

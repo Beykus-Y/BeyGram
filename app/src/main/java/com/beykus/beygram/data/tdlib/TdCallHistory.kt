@@ -44,7 +44,7 @@ internal class TdCallHistory(private val client: () -> Client, private val profi
         return CallRecord(
             messageId = id,
             chatId = chatId,
-            title = chat?.title?.takeIf { it.isNotBlank() } ?: "Звонок",
+            title = chat?.title?.takeIf { it.isNotBlank() }.orEmpty(),
             photo = chat?.let { profiles.photo(it.photo) },
             avatarColorArgb = chatId.stableColor(),
             isVideo = call.isVideo,

@@ -33,6 +33,7 @@ import com.beykus.beygram.notifications.TelegramNotificationService
 import com.beykus.beygram.notifications.AndroidNotificationRenderer
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.ui.text.resolve
 
 @Composable
 internal fun NotificationPermissionCoordinator(runtime: NotificationRuntime) {
@@ -101,7 +102,7 @@ fun NotificationSettingsScreen(runtime: NotificationRuntime, connectionState: Te
                 if (intent.resolveActivity(context.packageManager) != null) open(intent) else open(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             }) { Text(stringResource(R.string.notif_allow_background_work)) }
             Text(stringResource(R.string.notif_battery_note), color = palette.textSecondary, fontSize = 13.sp)
-            error?.let { Text(it, color = palette.danger) }
+            error?.let { Text(it.resolve(), color = palette.danger) }
             HorizontalDivider(color = palette.divider)
             Text(stringResource(R.string.notif_diagnostics_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(stringResource(R.string.notif_connection_status, stringResource(connectionState.statusLabelRes())), color = palette.textSecondary)

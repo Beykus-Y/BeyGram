@@ -2,6 +2,9 @@ package com.beykus.beygram.data.vpn
 
 import android.os.Build
 import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -59,9 +62,9 @@ internal class SubscriptionClient(
                 when (status) {
                     in 200..299 -> {
                         val declaredLength = connection.getHeaderFieldLong("Content-Length", -1L)
-                        if (declaredLength > MAX_BODY_BYTES) throw SubscriptionException("Подписка слишком большая (больше 5 МБ)")
+                        if (declaredLength > MAX_BODY_BYTES) throw tooLargeError()
                         val body = connection.inputStream.use { readBounded(it, MAX_BODY_BYTES) }
-                        if (body.isEmpty()) throw SubscriptionException("Сервер подписки вернул пустой ответ")
+                        if (body.isEmpty()) throw subscriptionUserError(SubscriptionFailure.REJECTED, UiText.Res(R.string.err_vpn_sub_empty_response), "Сервер подписки вернул пустой ответ")
                         val text = body.toString(Charsets.UTF_8).removePrefix("\uFEFF")
                         VpnSubscriptionDiagnostics.event("response", "bodyBytes=${body.size}")
                         return FetchedVpnSubscription(
@@ -71,15 +74,15 @@ internal class SubscriptionClient(
                         )
                     }
                     in 300..399 -> {
-                        if (redirectNumber == MAX_REDIRECTS) throw SubscriptionException("Слишком много переадресаций при загрузке подписки")
+                        if (redirectNumber == MAX_REDIRECTS) throw subscriptionUserError(SubscriptionFailure.REJECTED, UiText.Res(R.string.err_vpn_sub_too_many_redirects), "Слишком много переадресаций при загрузке подписки")
                         val redirect = connection.getHeaderField("Location")
-                            ?: throw SubscriptionException("Сервер подписки перенаправил без адреса")
+                            ?: throw subscriptionUserError(SubscriptionFailure.REJECTED, UiText.Res(R.string.err_vpn_sub_redirect_no_address), "Сервер подписки перенаправил без адреса")
                         val next = validateUrl(URL(currentUrl, redirect).toString())
                         // Do not forward an installation ID (or a subscription URL token) to another origin.
-                        if (origin(next) != originalOrigin) throw SubscriptionException("Подписка перенаправляет на другой сайт. Такие переадресации запрещены")
+                        if (origin(next) != originalOrigin) throw subscriptionUserError(SubscriptionFailure.REJECTED, UiText.Res(R.string.err_vpn_sub_redirect_other_site), "Подписка перенаправляет на другой сайт. Такие переадресации запрещены")
                         currentUrl = next
                     }
-                    else -> throw SubscriptionException("Сервер подписки ответил ошибкой $status")
+                    else -> throw subscriptionUserError(SubscriptionFailure.HTTP_ERROR, UiText.Res(R.string.err_vpn_sub_http_error, listOf(status)), "Сервер подписки ответил ошибкой $status")
                 }
             } catch (error: Exception) {
                 VpnSubscriptionDiagnostics.failure("download", error)
@@ -88,13 +91,19 @@ internal class SubscriptionClient(
                 connection.disconnect()
             }
         }
-        throw SubscriptionException("Не удалось загрузить подписку")
+        throw subscriptionUserError(SubscriptionFailure.REJECTED, UiText.Res(R.string.proxy_connect_subscription_load_failed), "Не удалось загрузить подписку")
     }
 
     private fun validateUrl(raw: String): URL {
-        val url = runCatching { URL(raw.trim()) }.getOrElse { throw SubscriptionException("Введите правильную ссылку на подписку") }
+        val url = runCatching { URL(raw.trim()) }.getOrElse {
+            throw subscriptionUserError(SubscriptionFailure.INVALID_URL, UiText.Res(R.string.err_vpn_sub_invalid_url), "Введите правильную ссылку на подписку")
+        }
         if (url.protocol != "https" || url.host.isBlank() || url.userInfo != null || url.port == 0) {
-            throw SubscriptionException("Ссылка на подписку должна начинаться с https:// и не содержать логин и пароль")
+            throw subscriptionUserError(
+                SubscriptionFailure.URL_POLICY_REJECTED,
+                UiText.Res(R.string.err_vpn_sub_url_policy),
+                "Ссылка на подписку должна начинаться с https:// и не содержать логин и пароль"
+            )
         }
         return url
     }
@@ -106,6 +115,12 @@ internal class SubscriptionClient(
         return type.takeIf { MEDIA_TYPE.matches(it) } ?: "unknown"
     }
 
+    private fun tooLargeError(): UserMessageException = subscriptionUserError(
+        SubscriptionFailure.TOO_LARGE,
+        UiText.Res(R.string.err_vpn_sub_too_large, listOf(MAX_BODY_BYTES / (1024 * 1024))),
+        "Подписка слишком большая (больше 5 МБ)"
+    )
+
     private fun readBounded(input: java.io.InputStream, limit: Int): ByteArray {
         val output = ByteArrayOutputStream(minOf(limit, 64 * 1024))
         val buffer = ByteArray(16 * 1024)
@@ -114,7 +129,7 @@ internal class SubscriptionClient(
             val count = input.read(buffer)
             if (count < 0) break
             total += count
-            if (total > limit) throw SubscriptionException("Подписка слишком большая (больше 5 МБ)")
+            if (total > limit) throw tooLargeError()
             output.write(buffer, 0, count)
         }
         return output.toByteArray()
@@ -130,4 +145,16 @@ internal class SubscriptionClient(
     }
 }
 
-class SubscriptionException(message: String, cause: Throwable? = null) : Exception(message, cause)
+/** Why a subscription was refused. Diagnostics use it to pick the report code. */
+enum class SubscriptionFailure { HTTP_ERROR, UNSUPPORTED_PROFILE, NO_SERVERS, INVALID_URL, URL_POLICY_REJECTED, TOO_LARGE, REJECTED }
+
+/** [message] is only for the diagnostics report. The user sees the text carried by [UserMessageException]. */
+class SubscriptionException(val failure: SubscriptionFailure, message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/** A subscription refusal for the user: [text] is shown on screen; [detail] and [failure] go to the diagnostics report. */
+internal fun subscriptionUserError(
+    failure: SubscriptionFailure,
+    text: UiText,
+    detail: String,
+    cause: Throwable? = null
+): UserMessageException = UserMessageException(text, SubscriptionException(failure, detail, cause))

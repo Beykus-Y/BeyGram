@@ -73,12 +73,14 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.ui.text.resolve
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.contentDescription
@@ -124,7 +126,7 @@ fun ChatsScreen(
     )
     val filteredChats = remember(query, chats, selectedFilter) {
         chats.filter { chat ->
-            val matchesQuery = query.isBlank() || chat.title.contains(query, true) || chat.lastMessage.contains(query, true)
+            val matchesQuery = query.isBlank() || chat.title.contains(query, true) || (chat.lastMessage as? UiText.Raw)?.text?.contains(query, true) == true
             val matchesFilter = when (selectedFilter) {
                 ChatFilter.All -> true
                 ChatFilter.Unread -> chat.unreadCount > 0
@@ -187,7 +189,7 @@ fun ChatsScreen(
         Column(modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("BEYGRAM", color = palette.accent, style = MaterialTheme.typography.labelMedium, letterSpacing = 0.8.sp)
+                    Text(stringResource(R.string.app_name).uppercase(), color = palette.accent, style = MaterialTheme.typography.labelMedium, letterSpacing = 0.8.sp)
                     Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
                 }
                 androidx.compose.material3.IconButton(onClick = onNotifications, modifier = Modifier.semantics { contentDescription = context.getString(R.string.chats_notifications_description) }) {
@@ -385,6 +387,7 @@ private fun EmptyState(filter: ChatFilter, query: String) {
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit) {
     val palette = beyGramPalette()
     val unread = chat.unreadCount > 0
+    val emptyPreview = (chat.lastMessage as? UiText.Raw)?.text?.isBlank() == true
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -403,7 +406,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                     chat.isPinned -> Icon(Icons.Rounded.PushPin, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
                     chat.isMuted -> Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
                 }
-                Text(chat.lastMessage.ifBlank { if (chat.isGroup) stringResource(R.string.chats_group_preview) else stringResource(R.string.chats_start_conversation) }, color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(if (emptyPreview) stringResource(if (chat.isGroup) R.string.chats_group_preview else R.string.chats_start_conversation) else chat.lastMessage.resolve(), color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (unread) {
                     Spacer(Modifier.width(8.dp))
                     Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(11.dp)).background(palette.accent).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {

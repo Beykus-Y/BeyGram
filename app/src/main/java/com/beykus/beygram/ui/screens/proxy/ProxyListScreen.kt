@@ -32,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,6 +46,8 @@ import com.beykus.beygram.domain.model.MihomoProbeResult
 import com.beykus.beygram.domain.model.SavedTelegramProxy
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.resolve
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 
 /**
@@ -61,6 +64,7 @@ internal fun ProxyListScreen(
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val connections by vpnBackend.connections.collectAsStateWithLifecycle()
     val probes by vpnBackend.probes.collectAsStateWithLifecycle()
     val settings by vpnBackend.settings.collectAsStateWithLifecycle()
@@ -73,7 +77,7 @@ internal fun ProxyListScreen(
 
     val reload: () -> Unit = {
         scope.launch {
-            saved = repository.loadSavedProxies().getOrElse { error -> message = error.message; emptyList() }
+            saved = repository.loadSavedProxies().getOrElse { error -> message = error.userMessage(context, R.string.proxy_list_load_failed); emptyList() }
             // A failed query keeps the last known state: an error must not show the proxy as off.
             repository.isMihomoProxyEnabled().onSuccess { mihomoEnabled = it }
             latency = emptyMap()
@@ -95,7 +99,7 @@ internal fun ProxyListScreen(
         scope.launch {
             repository.enableProxy(proxy.id)
                 .onSuccess { vpnBackend.stopListener() }
-                .onFailure { message = it.message }
+                .onFailure { message = it.userMessage(context, R.string.proxy_list_switch_failed) }
             reload()
         }
     }
@@ -103,7 +107,7 @@ internal fun ProxyListScreen(
         scope.launch {
             repository.disableProxy()
                 .onSuccess { vpnBackend.stopListener() }
-                .onFailure { message = it.message }
+                .onFailure { message = it.userMessage(context, R.string.proxy_list_switch_failed) }
             reload()
         }
     }
@@ -112,14 +116,14 @@ internal fun ProxyListScreen(
             onSubscriptionServers()
         } else {
             scope.launch {
-                vpnBackend.startProxy().onFailure { message = it.message }
+                vpnBackend.startProxy().onFailure { message = it.userMessage(context, R.string.err_vpn_start_failed) }
                 reload()
             }
         }
     }
     val removeSaved: (SavedTelegramProxy) -> Unit = { proxy ->
         scope.launch {
-            repository.removeProxy(proxy.id).onFailure { message = it.message }
+            repository.removeProxy(proxy.id).onFailure { message = it.userMessage(context, R.string.proxy_list_remove_failed) }
             reload()
         }
     }
@@ -204,7 +208,7 @@ internal fun ProxyListScreen(
 
             if (runtime.status == ProxyRuntimeStatus.FAILED) {
                 runtime.message?.let {
-                    Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                    Text(it.resolve(), color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                 }
             }
             message?.let {
