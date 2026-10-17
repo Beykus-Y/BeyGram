@@ -25,7 +25,7 @@ class ConnectionFailureLog(
 
     /** Самые новые ошибки первыми. */
     @Synchronized
-    fun snapshot(): List<ConnectionFailureEntry> = entries.reversed()
+    fun snapshot(): List<ConnectionFailureEntry> = entries.reversed().toList()
 
     companion object {
         const val DEFAULT_CAPACITY = 20

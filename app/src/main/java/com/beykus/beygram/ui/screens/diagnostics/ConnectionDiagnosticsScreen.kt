@@ -71,7 +71,7 @@ private val FAILURE_TIME = DateTimeFormatter.ofPattern("dd.MM HH:mm:ss", Locale.
  * и по кнопке «Проверить снова». Макет: BeyGram Scenarios 2, раздел 5.
  */
 @Composable
-fun ConnectionDiagnosticsScreen(
+internal fun ConnectionDiagnosticsScreen(
     repository: TelegramRepository,
     vpnBackend: VpnBackend,
     connectionState: TelegramConnectionState,
