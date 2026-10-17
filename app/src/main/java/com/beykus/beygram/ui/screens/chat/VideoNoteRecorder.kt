@@ -455,7 +455,6 @@ internal class VideoNoteRecorder(
         try {
             current.recording = prepare(current, persistent = persistentSupported)
             Log.i(TAG, "video_recording_started session=$sessionName persistent=$persistentSupported")
-            recordStarted()
         } catch (failure: Exception) {
             // Persistent-запись нужна только для смены камеры во время записи: без неё кружок пишется как раньше.
             if (!persistentSupported) {
@@ -472,7 +471,6 @@ internal class VideoNoteRecorder(
             try {
                 current.recording = prepare(current, persistent = false)
                 Log.i(TAG, "video_recording_started session=$sessionName persistent=false")
-                recordStarted()
             } catch (retryFailure: Exception) {
                 Log.e(TAG, "video_recording_start_failed session=$sessionName")
                 recordRecordingFailure("recording_start", retryFailure)
@@ -494,6 +492,7 @@ internal class VideoNoteRecorder(
                 if (event is VideoRecordEvent.Start && take === current && active) {
                     started = true
                     startClock()
+                    recordStarted()
                 }
                 if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
             }

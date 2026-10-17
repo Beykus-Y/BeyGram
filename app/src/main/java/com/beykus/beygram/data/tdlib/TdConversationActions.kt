@@ -213,10 +213,14 @@ private fun recordMediaAccepted(kind: String) = recordAppEvent(
     attrs = mapOf("kind" to kind)
 )
 
-/** Ошибки проверки ввода (пустой текст, длинная подпись) пользователь видит сразу, в журнал не пишем. */
+/** Пишем каждый сбой отправки. Проверка до запроса (пустой текст, ответ недоступен) без причины TDLib получает local_check. */
 private fun recordSendFailure(kind: String, error: Throwable) {
-    if (error is UserMessageException && error.cause == null) return
-    val reason = (error.cause as? TdRequestError)?.let { "tdlib_${it.code}" } ?: (error.cause ?: error).javaClass.simpleName
+    val cause = error.cause
+    val reason = when {
+        cause is TdRequestError -> "tdlib_${cause.code}"
+        cause == null && error is UserMessageException -> "local_check"
+        else -> (cause ?: error).javaClass.simpleName
+    }
     recordAppEvent(
         kind = EventKind.TDLIB,
         code = "send_request_failed",
