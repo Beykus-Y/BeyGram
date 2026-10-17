@@ -161,34 +161,56 @@ internal class VideoNoteRecorder(
         val capture = videoCapture ?: return
         val current = take ?: return
         if (!active || !started || !canSwitchCamera || !persistentSupported) return
-        val targetFront = !preferFrontCamera
-        val selector = if (targetFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
-        if (!cameraProvider.hasCamera(selector)) return
-        // FPS у capture задан на этапе создания; если целевая камера такой диапазон не поддерживает, переключение запрещаем:
-        // пересоздать capture без обрыва persistent-записи нельзя.
-        val captureFps = captureFpsRange
-        if (captureFps != null) {
-            val targetSupported = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges.map { it.lower..it.upper }
-            val compatible = targetSupported.any { range -> range.first <= captureFps.lower && captureFps.upper <= range.last }
-            if (!compatible) {
-                Log.i(TAG, "video_camera_switch_refused fps=$captureFps supported=$targetSupported")
-                onError(context.getString(R.string.recorder_camera_switch_failed))
-                return
-            }
-        }
         val previousSelector = if (preferFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
-        Log.i(TAG, "video_camera_switch_started front=$targetFront")
+        // hasCamera/getCameraInfo умеют бросаться, поэтому весь этап capability-проверок тоже внутри try.
+        var unbound = false
         try {
+            val targetFront = !preferFrontCamera
+            val selector = if (targetFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+            if (!cameraProvider.hasCamera(selector)) return
+            // FPS у capture задан на этапе создания; если целевая камера такой диапазон не поддерживает, переключение запрещаем:
+            // пересоздать capture без обрыва persistent-записи нельзя.
+            val captureFps = captureFpsRange
+            if (captureFps != null) {
+                val targetSupported = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges.map { it.lower..it.upper }
+                val compatible = targetSupported.any { range -> range.first <= captureFps.lower && captureFps.upper <= range.last }
+                if (!compatible) {
+                    Log.i(TAG, "video_camera_switch_refused fps=$captureFps supported=$targetSupported")
+                    onError(context.getString(R.string.recorder_camera_switch_failed))
+                    return
+                }
+            }
+            Log.i(TAG, "video_camera_switch_started front=$targetFront")
             cameraProvider.unbindAll()
+            unbound = true
             bind(cameraProvider, selector, current.settings, capture)
             preferFrontCamera = targetFront
             Log.i(TAG, "video_camera_switched front=$preferFrontCamera")
         } catch (failure: Exception) {
             Log.e(TAG, "video_camera_switch_failed", failure)
-            // Запись продолжается с прежней камерой: persistent-запись пережила отвязку, возвращаем кадр.
-            runCatching { bind(cameraProvider, previousSelector, current.settings, capture) }
-                .onFailure { Log.e(TAG, "video_camera_restore_failed", it) }
-            onError(context.getString(R.string.recorder_camera_switch_failed))
+            if (!unbound) {
+                // Камера ещё привязана: сбоила только проверка, запись продолжается без изменений.
+                onError(context.getString(R.string.recorder_camera_switch_failed))
+                return
+            }
+            val restored = runCatching { bind(cameraProvider, previousSelector, current.settings, capture) }
+            if (restored.isSuccess) {
+                // Запись продолжается с прежней камерой: persistent-запись пережила отвязку, кадр возвращён.
+                onError(context.getString(R.string.recorder_camera_switch_failed))
+                return
+            }
+            Log.e(TAG, "video_camera_restore_failed", restored.exceptionOrNull())
+            // Привязанной камеры нет: аварийно завершаем запись, иначе persistent Recording ждёт кадров,
+            // таймер продолжает тикать, а пользователь получает пустой клип и зависший интерфейс.
+            current.discard = true
+            active = false
+            locked = false
+            canceling = false
+            started = false
+            timer?.cancel()
+            timer = null
+            requestStop(current)
+            onError(context.getString(R.string.recorder_camera_switch_aborted))
         }
     }
 
@@ -464,7 +486,7 @@ internal class VideoNoteRecorder(
         }
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
-        when (videoTakeOutcome(event.error, current.discard, seconds)) {
+        when (videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)) {
             VideoTakeOutcome.Discarded -> current.file.parentFile?.deleteRecursively()
             VideoTakeOutcome.TooShort -> {
                 current.file.parentFile?.deleteRecursively()
@@ -494,9 +516,14 @@ internal class VideoNoteRecorder(
 /** Итог завершённой записи. Отдельная политика, чтобы покрывать её юнит-тестами без CameraX. */
 internal enum class VideoTakeOutcome { Send, Discarded, TooShort, SaveFailed }
 
-/** Ошибка важнее отмены: даже отменённая запись с ошибкой кодека не должна отличаться от сломанной. */
-internal fun videoTakeOutcome(error: Int, discard: Boolean, durationSeconds: Int): VideoTakeOutcome = when {
+/**
+ * Ошибка важнее отмены: даже отменённая запись с ошибкой кодека не должна отличаться от сломанной.
+ * Отправка разрешена только после явного [stopRequested]: внеплановый Finalize без команды пользователя
+ * не должен превращаться в отправку, даже если CameraX не сообщил об ошибке.
+ */
+internal fun videoTakeOutcome(error: Int, discard: Boolean, durationSeconds: Int, stopRequested: Boolean): VideoTakeOutcome = when {
     error != 0 -> VideoTakeOutcome.SaveFailed
+    !stopRequested -> VideoTakeOutcome.SaveFailed
     discard -> VideoTakeOutcome.Discarded
     durationSeconds < MIN_DURATION_SECONDS -> VideoTakeOutcome.TooShort
     else -> VideoTakeOutcome.Send

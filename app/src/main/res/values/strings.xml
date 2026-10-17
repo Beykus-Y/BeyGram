@@ -524,6 +524,8 @@
     <string name="recorder_camera_open_failed">Не удалось открыть камеру</string>
 
     <string name="recorder_camera_switch_failed">Не удалось переключить камеру, запись продолжается</string>
+
+    <string name="recorder_camera_switch_aborted">Не удалось переключить камеру, запись остановлена</string>
     <string name="recorder_file_name">Видеосообщение.mp4</string>
     <string name="recorder_recording_description">Идёт запись кружка</string>
     <string name="recorder_release_to_cancel">Отпустите, чтобы отменить.</string>
