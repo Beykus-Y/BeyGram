@@ -17,6 +17,7 @@ import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.CallHistoryPage
@@ -30,6 +31,7 @@ import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.NotificationPresentation
 import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.TelegramProxyKind
 import com.beykus.beygram.data.vpn.LoopbackProxyCredentials
@@ -104,6 +106,18 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override suspend fun removeProxy(id: Int): Result<Unit> = proxyMutex.withLock {
         requestResult { tdRequests(TdApi.RemoveProxy(id)); Unit }
+    }
+
+    override suspend fun currentRoute(): Result<TelegramRoute> = requestResult<TelegramRoute> {
+        val enabled = tdRequests(TdApi.GetProxies()).proxies.orEmpty().firstOrNull { it.isEnabled }
+        when {
+            enabled == null -> TelegramRoute.Direct
+            enabled.isMihomoEntry() -> TelegramRoute.Subscription
+            else -> {
+                val proxy = enabled.toSavedProxy() ?: error("Unsupported proxy type")
+                TelegramRoute.Proxy(proxy.kind, proxy.server, proxy.port)
+            }
+        }
     }
 
     override suspend fun isMihomoProxyEnabled(): Result<Boolean> =
@@ -220,7 +234,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
     private val profiles = TdProfiles({ client }, mediaFiles)
-    private val notificationFeed = TdNotifications({ client }, profiles::senderName)
+    /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
+    private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
+    private val notificationFeed = TdNotifications({ client }, profiles::senderName) { chatId ->
+        chatId !in returningFromArchive && chatCache[chatId]?.archiveOrder?.let { it > 0L } == true
+    }
     override val notifications get() = notificationFeed.state
     private val _notificationPresentation = MutableStateFlow(NotificationPresentation())
     override val notificationPresentation = _notificationPresentation.asStateFlow()
@@ -233,6 +251,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = requestResult {
         val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
         TdRequests { client }(TdApi.AddChatToList(chatId, list)); Unit
+    }
+    override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = requestResult {
+        !TdRequests { client }(TdApi.GetArchiveChatListSettings()).keepUnmutedChatsArchived
+    }
+    override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = requestResult {
+        // Меняем одно поле: остальные настройки архива аккаунта должны остаться прежними.
+        val settings = TdRequests { client }(TdApi.GetArchiveChatListSettings())
+        settings.keepUnmutedChatsArchived = !enabled
+        TdRequests { client }(TdApi.SetArchiveChatListSettings(settings)); Unit
     }
     override suspend fun markChatRead(chatId: Long): Result<Unit> = conversationResult {
         val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L } ?: throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
@@ -295,6 +322,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
      * пересобираются не чаще раза в [CHAT_LIST_PUBLISH_DELAY_MS].
      */
     private val chatCache = ConcurrentHashMap<Long, ChatPreview>()
+    // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
+    private val historyRequests = ConcurrentHashMap<Long, Long>()
     private val chatListScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val chatListPublisher = CoalescedPublisher(chatListScope, CHAT_LIST_PUBLISH_DELAY_MS) {
         // Main-list ordering comes from Telegram, including pins and draft activity.
@@ -412,11 +441,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationEffects.contentOpened(chatId, messageId)
     }
 
-    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> =
-        conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities)
+    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities)
+    }
 
-    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> =
-        conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities)
+    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities)
+    }
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> =
         conversationActions.retryMessages(chatId, messageIds)
 
@@ -426,7 +459,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationEffects.opened(chatId)
         messageHistory.opened(chatId)
         client.send(TdApi.OpenChat(chatId), Client.ResultHandler { })
-        if (messageHistory.beginLoad(chatId)) requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3)
+        nextHistoryRequest(chatId)
+        requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3, epoch = messageHistory.restartFromLatest(chatId))
     }
 
     override fun closeChat(chatId: Long) {
@@ -438,10 +472,35 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override fun loadOlderMessages(chatId: Long) {
         val oldest = messageHistory.observe(chatId).value.messages.firstOrNull()?.id ?: 0L
-        if (messageHistory.beginLoad(chatId)) requestHistory(chatId, oldest, remaining = 50, pagesLeft = 3)
+        messageHistory.beginLoad(chatId)?.let { epoch -> requestHistory(chatId, oldest, remaining = 50, pagesLeft = 3, epoch = epoch) }
     }
 
-    private fun requestHistory(chatId: Long, fromMessageId: Long, remaining: Int, pagesLeft: Int) {
+    override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
+        val request = nextHistoryRequest(chatId)
+        return conversationActions.window(chatId, messageId).map { messages ->
+            // A newer jump or latest load started meanwhile, so this window must not replace its result.
+            if (historyRequests[chatId] != request) false else {
+                val newestId = chatCache[chatId]?.lastMessageId
+                messageHistory.replaceWithWindow(chatId, messages.map { it.toChatMessage() }, reachesLatest = messages.any { it.id == newestId })
+                messages.forEach(conversationActions::hydrateReply)
+                true
+            }
+        }
+    }
+
+    override fun loadLatestMessages(chatId: Long) {
+        nextHistoryRequest(chatId)
+        requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3, epoch = messageHistory.restartFromLatest(chatId))
+    }
+
+    private fun nextHistoryRequest(chatId: Long): Long = historyRequests.merge(chatId, 1L) { current, _ -> current + 1 } ?: 1L
+
+    /** Sending from a jump window first returns to the newest messages, so the sent message does not leave a gap. */
+    private fun leaveJumpWindow(chatId: Long) {
+        if (messageHistory.observe(chatId).value.hasNewerMessages) loadLatestMessages(chatId)
+    }
+
+    private fun requestHistory(chatId: Long, fromMessageId: Long, remaining: Int, pagesLeft: Int, epoch: Long) {
         val requestVersion = messageHistory.version()
         client.send(TdApi.GetChatHistory(chatId, fromMessageId, 0, 50, false), Client.ResultHandler { result ->
             when (result) {
@@ -450,18 +509,22 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     val nextFrom = page.lastOrNull()?.id ?: fromMessageId
                     val more = page.isNotEmpty()
                     val continueLoading = more && nextFrom != fromMessageId && remaining > page.size && pagesLeft > 1
-                    messageHistory.finishLoad(chatId, page.map { it.toChatMessage() }, more, continueLoading, requestVersion)
-                    page.forEach(conversationActions::hydrateReply)
-                    if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "History page received: ${page.size} messages")
-                    if (continueLoading) requestHistory(chatId, nextFrom, remaining - page.size, pagesLeft - 1)
+                    // A page from before the window was replaced is stale and must not be merged or continued.
+                    if (messageHistory.finishLoad(chatId, page.map { it.toChatMessage() }, more, continueLoading, requestVersion, epoch)) {
+                        page.forEach(conversationActions::hydrateReply)
+                        if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "History page received: ${page.size} messages")
+                        if (continueLoading) requestHistory(chatId, nextFrom, remaining - page.size, pagesLeft - 1, epoch)
+                    }
                 }
-                is TdApi.Error -> messageHistory.fail(chatId, UiText.Res(R.string.err_chat_history_load_failed))
+                is TdApi.Error -> messageHistory.fail(chatId, UiText.Res(R.string.err_chat_history_load_failed), epoch = epoch)
             }
         })
     }
 
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> =
-        conversationActions.sendText(chatId, text, replyToMessageId, entities)
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendText(chatId, text, replyToMessageId, entities)
+    }
 
     // =========================================================================
     // Обработка обновлений TDLib
@@ -596,6 +659,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.AuthorizationStateReady -> {
                 _authState.value = AuthState.Ready
                 loadChats()
+                syncArchiveReturnSetting()
                 profiles.refreshMe()
                 conversationActions.initialize()
                 conversationEffects.authorized()
@@ -636,6 +700,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun loadChats() {
         loadChatList(TdApi.ChatListMain())
         loadChatList(TdApi.ChatListArchive())
+    }
+
+    /** Переключатель возврата из архива показывает настройку аккаунта, поэтому читаем её при входе. */
+    private fun syncArchiveReturnSetting() {
+        chatListScope.launch {
+            archiveReturnsOnNewMessage().onSuccess { returns ->
+                val store = ArchiveSettingsStore.get(appContext)
+                store.update(store.state.value.copy(returnOnNewMessage = returns))
+            }
+        }
     }
 
     /**
@@ -699,6 +773,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun handleNewMessage(message: TdApi.Message) {
         messageHistory.put(message.toChatMessage())
         conversationActions.hydrateReply(message)
+        val chat = chatCache[message.chatId]
+        // Muted archived chats stay in the archive, as they do in Telegram.
+        if (!message.isOutgoing && chat != null && chat.archiveOrder > 0L && !chat.isMuted && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage) {
+            returningFromArchive += message.chatId
+            chatListScope.launch {
+                setChatArchived(message.chatId, false).onFailure { ConnectionEventLog.shared.record("Возврат чата из архива: ошибка") }
+                returningFromArchive -= message.chatId
+            }
+        }
     }
 
     private fun TdApi.Message.toChatMessage(): ChatMessage {

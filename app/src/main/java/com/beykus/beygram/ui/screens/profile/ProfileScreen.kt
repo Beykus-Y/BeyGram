@@ -46,6 +46,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
+import java.time.LocalDate
+import java.time.MonthDay
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @Composable
 fun ProfileScreen(
@@ -103,7 +107,12 @@ fun ProfileScreen(
                         if (info.phone.isNotBlank()) add(context.getString(R.string.profile_row_phone) to "+${info.phone.removePrefix("+")}")
                         (info.usernames + info.username.takeIf { it.isNotBlank() }).filterNotNull().distinct().forEach { add(context.getString(R.string.profile_username) to "@$it") }
                         if (info.bio.isNotBlank()) add((if (info.kind == ProfileKind.Group || info.kind == ProfileKind.Channel) context.getString(R.string.profile_row_description) else context.getString(R.string.profile_about_me)) to info.bio)
+                        info.birthday?.let { birthdayText(it, Locale.getDefault()) }?.let { add(context.getString(R.string.profile_row_birthday) to it) }
+                        if (info.address.isNotBlank()) add(context.getString(R.string.profile_row_address) to info.address)
+                        info.commonGroupCount?.let { add(context.getString(R.string.profile_row_common_groups) to it.toString()) }
+                        if (info.inviteLink.isNotBlank()) add(context.getString(R.string.profile_row_invite_link) to info.inviteLink)
                         if (info.memberCount != null) add((if (info.kind == ProfileKind.Channel) context.getString(R.string.profile_row_subscribers) else context.getString(R.string.profile_row_members)) to info.memberCount.toString())
+                        info.administratorCount?.let { add(context.getString(R.string.profile_row_administrators) to it.toString()) }
                         add(context.getString(R.string.profile_row_type) to when (info.kind) {
                             ProfileKind.Person -> if (info.isSelf) context.getString(R.string.profile_type_own_account) else context.getString(R.string.profile_type_private_chat)
                             ProfileKind.Bot -> context.getString(R.string.profile_type_bot)
@@ -165,12 +174,20 @@ fun ProfileScreen(
 }
 
 @Composable private fun ProfileInfo.subtitle(): String = when (kind) {
-    ProfileKind.Group -> memberCount?.let { stringResource(R.string.profile_group_members_count, it) } ?: stringResource(R.string.profile_type_group)
+    ProfileKind.Group -> memberCount?.let { count ->
+        onlineMemberCount?.let { stringResource(R.string.profile_group_members_online_count, count, it) } ?: stringResource(R.string.profile_group_members_count, count)
+    } ?: stringResource(R.string.profile_type_group)
     ProfileKind.Channel -> memberCount?.let { stringResource(R.string.profile_channel_subscribers_count, it) } ?: stringResource(R.string.profile_type_channel)
     ProfileKind.Secret -> stringResource(R.string.profile_secret_chat_status, status?.let { presenceText(it).resolve() }.orEmpty())
     ProfileKind.Bot -> stringResource(R.string.profile_type_bot)
     ProfileKind.Person -> if (isSelf) stringResource(R.string.profile_own_account_telegram) else status?.let { presenceText(it).resolve() }.orEmpty()
 }
+
+/** День рождения для строки профиля; год показываем, только если аккаунт его указал. Null, если дата не сходится с календарём. */
+internal fun birthdayText(birthday: ProfileBirthday, locale: Locale): String? = runCatching {
+    if (birthday.year == null) MonthDay.of(birthday.month, birthday.day).format(DateTimeFormatter.ofPattern("d MMMM", locale))
+    else LocalDate.of(birthday.year, birthday.month, birthday.day).format(DateTimeFormatter.ofPattern("d MMMM yyyy", locale))
+}.getOrNull()
 
 @Composable
 private fun InfoRow(label: String, value: String) {

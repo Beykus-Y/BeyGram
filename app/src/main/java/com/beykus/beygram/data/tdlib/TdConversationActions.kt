@@ -147,6 +147,14 @@ internal class TdConversationActions(
         if (!forwarded.messages.orEmpty().any { it != null }) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
     }
 
+    /** Messages around [messageId], newest last. TDLib may return fewer messages, so the target is fetched separately. */
+    suspend fun window(chatId: Long, messageId: Long): Result<List<TdApi.Message>> = conversationResult {
+        if (chatId == 0L || messageId <= 0) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
+        val target = request(TdApi.GetMessage(chatId, messageId))
+        val page = request(TdApi.GetChatHistory(chatId, messageId, -15, 40, false)).messages.orEmpty().filterNotNull()
+        (page + target).distinctBy { it.id }.sortedBy { it.id }
+    }
+
     suspend fun context(chatId: Long, messageId: Long): Result<MessageContext> = conversationResult {
         if (chatId == 0L || messageId <= 0) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
         val target = request(TdApi.GetMessage(chatId, messageId))

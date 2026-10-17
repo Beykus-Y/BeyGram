@@ -12,6 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.content.ContextCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.text.resolve
 
@@ -22,6 +23,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
     fun render(state: TelegramNotifications, config: NotificationPreferences, presentation: NotificationPresentation, authorized: Boolean) {
         if (!state.initialized && authorized) return // Wait for TDLib's startup snapshot before reconciling old tray entries.
         val shown = mutableSetOf<String>()
+        val archiveSound = ArchiveSettingsStore.get(context).state.value.archiveSound
         for (group in state.groups) {
             val tag = tag(group.id)
             val maxId = group.notices.maxOfOrNull { it.id } ?: 0
@@ -44,7 +46,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
                 .setStyle(style).setCategory(NotificationCompat.CATEGORY_MESSAGE).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
                 .setWhen(latest.dateSeconds * 1000).setShowWhen(true).setNumber(group.totalCount).setAutoCancel(true)
                 .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
-                .setSilent(!fresh).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH).build()
+                .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH).build()
             try { compat.notify(tag, 0, notification); shown.add(tag) } catch (_: SecurityException) { }
         }
         manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }

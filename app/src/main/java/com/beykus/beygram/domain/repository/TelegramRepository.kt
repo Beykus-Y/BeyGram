@@ -13,6 +13,7 @@ import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.SavedTelegramProxy
 import com.beykus.beygram.domain.model.TelegramProxyDraft
+import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.repository.ReportBotChannel
 import kotlinx.coroutines.flow.StateFlow
 
@@ -37,6 +38,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
     suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>
+
+    /** Настройка аккаунта: возвращать ли непрочитанный архивный чат в основной список при новом сообщении. */
+    suspend fun archiveReturnsOnNewMessage(): Result<Boolean>
+
+    /** Меняет настройку аккаунта, поэтому она действует на все устройства, где вошёл этот аккаунт. */
+    suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit>
 
     /** Отмечает прочитанными все сообщения чата, в том числе у архивных чатов. */
     suspend fun markChatRead(chatId: Long): Result<Unit>
@@ -88,6 +95,9 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Удаляет сохранённый прокси. */
     suspend fun removeProxy(id: Int): Result<Unit>
+
+    /** Маршрут соединения с Telegram прямо сейчас: напрямую, через прокси или через подписку серверов. */
+    suspend fun currentRoute(): Result<TelegramRoute>
 
     /** Время TCP-соединения с сервером прокси, в миллисекундах. */
     suspend fun measureProxyLatency(server: String, port: Int): Result<Long>

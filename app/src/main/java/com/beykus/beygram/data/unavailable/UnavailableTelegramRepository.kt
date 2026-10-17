@@ -25,6 +25,7 @@ import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramNotifications
 import com.beykus.beygram.domain.model.TelegramProxyDraft
@@ -62,6 +63,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit> = unavailable()
     override suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit> = unavailable()
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = unavailable()
+    override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = unavailable()
+    override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = unavailable()
     override suspend fun markChatRead(chatId: Long): Result<Unit> = unavailable()
     override suspend fun loadContacts(): Result<List<ContactPreview>> = Result.success(emptyList())
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> = unavailable()
@@ -81,6 +84,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun enableProxy(id: Int): Result<Unit> = unavailable()
     override suspend fun disableProxy(): Result<Unit> = unavailable()
     override suspend fun removeProxy(id: Int): Result<Unit> = unavailable()
+    override suspend fun currentRoute(): Result<TelegramRoute> = unavailable()
     override suspend fun measureProxyLatency(server: String, port: Int): Result<Long> = unavailable()
     override suspend fun isMihomoProxyEnabled(): Result<Boolean> = Result.success(false)
     override suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit> = if (enabled) unavailable() else Result.success(Unit)
@@ -116,6 +120,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>): Result<Unit> = unavailable()
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit> = unavailable()
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit> = unavailable()
+    override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> = unavailable()
+    override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) {}

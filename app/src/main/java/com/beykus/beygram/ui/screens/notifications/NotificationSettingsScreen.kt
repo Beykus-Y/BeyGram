@@ -11,11 +11,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -25,8 +29,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
-import kotlinx.coroutines.launch
-import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.notifications.TelegramNotificationService
@@ -56,12 +58,14 @@ internal fun NotificationPermissionCoordinator(runtime: NotificationRuntime) {
 }
 
 @Composable
-fun NotificationSettingsScreen(runtime: NotificationRuntime, connectionState: TelegramConnectionState, onBack: () -> Unit) {
+fun NotificationSettingsScreen(
+    runtime: NotificationRuntime,
+    connectionState: TelegramConnectionState,
+    onBack: () -> Unit,
+    onDiagnostics: () -> Unit
+) {
     val context = LocalContext.current
     val palette = beyGramPalette()
-    val scope = rememberCoroutineScope()
-    var sharing by remember { mutableStateOf(false) }
-    var shareError by remember { mutableStateOf<String?>(null) }
     val config by runtime.preferences.state.collectAsStateWithLifecycle()
     val running by runtime.serviceRunning.collectAsStateWithLifecycle()
     val error by runtime.serviceError.collectAsStateWithLifecycle()
@@ -104,17 +108,13 @@ fun NotificationSettingsScreen(runtime: NotificationRuntime, connectionState: Te
             Text(stringResource(R.string.notif_battery_note), color = palette.textSecondary, fontSize = 13.sp)
             error?.let { Text(it.resolve(), color = palette.danger) }
             HorizontalDivider(color = palette.divider)
-            Text(stringResource(R.string.notif_diagnostics_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Text(stringResource(R.string.notif_connection_status, stringResource(connectionState.statusLabelRes())), color = palette.textSecondary)
-            Text(stringResource(R.string.notif_diagnostics_note), color = palette.textSecondary, fontSize = 13.sp)
-            OutlinedButton(enabled = !sharing, onClick = {
-                scope.launch {
-                    sharing = true; shareError = null
-                    try { shareError = shareConnectionDiagnosticsOrError(context, connectionState) }
-                    finally { sharing = false }
+            Row(Modifier.fillMaxWidth().clickable(onClick = onDiagnostics), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.notif_diagnostics_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.notif_connection_status, stringResource(connectionState.statusLabelRes())), color = palette.textSecondary)
                 }
-            }) { Text(if (sharing) stringResource(R.string.auth_share_logs_progress) else stringResource(R.string.auth_share_logs)) }
-            shareError?.let { Text(it, color = palette.danger) }
+                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary)
+            }
         }
     }
 }
@@ -132,7 +132,7 @@ private fun SettingToggle(title: String, description: String, checked: Boolean, 
 }
 
 @StringRes
-private fun TelegramConnectionState.statusLabelRes(): Int = when (this) {
+internal fun TelegramConnectionState.statusLabelRes(): Int = when (this) {
     TelegramConnectionState.Connected -> R.string.connection_state_connected
     TelegramConnectionState.Connecting -> R.string.connection_state_connecting
     TelegramConnectionState.Updating -> R.string.connection_state_updating

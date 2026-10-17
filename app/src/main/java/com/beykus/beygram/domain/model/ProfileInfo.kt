@@ -19,6 +19,9 @@ sealed interface ProfilePresence {
     data object LongAgo : ProfilePresence
 }
 
+/** День рождения из TDLib; год неизвестен, если аккаунт его не указал. */
+data class ProfileBirthday(val day: Int, val month: Int, val year: Int?)
+
 data class ProfileInfo(
     val id: Long,
     val title: String,
@@ -30,10 +33,18 @@ data class ProfileInfo(
     val usernames: List<String> = emptyList(),
     val phone: String = "",
     val bio: String = "",
+    val birthday: ProfileBirthday? = null,
+    /** Адрес бизнес-аккаунта из TDLib; у обычных аккаунтов пусто. */
+    val address: String = "",
+    /** Число общих групп с собеседником; null, если их нет или это свой профиль. */
+    val commonGroupCount: Int? = null,
     val status: ProfilePresence? = null,
     val memberCount: Int? = null,
     /** Участники, онлайн прямо сейчас; TDLib присылает число только для открытого чата. */
     val onlineMemberCount: Int? = null,
+    val administratorCount: Int? = null,
+    /** Основная ссылка-приглашение; TDLib отдаёт её не всем, поэтому может быть пусто. */
+    val inviteLink: String = "",
     val isSelf: Boolean = false,
     val isPremium: Boolean = false,
     val isVerified: Boolean = false

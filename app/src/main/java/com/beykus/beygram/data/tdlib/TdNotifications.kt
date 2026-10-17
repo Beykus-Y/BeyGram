@@ -9,7 +9,7 @@ import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 
 /** Consume TDLib's authoritative notification groups, never infer alerts from history. */
-internal class TdNotifications(client: () -> Client, private val senderName: (TdApi.MessageSender?) -> String) {
+internal class TdNotifications(client: () -> Client, private val senderName: (TdApi.MessageSender?) -> String, private val isArchived: (Long) -> Boolean) {
     private val request = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
@@ -74,10 +74,13 @@ internal class TdNotifications(client: () -> Client, private val senderName: (Td
             finally { synchronized(lock) { resolving.remove(id) } }
         } }
     }
-    private fun metadata(group: TelegramNoticeGroup): TelegramNoticeGroup = chats[group.chatId]?.let { chat ->
-        group.copy(title = chat.title, metadataReady = true, isGroup = chat.type is TdApi.ChatTypeBasicGroup || chat.type is TdApi.ChatTypeSupergroup,
-            isSecret = group.isSecret || chat.type is TdApi.ChatTypeSecret)
-    } ?: group
+    private fun metadata(group: TelegramNoticeGroup): TelegramNoticeGroup {
+        val archived = isArchived(group.chatId)
+        return chats[group.chatId]?.let { chat ->
+            group.copy(title = chat.title, metadataReady = true, isGroup = chat.type is TdApi.ChatTypeBasicGroup || chat.type is TdApi.ChatTypeSupergroup,
+                isSecret = group.isSecret || chat.type is TdApi.ChatTypeSecret, archived = archived)
+        } ?: group.copy(archived = archived)
+    }
     private fun publish() { _state.value = _state.value.copy(groups = groups.values.sortedBy { it.id }) }
     private fun notice(notification: TdApi.Notification): TelegramNotice? = when (val type = notification.type) {
         is TdApi.NotificationTypeNewMessage -> TelegramNotice(notification.id, notification.date.toLong(), senderName(type.message.senderId),

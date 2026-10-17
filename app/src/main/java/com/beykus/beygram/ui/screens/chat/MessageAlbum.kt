@@ -3,7 +3,6 @@ package com.beykus.beygram.ui.screens.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,10 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Done
-import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -91,62 +87,52 @@ internal fun MessageAlbumBubble(
     val captions = chronological.filter { it.text.isNotBlank() }
     val captionMessage = captions.lastOrNull() ?: latest
     val reply = chronological.firstNotNullOfOrNull { it.reply }
-    val statusText = when (latest.sendState) {
-        MessageSendState.Sending -> ""
-        MessageSendState.Failed -> " · " + stringResource(R.string.chat_status_not_sent)
-        MessageSendState.Sent -> ""
-    }
 
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = if (latest.isOutgoing) Arrangement.End else Arrangement.Start) {
-        Column(Modifier.widthIn(max = 292.dp).clip(shape)
-            .then(if (highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-            .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble)) {
-            if (!latest.isOutgoing && latest.senderName.isNotBlank()) {
-                Text(latest.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp))
-            }
-            val rows = chronological.chunked(columns)
-            rows.forEachIndexed { index, rowMessages ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    rowMessages.forEach { message ->
-                        val media = message.media ?: return@forEach
-                        AlbumMediaTile(media, observeFile, onDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) }, Modifier.weight(1f))
+        BubbleLayout(
+            Modifier.widthIn(max = 292.dp).clip(shape)
+                .then(if (highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
+                .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble),
+            overlayMeta = false,
+            body = {
+                Column {
+                    if (!latest.isOutgoing && latest.senderName.isNotBlank()) {
+                        Text(latest.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp))
                     }
-                    repeat(columns - rowMessages.size) { SpacerTile(Modifier.weight(1f)) }
+                    val rows = chronological.chunked(columns)
+                    rows.forEachIndexed { index, rowMessages ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            rowMessages.forEach { message ->
+                                val media = message.media ?: return@forEach
+                                AlbumMediaTile(media, observeFile, onDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) }, Modifier.weight(1f))
+                            }
+                            repeat(columns - rowMessages.size) { SpacerTile(Modifier.weight(1f)) }
+                        }
+                        if (index < rows.lastIndex) Spacer(Modifier.height(2.dp))
+                    }
+                    if (reply != null) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).clip(RoundedCornerShape(10.dp))
+                            .background(palette.surface.copy(alpha = 0.72f)).combinedClickable(onClick = { onReplyClick(reply) }, onLongClick = { onActions(captionMessage.id) })
+                            .padding(horizontal = 9.dp, vertical = 6.dp)) {
+                            Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk,
+                                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    if (captions.isNotEmpty()) {
+                        Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { onActions(captionMessage.id) })
+                            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp)) {
+                            captions.forEach { FormattedMessageText(it) }
+                        }
+                    }
                 }
-                if (index < rows.lastIndex) Spacer(Modifier.height(2.dp))
+            },
+            meta = {
+                BubbleMeta(latest, isRead, retryAvailable = latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed },
+                    overlay = false, onRetry = onRetry)
             }
-            if (reply != null) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).clip(RoundedCornerShape(10.dp))
-                    .background(palette.surface.copy(alpha = 0.72f)).combinedClickable(onClick = { onReplyClick(reply) }, onLongClick = { onActions(captionMessage.id) })
-                    .padding(horizontal = 9.dp, vertical = 6.dp)) {
-                    Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk,
-                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            if (captions.isNotEmpty()) {
-                Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { onActions(captionMessage.id) })
-                    .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp)) {
-                    captions.forEach { FormattedMessageText(it) }
-                }
-            }
-            Row(Modifier.align(Alignment.End).padding(start = 12.dp, end = 10.dp, top = 2.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                val timeColor = if (latest.sendState == MessageSendState.Failed) palette.warningText else palette.textSecondary
-                Text(latest.time + statusText, color = timeColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                if (latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed }) {
-                    Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText, fontSize = 12.sp,
-                        modifier = Modifier.clickable(onClick = onRetry))
-                }
-                if (latest.isOutgoing && latest.sendState == MessageSendState.Sending) {
-                    Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = palette.textSecondary, modifier = Modifier.padding(start = 3.dp).size(14.dp))
-                } else if (latest.isOutgoing && latest.sendState == MessageSendState.Sent) {
-                    Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done,
-                        if (isRead) stringResource(R.string.chat_read_description) else stringResource(R.string.chat_sent_description),
-                        tint = palette.accent, modifier = Modifier.padding(start = 3.dp).size(15.dp))
-                }
-            }
-        }
+        )
     }
 }
 
