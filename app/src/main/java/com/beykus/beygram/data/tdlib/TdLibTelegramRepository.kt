@@ -7,6 +7,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.MessageSendState
@@ -41,6 +42,8 @@ import com.beykus.beygram.diagnostics.StructuredEventLog
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.repository.TelegramRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -312,6 +315,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun observeChatInfo(chatId: Long) = profiles.observe(chatId)
     override fun observeTyping(chatId: Long): StateFlow<List<String>> = profiles.observeTyping(chatId)
     override fun refreshChatInfo(chatId: Long) = profiles.refreshChat(chatId)
+    override suspend fun loadChatMembers(chatId: Long, offset: Int, limit: Int): Result<ChatMembersPage> = try {
+        Result.success(profiles.loadMembers(chatId, offset, limit))
+    } catch (timeout: TimeoutCancellationException) {
+        Result.failure(timeout)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
     override fun refreshMyProfile() = profiles.refreshMe()
     override suspend fun updateMyProfile(edit: ProfileEdit) = profiles.edit(edit)
     override suspend fun setMyProfilePhoto(photo: OutgoingMedia) = profiles.setPhoto(photo)

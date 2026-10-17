@@ -32,6 +32,8 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     val bioLengthLimit: StateFlow<Int>
     fun observeChatInfo(chatId: Long): StateFlow<ProfileState>
     fun refreshChatInfo(chatId: Long)
+    /** Страница участников группы или супергруппы; у каналов без прав TDLib откажет. */
+    suspend fun loadChatMembers(chatId: Long, offset: Int, limit: Int): Result<ChatMembersPage>
     fun refreshMyProfile()
     suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit>
     suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit>

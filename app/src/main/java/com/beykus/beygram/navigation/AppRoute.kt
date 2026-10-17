@@ -9,6 +9,7 @@ enum class AppRoute {
     Archive,
     Chat,
     ChatInfo,
+    ChatMembers,
     MyProfile,
     EditProfile,
     Notifications,

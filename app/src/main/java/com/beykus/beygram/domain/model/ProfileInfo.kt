@@ -22,6 +22,14 @@ sealed interface ProfilePresence {
 /** День рождения из TDLib; год неизвестен, если аккаунт его не указал. */
 data class ProfileBirthday(val day: Int, val month: Int, val year: Int?)
 
+enum class ProfileMemberRole { Owner, Admin, Member }
+
+/** Участник группы или канала; онлайн-статус известен только для тех, кого TDLib уже прислал. */
+data class ProfileMember(val name: String, val role: ProfileMemberRole, val online: Boolean)
+
+/** Страница участников: [total] нужен, чтобы понимать, есть ли следующая страница. */
+data class ChatMembersPage(val total: Int, val members: List<ProfileMember>)
+
 /** Владелец или администратор группы/канала; роль берётся из статуса участника в TDLib. */
 data class ProfileAdmin(val name: String, val isOwner: Boolean, val customTitle: String)
 
@@ -53,6 +61,10 @@ data class ProfileInfo(
     val inviteLink: String = "",
     val sharedCounts: SharedCounts? = null,
     val administrators: List<ProfileAdmin> = emptyList(),
+    /** Первые участники для предпросмотра; полный список открывается отдельным экраном. */
+    val memberPreview: List<ProfileMember> = emptyList(),
+    /** TDLib разрешает получать список участников: у каналов это часто запрещено. */
+    val canListMembers: Boolean = false,
     val isSelf: Boolean = false,
     val isPremium: Boolean = false,
     val isVerified: Boolean = false

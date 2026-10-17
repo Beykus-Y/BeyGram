@@ -27,6 +27,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val onlineCounts = mutableMapOf<Long, Int>()
     private val sharedCounts = mutableMapOf<Long, SharedCounts>()
     private val chatAdmins = mutableMapOf<Long, List<ProfileAdmin>>()
+    private val chatMemberPreview = mutableMapOf<Long, List<ProfileMember>>()
     private val typingBy = mutableMapOf<Long, MutableMap<String, Typist>>()
     private val typingFlows = ConcurrentHashMap<Long, MutableStateFlow<List<String>>>()
     private val details = ConcurrentHashMap<Long, MutableStateFlow<ProfileState>>()
@@ -125,6 +126,11 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 val admins = runCatching { withTimeout(25_000) { loadAdministrators(chatId) } }.getOrNull() ?: return@launch
                 synchronized(lock) { chatAdmins[chatId] = admins; publish() }
             }
+            scope.launch {
+                if (synchronized(lock) { chatProfile(chatId)?.canListMembers } != true) return@launch
+                val page = runCatching { withTimeout(25_000) { loadMembers(chatId, 0, PREVIEW_MEMBERS) } }.getOrNull() ?: return@launch
+                synchronized(lock) { chatMemberPreview[chatId] = page.members; publish() }
+            }
         }
     }
     /** Владелец и администраторы групп и каналов. Личным чатам TDLib их не отдаёт, поэтому запрос не отправляем. */
@@ -138,6 +144,36 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 name = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
                 isOwner = admin.isOwner, customTitle = admin.customTitle.orEmpty()
             )
+        }
+    }
+    /** Страница участников для экрана списка; у обычной группы TDLib отдаёт список целиком, поэтому страница режется локально. */
+    suspend fun loadMembers(chatId: Long, offset: Int, limit: Int): ChatMembersPage {
+        val (total, members) = withTimeout(25_000) { fetchMembers(chatId, offset, limit) }
+        return ChatMembersPage(total, members.mapNotNull { member ->
+            val id = (member.memberId as? TdApi.MessageSenderUser)?.userId ?: return@mapNotNull null
+            val user = synchronized(lock) { users[id] } ?: fetchUser(id) ?: return@mapNotNull null
+            ProfileMember(
+                name = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
+                role = when (member.status) {
+                    is TdApi.ChatMemberStatusCreator -> ProfileMemberRole.Owner
+                    is TdApi.ChatMemberStatusAdministrator -> ProfileMemberRole.Admin
+                    else -> ProfileMemberRole.Member
+                },
+                online = (user.status as? TdApi.UserStatusOnline)?.let { it.expires > System.currentTimeMillis() / 1000 } == true
+            )
+        })
+    }
+    private suspend fun fetchMembers(chatId: Long, offset: Int, limit: Int): Pair<Int, List<TdApi.ChatMember>> {
+        return when (val type = synchronized(lock) { chats[chatId]?.type }) {
+            is TdApi.ChatTypeSupergroup -> request(TdApi.GetSupergroupMembers(type.supergroupId, TdApi.SupergroupMembersFilterRecent(), offset, limit))
+                .let { it.totalCount to it.members.toList() }
+            is TdApi.ChatTypeBasicGroup -> {
+                val full = synchronized(lock) { groupFull[type.basicGroupId] }
+                    ?: request(TdApi.GetBasicGroupFullInfo(type.basicGroupId)).also { loaded -> synchronized(lock) { groupFull[type.basicGroupId] = loaded } }
+                val all = full.members.toList()
+                all.size to all.drop(offset).take(limit)
+            }
+            else -> throw UserMessageException(UiText.Res(R.string.profile_members_load_failed))
         }
     }
     private suspend fun fetchUser(id: Long): TdApi.User? = try {
@@ -236,7 +272,9 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true
         )
     }
-    private fun chatInfo(id: Long): ProfileInfo? = chatProfile(id)?.copy(sharedCounts = sharedCounts[id], administrators = chatAdmins[id].orEmpty())
+    private fun chatInfo(id: Long): ProfileInfo? = chatProfile(id)?.copy(
+        sharedCounts = sharedCounts[id], administrators = chatAdmins[id].orEmpty(), memberPreview = chatMemberPreview[id].orEmpty()
+    )
     private fun chatProfile(id: Long): ProfileInfo? {
         val chat = chats[id] ?: return null
         val base = ProfileInfo(id, chat.title, photo = photo(chat.photo), onlineMemberCount = onlineCounts[id]?.takeIf { it > 0 })
@@ -245,7 +283,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             is TdApi.ChatTypeSecret -> users[type.userId]?.let { userInfo(it).copy(id = id, title = chat.title, kind = ProfileKind.Secret) } ?: base.copy(kind = ProfileKind.Secret)
             is TdApi.ChatTypeBasicGroup -> {
                 val full = groupFull[type.basicGroupId]
-                base.copy(kind = ProfileKind.Group, bio = full?.description.orEmpty(), memberCount = groups[type.basicGroupId]?.memberCount,
+                base.copy(kind = ProfileKind.Group, bio = full?.description.orEmpty(), memberCount = groups[type.basicGroupId]?.memberCount, canListMembers = true,
                     administratorCount = full?.members?.count { it.status is TdApi.ChatMemberStatusCreator || it.status is TdApi.ChatMemberStatusAdministrator }?.takeIf { it > 0 },
                     inviteLink = full?.inviteLink?.inviteLink.orEmpty())
             }
@@ -255,6 +293,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 base.copy(kind = if (type.isChannel) ProfileKind.Channel else ProfileKind.Group,
                     bio = full?.description.orEmpty(), memberCount = full?.memberCount?.takeIf { it > 0 } ?: group?.memberCount,
                     administratorCount = full?.administratorCount?.takeIf { it > 0 }, inviteLink = full?.inviteLink?.inviteLink.orEmpty(),
+                    canListMembers = full?.canGetMembers == true,
                     usernames = group?.usernames?.activeUsernames.orEmpty().toList(), isVerified = group?.verificationStatus?.isVerified == true)
             }
             else -> base
@@ -298,6 +337,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
 
 private const val TYPING_TIMEOUT_MS = 6_000L
 private const val MAX_ADMINS = 20
+private const val PREVIEW_MEMBERS = 10
 
 private class Typist(val sender: TdApi.MessageSender) {
     /** Срок набора: новое действие или отмена отменяют прежний таймер. */

@@ -403,6 +403,10 @@
     <string name="profile_admin_owner">Владелец</string>
     <string name="profile_admin_role">Администратор</string>
     <string name="profile_admins_header">АДМИНИСТРАТОРЫ</string>
+    <string name="profile_members_all">Все участники · %1$d</string>
+    <string name="profile_members_header">УЧАСТНИКИ</string>
+    <string name="profile_members_load_failed">Не удалось загрузить участников</string>
+    <string name="profile_members_title">Участники</string>
     <string name="profile_badge_premium">Telegram Premium</string>
     <string name="profile_badge_verified">Подтверждённый аккаунт</string>
     <string name="profile_bio_counter">%1$d / %2$d</string>
