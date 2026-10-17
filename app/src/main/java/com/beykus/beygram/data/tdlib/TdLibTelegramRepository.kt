@@ -55,6 +55,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -700,8 +703,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             }
             is TdApi.AuthorizationStateReady -> {
                 _authState.value = AuthState.Ready
-                loadChats()
-                loadNotificationScopes()
+                loadChatsWithNotificationScopes()
                 syncArchiveReturnSetting()
                 profiles.refreshMe()
                 conversationActions.initialize()
@@ -745,14 +747,25 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         loadChatList(TdApi.ChatListArchive())
     }
 
-    /** Общие настройки звука нужны до того, как TDLib пришлёт чаты, поэтому читаем их сразу при входе. */
-    private fun loadNotificationScopes() {
+    /**
+     * Чаты грузим только после общих настроек звука: иначе новое сообщение в заглушённом архивном чате
+     * может вернуть его в основной список, пока настройки области ещё неизвестны.
+     */
+    private fun loadChatsWithNotificationScopes() {
         chatListScope.launch {
-            NotificationScope.entries.forEach { scope ->
+            loadNotificationScopes()
+            loadChats()
+        }
+    }
+
+    /** Ошибка чтения одной области оставляет её без общего значения, чат тогда смотрит на свою настройку. */
+    private suspend fun loadNotificationScopes() = coroutineScope {
+        NotificationScope.entries.map { scope ->
+            async {
                 runCatching { tdRequests(TdApi.GetScopeNotificationSettings(scope.toTd())) }
                     .onSuccess { handleScopeNotificationSettings(scope, it) }
             }
-        }
+        }.awaitAll()
     }
 
     private fun handleScopeNotificationSettings(scope: NotificationScope, settings: TdApi.ScopeNotificationSettings) {
