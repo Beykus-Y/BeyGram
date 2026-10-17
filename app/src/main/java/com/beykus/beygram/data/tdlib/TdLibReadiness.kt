@@ -13,13 +13,13 @@ data class TdLibReadiness(
     val issues: List<String>
         get() = buildList {
             if (!credentialsConfigured) {
-                add("Не настроены данные приложения для Telegram.")
+                add("Не настроен доступ к Telegram в этой сборке.")
             }
             if (javaBindingsStatus is TdLibRuntimeStatus.Missing) {
-                add("В приложении нет клиента Telegram.")
+                add("В приложении не хватает компонентов Telegram.")
             }
             if (nativeLibraryStatus is TdLibRuntimeStatus.Missing) {
-                add("В приложении нет библиотеки клиента Telegram.")
+                add("В приложении не хватает библиотеки Telegram.")
             }
         }
 }

@@ -172,7 +172,7 @@ internal class VpnBackend private constructor(
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy stop requested")
             val tdlib = setTdLibProxy(false)
-            if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось отключить прокси Telegram")
+            if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: IllegalStateException("Не удалось выключить прокси")
             stopListenerNow()
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
@@ -205,7 +205,7 @@ internal class VpnBackend private constructor(
 
     suspend fun fetchSubscription(url: String = settings.value.subscriptionUrl): Result<List<MihomoConnection>> =
         withContext(Dispatchers.IO) {
-            if (_busy.value) return@withContext Result.failure(IllegalStateException("VPN settings are already being updated"))
+            if (_busy.value) return@withContext Result.failure(IllegalStateException("Подписка уже обновляется. Дождитесь окончания."))
             _busy.value = true
             try {
                 VpnSubscriptionDiagnostics.event("fetch", "started")

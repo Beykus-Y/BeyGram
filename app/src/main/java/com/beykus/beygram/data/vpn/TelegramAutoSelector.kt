@@ -75,7 +75,7 @@ internal class TelegramAutoSelector(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            report(AutoSelectEvent.Failed(error.message ?: "Не удалось получить список серверов"))
+            report(AutoSelectEvent.Failed(error.message ?: "Не удалось прочитать список серверов"))
             return
         }
         if (connections.isEmpty()) {

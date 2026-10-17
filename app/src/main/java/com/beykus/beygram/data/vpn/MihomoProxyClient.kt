@@ -56,6 +56,6 @@ internal object MihomoProxyClient {
             }
         }
         MihomoRuntimeDiagnostics.event("listener", "port not ready error=${lastError?.javaClass?.simpleName ?: "none"}")
-        throw MihomoCoreException("Локальный прокси не запустился")
+        throw MihomoCoreException("Прокси не принимает подключения")
     }
 }

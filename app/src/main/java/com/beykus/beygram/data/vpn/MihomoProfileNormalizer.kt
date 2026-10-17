@@ -17,8 +17,8 @@ import org.json.JSONObject
 /** Validates the provider document structure and forces app-private traffic settings. */
 internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCredentials) {
     fun normalize(source: String): NormalizedMihomoProfile {
-        require(source.isNotBlank()) { "Subscription profile is empty" }
-        require(source.toByteArray(Charsets.UTF_8).size <= MAX_PROFILE_BYTES) { "Subscription profile is larger than 5 MiB" }
+        require(source.isNotBlank()) { "Подписка пустая" }
+        require(source.toByteArray(Charsets.UTF_8).size <= MAX_PROFILE_BYTES) { "Подписка слишком большая (больше 5 МБ)" }
 
         val loaderOptions = LoaderOptions().apply {
             codePointLimit = MAX_PROFILE_BYTES
@@ -40,7 +40,7 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
         if (root == null) {
             val decoded = decodeBase64Yaml(source)
                 ?: throw SubscriptionException(
-                    "Подписка не похожа ни на профиль прокси, ни на список ссылок"
+                    "Ссылка не похожа на подписку с серверами."
                 )
             VpnSubscriptionDiagnostics.event("encoding", "decoded=true decodedBytes=${decoded.toByteArray(Charsets.UTF_8).size}")
             val decodedParsed = parseYaml(safeYaml, decoded)
@@ -49,13 +49,13 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
             if (root == null) {
                 val result = parseProxyUriList(decoded)
                 VpnSubscriptionDiagnostics.event("links", result.summary)
-                if (result.proxies.isEmpty()) throw SubscriptionException("Декодированная подписка не похожа ни на профиль прокси, ни на список ссылок")
+                if (result.proxies.isEmpty()) throw SubscriptionException("В подписке нет серверов, которые можно использовать")
                 root = linkedMapOf("proxies" to result.proxies)
             }
         }
         val config = linkedMapOf<String, Any?>()
         root!!.forEach { (key, value) ->
-            val stringKey = key as? String ?: throw SubscriptionException("Подписка содержит некорректные данные")
+            val stringKey = key as? String ?: throw SubscriptionException("В подписке есть некорректные данные")
             config[stringKey] = value
         }
 
@@ -103,7 +103,7 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
             val existingGroup = groups[groupIndex] as? Map<*, *>
             val type = (existingGroup?.get("type") as? String)?.lowercase()
             if (type != "select") {
-                throw SubscriptionException("Подписка использует имя группы, которое занято приложением")
+                throw SubscriptionException("В подписке уже есть группа с именем ${VpnSettings.DEFAULT_CONNECTION_GROUP}")
             }
             groups[groupIndex] = linkedMapOf<String, Any?>().apply {
                 existingGroup?.forEach { (key, value) -> (key as? String)?.let { put(it, value) } }
@@ -130,7 +130,7 @@ internal class MihomoProfileNormalizer(private val credentials: LoopbackProxyCre
             width = MAX_PROFILE_BYTES
         }
         val normalized = runCatching { Yaml(dumperOptions).dump(config) }
-            .getOrElse { throw SubscriptionException("Could not normalize subscription profile") }
+            .getOrElse { throw SubscriptionException("Не удалось обработать подписку") }
         VpnSubscriptionDiagnostics.event("normalize", "accepted topLevelFields=${config.size}")
         return NormalizedMihomoProfile(normalized, groupName)
     }

@@ -59,9 +59,9 @@ internal class SubscriptionClient(
                 when (status) {
                     in 200..299 -> {
                         val declaredLength = connection.getHeaderFieldLong("Content-Length", -1L)
-                        if (declaredLength > MAX_BODY_BYTES) throw SubscriptionException("Subscription is larger than 5 MiB")
+                        if (declaredLength > MAX_BODY_BYTES) throw SubscriptionException("Подписка слишком большая (больше 5 МБ)")
                         val body = connection.inputStream.use { readBounded(it, MAX_BODY_BYTES) }
-                        if (body.isEmpty()) throw SubscriptionException("Subscription response is empty")
+                        if (body.isEmpty()) throw SubscriptionException("Сервер подписки вернул пустой ответ")
                         val text = body.toString(Charsets.UTF_8).removePrefix("\uFEFF")
                         VpnSubscriptionDiagnostics.event("response", "bodyBytes=${body.size}")
                         return FetchedVpnSubscription(
@@ -71,12 +71,12 @@ internal class SubscriptionClient(
                         )
                     }
                     in 300..399 -> {
-                        if (redirectNumber == MAX_REDIRECTS) throw SubscriptionException("Too many subscription redirects")
+                        if (redirectNumber == MAX_REDIRECTS) throw SubscriptionException("Слишком много переадресаций при загрузке подписки")
                         val redirect = connection.getHeaderField("Location")
-                            ?: throw SubscriptionException("Subscription redirect has no destination")
+                            ?: throw SubscriptionException("Сервер подписки перенаправил без адреса")
                         val next = validateUrl(URL(currentUrl, redirect).toString())
                         // Do not forward an installation ID (or a subscription URL token) to another origin.
-                        if (origin(next) != originalOrigin) throw SubscriptionException("Cross-origin subscription redirects are blocked")
+                        if (origin(next) != originalOrigin) throw SubscriptionException("Подписка перенаправляет на другой сайт. Такие переадресации запрещены")
                         currentUrl = next
                     }
                     else -> throw SubscriptionException("Сервер подписки ответил ошибкой $status")
@@ -88,13 +88,13 @@ internal class SubscriptionClient(
                 connection.disconnect()
             }
         }
-        throw SubscriptionException("Could not fetch subscription")
+        throw SubscriptionException("Не удалось загрузить подписку")
     }
 
     private fun validateUrl(raw: String): URL {
-        val url = runCatching { URL(raw.trim()) }.getOrElse { throw SubscriptionException("Введите корректный адрес подписки") }
+        val url = runCatching { URL(raw.trim()) }.getOrElse { throw SubscriptionException("Введите правильную ссылку на подписку") }
         if (url.protocol != "https" || url.host.isBlank() || url.userInfo != null || url.port == 0) {
-            throw SubscriptionException("Адрес подписки должен начинаться с https:// и не содержать логин и пароль")
+            throw SubscriptionException("Ссылка на подписку должна начинаться с https:// и не содержать логин и пароль")
         }
         return url
     }
@@ -114,7 +114,7 @@ internal class SubscriptionClient(
             val count = input.read(buffer)
             if (count < 0) break
             total += count
-            if (total > limit) throw SubscriptionException("Subscription is larger than 5 MiB")
+            if (total > limit) throw SubscriptionException("Подписка слишком большая (больше 5 МБ)")
             output.write(buffer, 0, count)
         }
         return output.toByteArray()

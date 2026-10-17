@@ -183,7 +183,7 @@ private fun TdLibStatusPanel(
             modifier = Modifier.padding(14.dp)
         ) {
             Text(
-                text = if (isReady) "Клиент готов" else "Клиент не готов",
+                text = if (isReady) "Готово ко входу" else "Вход пока недоступен",
                 color = if (isReady) palette.successText else palette.warningText,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,

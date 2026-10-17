@@ -39,12 +39,12 @@ internal object VpnSubscriptionDiagnostics {
         is UnknownHostException -> "name_resolution_failure"
         is SSLException -> "secure_connection_failure"
         is SubscriptionException -> when {
-            error.message?.startsWith("Сервер подписки ответил ошибкой ") == true -> "server_error"
-            error.message?.startsWith("Подписка не похожа ни на профиль прокси") == true -> "unsupported_profile"
-            error.message?.startsWith("Декодированная подписка") == true -> "decoded_content_unsupported"
-            error.message?.startsWith("Введите корректный адрес подписки") == true -> "invalid_url"
-            error.message?.startsWith("Адрес подписки должен начинаться с https://") == true -> "url_policy_rejected"
-            error.message?.contains("larger than 5 MiB") == true -> "response_too_large"
+            error.message?.startsWith("Сервер подписки ответил ошибкой ") == true -> "http_error"
+            error.message?.startsWith("Ссылка не похожа на подписку") == true -> "unsupported_profile"
+            error.message?.startsWith("В подписке нет серверов") == true -> "decoded_content_no_servers"
+            error.message?.startsWith("Введите правильную ссылку") == true -> "invalid_url"
+            error.message?.startsWith("Ссылка на подписку должна") == true -> "url_policy_rejected"
+            error.message?.contains("слишком большая") == true -> "response_too_large"
             else -> "subscription_rejected"
         }
         is MihomoCoreException -> "core_rejected_profile"
