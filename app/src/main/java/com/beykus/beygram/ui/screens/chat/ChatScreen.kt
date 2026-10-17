@@ -46,9 +46,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
+import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
@@ -67,7 +70,8 @@ import kotlinx.coroutines.launch
 fun ChatScreen(
     chat: ChatPreview, info: ProfileInfo?, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState
+    onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
+    recordingSettings: VideoMessageSettingsStore
 ) {
     var draft by rememberSaveable(chat.id) { mutableStateOf("") }
     var replyId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
@@ -107,22 +111,82 @@ fun ChatScreen(
     val palette = beyGramPalette()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
+    val recordingMode by recordingSettings.recordingMode.collectAsStateWithLifecycle()
+    val recordingRecovery: ChatRecordingRecoveryViewModel = viewModel(key = "chat-recording-${chat.id}")
+    val recordingPreview by recordingRecovery.preview.collectAsStateWithLifecycle()
+    val recordingPreviewIndex by recordingRecovery.selectedIndex.collectAsStateWithLifecycle()
+    var sentRecordingPaths by remember(chat.id) { mutableStateOf(emptySet<String>()) }
+    var recordingQueueSending by remember(chat.id) { mutableStateOf(false) }
+    var recordingQueueProgress by remember(chat.id) { mutableIntStateOf(0) }
+    fun sendRecordedMedia(mediaList: List<OutgoingMedia>) {
+        scope.launch {
+            if (recordingQueueSending) return@launch
+            recordingQueueSending = true
+            try {
+                mediaList.forEachIndexed { index, media ->
+                    if (media.path in sentRecordingPaths) return@forEachIndexed
+                    recordingQueueProgress = index + 1
+                    val result = conversation.sendMedia(chat.id, media, "", replyId)
+                    if (result.isSuccess) {
+                        sentRecordingPaths = sentRecordingPaths + media.path
+                        replyId = null
+                    } else {
+                        recordingRecovery.showPreview(mediaList, index)
+                        error = result.exceptionOrNull().userMessage(context, R.string.chat_video_note_send_failed)
+                        return@launch
+                    }
+                }
+                sentRecordingPaths = emptySet()
+                recordingRecovery.dismissPreview()
+            } finally {
+                recordingQueueSending = false
+            }
+        }
+    }
+    fun retryFailedMessages(messageIds: List<Long>) {
+        scope.launch {
+            val result = conversation.retryMessages(chat.id, messageIds)
+            result.exceptionOrNull()?.let { error = it.message ?: context.getString(R.string.chat_retry_send_failed) }
+        }
+    }
+    fun capturedRecording(media: OutgoingMedia, previewFirst: Boolean) {
+        if (previewFirst) recordingRecovery.showPreview(listOf(media))
+        else sendRecordedMedia(listOf(media))
+    }
+    fun capturedVideoRecording(mediaList: List<OutgoingMedia>, previewFirst: Boolean) {
+        if (previewFirst || mediaList.size > 1) recordingRecovery.showPreview(mediaList)
+        else sendRecordedMedia(mediaList)
+    }
     val attachments = rememberAttachmentState(chat.id) { media, caption ->
         val result = conversation.sendMedia(chat.id, media, caption, replyId)
         if (result.isSuccess) replyId = null
         result
     }
-    val context = LocalContext.current
-    val videoNote = rememberVideoNoteRecorder(
-        onFinished = { media -> scope.launch { conversation.sendMedia(chat.id, media, "", replyId).onSuccess { replyId = null }.onFailure { error = it.userMessage(context, R.string.chat_video_note_send_failed) } } },
+    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope,
+        onFinished = ::capturedVideoRecording,
         onError = { error = it }
     )
+    val audioNote = rememberAudioNoteRecorder(::capturedRecording) { error = it }
     val videoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (!granted.values.all { it }) error = context.getString(R.string.chat_video_note_permission_denied)
     }
-    fun startVideoNote() { if (videoNoteAllowed(context)) videoNote.press() else videoPermissions.launch(videoNotePermissions) }
+    val audioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) Toast.makeText(context, context.getString(R.string.voice_recorder_permission_granted_retry), Toast.LENGTH_SHORT).show()
+        else error = context.getString(R.string.voice_recorder_permission_denied)
+    }
+    fun startRecording() {
+        if (videoNote.active || audioNote.active) return
+        if (recordingMode == ComposerRecordingMode.Voice) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) audioNote.press()
+            else audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+        } else if (videoNoteAllowed(context)) videoNote.press() else videoPermissions.launch(videoNotePermissions)
+    }
     val messages = history.messages
+    val messageListItems = remember(messages) { groupTelegramMediaAlbums(messages) }
+    val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
+    val currentMessageItemsByKey by rememberUpdatedState(messageItemsByKey)
     val currentMessages by rememberUpdatedState(messages)
     val newest = messages.lastOrNull()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -132,7 +196,8 @@ fun ChatScreen(
             if (event == Lifecycle.Event.ON_STOP) {
                 VoicePlayback.stop()
                 InlinePlaybackFocus.stopAll()
-                videoNote.release(cancel = true)
+                videoNote.stopForRecovery()
+                audioNote.stopForRecovery()
             }
         }
         lifecycle.addObserver(observer)
@@ -172,7 +237,10 @@ fun ChatScreen(
         }
     }
     BackHandler(enabled = actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching, onBack = onBack)
-    BackHandler(enabled = videoNote.active) { videoNote.release(cancel = true) }
+    BackHandler(enabled = videoNote.active || audioNote.active) {
+        videoNote.stopForRecovery()
+        audioNote.stopForRecovery()
+    }
 
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
     LaunchedEffect(chat.id, lifecycle, conversation) {
@@ -184,7 +252,9 @@ fun ChatScreen(
                     layout.visibleItemsInfo.filter { item ->
                         val visible = minOf(item.offset + item.size, layout.viewportEndOffset) - maxOf(item.offset, layout.viewportStartOffset)
                         visible >= minOf(item.size / 2, minimumVisible).coerceAtLeast(1)
-                    }.mapNotNull { it.key as? Long }.filter { it in eligible }.sorted()
+                    }.flatMap { visibleItem ->
+                        currentMessageItemsByKey[visibleItem.key as? String]?.messages.orEmpty().map { it.id }
+                    }.filter { it in eligible }.distinct().sorted()
                 }
             }.debounce(350).distinctUntilChanged().collect { ids -> if (ids.isNotEmpty()) conversation.messagesVisible(chat.id, ids) }
         }
@@ -195,7 +265,7 @@ fun ChatScreen(
     LaunchedEffect(highlighted) { if (highlighted != null) { delay(2200); highlighted = null } }
     fun jump(reply: MessageReply) {
         if (reply.isUnavailable || reply.messageId <= 0) { error = context.getString(R.string.chat_reply_original_unavailable); return }
-        val index = messages.asReversed().indexOfFirst { it.id == reply.messageId && it.chatId == reply.chatId }
+        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = reply.messageId }
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
     }
@@ -222,7 +292,7 @@ fun ChatScreen(
         }
     }
     fun openSearchResult(message: ChatMessage) {
-        val index = messages.asReversed().indexOfFirst { it.id == message.id }
+        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == message.id } }
         closeSearch()
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = message.id }
         else { contextChatId = chat.id; contextMessageId = message.id }
@@ -249,10 +319,21 @@ fun ChatScreen(
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(messages.asReversed(), key = { it.id }) { message ->
-                MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
-                    highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump,
-                    onPlayed = { conversation.openMessageContent(chat.id, message.id) })
+            items(messageListItems, key = { it.key }) { listItem ->
+                if (listItem.mediaAlbumId != 0L) {
+                    val latest = listItem.messages.maxByOrNull { it.id }
+                    MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
+                        isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
+                        highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
+                        onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump,
+                        onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
+                } else {
+                    val message = listItem.messages.single()
+                    MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
+                        highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump,
+                        onPlayed = { conversation.openMessageContent(chat.id, message.id) },
+                        onRetry = { retryFailedMessages(listOf(message.id)) })
+                }
             }
             history.error?.let { item(key = "history_error") { Text(it.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp)) } }
             if (history.isLoading) item(key = "history_loading") { Text(stringResource(R.string.chat_history_loading), color = palette.textSecondary, modifier = Modifier.padding(8.dp)) }
@@ -308,19 +389,38 @@ fun ChatScreen(
             attachments.active -> attachments.pending.isNotEmpty() && !attachments.importing
             else -> fieldText.isNotBlank()
         }
-        val showRecord = videoNote.active || (!editing && !attachments.active && fieldText.isBlank())
+        val recordingActive = videoNote.active || audioNote.active
+        val recordingLocked = if (recordingMode == ComposerRecordingMode.Voice) audioNote.locked else videoNote.locked
+        val recordingCanceling = if (recordingMode == ComposerRecordingMode.Voice) audioNote.canceling else videoNote.canceling
+        val showRecord = recordingActive || (!editing && !attachments.active && fieldText.isBlank())
         if (!deleting && !searching && typingNames.isNotEmpty()) TypingRow(typingNames)
         if (!deleting && !searching) Row(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
-            if (!videoNote.active) {
+            if (!recordingActive) {
                 if (!editing) AttachmentButton(attachments, enabled = !sending)
                 else Spacer(Modifier.width(8.dp))
             }
-            if (videoNote.active) VideoNoteRecordingHint(Modifier.weight(1f))
+            if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
+            else if (videoNote.active) VideoNoteRecordingDock(videoNote, Modifier.weight(1f), onCancel = videoNote::discardLocked)
             else TextField(fieldText, { if (editing) editText = it else draft = it }, enabled = !busy, modifier = Modifier.weight(1f).defaultMinSize(minHeight = 40.dp),
                 placeholder = { Text(if (attachments.active) stringResource(R.string.chat_caption_placeholder) else stringResource(R.string.chat_message), color = palette.textSecondary) }, maxLines = 5,
                 shape = RoundedCornerShape(20.dp), colors = beyGramFilledTextFieldColors(), isError = overLimit)
             Spacer(Modifier.width(8.dp))
-            if (showRecord) VideoNoteRecordButton(videoNote, enabled = !sending && !busy, onPress = ::startVideoNote)
+            // Keep the same pointer-input node mounted while recording. Removing the button here
+            // cancels its gesture coroutine immediately after onStart changes active to true.
+            if (recordingActive && recordingLocked) Box(Modifier.size(44.dp).clip(CircleShape)
+                .background(palette.accent).clickable(enabled = !busy) {
+                    if (recordingMode == ComposerRecordingMode.Voice) audioNote.finishLocked() else videoNote.sendLocked()
+                }, contentAlignment = Alignment.Center) {
+                Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.recorder_send), tint = Color.White, modifier = Modifier.size(21.dp))
+            }
+            else if (showRecord) RecordingControlButton(
+                mode = recordingMode, active = recordingActive, canceling = recordingCanceling, enabled = !sending && !busy,
+                onTap = { if (!recordingActive) recordingSettings.setRecordingMode(if (recordingMode == ComposerRecordingMode.Voice) ComposerRecordingMode.Video else ComposerRecordingMode.Voice) },
+                onStart = { if (!recordingActive) startRecording() },
+                onCanceling = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.onDrag(it) else videoNote.onDrag(it) },
+                onLock = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.lock() else videoNote.lock() },
+                onRelease = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.release(it) else videoNote.release(it) }
+            )
             else Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f))
                 .clickable(enabled = canSend) {
                     when {
@@ -348,6 +448,16 @@ fun ChatScreen(
             }
         }
     }
+    recordingPreview?.let { mediaList -> RecordingPreviewDialog(
+        mediaList = mediaList,
+        selectedIndex = recordingPreviewIndex,
+        sentPaths = sentRecordingPaths,
+        sending = recordingQueueSending,
+        progress = recordingQueueProgress,
+        onSelect = recordingRecovery::select,
+        onDelete = { mediaList.firstOrNull()?.let { java.io.File(it.path).parentFile?.deleteRecursively() }; sentRecordingPaths = emptySet(); recordingRecovery.dismissPreview() },
+        onSend = { sendRecordedMedia(mediaList) }
+    ) }
     messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(media, observeFile, onDownloadFile,
         onViewed = { selectedMediaId?.let { conversation.openMessageContent(chat.id, it) } }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
@@ -395,7 +505,7 @@ private fun ChatTopBar(chat: ChatPreview, presence: String, onBack: () -> Unit, 
 
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}) {
+    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}) {
     val palette = beyGramPalette()
     val shape = if (message.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     val hasText = message.text.isNotBlank()
@@ -436,6 +546,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     val status = if (message.isOutgoing && message.sendState == MessageSendState.Failed) " · " + stringResource(R.string.chat_status_not_sent) else ""
                     Text((if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
                         color = if (failed) palette.warningText else palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    if (message.isOutgoing && failed) Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText,
+                        fontSize = 12.sp, modifier = Modifier.clickable(onClick = onRetry))
                     if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
                         Spacer(Modifier.width(3.dp))
                         Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = palette.textSecondary, modifier = Modifier.size(14.dp))

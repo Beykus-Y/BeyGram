@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -36,7 +37,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Настройки приложения: нижнее меню и уведомления. */
 @Composable
-fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit, onProxy: () -> Unit) {
+fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -48,6 +49,8 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit
         )
         Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
             SettingsLink(Icons.Rounded.Dashboard, stringResource(R.string.nav_title), onNavigationSettings)
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsLink(Icons.Rounded.Videocam, stringResource(R.string.settings_video_recording_title), onVideoRecording)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.Lock, stringResource(R.string.start_proxy_settings), onProxy)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
