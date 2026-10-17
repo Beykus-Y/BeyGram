@@ -438,6 +438,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationEffects.opened(chatId)
         messageHistory.opened(chatId)
         client.send(TdApi.OpenChat(chatId), Client.ResultHandler { })
+        nextHistoryRequest(chatId)
         requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3, epoch = messageHistory.restartFromLatest(chatId))
     }
 
