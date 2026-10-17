@@ -154,10 +154,10 @@ internal object VoicePlayback {
 @Composable
 internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile: (Int) -> Unit, onPlayed: () -> Unit, onLongPress: (() -> Unit)?) {
     val palette = beyGramPalette()
-    val playbackState by VoicePlayback.state.collectAsStateWithLifecycle()
+    val playbackState = VoicePlayback.state.collectAsStateWithLifecycle()
     val path = file.localPath
     // Общий проигрыватель читает только пузырь, который играет: у остальных значение null, и на каждом шаге прогресса они не перерисовываются.
-    val voice = remember(path) { derivedStateOf { playbackState.takeIf { path != null && it.path == path } } }.value
+    val voice = remember(path) { derivedStateOf { playbackState.value.takeIf { path != null && it.path == path } } }.value
     var wantPlay by remember(media.fileId) { mutableStateOf(false) }
     val playing = voice?.playing == true
     val loading = (voice != null && voice.durationMs == 0 && !voice.failed) || (wantPlay && path == null)
