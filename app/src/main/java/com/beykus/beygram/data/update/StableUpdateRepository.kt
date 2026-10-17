@@ -57,6 +57,28 @@ object StableUpdatePolicy {
     fun isNewer(installed: Long, candidate: Long): Boolean = candidate > installed
 }
 
+/**
+ * Never accept unknown certificates. On Android 10, PackageManager may parse an archive
+ * without filling signingInfo; GET_SIGNATURES is then queried as a compatibility fallback.
+ */
+internal object StableApkSignerPolicy {
+    fun allowLegacyFallback(sdk: Int, modernSignersAvailable: Boolean): Boolean =
+        sdk <= 29 && !modernSignersAvailable
+
+    fun compatible(
+        installed: Set<String>?,
+        candidate: Set<String>?,
+        candidateHistory: Set<String>?,
+    ): Boolean {
+        if (installed.isNullOrEmpty() || candidate.isNullOrEmpty()) return false
+        if (installed == candidate) return true
+        // Android's installer still validates cryptographic proof of signing rotation.
+        return installed.size == 1 && candidate.size == 1 &&
+            candidateHistory?.containsAll(installed) == true &&
+            candidateHistory.containsAll(candidate)
+    }
+}
+
 class StableUpdateRepository(private val context: Context) {
     private val repoApi = "https://api.github.com/repos/Beykus-Y/BeyGram/releases/latest"
     private val downloadPrefix = "https://github.com/Beykus-Y/BeyGram/releases/download/"
@@ -178,6 +200,41 @@ class StableUpdateRepository(private val context: Context) {
         return info.longVersionCode
     }
 
+    /** Reads signers from an APK archive, including the Android 10 compatibility path. */
+    @Suppress("DEPRECATION")
+    private fun archiveSigners(pm: PackageManager, path: String, archive: android.content.pm.PackageInfo):
+        Pair<Set<String>?, Set<String>?> {
+        val modern = archive.signingInfo
+        val modernSigners = modern?.apkContentsSigners?.takeIf { it.isNotEmpty() }
+        if (StableApkSignerPolicy.allowLegacyFallback(Build.VERSION.SDK_INT, modernSigners != null)) {
+            val legacy = pm.getPackageArchiveInfo(path, PackageManager.GET_SIGNATURES)
+            return Pair(certificateFingerprints(legacy?.signatures), null)
+        }
+        return Pair(
+            certificateFingerprints(modernSigners),
+            certificateFingerprints(modern?.signingCertificateHistory)
+        )
+    }
+
+    @Suppress("DEPRECATION")
+    private fun installedSigners(pm: PackageManager):
+        Set<String>? {
+        val installed = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        val modern = installed.signingInfo?.apkContentsSigners?.takeIf { it.isNotEmpty() }
+        if (StableApkSignerPolicy.allowLegacyFallback(Build.VERSION.SDK_INT, modern != null)) {
+            return certificateFingerprints(
+                pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES).signatures
+            )
+        }
+        return certificateFingerprints(modern)
+    }
+
+    private fun certificateFingerprints(signatures: Array<android.content.pm.Signature>?): Set<String>? =
+        signatures?.takeIf { it.isNotEmpty() }?.map { signature ->
+            MessageDigest.getInstance("SHA-256").digest(signature.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+        }?.toSet()
+
     private fun verifyPackage(apk: File, release: StableRelease) {
         val pm = context.packageManager
         @Suppress("DEPRECATION")
@@ -191,21 +248,12 @@ class StableUpdateRepository(private val context: Context) {
         if ((archive.applicationInfo?.minSdkVersion ?: 0) > Build.VERSION.SDK_INT) {
             throw IOException("Версия Android не поддерживается этим APK.")
         }
-        @Suppress("DEPRECATION")
-        val installed = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-        val currentSigners = installed.signingInfo?.apkContentsSigners
-            ?.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).toList() }?.toSet()
-        val downloadedSigners = archive.signingInfo?.apkContentsSigners
-            ?.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).toList() }?.toSet()
-        val signingHistory = archive.signingInfo?.signingCertificateHistory
-            ?.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).toList() }?.toSet()
-        if (currentSigners.isNullOrEmpty() || downloadedSigners.isNullOrEmpty() ||
-            (currentSigners != downloadedSigners &&
-                (currentSigners.size != 1 || downloadedSigners.size != 1 ||
-                    signingHistory?.containsAll(currentSigners) != true))) {
-            throw IOException("Подпись обновления не совпадает с подписью установленного BeyGram.")
+        val (downloadedSigners, signingHistory) = archiveSigners(pm, apk.absolutePath, archive)
+        val currentSigners = installedSigners(pm)
+        if (!StableApkSignerPolicy.compatible(currentSigners, downloadedSigners, signingHistory)) {
+            throw IOException("Не удалось подтвердить совместимую подпись APK. Установка запрещена.")
         }
-        // Android's Package Installer remains the final authority for signing lineage and ABI compatibility.
+        // Android's Package Installer still performs authoritative signing-lineage, ABI and version checks.
     }
 
     /** Recheck the bytes off the UI thread immediately before the platform installer. */
