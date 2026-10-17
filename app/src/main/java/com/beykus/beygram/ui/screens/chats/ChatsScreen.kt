@@ -34,10 +34,12 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
-import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -80,6 +82,7 @@ import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.ui.text.resolve
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
@@ -393,6 +396,36 @@ private fun EmptyState(filter: ChatFilter, query: String) {
     }
 }
 
+/** Текст последнего сообщения с префиксом автора: «Вы» для своих и имя отправителя в группах. */
+@Composable
+private fun previewLine(chat: ChatPreview, emptyPreview: Boolean): String {
+    if (emptyPreview) return stringResource(if (chat.isGroup) R.string.chats_group_preview else R.string.chats_start_conversation)
+    val author = when {
+        chat.lastMessageOutgoing -> stringResource(R.string.chat_you)
+        chat.isGroup && chat.lastMessageSender.isNotBlank() -> chat.lastMessageSender
+        else -> null
+    }
+    val body = chat.lastMessage.resolve()
+    return if (author == null) body else stringResource(R.string.chats_preview_sender, author) + body
+}
+
+/** Статус своего последнего сообщения: отправляется, отправлено, прочитано или не отправлено. */
+@Composable
+private fun SendStatusIcon(chat: ChatPreview) {
+    val palette = beyGramPalette()
+    if (!chat.lastMessageOutgoing) return
+    val modifier = Modifier.padding(start = 6.dp).size(16.dp)
+    when (chat.lastMessageSendState) {
+        MessageSendState.Sending -> Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = palette.textSecondary, modifier = modifier)
+        MessageSendState.Failed -> Icon(Icons.Rounded.ErrorOutline, stringResource(R.string.chat_status_not_sent), tint = palette.warningText, modifier = modifier)
+        MessageSendState.Sent -> {
+            val read = chat.lastMessageId > 0L && chat.lastMessageId <= chat.lastReadOutboxMessageId
+            if (read) Icon(Icons.Rounded.DoneAll, stringResource(R.string.chat_read_description), tint = palette.accent, modifier = modifier)
+            else Icon(Icons.Rounded.Done, stringResource(R.string.chat_sent_description), tint = palette.textSecondary, modifier = modifier)
+        }
+    }
+}
+
 @Composable
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit) {
     val palette = beyGramPalette()
@@ -412,11 +445,9 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             }
             Spacer(Modifier.height(3.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                when {
-                    chat.isPinned -> Icon(Icons.Rounded.PushPin, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
-                    chat.isMuted -> Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
-                }
-                Text(if (emptyPreview) stringResource(if (chat.isGroup) R.string.chats_group_preview else R.string.chats_start_conversation) else chat.lastMessage.resolve(), color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (chat.isMuted) Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
+                Text(previewLine(chat, emptyPreview), color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                SendStatusIcon(chat)
                 if (unread) {
                     Spacer(Modifier.width(8.dp))
                     // Чат без звука получает серый счётчик, как в Telegram.

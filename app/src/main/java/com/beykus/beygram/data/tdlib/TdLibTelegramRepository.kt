@@ -581,7 +581,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadCount = update.unreadCount) }
                 publishChat(update.chatId)
             }
-            is TdApi.UpdateChatReadOutbox -> messageHistory.readOutbox(update.chatId, update.lastReadOutboxMessageId)
+            is TdApi.UpdateChatReadOutbox -> {
+                messageHistory.readOutbox(update.chatId, update.lastReadOutboxMessageId)
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(lastReadOutboxMessageId = update.lastReadOutboxMessageId) }
+                publishChat(update.chatId)
+            }
             is TdApi.UpdateMessageContent -> messageHistory.update(update.chatId, update.messageId) { message ->
                 val attachment = mediaMapper.media(update.newContent)
                 message.copy(text = contentText(update.newContent, attachment != null), entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
@@ -774,13 +778,19 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleChatLastMessage(chatId: Long, lastMessage: TdApi.Message?, positions: Array<TdApi.ChatPosition>) {
         val existing = chatCache[chatId] ?: return
-        chatCache[chatId] = existing.copy(
-            lastMessage = lastMessage?.toTextPreview() ?: UiText.Raw(""),
-            lastMessageTime = lastMessage?.toTimeString().orEmpty(),
-            lastMessageId = lastMessage?.id ?: 0L
-        ).withPositions(positions)
+        chatCache[chatId] = existing.withLastMessage(lastMessage).withPositions(positions)
         publishChat(chatId)
     }
+
+    /** Поля строки чата, которые зависят от последнего сообщения: текст, время, отправитель и статус своего сообщения. */
+    private fun ChatPreview.withLastMessage(message: TdApi.Message?): ChatPreview = copy(
+        lastMessage = message?.toTextPreview() ?: UiText.Raw(""),
+        lastMessageTime = message?.toTimeString().orEmpty(),
+        lastMessageId = message?.id ?: 0L,
+        lastMessageOutgoing = message?.isOutgoing == true,
+        lastMessageSender = message?.let { profiles.senderName(it.senderId) }.orEmpty(),
+        lastMessageSendState = message?.sendingState.toSendState()
+    )
 
     /** Позиции чата в основном списке и в архиве; нет позиции в списке — чат там не показывается. */
     private fun ChatPreview.withPositions(positions: Array<TdApi.ChatPosition>): ChatPreview {
@@ -832,11 +842,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         time = toTimeString(),
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
-        sendState = when (sendingState) {
-            is TdApi.MessageSendingStatePending -> MessageSendState.Sending
-            is TdApi.MessageSendingStateFailed -> MessageSendState.Failed
-            else -> MessageSendState.Sent
-        },
+        sendState = sendingState.toSendState(),
         media = attachment,
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
@@ -878,6 +884,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,
             lastMessageId = lastMessage?.id ?: 0L,
+            lastMessageOutgoing = lastMessage?.isOutgoing == true,
+            lastMessageSender = lastMessage?.let { profiles.senderName(it.senderId) }.orEmpty(),
+            lastMessageSendState = lastMessage?.sendingState.toSendState(),
+            lastReadOutboxMessageId = lastReadOutboxMessageId,
             photo = profiles.photo(photo)
         )
     }
@@ -909,6 +919,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.MessageVoiceNote -> UiText.Res(R.string.chat_preview_voice)
             else                      -> UiText.Res(R.string.message_title)
         }
+
+    private fun TdApi.MessageSendingState?.toSendState(): MessageSendState = when (this) {
+        is TdApi.MessageSendingStatePending -> MessageSendState.Sending
+        is TdApi.MessageSendingStateFailed -> MessageSendState.Failed
+        else -> MessageSendState.Sent
+    }
 
     private fun TdApi.Message.toTimeString(): String =
         DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(date * 1000L))
