@@ -584,6 +584,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(photo = profiles.photo(update.photo)) }
                 publishChat(update.chatId)
             }
+            is TdApi.UpdateChatNotificationSettings -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(isMuted = update.notificationSettings.muteFor > 0) }
+                publishChat(update.chatId)
+            }
             is TdApi.UpdateNewMessage         -> {
                 reportBotChannel.onNewMessage(update.message)
                 handleNewMessage(update.message)
