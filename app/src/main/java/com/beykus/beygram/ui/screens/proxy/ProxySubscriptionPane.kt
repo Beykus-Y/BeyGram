@@ -50,7 +50,7 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 
 /**
- * Вкладка «Подписка» экрана «Подключение к Telegram»: ссылка, режим выбора серверов и список с пингом.
+ * Вкладка «Подписка» экрана «Подключение к Telegram»: ссылка, режим выбора серверов и список с задержкой.
  * Выбор хранится в [selectedName] экрана; «Подключить» на экране запускает прокси с выбранным сервером.
  */
 @Composable
@@ -108,9 +108,9 @@ internal fun ColumnScope.ProxySubscriptionPane(
         }
 
         Spacer(Modifier.height(12.dp))
-        // «Применить» включает автоматический выбор сервера, «Вручную» оставляет выбор за пользователем.
+        // «Автоматически» включает автоматический выбор сервера, «Вручную» оставляет выбор за пользователем.
         ProxySegmented(
-            labels = listOf(stringResource(R.string.proxy_sub_apply), stringResource(R.string.proxy_sub_manual)),
+            labels = listOf(stringResource(R.string.proxy_sub_auto), stringResource(R.string.proxy_sub_manual)),
             selectedIndex = if (settings.autoSelectEnabled) 0 else 1,
             onSelect = { index -> vpnBackend.updateAutoSelect(index == 0) }
         )
@@ -120,7 +120,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(stringResource(R.string.proxy_sub_servers_count, connections.size), color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            Text(stringResource(R.string.proxy_sub_ping_header), color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(stringResource(R.string.proxy_sub_latency_header), color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
 
         LazyColumn(
@@ -174,7 +174,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             ProxyTonalButton(
-                text = stringResource(R.string.proxy_sub_check_ping),
+                text = stringResource(R.string.proxy_sub_check_latency),
                 icon = Icons.Rounded.Speed,
                 background = palette.surface2,
                 enabled = !probing && !busy && connections.isNotEmpty(),
@@ -182,7 +182,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
                 modifier = Modifier.weight(1f)
             )
             ProxyTonalButton(
-                text = stringResource(R.string.proxy_sub_apply),
+                text = stringResource(R.string.proxy_sub_select_server),
                 icon = Icons.Rounded.Check,
                 background = palette.accentSoft,
                 enabled = selectedName != null && !busy,

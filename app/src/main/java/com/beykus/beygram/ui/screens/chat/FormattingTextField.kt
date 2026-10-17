@@ -6,6 +6,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
 import androidx.compose.foundation.text.contextmenu.builder.item
 import androidx.compose.ui.res.stringResource
@@ -20,7 +21,7 @@ import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 
 @Composable
 internal fun FormattingTextField(value: String, entities: List<MessageTextEntity>, onChange: (String) -> Unit,
-    onEntitiesChange: (List<MessageTextEntity>) -> Unit, placeholder: String, enabled: Boolean, isError: Boolean, modifier: Modifier) {
+    onEntitiesChange: (List<MessageTextEntity>) -> Unit, placeholder: String, locked: Boolean, isError: Boolean, modifier: Modifier) {
     var field by remember { mutableStateOf(TextFieldValue(value)) }
     val current = if (field.text == value) field else TextFieldValue(value, TextRange(value.length))
     var format by remember { mutableStateOf(false) }
@@ -31,6 +32,8 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
     val formatLabel = stringResource(R.string.chat_format)
     SelectionMenuProvider(modifier) {
         TextField(current, { next ->
+            // Sending locks the text, not the field: a disabled field loses focus and hides the keyboard.
+            if (locked) return@TextField
             onEntitiesChange(adjustTextEntities(value, next.text, entities))
             field = next
             onChange(next.text)
@@ -40,7 +43,7 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
                     close()
                     format = true
                 }
-            }, enabled = enabled, isError = isError,
+            }, isError = isError, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             placeholder = { Text(placeholder, color = palette.textSecondary) }, maxLines = 5,
             shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), colors = beyGramFilledTextFieldColors(),
             visualTransformation = VisualTransformation { text ->
