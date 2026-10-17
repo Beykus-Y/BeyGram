@@ -113,10 +113,13 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                         synchronized(lock) { supers[group.id] = group; superFull[group.id] = full }
                     }
                 }
-                val counts = loadSharedCounts(chatId)
-                synchronized(lock) { sharedCounts[chatId] = counts }
             } }
             synchronized(lock) { publish(); state.value = state.value.copy(isLoading = false, error = result.exceptionOrNull()?.profileError()) }
+            // Счётчики не входят в общий таймаут: медленный подсчёт не должен показать ошибку загрузки профиля.
+            scope.launch {
+                val counts = runCatching { withTimeout(25_000) { loadSharedCounts(chatId) } }.getOrNull() ?: return@launch
+                synchronized(lock) { sharedCounts[chatId] = counts; publish() }
+            }
         }
     }
     private suspend fun loadUser(id: Long) {
