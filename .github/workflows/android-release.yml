@@ -102,6 +102,23 @@ jobs:
       - name: Build debug and release APKs
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease
 
+      - name: Assert install permission is Prod-only
+        run: |
+          set -euo pipefail
+          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          dev=app/build/outputs/apk/dev/debug/app-dev-debug.apk
+          prod=app/build/outputs/apk/prod/release/app-prod-release-unsigned.apk
+          "$build_tools/aapt" dump permissions "$dev" > "$RUNNER_TEMP/dev-permissions.txt"
+          "$build_tools/aapt" dump permissions "$prod" > "$RUNNER_TEMP/prod-permissions.txt"
+          if grep -q "android.permission.REQUEST_INSTALL_PACKAGES" "$RUNNER_TEMP/dev-permissions.txt"; then
+            echo "::error::DEV unexpectedly requests APK installation permission" >&2
+            exit 1
+          fi
+          if ! grep -q "android.permission.REQUEST_INSTALL_PACKAGES" "$RUNNER_TEMP/prod-permissions.txt"; then
+            echo "::error::Prod APK is missing manual update installation permission" >&2
+            exit 1
+          fi
+
       - name: Collect and sign APKs
         env:
           # Signing secrets are only exposed to pushes, not to pull requests, which
