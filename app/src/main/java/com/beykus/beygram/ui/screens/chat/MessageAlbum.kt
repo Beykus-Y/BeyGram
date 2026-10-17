@@ -52,6 +52,7 @@ import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
 
 internal data class ChatMessageListItem(val key: String, val messages: List<ChatMessage>, val mediaAlbumId: Long = 0L)
@@ -121,7 +122,7 @@ internal fun MessageAlbumBubble(
                     .padding(horizontal = 9.dp, vertical = 6.dp)) {
                     Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk,
                         fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(reply.text, color = palette.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
             if (captions.isNotEmpty()) {
