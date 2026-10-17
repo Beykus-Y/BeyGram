@@ -96,6 +96,11 @@ internal class VpnBackend private constructor(
         _restoreRetrying.value = true
         try {
             restore()
+            // restore() returns without a result when a start is already running or TDLib does not answer. The question
+            // must come back then, instead of a window that closes silently.
+            if (runtimeState.value.status != ProxyRuntimeStatus.RUNNING && isTdLibProxyEnabled().getOrNull() != false) {
+                _restoreFailed.value = true
+            }
         } finally {
             _restoreRetrying.value = false
         }
