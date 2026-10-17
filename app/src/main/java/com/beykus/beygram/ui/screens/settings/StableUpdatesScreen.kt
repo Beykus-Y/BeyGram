@@ -82,7 +82,7 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
             }
             is UpdateStatus.Ready -> {
                 ReleaseInformation(status.release)
-                Button(onClick = { model.install(status.file) }, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { model.install(status.file, status.release) }, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.updates_install))
                 }
             }
