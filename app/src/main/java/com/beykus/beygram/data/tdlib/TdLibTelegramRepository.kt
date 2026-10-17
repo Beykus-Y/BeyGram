@@ -17,6 +17,7 @@ import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.CallHistoryPage
@@ -217,7 +218,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
     private val profiles = TdProfiles({ client }, mediaFiles)
-    private val notificationFeed = TdNotifications({ client }, profiles::senderName)
+    private val notificationFeed = TdNotifications({ client }, profiles::senderName) { chatId ->
+        chatCache[chatId]?.archiveOrder?.let { it > 0L } == true
+    }
     override val notifications get() = notificationFeed.state
     private val _notificationPresentation = MutableStateFlow(NotificationPresentation())
     override val notificationPresentation = _notificationPresentation.asStateFlow()
@@ -659,6 +662,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun handleNewMessage(message: TdApi.Message) {
         messageHistory.put(message.toChatMessage())
         conversationActions.hydrateReply(message)
+        val archived = chatCache[message.chatId]?.archiveOrder?.let { it > 0L } == true
+        if (!message.isOutgoing && archived && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage) {
+            chatListScope.launch { setChatArchived(message.chatId, false) }
+        }
     }
 
     private fun TdApi.Message.toChatMessage(): ChatMessage {

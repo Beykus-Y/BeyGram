@@ -28,6 +28,7 @@ import com.beykus.beygram.navigation.AppRoute
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
 import com.beykus.beygram.navigation.TabVisibility
+import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
@@ -143,6 +144,8 @@ private fun BeyGramAppContent(
         archiveHidden = hidden
         chatPreferences.edit().putBoolean("archive_hidden", hidden).apply()
     }
+    val archiveSettingsStore = remember(context) { ArchiveSettingsStore.get(context) }
+    val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
     // Нижнее меню: какие разделы видны. Скрытые разделы открываются из профиля; настройка сохраняется между запусками.
     val tabPreferences = remember(context) { MainTabPreferences(context) }
     var tabVisibility by remember { mutableStateOf(tabPreferences.load()) }
@@ -259,6 +262,8 @@ private fun BeyGramAppContent(
             downloadFile = repository::downloadFile,
             onMarkRead = markChatRead,
             onUnarchive = unarchiveChat,
+            settings = archiveSettings,
+            onSettingsChange = archiveSettingsStore::update,
             onBack = { routeName = AppRoute.Chats.name },
             onChatClick = { chat ->
                 selectedChatId = chat.id
