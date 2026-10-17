@@ -93,5 +93,8 @@ data class ProfileState(val info: ProfileInfo? = null, val isLoading: Boolean = 
 
 data class ProfileEdit(val firstName: String, val lastName: String, val username: String, val bio: String)
 
-/** Инициалы для аватара без фото: первые буквы первых двух слов. */
-internal fun initialsOf(name: String): String = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.take(2).joinToString("") { it.first().uppercase() }
+/** Инициалы для аватара без фото: первые буквы первых двух слов. Общие для контактов, звонков и профилей. */
+internal fun initialsOf(name: String): String = name.trim().split(Regex("\\s+"))
+    .filter { it.isNotEmpty() }
+    .take(2)
+    .joinToString("") { it.first().uppercaseChar().toString() }
