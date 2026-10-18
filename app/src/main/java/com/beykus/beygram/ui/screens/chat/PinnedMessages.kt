@@ -80,17 +80,20 @@ internal fun PinnedMessagesBar(chatId: Long, conversation: ConversationRepositor
         onOpen(target)
     }
     // The cycle has run past the loaded pins: load the next page, or start again from the newest pin when there is none.
-    // While a page is still loading, the cycle waits for it; the arriving page changes the keys and resumes the effect.
+    // A failed page keeps the cursor at the end, so the bar offers a retry instead of wrapping to the newest pin.
     LaunchedEffect(cursor, messages.size, nextId) {
         if (cursor < messages.size) return@LaunchedEffect
-        if (nextId != 0L) loadMore()
-        if (cursor >= messages.size && !loading) cursor = 0
+        if (nextId != 0L) loadMore() else cursor = 0
     }
-    val shownIndex = cursor.takeIf { it < messages.size } ?: 0
+    // Past the loaded pins the next page is loading: the bar stays inert until it arrives, or offers a retry after a failure.
+    val pageEnd = cursor >= messages.size
+    val shownIndex = if (pageEnd) 0 else cursor
     val shown = messages.getOrNull(shownIndex)
-    if (shown != null) {
+    if (pageEnd && failed && messages.isNotEmpty()) {
+        TextButton(onClick = { scope.launch { loadMore() } }) { Text(stringResource(R.string.chat_pinned_failed) + " · " + stringResource(R.string.chat_pinned_retry)) }
+    } else if (shown != null) {
         Row(Modifier.fillMaxWidth().background(palette.surface), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).clickable { openPinned(shownIndex) }.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).clickable(enabled = !pageEnd) { openPinned(shownIndex) }.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.PushPin, null, tint = palette.accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(10.dp))
                 Column {

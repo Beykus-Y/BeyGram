@@ -77,6 +77,7 @@ internal class TdConversationEffects(private val client: () -> Client, private v
             activities.remove(chatId)
             loop.job?.cancel()
             sendActivity(chatId, TdApi.ChatActionCancel())
+            resumeUploadsLocked(chatId)
         }
     }
 
@@ -101,6 +102,14 @@ internal class TdConversationEffects(private val client: () -> Client, private v
         }
     }
 
+    /** The session ended: its messages will never report back, so every activity stops and the uploads are forgotten. */
+    fun signedOut() = synchronized(lock) {
+        ready = false
+        activities.values.forEach { it.job?.cancel() }
+        activities.clear()
+        uploads.clear()
+    }
+
     /** Caller holds [lock]. */
     private fun startLocked(chatId: Long, activity: ChatActivity) {
         if (!ready || !policy.allows(InteractionEffect.Typing, chatId)) return
@@ -115,14 +124,23 @@ internal class TdConversationEffects(private val client: () -> Client, private v
         loop.job = scope.launch { repeatActivity(chatId, loop) }
     }
 
+    /** Caller holds [lock]. Once typing or recording has ended, the newest upload still running shows again. */
+    private fun resumeUploadsLocked(chatId: Long) {
+        val activity = uploads[chatId]?.values?.lastOrNull() ?: return
+        startLocked(chatId, activity)
+    }
+
     /** Sends the activity until it ends, expires or is replaced. Each send happens under [lock], so a cancel can't overtake a newer activity. */
     private suspend fun repeatActivity(chatId: Long, loop: ActivityLoop) {
         while (true) {
             val waitMs = synchronized(lock) {
+                // A loop replaced while its delay ran out must not send anything: the newer activity owns the chat now.
+                if (activities[chatId] !== loop) return
                 val now = System.nanoTime()
                 if ((loop.activity == ChatActivity.Typing && typingExpired(loop.touchedAt, now)) || !policy.allows(InteractionEffect.Typing, chatId)) {
-                    if (activities[chatId] === loop) activities.remove(chatId)
+                    activities.remove(chatId)
                     sendActivity(chatId, TdApi.ChatActionCancel())
+                    resumeUploadsLocked(chatId)
                     return
                 }
                 sendActivity(chatId, loop.activity.toTdAction())

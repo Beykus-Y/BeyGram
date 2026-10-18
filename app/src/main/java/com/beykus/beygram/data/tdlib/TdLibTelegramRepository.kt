@@ -307,7 +307,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun messageCapabilities(chatId: Long, messageId: Long) = conversationActions.capabilities(chatId, messageId)
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind) = conversationActions.mediaPosition(chatId, messageId, kind)
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>) = conversationActions.edit(chatId, messageId, text, entities)
-    override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) = conversationActions.delete(chatId, messageId, scope)
+    override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) =
+        conversationActions.delete(chatId, messageId, scope).onSuccess { conversationEffects.uploadFinished(chatId, messageId) }
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long) = conversationActions.forward(fromChatId, messageId, toChatId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
@@ -721,6 +722,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.AuthorizationStateLoggingOut,
             is TdApi.AuthorizationStateClosed -> {
                 _authState.value = AuthState.WaitingForPhone
+                conversationEffects.signedOut()
             }
             else -> Unit
         }
