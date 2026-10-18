@@ -126,6 +126,8 @@ object PlaybackEngine {
             override fun play() {
                 if (playbackState == Player.STATE_IDLE) prepare()
                 if (playbackState == Player.STATE_ENDED) seekToDefaultPosition()
+                // Повтор доигравшего файла снимает отметку конца сразу, чтобы возврат музыки не сработал до первого события плеера.
+                _state.update { it.copy(ended = false) }
                 super.play()
             }
         }
@@ -171,8 +173,7 @@ object PlaybackEngine {
             pause()
             return
         }
-        // Повтор доигравшего файла снимает отметку конца сразу, чтобы возврат музыки не сработал до первого события плеера.
-        _state.update { it.copy(failed = false, ended = false) }
+        _state.update { it.copy(failed = false) }
         startPlaybackService()
         target.play()
     }
