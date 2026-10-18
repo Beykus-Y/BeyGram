@@ -54,6 +54,7 @@ import com.beykus.beygram.domain.model.validTextEntities
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
+import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
@@ -84,7 +85,7 @@ private val PAGER_MIN_HEIGHT = 360.dp
 internal fun SharedMediaSection(
     chatId: Long, counts: SharedCounts?, load: suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
-    onOpenMessage: (Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -117,7 +118,7 @@ internal fun SharedMediaSection(
     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(pagerHeight)) { page ->
         val kind = SharedMediaKind.entries[page]
         SharedMediaPageContent(kind, chatId, tabs.getValue(kind), onMore = { loadMore(kind) }, observeFile = observeFile, downloadFile = downloadFile,
-            confirmExport = confirmExport,
+            confirmExport = confirmExport, onContentOpened = onContentOpened,
             onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = onOpenMessage)
     }
 
@@ -163,14 +164,14 @@ private fun SharedMediaTabBar(titles: List<String>, counts: List<String?>, selec
 private fun SharedMediaPageContent(
     kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
-    onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     // Первую страницу грузим, как только вкладку показали; неудачную попытку повторяем при следующем показе.
     LaunchedEffect(kind) { if (!tab.loaded) onMore() }
     when {
         tab.messages.isEmpty() -> SharedMediaStatus(kind, tab, onRetry = onMore)
         kind == SharedMediaKind.Media -> SharedMediaGrid(tab, onMore, observeFile, downloadFile, onOpenMedia, onOpenMessage)
-        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onOpenMessage)
+        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
     }
 }
 
@@ -228,14 +229,14 @@ private fun SharedMediaGrid(
 private fun SharedMediaList(
     kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
-    onOpenMessage: (Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val listState = rememberLazyListState()
     val nearEnd by remember(tab) { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= tab.messages.size - PREFETCH_ROWS } ?: true } }
     LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
         items(tab.messages.asReversed(), key = { it.id }) { message ->
-            SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onOpenMessage)
+            SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
         }
         item(key = "footer") { SharedMediaFooter(tab, onRetry = onMore) }
     }
@@ -245,14 +246,15 @@ private fun SharedMediaList(
 @Composable
 private fun SharedMediaRowItem(
     kind: SharedMediaKind, chatId: Long, message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>,
-    downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean, onOpenMessage: (Long) -> Unit
+    downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean, onContentOpened: (Long) -> Unit,
+    onOpenMessage: (Long) -> Unit
 ) {
     val you = stringResource(R.string.search_you)
     val meta = listOf(if (message.isOutgoing) you else message.senderName, formatSearchDate(message.dateSeconds)).filter { it.isNotBlank() }.joinToString(" · ")
     when (kind) {
-        SharedMediaKind.Files -> message.media?.let { SharedFileRow(message, it, meta, observeFile, downloadFile, confirmExport, onOpenMessage) }
+        SharedMediaKind.Files -> message.media?.let { SharedFileRow(message, it, meta, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage) }
         SharedMediaKind.Links -> SharedLinkRow(message, meta, onOpenMessage)
-        SharedMediaKind.Voice -> message.media?.let { SharedVoiceRow(chatId, message, it, meta, observeFile, downloadFile, onOpenMessage) }
+        SharedMediaKind.Voice -> message.media?.let { SharedVoiceRow(chatId, message, it, meta, observeFile, downloadFile, onContentOpened, onOpenMessage) }
         SharedMediaKind.Media -> Unit
     }
 }
@@ -260,7 +262,8 @@ private fun SharedMediaRowItem(
 @Composable
 private fun SharedFileRow(
     message: ChatMessage, media: MessageMedia, meta: String, observeFile: (Int) -> StateFlow<MediaFileState>,
-    downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean, onOpenMessage: (Long) -> Unit
+    downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean, onContentOpened: (Long) -> Unit,
+    onOpenMessage: (Long) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -275,7 +278,8 @@ private fun SharedFileRow(
                 // Открыть в другом приложении значит передать файл наружу, поэтому право на сообщение проверяем при каждом открытии.
                 is SharedRowAction.Open -> scope.launch {
                     val error = if (confirmExport(message.id)) openExternalMedia(context, action.path, media.mimeType) else context.getString(R.string.media_export_denied)
-                    error?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                    // Открытый файл отмечается просмотренным, как в просмотрщике чата; отказ показываем сообщением.
+                    if (error == null) onContentOpened(message.id) else Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
                 }
             }
         },
@@ -287,7 +291,7 @@ private fun SharedFileRow(
 @Composable
 private fun SharedVoiceRow(
     chatId: Long, message: ChatMessage, media: MessageMedia, meta: String, observeFile: (Int) -> StateFlow<MediaFileState>,
-    downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit
+    downloadFile: (Int) -> Unit, onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val context = LocalContext.current
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
@@ -298,7 +302,13 @@ private fun SharedVoiceRow(
             when (val action = sharedRowAction(media, file.localPath)) {
                 SharedRowAction.ShowInChat -> onOpenMessage(message.id)
                 SharedRowAction.Download -> downloadFile(media.fileId)
-                is SharedRowAction.Open -> PlaybackEngine.toggle(context, media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id)))
+                is SharedRowAction.Open -> {
+                    val state = PlaybackEngine.state.value
+                    // Голосовое отмечаем прослушанным, когда плеер сообщит о старте, как в пузыре чата. Пауза не отмечает.
+                    val pausing = state.item?.key == media.playbackKey() && state.playing
+                    val onStarted = if (pausing) null else ({ onContentOpened(message.id) })
+                    PlaybackEngine.toggle(context, media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id)), onStarted)
+                }
             }
         },
         onShowInChat = { onOpenMessage(message.id) }
@@ -311,11 +321,15 @@ private fun SharedLinkRow(message: ChatMessage, meta: String, onOpenMessage: (Lo
     val uri = LocalUriHandler.current
     val context = LocalContext.current
     val link = sharedLinkTitle(message)
+    val underSpoiler = sharedLinkUnderSpoiler(message)
     SharedRow(
         Icons.Rounded.Link, link, meta,
         onClick = {
-            val safe = safeMessageUrl(link)
-            if (safe == null || runCatching { uri.openUri(safe) }.isFailure) Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
+            // Ссылку под спойлером открываем только в чате: там она появляется после нажатия, как в тексте сообщения.
+            if (underSpoiler) onOpenMessage(message.id) else {
+                val safe = safeMessageUrl(link)
+                if (safe == null || runCatching { uri.openUri(safe) }.isFailure) Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
+            }
         },
         onShowInChat = { onOpenMessage(message.id) }
     )
@@ -389,6 +403,13 @@ internal fun sharedLinkTitle(message: ChatMessage): String {
     val link = validTextEntities(message.text, message.entities).firstOrNull { it.kind == TextStyleKind.Url }
         ?: return message.text.trim()
     return link.argument.ifEmpty { message.text.substring(link.offset, link.offset + link.length) }
+}
+
+/** Ссылка, которую скрывает спойлер: в тексте сообщения такая ссылка открывается только после нажатия на спойлер. */
+internal fun sharedLinkUnderSpoiler(message: ChatMessage): Boolean {
+    val entities = validTextEntities(message.text, message.entities)
+    val link = entities.firstOrNull { it.kind == TextStyleKind.Url } ?: return false
+    return entities.any { it.kind == TextStyleKind.Spoiler && it.offset < link.offset + link.length && link.offset < it.offset + it.length }
 }
 
 private fun SharedMediaKind.titleRes(): Int = when (this) {

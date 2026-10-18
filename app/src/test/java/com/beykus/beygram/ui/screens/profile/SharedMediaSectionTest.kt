@@ -53,4 +53,12 @@ class SharedMediaSectionTest {
     @Test fun downloadedAttachmentOpensFromItsPath() {
         assertEquals(SharedRowAction.Open("/files/a.pdf"), sharedRowAction(MessageMedia(MediaKind.Document, fileId = 3), "/files/a.pdf"))
     }
+
+    @Test fun linkUnderSpoilerDefersToChat() {
+        assertTrue(sharedLinkUnderSpoiler(message(1, "скрыто", MessageTextEntity(0, 6, TextStyleKind.Spoiler), MessageTextEntity(0, 6, TextStyleKind.Url, "https://example.com"))))
+    }
+
+    @Test fun visibleLinkOpensFromList() {
+        assertFalse(sharedLinkUnderSpoiler(message(1, "см. https://example.com тут", MessageTextEntity(4, 19, TextStyleKind.Url), MessageTextEntity(24, 3, TextStyleKind.Spoiler))))
+    }
 }

@@ -63,7 +63,7 @@ fun ProfileScreen(
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
     hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)? = null,
-    confirmExport: suspend (Long) -> Boolean = { false }, onOpenMessage: (Long) -> Unit = {}
+    confirmExport: suspend (Long) -> Boolean = { false }, onContentOpened: (Long) -> Unit = {}, onOpenMessage: (Long) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -139,7 +139,7 @@ fun ProfileScreen(
                 }
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
-                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, onOpenMessage)
+                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                 if (isOwnProfile) Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
