@@ -407,6 +407,7 @@ private fun BeyGramAppContent(
         }
     }
     val chatInfoRoute: @Composable () -> Unit = {
+        val chats by repository.chats.collectAsStateWithLifecycle()
         val infoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
         LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
@@ -417,6 +418,8 @@ private fun BeyGramAppContent(
             lastSeenStyle = lastSeenStyle,
             sharedMessages = { kind, fromMessageId, newer -> repository.sharedMessages(selectedChatId, kind, fromMessageId, newer) },
             confirmExport = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull()?.canSave == true },
+            messageRights = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull() },
+            forwardMessage = { messageId, toChatId -> repository.forwardMessage(selectedChatId, messageId, toChatId) }, chats = chats,
             onContentOpened = { messageId -> repository.openMessageContent(selectedChatId, messageId) },
             onOpenMessage = { messageId -> chatFocusMessageId = messageId; routeName = AppRoute.Chat.name })
     }
