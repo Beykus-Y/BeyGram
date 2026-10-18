@@ -648,7 +648,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
-    Box(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = 14.dp)), contentAlignment = if (message.isOutgoing) Alignment.CenterEnd else Alignment.CenterStart) {
+    Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = 14.dp)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
         // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
         BubbleLayout(
             Modifier.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
@@ -692,5 +692,6 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
             },
             footer = inlineContent
         )
+        MessageReactionChips(message.reactions, Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }

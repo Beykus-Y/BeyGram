@@ -93,8 +93,9 @@ internal fun MessageAlbumBubble(
     val captions = chronological.filter { it.text.isNotBlank() }
     val captionMessage = captions.lastOrNull() ?: latest
     val reply = chronological.firstNotNullOfOrNull { it.reply }
+    val reactions = chronological.firstNotNullOfOrNull { message -> message.reactions.takeIf { it.isNotEmpty() } }.orEmpty()
 
-    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = if (latest.isOutgoing) Arrangement.End else Arrangement.Start) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
         BubbleLayout(
             Modifier.widthIn(max = 292.dp).clip(shape)
                 .then(if (highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
@@ -139,6 +140,7 @@ internal fun MessageAlbumBubble(
                     overlay = false, onRetry = onRetry)
             }
         )
+        MessageReactionChips(reactions, Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }
 
