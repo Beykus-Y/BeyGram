@@ -2,11 +2,13 @@ package com.beykus.beygram.data.tdlib
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
@@ -41,6 +43,18 @@ class KeyedMutexTest {
         val mutex = KeyedMutex<Long>()
         runCatching { mutex.withLock(1L) { error("boom") } }
         withTimeout(5_000) { mutex.withLock(1L) { } }
+        assertEquals(0, mutex.activeKeys)
+    }
+
+    @Test fun cancelledWaiterLeavesNoKeyBehind() = runBlocking {
+        val mutex = KeyedMutex<Long>()
+        val release = CompletableDeferred<Unit>()
+        val holder = launch { mutex.withLock(1L) { release.await() } }
+        val waiter = launch { mutex.withLock(1L) { error("the cancelled waiter must not run") } }
+        yield()
+        waiter.cancelAndJoin()
+        release.complete(Unit)
+        holder.join()
         assertEquals(0, mutex.activeKeys)
     }
 

@@ -43,6 +43,7 @@ class ReactionReplacementTest {
             )
         }.exceptionOrNull()
         assertEquals("limit", failure?.message)
+        assertEquals(listOf("🔥"), calls.removed)
         assertEquals(listOf("🔥"), calls.restored)
         assertFalse(calls.added)
     }
