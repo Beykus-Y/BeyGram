@@ -65,8 +65,9 @@ internal class TdStorage(
     }
 
     /**
-     * Копии отправленных файлов живут как кэш: их убирают по сроку и по лимиту. Папку не трогаем, пока её файл показывает
-     * загруженный чат, и пока она не старше [IN_USE_GRACE_MILLIS]: так не тронется отправка, которая ещё идёт.
+     * Копии отправленных файлов живут как кэш: их убирают по сроку и по лимиту. Трогаем только папки с меткой отправки
+     * ([SENT_UPLOAD_MARKER]). Папку не трогаем, пока её файл показывает загруженный чат, и пока она не старше
+     * [IN_USE_GRACE_MILLIS].
      * Срок отсчитывается от последнего изменения файлов. Лимит считается отдельно от кэша TDLib.
      */
     private suspend fun removeSentUploads(policy: CachePolicy): Long {
@@ -78,7 +79,8 @@ internal class TdStorage(
                 val files = folder.walkTopDown().filter { it.isFile }.toList()
                 val lastUsed = files.maxOfOrNull { it.lastModified() } ?: folder.lastModified()
                 val inUse = now - lastUsed < IN_USE_GRACE_MILLIS || files.any { it.canonicalPath in referenced }
-                SentUpload(folder, bytes = files.sumOf { it.length() }, lastUsedMillis = lastUsed, inUse = inUse)
+                val sent = File(folder, SENT_UPLOAD_MARKER).exists()
+                SentUpload(folder, bytes = files.sumOf { it.length() }, lastUsedMillis = lastUsed, inUse = inUse || !sent)
             }
             val candidates = folders.filter { !it.inUse }.sortedBy { it.lastUsedMillis }
             val expired = candidates.filter { maxAgeSeconds != null && now - it.lastUsedMillis > maxAgeSeconds * 1000L }
@@ -134,6 +136,12 @@ internal class TdStorage(
 
 /** Папка копий отправленных файлов: [bytes] — её размер, [lastUsedMillis] — последнее изменение файлов. */
 private class SentUpload(val folder: File, val bytes: Long, val lastUsedMillis: Long, val inUse: Boolean)
+
+/**
+ * Метка в папке копий: её ставит отправка, которую TDLib подтвердила. Без метки папка — черновик или отправка, которая
+ * ещё не прошла, и очистка её не трогает.
+ */
+internal const val SENT_UPLOAD_MARKER = ".sent"
 
 /** Размер всех файлов в папках, включая вложенные. Папки, которых нет, занимают 0 байт. */
 internal fun filesBytesIn(directories: List<File>): Long =
