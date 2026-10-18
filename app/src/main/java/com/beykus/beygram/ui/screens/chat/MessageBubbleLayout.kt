@@ -16,12 +16,14 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
@@ -31,6 +33,36 @@ import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Отступ плашки времени от края фото, когда время стоит поверх него. */
 private val OverlayInset = 6.dp
+
+/**
+ * Размеры пузырей и отступы списка сообщений. [Default] — вид, который BeyGram всегда имел.
+ * [LocalBubbleMetrics] несёт значения, которые действуют сейчас: тема меняет числа, код отрисовки остаётся прежним.
+ */
+internal data class BubbleMetrics(
+    /** Радиус трёх углов пузыря, которые не у хвоста. */
+    val cornerRadius: Dp = 20.dp,
+    /** Радиус угла у хвоста: внизу, со стороны отправителя. */
+    val tailRadius: Dp = 6.dp,
+    /** Расстояние от пузыря до краёв чата с обеих сторон. */
+    val sideInset: Dp = 14.dp,
+    /** Отступ текста внутри пузыря слева и справа. */
+    val textInset: Dp = 12.dp,
+    /** Отступ текста внутри пузыря сверху. */
+    val textTopInset: Dp = 8.dp,
+    /** Промежуток между соседними элементами списка сообщений. */
+    val itemSpacing: Dp = 8.dp,
+    /** Отступ над первым и под последним элементом списка сообщений. */
+    val listPadding: Dp = 16.dp
+)
+
+internal val LocalBubbleMetrics = compositionLocalOf { BubbleMetrics() }
+
+/** Форма пузыря. Хвост внизу со стороны отправителя: справа у исходящих, слева у входящих. */
+internal fun bubbleShape(outgoing: Boolean, metrics: BubbleMetrics): RoundedCornerShape {
+    val corner = metrics.cornerRadius
+    val tail = metrics.tailRadius
+    return if (outgoing) RoundedCornerShape(corner, corner, tail, corner) else RoundedCornerShape(corner, corner, corner, tail)
+}
 
 /**
  * Пузырь из трёх частей: [body] — содержимое сверху, [meta] — время и статус в правом нижнем углу,
