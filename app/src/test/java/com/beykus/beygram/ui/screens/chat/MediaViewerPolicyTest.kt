@@ -1,9 +1,11 @@
 package com.beykus.beygram.ui.screens.chat
 
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.domain.model.MessageMedia
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -11,6 +13,7 @@ class MediaViewerPolicyTest {
     private val plain = MessageMedia(MediaKind.Photo, fileId = 1, mimeType = "image/jpeg")
     private val secret = MessageMedia(MediaKind.Photo, fileId = 2, mimeType = "image/jpeg", isSecret = true)
     private val secretVideo = MessageMedia(MediaKind.Video, fileId = 3, mimeType = "video/mp4", isSecret = true)
+    private val savable = MessageRights(messageId = 10, capabilities = MessageCapabilities(canSave = true, canForward = true))
 
     private fun concealedWhenSettledOn(pages: List<MessageMedia>, settled: Int): List<Boolean> =
         pages.mapIndexed { index, media -> MediaViewerPolicy.concealed(media, active = index == settled) }
@@ -44,5 +47,19 @@ class MediaViewerPolicyTest {
 
     @Test fun secretPageClosesAgainAfterSwipingAway() {
         assertEquals(listOf(true, false), concealedWhenSettledOn(listOf(secret, plain), settled = 1))
+    }
+
+    @Test fun rightsApplyOnlyToTheMessageTheyWereLoadedFor() {
+        assertEquals(savable.capabilities, MediaViewerPolicy.rightsFor(10, savable))
+        assertNull(MediaViewerPolicy.rightsFor(11, savable))
+    }
+
+    @Test fun savingAllowedForOnePageDoesNotCarryToTheNextPage() {
+        // Право на сохранение, полученное для 10, не действует на соседнее вложение 11 до собственного ответа.
+        assertFalse(MediaViewerPolicy.rightsFor(11, savable)?.canSave == true)
+    }
+
+    @Test fun noLoadedRightsAllowNothing() {
+        assertNull(MediaViewerPolicy.rightsFor(10, null))
     }
 }

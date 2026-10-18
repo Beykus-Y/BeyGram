@@ -100,7 +100,7 @@ fun ChatScreen(
     var capabilitiesError by remember { mutableStateOf<String?>(null) }
     var capabilitiesAttempt by remember { mutableIntStateOf(0) }
     var selectedMediaId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
-    var viewerCapabilities by remember { mutableStateOf<MessageCapabilities?>(null) }
+    var viewerRights by remember { mutableStateOf<MessageRights?>(null) }
     var viewerPosition by remember { mutableStateOf<MediaPosition?>(null) }
     var forwardId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var forwardBusy by remember { mutableStateOf(false) }
@@ -322,10 +322,10 @@ fun ChatScreen(
         reactionOptions = conversation.availableReactions(chat.id, id).getOrNull().orEmpty()
     }
     LaunchedEffect(selectedMediaId) {
-        // При свайпе старые значения остаются до ответа, иначе счётчик и кнопки мигают на каждом вложении.
-        if (selectedMediaId == null) { viewerCapabilities = null; viewerPosition = null }
+        // Счётчик при свайпе держит прежнее значение до ответа, чтобы не мигал. Права так не держим: см. MediaViewerPolicy.rightsFor.
+        if (selectedMediaId == null) { viewerRights = null; viewerPosition = null }
         val id = selectedMediaId ?: return@LaunchedEffect
-        viewerCapabilities = conversation.messageCapabilities(chat.id, id).getOrNull()
+        viewerRights = conversation.messageCapabilities(chat.id, id).getOrNull()?.let { MessageRights(id, it) }
         val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind
         viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
@@ -658,18 +658,19 @@ fun ChatScreen(
         onDelete = { mediaList.firstOrNull()?.let { java.io.File(it.path).parentFile?.deleteRecursively() }; sentRecordingPaths = emptySet(); recordingRecovery.dismissPreview() },
         onSend = { sendRecordedMedia(mediaList) }
     ) }
+    val viewedRights = selectedMediaId?.let { MediaViewerPolicy.rightsFor(it, viewerRights) }
     messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(
         pages = if (media.kind in viewerSwipeKinds) viewerItems else listOf(MediaViewerItem(viewed.id, media)), selectedId = viewed.id, onSelect = { selectedMediaId = it },
         observeFile = observeFile, downloadFile = onDownloadFile, onViewed = { id -> conversation.openMessageContent(chat.id, id) }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
-        canExport = viewerCapabilities?.canSave == true,
+        canExport = viewedRights?.canSave == true, confirmExport = { id -> conversation.messageCapabilities(chat.id, id).getOrNull()?.canSave == true },
         actions = MediaViewerActions(
-            canForward = viewerCapabilities?.canForward == true,
-            canEdit = viewerCapabilities?.canEdit == true,
-            canDelete = viewerCapabilities?.let { it.canDeleteForSelf || it.canDeleteForAll } == true,
+            canForward = viewedRights?.canForward == true,
+            canEdit = viewedRights?.canEdit == true,
+            canDelete = viewedRights?.let { it.canDeleteForSelf || it.canDeleteForAll } == true,
             onForward = { forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
-            onDelete = { deleteEveryone = viewerCapabilities?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
+            onDelete = { deleteEveryone = viewedRights?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
         ), onShowInChat = { id -> selectedMediaId = null; showInChat(id) }) } }
     forwardId?.let { id ->
         ForwardChatDialog(chats, forwardBusy, forwardError,

@@ -35,11 +35,11 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf<ChatMessage?>(null) }
-    var exportable by remember { mutableStateOf(false) }
+    var rights by remember { mutableStateOf<MessageRights?>(null) }
     LaunchedEffect(selected?.id) {
-        exportable = false
+        rights = null
         val message = selected ?: return@LaunchedEffect
-        exportable = conversation.messageCapabilities(message.chatId, message.id).getOrNull()?.canSave == true
+        rights = conversation.messageCapabilities(message.chatId, message.id).getOrNull()?.let { MessageRights(message.id, it) }
     }
     val palette = beyGramPalette()
     // Имя context занято состоянием контекста сообщения, поэтому контекст Android берём под другим именем.
@@ -87,5 +87,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
         }
     }
     selected?.let { message -> message.media?.let { media -> MediaViewer(pages = listOf(MediaViewerItem(message.id, media)), selectedId = message.id, onSelect = {},
-        observeFile = observeFile, downloadFile = downloadFile, onViewed = { id -> conversation.openMessageContent(message.chatId, id) }, onClose = { selected = null }, canExport = exportable) } }
+        observeFile = observeFile, downloadFile = downloadFile, onViewed = { id -> conversation.openMessageContent(message.chatId, id) }, onClose = { selected = null },
+        canExport = MediaViewerPolicy.rightsFor(message.id, rights)?.canSave == true,
+        confirmExport = { id -> conversation.messageCapabilities(message.chatId, id).getOrNull()?.canSave == true }) } }
 }

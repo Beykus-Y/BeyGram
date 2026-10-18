@@ -310,6 +310,7 @@
     <string name="media_animated_sticker_failed">Анимацию не удалось открыть</string>
     <string name="media_audio_play_failed">Не удалось воспроизвести аудио</string>
     <string name="media_download_progress">Загрузка %1$s / %2$s</string>
+    <string name="media_export_denied">Это вложение нельзя сохранить или переслать</string>
     <string name="media_image_description">Изображение</string>
     <string name="media_image_read_failed">Не удалось прочитать изображение</string>
     <string name="media_kind_animation">GIF</string>
