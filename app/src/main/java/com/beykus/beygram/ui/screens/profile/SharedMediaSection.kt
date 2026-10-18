@@ -262,17 +262,34 @@ private fun SharedRow(icon: ImageVector, title: String, subtitle: String, onClic
     }
 }
 
-/** Превью в сетке. Видео без превью не грузим: TDLib отдал бы весь файл, а картинки нет. Секретные вложения не грузим и не показываем. */
+/**
+ * Превью грузим, только когда спойлер открыт: до этого файл на устройство не скачивается.
+ * Секретные вложения и видео без миниатюры превью не имеют.
+ */
+internal fun shouldLoadSharedPreview(media: MessageMedia, revealed: Boolean): Boolean =
+    revealed && !media.isSecret && (media.thumbnailFileId != null || media.kind == MediaKind.Photo)
+
+/**
+ * Превью в сетке. Спойлер: первое нажатие открывает превью, второе открывает вложение, как в ленте чата.
+ * Видео без превью не грузим: TDLib отдал бы весь файл, а картинки нет. Секретные вложения не грузим и не показываем.
+ */
 @Composable
 private fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit) {
     val palette = beyGramPalette()
     val thumbId = media.thumbnailFileId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
-    val hasPreview = !media.isSecret && (media.thumbnailFileId != null || media.kind == MediaKind.Photo)
-    LaunchedEffect(thumbId, hasPreview) { if (hasPreview) downloadFile(thumbId) }
-    Box(Modifier.aspectRatio(1f).clip(RoundedCornerShape(4.dp)).background(palette.disabled).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
+    val loadPreview = shouldLoadSharedPreview(media, revealed)
+    LaunchedEffect(thumbId, loadPreview) { if (loadPreview) downloadFile(thumbId) }
+    Box(
+        Modifier.aspectRatio(1f).clip(RoundedCornerShape(4.dp)).background(palette.disabled)
+            .clickable(onClick = { if (!revealed) revealed = true else onClick() }),
+        contentAlignment = Alignment.Center
+    ) {
         val path = thumb.localPath
-        if (hasPreview && path != null) LocalMediaImage(path, Modifier.fillMaxSize(), maxDimension = GRID_PREVIEW_PX)
+        if (loadPreview && path != null) LocalMediaImage(path, Modifier.fillMaxSize(), maxDimension = GRID_PREVIEW_PX)
+        if (!revealed) Text(stringResource(R.string.profile_shared_spoiler), color = palette.textSecondary, fontSize = 11.sp,
+            textAlign = TextAlign.Center, modifier = Modifier.padding(4.dp))
         if (media.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
         if (media.kind == MediaKind.Video && media.durationSeconds > 0) Text(
             duration(media.durationSeconds), color = Color.White, fontSize = 11.sp,

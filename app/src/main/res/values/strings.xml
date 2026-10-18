@@ -478,6 +478,7 @@
     <string name="profile_shared_links">Ссылки</string>
     <string name="profile_shared_load_failed">Не удалось загрузить вложения</string>
     <string name="profile_shared_media">Медиа</string>
+    <string name="profile_shared_spoiler">Спойлер</string>
     <string name="profile_shared_voice">Голосовые</string>
     <string name="profile_title_chat">Информация о чате</string>
     <string name="profile_title_own">Мой профиль</string>
