@@ -28,7 +28,6 @@ class NotificationRuntime private constructor(private val context: Context) {
     private val flushing = ConcurrentHashMap.newKeySet<Int>()
     private val replyOutbox by lazy { ReplyOutbox(File(context.noBackupFilesDir, REPLY_OUTBOX_DIRECTORY)) }
     private val replyInFlight = ConcurrentHashMap.newKeySet<String>()
-    private val replyFlushing = AtomicBoolean(false)
     private val replyRetryScheduled = AtomicBoolean(false)
     // Counts sign-outs. A reply that waits for authorization must not be sent once the account it was made for has changed.
     private val accountGeneration = AtomicInteger()
@@ -100,17 +99,26 @@ class NotificationRuntime private constructor(private val context: Context) {
             }
         }
     }
-    /** Keeps the reply on disk. A reply made while signed out, or one the disk refuses, is sent once and not kept. */
+    /**
+     * Keeps the reply on disk. A reply made while signed out, or one the disk refuses, is sent once and not kept. The account
+     * generation is read first, so a sign-out that starts while the reply is written is seen, and the reply is taken back out.
+     */
     private suspend fun storeReply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String): PendingReply {
         val now = System.currentTimeMillis()
-        val stored: ReplyOutbox.Entry? = if (repository?.authState?.value == AuthState.WaitingForPhone) null else try {
+        val generation = accountGeneration.get()
+        val saved: ReplyOutbox.Entry? = if (repository?.authState?.value == AuthState.WaitingForPhone) null else try {
             outbox { add(chatId, groupId, maxId, replyToMessageId, text, now) }
         } catch (error: IOException) {
             recordAppEvent(EventKind.NOTIFICATION, "reply_not_stored", "Ответ из уведомления не удалось сохранить", Severity.WARNING, mapOf("cause" to error.javaClass.simpleName))
             null
         }
-        val entry = stored ?: ReplyOutbox.Entry(UUID.randomUUID().toString(), chatId, groupId, maxId, replyToMessageId, text, now, attempts = 0)
-        return PendingReply(entry, stored = stored != null)
+        if (saved != null && accountGeneration.get() != generation) {
+            // A sign-out cleared the outbox before this entry was written, so the entry is taken back out and is not sent.
+            outbox { remove(saved.id) }
+            return PendingReply(saved, stored = false, generation = generation)
+        }
+        val entry = saved ?: ReplyOutbox.Entry(UUID.randomUUID().toString(), chatId, groupId, maxId, replyToMessageId, text, now, attempts = 0)
+        return PendingReply(entry, stored = saved != null, generation = generation)
     }
     /** Sends one reply. Returns false when the send failed and the reply stays stored for another attempt. */
     private suspend fun deliverReply(pending: PendingReply): Boolean {
@@ -120,7 +128,13 @@ class NotificationRuntime private constructor(private val context: Context) {
         try {
             // A stored reply that is no longer in the outbox was sent already, or cleared by a sign-out.
             if (pending.stored && !outbox { isStored(entry.id) }) return true
-            val failure = sendReply(entry, pending.stored).exceptionOrNull()
+            val failure = sendReply(pending).exceptionOrNull()
+            if (failure is AccountChangedException) {
+                // The reply was made for an account that has signed out since. It is dropped without a failed mark.
+                if (pending.stored) outbox { remove(entry.id) }
+                recordAppEvent(EventKind.NOTIFICATION, "reply_account_changed", "Ответ из уведомления отменён: аккаунт сменился", Severity.WARNING)
+                return true
+            }
             if (failure == null) {
                 // A reply that stays in the outbox after it was sent would be sent again at the next start.
                 if (pending.stored && !outbox { remove(entry.id) }) recordAppEvent(EventKind.NOTIFICATION, "reply_remove_failed", "Отправленный ответ не удалось убрать из очереди", Severity.WARNING)
@@ -142,19 +156,19 @@ class NotificationRuntime private constructor(private val context: Context) {
             replyInFlight.remove(entry.id)
         }
     }
-    /** Sends the stored replies while the account is signed in. A reply that fails stays stored for a later attempt. */
+    /**
+     * Sends the stored replies while the account is signed in. A reply that fails stays stored for a later attempt. Flushes do
+     * not wait for each other: a reply that another attempt is sending is skipped, and that attempt schedules its own retry.
+     */
     private fun flushReplies() {
-        if (repository?.authState?.value != AuthState.Ready || !replyFlushing.compareAndSet(false, true)) return
+        if (repository?.authState?.value != AuthState.Ready) return
+        val generation = accountGeneration.get()
         scope.launch {
             var retry = false
-            try {
-                val expired = outbox { discardExpired(System.currentTimeMillis(), REPLY_TTL_MILLIS) }
-                if (expired > 0) recordAppEvent(EventKind.NOTIFICATION, "reply_expired", "Устаревшие ответы из уведомлений удалены", Severity.WARNING, mapOf("count" to expired.toString()))
-                for (entry in outbox { entries() }) {
-                    if (!deliverReply(PendingReply(entry, stored = true))) retry = true
-                }
-            } finally {
-                replyFlushing.set(false)
+            val expired = outbox { discardExpired(System.currentTimeMillis(), REPLY_TTL_MILLIS) }
+            if (expired > 0) recordAppEvent(EventKind.NOTIFICATION, "reply_expired", "Устаревшие ответы из уведомлений удалены", Severity.WARNING, mapOf("count" to expired.toString()))
+            for (entry in outbox { entries() }) {
+                if (!deliverReply(PendingReply(entry, stored = true, generation = generation))) retry = true
             }
             if (retry) scheduleReplyRetry()
         }
@@ -170,19 +184,26 @@ class NotificationRuntime private constructor(private val context: Context) {
     }
     /** Outbox files are read and written off the main thread. */
     private suspend fun <T> outbox(block: ReplyOutbox.() -> T): T = withContext(Dispatchers.IO) { replyOutbox.block() }
-    /** A reply on its way to Telegram. Only a [stored] reply is kept on disk until it is sent. */
-    private class PendingReply(val entry: ReplyOutbox.Entry, val stored: Boolean)
-    private suspend fun sendReply(entry: ReplyOutbox.Entry, stored: Boolean): Result<Unit> = try {
+    /**
+     * A reply on its way to Telegram. Only a [stored] reply is kept on disk until it is sent. [generation] is the account
+     * generation the reply was made for; a sign-out after that ends the reply.
+     */
+    private class PendingReply(val entry: ReplyOutbox.Entry, val stored: Boolean, val generation: Int)
+    /** The account that the reply was made for signed out before the reply was sent. */
+    private class AccountChangedException : IllegalStateException("Telegram account changed before the reply was sent")
+    private suspend fun sendReply(pending: PendingReply): Result<Unit> = try {
+        val entry = pending.entry
         val source = repository ?: attachRealClient() ?: throw IllegalStateException("Telegram client is unavailable")
+        // The reply is sent only for the account it was made for.
+        if (accountGeneration.get() != pending.generation) throw AccountChangedException()
         // A signed-out account cannot send, and a reply does not wait for another account to sign in.
         if (source.authState.value == AuthState.WaitingForPhone) throw IllegalStateException("Telegram client is not authorized")
-        val account = accountGeneration.get()
         // A reply that starts the process can arrive before TDLib has authorized, and TDLib rejects requests until then.
         // Without authorization in time the reply is not sent, and the notification is marked as failed.
         withTimeoutOrNull(REPLY_READY_MILLIS) { source.authState.first { it == AuthState.Ready } }
             ?: throw IllegalStateException("Telegram client is not authorized")
-        // A sign-out while the reply waited ends it, because the reply was made for the account that signed out.
-        if (accountGeneration.get() != account || (stored && !outbox { isStored(entry.id) })) throw IllegalStateException("Account changed")
+        // A sign-out while the reply waited ends it, and so does a stored reply that the outbox no longer has.
+        if (accountGeneration.get() != pending.generation || (pending.stored && !outbox { isStored(entry.id) })) throw AccountChangedException()
         // Replying to the notified message puts the answer in its forum topic, too.
         source.sendMessage(entry.chatId, entry.text, entry.replyToMessageId.takeIf { it > 0L })
     } catch (error: CancellationException) {
