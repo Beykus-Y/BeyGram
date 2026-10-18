@@ -5,6 +5,7 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.CallHistoryPage
+import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatPreview
@@ -133,4 +134,6 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun refreshInteractionPolicy() {}
     override fun openMessageContent(chatId: Long, messageId: Long) {}
     override fun observeTyping(chatId: Long): StateFlow<List<String>> = noTyping
+    override fun startChatActivity(chatId: Long, activity: ChatActivity) {}
+    override fun endChatActivity(chatId: Long, activity: ChatActivity) {}
 }
