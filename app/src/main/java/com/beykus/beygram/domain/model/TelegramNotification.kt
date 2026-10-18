@@ -9,6 +9,7 @@ data class TelegramNoticeGroup(
     /** Чат в архиве: уведомления приходят без звука, пока это не включено в настройках архива. */
     val archived: Boolean = false
 )
-data class TelegramNotifications(val groups: List<TelegramNoticeGroup> = emptyList(), val initialized: Boolean = false, val hasPending: Boolean = false)
+/** [snapshot] is set once TDLib's startup snapshot is applied; only then may tray entries missing from it be cancelled. */
+data class TelegramNotifications(val groups: List<TelegramNoticeGroup> = emptyList(), val initialized: Boolean = false, val hasPending: Boolean = false, val snapshot: Boolean = false)
 data class NotificationPresentation(val foreground: Boolean = false, val openedChats: Set<Long> = emptySet())
 data class NotificationOpenRequest(val token: Long, val chatId: Long? = null, val settings: Boolean = false)

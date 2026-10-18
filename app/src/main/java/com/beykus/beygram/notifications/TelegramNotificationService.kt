@@ -19,7 +19,10 @@ import kotlinx.coroutines.flow.*
 class TelegramNotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var runtime: NotificationRuntime
-    private var wakeLock: PowerManager.WakeLock? = null
+    // Bounded: released at the first Connected state, or by its own timeout if the connection never gets there.
+    private var startupWakeLock: PowerManager.WakeLock? = null
+    // Held only while TDLib reports pending deliveries; it also expires by itself.
+    private var deliveryWakeLock: PowerManager.WakeLock? = null
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
@@ -32,11 +35,13 @@ class TelegramNotificationService : Service() {
         } catch (_: RuntimeException) { runtime.serviceState(false, UiText.Res(R.string.err_notif_background_denied)); stopSelf(); return }
         if (!shouldRun(this)) { stopSelf(); return }
         runtime.serviceState(true)
-        wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:notification_delivery").apply { setReferenceCounted(false); acquire(15_000) }
+        startupWakeLock = newWakeLock().apply { acquire(STARTUP_WAKE_LOCK_MILLIS) }
+        deliveryWakeLock = newWakeLock()
         val repository = runtime.attachRealClient()
         if (repository == null) { runtime.serviceState(false, UiText.Res(R.string.err_notif_telegram_start_failed)); stopSelf(); return }
         scope.launch {
             combine(repository.connectionState, repository.authState, runtime.preferences.state) { connection, auth, config ->
+                if (connection == TelegramConnectionState.Connected) startupWakeLock.releaseIfHeld()
                 if (!config.enabled || !config.background || auth == AuthState.WaitingForPhone) { stopSelf(); return@combine }
                 val text = when (connection) {
                     TelegramConnectionState.Connected -> getString(R.string.notif_service_receiving)
@@ -47,8 +52,8 @@ class TelegramNotificationService : Service() {
             }.collect { }
         }
         scope.launch { repository.notifications.collect { state ->
-            if (state.hasPending) wakeLock?.let { if (!it.isHeld) it.acquire(60_000) }
-            else wakeLock?.let { if (it.isHeld) it.release() }
+            if (state.hasPending) deliveryWakeLock?.let { if (!it.isHeld) it.acquire(DELIVERY_WAKE_LOCK_MILLIS) }
+            else deliveryWakeLock.releaseIfHeld()
         } }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -61,12 +66,18 @@ class TelegramNotificationService : Service() {
     }
     override fun onDestroy() {
         scope.cancel()
-        wakeLock?.let { if (it.isHeld) it.release() }
+        startupWakeLock.releaseIfHeld()
+        deliveryWakeLock.releaseIfHeld()
         if (::runtime.isInitialized) runtime.serviceState(false)
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
     override fun onTimeout(startId: Int, fgsType: Int) { stopSelf() }
+    private fun newWakeLock(): PowerManager.WakeLock = getSystemService(PowerManager::class.java)
+        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:notification_delivery").apply { setReferenceCounted(false) }
+    private fun PowerManager.WakeLock?.releaseIfHeld() {
+        if (this != null && isHeld) release()
+    }
     private fun statusNotification(text: String): android.app.Notification {
         val stopIntent = android.app.PendingIntent.getService(this, 1, Intent(this, TelegramNotificationService::class.java).setAction(STOP), android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, AndroidNotificationRenderer.CONNECTION).setSmallIcon(R.drawable.ic_notification)
@@ -75,6 +86,8 @@ class TelegramNotificationService : Service() {
     }
     companion object {
         private const val STOP = "com.beykus.beygram.STOP_BACKGROUND_NOTIFICATIONS"
+        private const val STARTUP_WAKE_LOCK_MILLIS = 15_000L
+        private const val DELIVERY_WAKE_LOCK_MILLIS = 60_000L
         fun shouldRun(context: Context): Boolean = NotificationRuntime.get(context).preferences.let { it.authorized && it.state.value.enabled && it.state.value.background && AndroidNotificationRenderer.canNotify(context) }
         /** Call only from a resumed UI or an allowed system boot/package replacement receiver. */
         fun reconcileFromAllowedContext(context: Context) {
