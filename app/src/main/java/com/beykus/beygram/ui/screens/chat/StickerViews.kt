@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -16,6 +17,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
@@ -25,6 +27,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.media.readTgsJson
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.ui.components.beyGramPalette
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -61,7 +64,9 @@ internal fun StickerPreview(
             path != null && media.mimeType == TGS_MIME -> TgsSticker(path, Modifier.fillMaxSize())
             path != null && !webm -> LocalMediaImage(path, Modifier.fillMaxSize(), fit = true)
             thumbnailPath != null -> LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true)
-            file.isDownloading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            file.isDownloading || thumbnail.isDownloading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            // WebM без миниатюры показать нечем: подписываем стикер, чтобы место не выглядело пустым.
+            webm && media.thumbnailFileId == null -> Text(description, color = beyGramPalette().textSecondary, fontSize = 13.sp)
         }
     }
 }
