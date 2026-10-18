@@ -74,11 +74,11 @@ internal class TdStorage(
         val now = System.currentTimeMillis()
         val referenced = referencedPaths()
         val maxAgeSeconds = policy.maxAgeSeconds
-        return withContext(Dispatchers.IO) {
+        val removed = withContext(Dispatchers.IO) {
             val folders = sentUploads.listFiles { it.isDirectory }.orEmpty().map { folder ->
                 val files = folder.walkTopDown().filter { it.isFile }.toList()
                 val lastUsed = files.maxOfOrNull { it.lastModified() } ?: folder.lastModified()
-                val inUse = now - lastUsed < IN_USE_GRACE_MILLIS || files.any { it.canonicalPath in referenced }
+                val inUse = now - lastUsed < IN_USE_GRACE_MILLIS || files.any { it.canonicalPath in referenced.keys }
                 val sent = File(folder, SENT_UPLOAD_MARKER).exists()
                 SentUpload(folder, bytes = files.sumOf { it.length() }, lastUsedMillis = lastUsed, inUse = inUse || !sent)
             }
@@ -94,22 +94,30 @@ internal class TdStorage(
                     total -= folder.bytes
                 }
             }
-            removed.sumOf { if (it.folder.deleteRecursively()) it.bytes else 0L }
+            removed
+        }
+        // TDLib forgets the local copy of each file it knows, so its state and the media store never point at a deleted file.
+        return removed.sumOf { upload ->
+            val prefix = upload.folder.canonicalPath + File.separator
+            referenced.filterKeys { it.startsWith(prefix) }.values.forEach { fileId -> requests(TdApi.DeleteFile(fileId)) }
+            if (upload.folder.deleteRecursively()) upload.bytes else 0L
         }
     }
 
-    /** Пути, которые TDLib отдаёт для файлов загруженных чатов. */
-    private suspend fun referencedPaths(): Set<String> {
-        val paths = mediaFileIds().mapNotNull { id ->
+    /** Файлы загруженных чатов, которые TDLib держит локально: канонический путь -> id файла. */
+    private suspend fun referencedPaths(): Map<String, Int> {
+        val local = mediaFileIds().mapNotNull { id ->
             try {
-                requests(TdApi.GetFile(id)).local?.path
+                id to requests(TdApi.GetFile(id)).local?.path
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 null
             }
         }
-        return withContext(Dispatchers.IO) { paths.filter { it.isNotBlank() }.map { File(it).canonicalPath }.toSet() }
+        return withContext(Dispatchers.IO) {
+            local.mapNotNull { (id, path) -> path?.takeIf { it.isNotBlank() }?.let { File(it).canonicalPath to id } }.toMap()
+        }
     }
 
     private suspend fun statistics(timeoutMillis: Long): TdApi.StorageStatistics =
