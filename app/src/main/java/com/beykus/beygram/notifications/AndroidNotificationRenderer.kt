@@ -65,6 +65,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
     companion object {
         const val MESSAGES = "messages_v1"
         const val CONNECTION = "background_connection_v1"
+        const val PROXY = "beygram-mihomo-proxy"
         const val SERVICE_ID = 900_001
         private const val TAG_PREFIX = "beygram_message_"
         private fun tag(id: Int) = "$TAG_PREFIX$id"
@@ -75,7 +76,8 @@ internal class AndroidNotificationRenderer(private val context: Context, private
         fun channels(context: Context) {
             context.getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(
                 NotificationChannel(MESSAGES, context.getString(R.string.notif_channel_messages), NotificationManager.IMPORTANCE_HIGH).apply { description = context.getString(R.string.notif_channel_messages_description); lockscreenVisibility = Notification.VISIBILITY_PRIVATE },
-                NotificationChannel(CONNECTION, context.getString(R.string.notif_channel_connection), NotificationManager.IMPORTANCE_LOW).apply { description = context.getString(R.string.notif_channel_connection_description); setSound(null, null); enableVibration(false); setShowBadge(false) }
+                NotificationChannel(CONNECTION, context.getString(R.string.notif_channel_connection), NotificationManager.IMPORTANCE_LOW).apply { description = context.getString(R.string.notif_channel_connection_description); setSound(null, null); enableVibration(false); setShowBadge(false) },
+                NotificationChannel(PROXY, context.getString(R.string.proxy_notification_title), NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null); enableVibration(false); setShowBadge(false) }
             ))
         }
     }
