@@ -55,9 +55,9 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
         context?.messages?.indexOfFirst { it.id == targetId }?.takeIf { it >= 0 }?.let { list.scrollToItem(it) }
     }
     // The dialog keeps its own copy of the messages, so the reactions TDLib returns are written back into that copy.
-    fun react(messageId: Long, emoji: String) {
+    fun react(messageId: Long, reaction: ReactionOption) {
         reactionScope.launch {
-            conversation.toggleReaction(chatId, messageId, emoji, addToRecent = false)
+            conversation.toggleReaction(chatId, messageId, reaction, addToRecent = false)
                 .onSuccess { reactions -> context = context?.let { current -> current.copy(messages = current.messages.map { if (it.id == messageId) it.copy(reactions = reactions) else it }) } }
                 .onFailure { failure -> Toast.makeText(androidContext, failure.userMessage(androidContext, R.string.chat_reaction_failed), Toast.LENGTH_SHORT).show() }
         }
@@ -80,7 +80,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                 context == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else -> LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(context!!.messages, key = { it.id }) { message ->
-                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = { selected = message }, onReaction = ::react, inlineContent = { InlineBotButtons(message, conversation) })
+                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = { selected = message }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
                     }
                 }
             }

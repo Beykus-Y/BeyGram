@@ -21,8 +21,19 @@ data class ChatMessage(
     val reactions: List<MessageReaction> = emptyList()
 )
 
-/** An emoji reaction under a message. [isChosen] marks the reaction the current user added. */
-data class MessageReaction(val emoji: String, val count: Int, val isChosen: Boolean = false)
+/**
+ * An emoji reaction under a message. [isChosen] marks the reaction the current user added. A custom emoji reaction has a
+ * [customEmojiId] and no emoji text; its sticker is looked up by that id.
+ */
+data class MessageReaction(val emoji: String, val count: Int, val isChosen: Boolean = false, val customEmojiId: Long = 0L) {
+    val option: ReactionOption get() = ReactionOption(emoji, customEmojiId)
+}
+
+/** A reaction the user can add: a standard [emoji], or the custom emoji with [customEmojiId], which has no emoji text. */
+data class ReactionOption(val emoji: String, val customEmojiId: Long = 0L)
+
+/** A custom emoji sticker: its file, the sticker's [mimeType] as for other stickers, and the standard [emoji] it stands for. */
+data class CustomEmoji(val customEmojiId: Long, val fileId: Int, val emoji: String, val mimeType: String)
 
 /** The message that carries an album's reactions: the first one that has any, otherwise the latest. A single message is its own. */
 fun reactionMessage(album: List<ChatMessage>): ChatMessage {

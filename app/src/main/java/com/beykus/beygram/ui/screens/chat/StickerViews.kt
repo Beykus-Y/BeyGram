@@ -16,8 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
@@ -25,16 +27,19 @@ import com.airbnb.lottie.compose.animateLottieCompositionAsState
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.readTgsJson
+import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.ui.components.beyGramPalette
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
 private val STICKER_SIZE = 160.dp
 private const val TGS_MIME = "application/x-tgsticker"
 private const val WEBM_MIME = "video/webm"
+private const val WEBP_MIME = "image/webp"
 
 /**
  * Стикер без рамки фото: ни цвета пузыря, ни подписи. TGS играет через Lottie, WebP показывается картинкой (анимированный
@@ -100,4 +105,21 @@ private fun LottieSticker(json: String, modifier: Modifier, playing: Boolean, fa
     }
     val progress by animateLottieCompositionAsState(result.value, isPlaying = playing, iterations = LottieConstants.IterateForever)
     LottieAnimation(composition = result.value, progress = { progress }, modifier = modifier)
+}
+
+/**
+ * Пользовательский эмодзи как стикер: TGS играет анимацией, WebP показывается картинкой. Другие форматы и стикер, которого ещё
+ * нет на устройстве, показывают [fallback], обычно текст эмодзи. WebM не рисуется, поэтому его не скачиваем.
+ */
+@Composable
+internal fun CustomEmojiImage(emoji: CustomEmoji, size: Dp, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, fallback: @Composable () -> Unit) {
+    val file by remember(emoji.fileId) { observeFile(emoji.fileId) }.collectAsStateWithLifecycle()
+    LaunchedEffect(emoji.fileId) { if (emoji.mimeType != WEBM_MIME) downloadFile(emoji.fileId) }
+    val path = file.localPath
+    val modifier = Modifier.size(size)
+    when {
+        path != null && emoji.mimeType == TGS_MIME -> TgsSticker(path, modifier, fallback = fallback)
+        path != null && emoji.mimeType == WEBP_MIME -> LocalMediaImage(path, modifier, fit = true)
+        else -> fallback()
+    }
 }

@@ -119,7 +119,7 @@ fun ChatScreen(
     fun closeSearch() { searching = false; searchQuery = "" }
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var reactionOptions by remember(chat.id) { mutableStateOf<List<String>>(emptyList()) }
+    var reactionOptions by remember(chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
@@ -191,13 +191,13 @@ fun ChatScreen(
         if (text.isBlank()) conversation.endChatActivity(chat.id, ChatActivity.Typing)
         else conversation.startChatActivity(chat.id, ChatActivity.Typing)
     }
-    fun setReaction(messageId: Long, emoji: String, addToRecent: Boolean) {
+    fun setReaction(messageId: Long, reaction: ReactionOption, addToRecent: Boolean) {
         scope.launch {
-            conversation.toggleReaction(chat.id, messageId, emoji, addToRecent).onFailure { error = it.userMessage(context, R.string.chat_reaction_failed) }
+            conversation.toggleReaction(chat.id, messageId, reaction, addToRecent).onFailure { error = it.userMessage(context, R.string.chat_reaction_failed) }
         }
     }
     // Chip taps leave the user's recent reactions alone; only a reaction picked from the extended menu is added there.
-    fun react(messageId: Long, emoji: String) = setReaction(messageId, emoji, addToRecent = false)
+    fun react(messageId: Long, reaction: ReactionOption) = setReaction(messageId, reaction, addToRecent = false)
     fun retryFailedMessages(messageIds: List<Long>) {
         scope.launch {
             val result = conversation.retryMessages(chat.id, messageIds)
@@ -463,8 +463,8 @@ fun ChatScreen(
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
         else ChatTopBar(chat, info, lastSeenStyle, onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
         reactionOwner?.takeIf { !deleting }?.let { owner ->
-            MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.emoji }) { emoji ->
-                setReaction(owner.id, emoji, addToRecent = true)
+            MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
+                setReaction(owner.id, option, addToRecent = true)
                 closeActions()
             }
         }
@@ -489,13 +489,13 @@ fun ChatScreen(
                         isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                         highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
                         onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
-                        onReaction = ::react, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
+                        onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
                 } else {
                     val message = listItem.messages.single()
                     MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                         highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                         onPlayed = { conversation.openMessageContent(chat.id, message.id) },
-                        onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, inlineContent = { InlineBotButtons(message, conversation) })
+                        onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
                 }
             }
             history.error?.let { item(key = "history_error") { Text(it.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp)) } }
@@ -709,7 +709,7 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
 
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, String) -> Unit, inlineContent: @Composable () -> Unit = {}) {
+    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {}) {
     val palette = beyGramPalette()
     val shape = if (message.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     val hasText = message.text.isNotBlank()
@@ -776,6 +776,6 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 footer = inlineContent
             )
         }
-        MessageReactionChips(message.reactions, onToggle = { onReaction(message.id, it.emoji) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
+        MessageReactionChips(message.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(message.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }

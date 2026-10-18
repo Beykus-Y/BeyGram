@@ -23,6 +23,13 @@ internal fun decodeVoiceWaveform(bytes: ByteArray): List<Int> = List(bytes.size 
     ((low or (high shl 8)) shr (bit % 8)) and 0x1F
 }
 
+/** MIME type of a sticker's file: TGS is gzipped Lottie JSON, WebM is video, and anything else is WebP. */
+internal fun stickerMimeType(format: TdApi.StickerFormat): String = when (format) {
+    is TdApi.StickerFormatWebm -> "video/webm"
+    is TdApi.StickerFormatTgs -> "application/x-tgsticker"
+    else -> "image/webp"
+}
+
 internal class TdMediaMapper(private val files: MediaFileStore) {
     private fun register(file: TdApi.File): Int {
         files.register(file.toMediaFileState())
@@ -57,12 +64,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             MessageMedia(MediaKind.VideoNote, register(it.video), thumbnail(it.thumbnail), "", "video/mp4", it.length, it.length, it.duration, isSecret = content.isSecret, isViewed = content.isViewed, minithumbnail = it.minithumbnail?.data)
         }
         is TdApi.MessageSticker -> content.sticker.let {
-            val mime = when (it.format) {
-                is TdApi.StickerFormatWebm -> "video/webm"
-                is TdApi.StickerFormatTgs -> "application/x-tgsticker"
-                else -> "image/webp"
-            }
-            MessageMedia(MediaKind.Sticker, register(it.sticker), thumbnail(it.thumbnail), "", mime, it.width, it.height)
+            MessageMedia(MediaKind.Sticker, register(it.sticker), thumbnail(it.thumbnail), "", stickerMimeType(it.format), it.width, it.height)
         }
         else -> null
     }

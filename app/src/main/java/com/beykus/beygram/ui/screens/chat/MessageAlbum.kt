@@ -42,11 +42,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.reactionMessage
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
@@ -84,7 +86,8 @@ internal fun MessageAlbumBubble(
     onActions: (Long) -> Unit,
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)? = null,
-    onReaction: (Long, String) -> Unit,
+    onReaction: (Long, ReactionOption) -> Unit,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     onRetry: () -> Unit = {}
 ) {
     if (messages.isEmpty()) return
@@ -146,7 +149,7 @@ internal fun MessageAlbumBubble(
                 }
             )
         }
-        MessageReactionChips(reactionOwner.reactions, onToggle = { onReaction(reactionOwner.id, it.emoji) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
+        MessageReactionChips(reactionOwner.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(reactionOwner.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }
 

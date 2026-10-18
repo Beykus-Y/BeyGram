@@ -11,6 +11,7 @@ import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
@@ -298,6 +299,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
+    private val customEmojis = TdCustomEmojis { client }
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
     // ---- Память и кэш --------------------------------------------------------
@@ -336,8 +338,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationActions.delete(chatId, messageId, scope).onSuccess { conversationEffects.uploadFinished(chatId, messageId) }
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long) = conversationActions.forward(fromChatId, messageId, toChatId)
     override suspend fun availableReactions(chatId: Long, messageId: Long) = conversationActions.availableReactions(chatId, messageId)
-    override suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean) =
-        conversationActions.toggleReaction(chatId, messageId, emoji, addToRecent)
+    override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean) =
+        conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
+    override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long) = conversationActions.shared(chatId, kind, fromMessageId)

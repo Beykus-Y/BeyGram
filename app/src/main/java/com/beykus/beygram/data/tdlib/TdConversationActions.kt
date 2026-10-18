@@ -164,31 +164,32 @@ internal class TdConversationActions(
     }
 
     /**
-     * Emoji the user can add to the message, in the picker's order: TDLib's top, recent and popular reactions, then the chat's
-     * own list, or every active emoji when the chat allows all of them. Premium-only ones are left out for users without Premium.
+     * Reactions the user can add to the message, in the picker's order: TDLib's top, recent and popular reactions, then the chat's
+     * own list, or every active emoji when the chat allows all of them. Premium-only ones are left out for users without Premium,
+     * and so are custom emoji, which only Premium users can add.
      */
-    suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<String>> = conversationResult<List<String>> {
+    suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>> = conversationResult<List<ReactionOption>> {
         val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_ROW_SIZE))
         if (available.unavailabilityReason != null) emptyList()
-        else pickerEmojis(available, request(TdApi.GetChat(chatId)).availableReactions, _activeReactions.value, premium = request(TdApi.GetMe()).isPremium)
+        else pickerOptions(available, request(TdApi.GetChat(chatId)).availableReactions, _activeReactions.value, premium = request(TdApi.GetMe()).isPremium)
     }
 
     /**
-     * Removes [emoji] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
+     * Removes [reaction] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
      * chosen reaction in the server's order makes room, and it comes back if the new reaction can't be added.
      * [addToRecent] is set only for a reaction picked from the extended menu. Returns the message's reactions after the change.
      */
-    suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
+    suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
         reactionLocks.withLock(chatId to messageId) {
             val chosen = request(TdApi.GetMessage(chatId, messageId)).interactionInfo?.reactions?.reactions.orEmpty()
                 .filter { it.isChosen && it.type !is TdApi.ReactionTypePaid }
-            val own = chosen.firstOrNull { (it.type as? TdApi.ReactionTypeEmoji)?.emoji == emoji }
+            val own = chosen.firstOrNull { optionOf(it.type) == reaction }
             if (own != null) {
                 request(TdApi.RemoveMessageReaction(chatId, messageId, own.type))
             } else {
                 replaceReactions(
                     displaced = overflowReactions(chosen.map { it.type }, maxReactionCount(chatId)),
-                    add = { request(TdApi.AddMessageReaction(chatId, messageId, TdApi.ReactionTypeEmoji(emoji), false, addToRecent)) },
+                    add = { request(TdApi.AddMessageReaction(chatId, messageId, reactionTypeOf(reaction), false, addToRecent)) },
                     remove = { request(TdApi.RemoveMessageReaction(chatId, messageId, it)) },
                     // Возвращённые реакции были выбраны раньше, поэтому в недавние они не попадают.
                     restore = { request(TdApi.AddMessageReaction(chatId, messageId, it, false, false)) },
