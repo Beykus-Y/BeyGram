@@ -324,6 +324,7 @@ internal class VpnBackend private constructor(
 
     suspend fun probeAllConnections(): Result<List<MihomoProbeResult>> = withContext(Dispatchers.IO) {
         try {
+            MihomoProbeCoordinator.sweep {
             val current = mihomo.listConnections(settings.value.connectionGroup)
             val results = mutableListOf<MihomoProbeResult>()
             _probeProgress.value = ProbeProgress(0, current.size)
@@ -339,6 +340,7 @@ internal class VpnBackend private constructor(
                 _probeProgress.value = ProbeProgress(results.size, current.size)
             }
             Result.success(results.toList())
+            }
         } catch (error: Exception) {
             if (error is CancellationException) throw error
             Result.failure(error)
