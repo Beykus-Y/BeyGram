@@ -45,12 +45,14 @@ class StorageSettingsViewModelTest {
 
         assertTrue(model.busy)
         assertEquals(2, repository.applied.size)
-        repository.gates[0].complete(Unit)
+        // Первая смена освободила 100 байт, вторая уже ничего не освобождает: сумма не должна пропасть.
+        repository.gates[0].complete(100L)
         assertTrue(model.busy)
         assertEquals(0, repository.usageLoads)
-        repository.gates[1].complete(Unit)
+        repository.gates[1].complete(0L)
         assertFalse(model.busy)
         assertEquals(1, repository.usageLoads)
+        assertEquals(100L, model.freedBytes)
     }
 
     @Test fun clearIsRefusedWhileALimitIsStillApplying() {
@@ -61,7 +63,7 @@ class StorageSettingsViewModelTest {
         model.clear(setOf(StorageCategory.Photos))
 
         assertEquals(0, repository.clears)
-        repository.gates.single().complete(Unit)
+        repository.gates.single().complete(0L)
         assertFalse(model.busy)
     }
 
@@ -92,7 +94,7 @@ class StorageSettingsViewModelTest {
     /** Каждое применение ждёт свой сигнал из [gates], поэтому тест завершает их по одному. */
     private class FakeRepository : StorageRepository {
         val applied = mutableListOf<CachePolicy>()
-        val gates = mutableListOf<CompletableDeferred<Unit>>()
+        val gates = mutableListOf<CompletableDeferred<Long>>()
         var usageLoads = 0
         var clears = 0
 
@@ -108,10 +110,9 @@ class StorageSettingsViewModelTest {
 
         override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> {
             applied += policy
-            val gate = CompletableDeferred<Unit>()
+            val gate = CompletableDeferred<Long>()
             gates += gate
-            gate.await()
-            return Result.success(0L)
+            return Result.success(gate.await())
         }
     }
 }

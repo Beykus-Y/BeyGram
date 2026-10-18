@@ -85,12 +85,13 @@ class StorageSettingsViewModel(
             return
         }
         error = null
-        freedBytes = null
+        // Серия смен суммирует освобождённое: вторая может ничего не освободить, потому что первая уже сделала всё.
+        if (!applying) freedBytes = null
         pendingChanges++
         viewModelScope.launch {
             try {
                 repository.applyCachePolicy(store.settings.value.policy())
-                    .onSuccess { freedBytes = it.takeIf { bytes -> bytes > 0L } }
+                    .onSuccess { bytes -> if (bytes > 0L) freedBytes = (freedBytes ?: 0L) + bytes }
                     .onFailure { error = it.toUiText(R.string.storage_clear_failed) }
             } finally {
                 pendingChanges--

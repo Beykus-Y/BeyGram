@@ -308,7 +308,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
     override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> =
         storageResult { storage.clear(categories, onProgress) }
-    override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> = storageResult { storage.applyPolicy(policy) }
+    /** Применение идёт в области входа: уход с экрана не отменяет лимит, который уже сохранён в настройках. */
+    override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> =
+        authScope.async { storageResult { storage.applyPolicy(policy) } }.await()
 
     // ---- Канал подтверждения диагностических отчётов --------------------------
     // Pinning id бота задан публичной конфигурацией сборки; 0 — пиннинг выключен.
