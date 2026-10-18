@@ -144,11 +144,11 @@ internal fun VideoNoteBubble(
     // Строка пузыря в общем ожидании загрузки: ждёт только последнее нажатое, как голосовое.
     val row = remember(media.fileId) { Any() }
     val waitingForCircle = pendingPlaybackRow.value === row
-    // Отметку «прослушано» получает только кружок, по которому нажали, и только когда плеер сообщил о старте.
-    var requested by remember(media.fileId) { mutableStateOf(false) }
+    // Отметку «прослушано» получает только кружок, по которому нажали, и только когда плеер сообщил о старте. Плеер вызывает её сам, поэтому пузырь может уйти с экрана раньше.
     var played by remember(media.fileId) { mutableStateOf(false) }
     val path = file.localPath
     val currentOnPlayed by rememberUpdatedState(onPlayed)
+    val markPlayed: () -> Unit = { played = true; currentOnPlayed() }
     val playingSize = LocalConfiguration.current.screenWidthDp.dp
     var showControls by remember(media.fileId) { mutableStateOf(false) }
     LaunchedEffect(showing, playing) {
@@ -157,13 +157,6 @@ internal fun VideoNoteBubble(
         showControls = false
     }
     val size by animateDpAsState(targetValue = if (showing) playingSize else IDLE_SIZE, label = "video note size")
-    LaunchedEffect(requested, started) {
-        if (requested && started) {
-            requested = false
-            played = true
-            currentOnPlayed()
-        }
-    }
     // Секретный кружок во время проигрывания не должен попасть на скриншот или запись экрана.
     val secureWhilePlaying = media.isSecret && showing
     DisposableEffect(secureWhilePlaying) {
@@ -178,8 +171,8 @@ internal fun VideoNoteBubble(
     // Запуск заменяет файл в общем плеере, а тот же кружок ставит на паузу или продолжает.
     fun startCircle(localPath: String) {
         val state = PlaybackEngine.state.value
-        requested = !(state.item?.key == key && state.playing)
-        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label, origin))
+        val starting = !(state.item?.key == key && state.playing)
+        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label, origin), onStarted = if (starting) markPlayed else null)
     }
     fun togglePlay() {
         if (path == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startCircle(path)
