@@ -223,7 +223,8 @@ class NotificationRuntime private constructor(private val context: Context) {
         if (replyId == null || !sent.exceptionOrNull().isReplyRejected()) sent else {
             // The session can change while the first send waits, so the fallback needs the same ownership check.
             if (!stillOwned(pending)) throw AccountChangedException()
-            source.sendMessage(entry.chatId, entry.text, null)
+            // In a forum the topic lives on the replied-to message, which is gone. A plain send would land in General, so it is not sent.
+            if (source.isForumChat(entry.chatId).getOrDefault(true)) sent else source.sendMessage(entry.chatId, entry.text, null)
         }
     } catch (error: CancellationException) {
         throw error
@@ -237,9 +238,9 @@ class NotificationRuntime private constructor(private val context: Context) {
         return id == R.string.err_message_cannot_reply || id == R.string.err_tdlib_message_unavailable
     }
 
-    /** Telegram refuses this text every time it is sent, so retrying cannot help. */
+    /** Telegram refuses this reply every time it is sent, so retrying cannot help. */
     private fun Throwable.isPermanentReplyFailure(): Boolean =
-        ((this as? UserMessageException)?.text as? UiText.Res)?.id == R.string.err_message_too_long
+        ((this as? UserMessageException)?.text as? UiText.Res)?.id == R.string.err_message_too_long || isReplyRejected()
 
     private fun flushDismissals() {
         val source = repository ?: return
