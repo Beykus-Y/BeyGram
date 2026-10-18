@@ -54,7 +54,8 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             val notices = group.notices.filter { it.id > preferences.dismissed(group.id) }
             if (!authorized || !config.enabled || !canNotify(context) || notices.isEmpty() || presentation.foreground && group.chatId in presentation.openedChats) {
                 // Deliberate suppression consumes the alert, so re-enabling notifications later does not ring for old messages.
-                preferences.handled(group.id, maxId)
+                // A signed-out state consumes nothing: sign-out already dropped the watermarks for the next account.
+                if (authorized) preferences.handled(group.id, maxId)
                 continue
             }
             val hideContent = group.isSecret || !group.metadataReady

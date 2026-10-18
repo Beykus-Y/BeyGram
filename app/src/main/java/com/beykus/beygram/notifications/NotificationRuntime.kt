@@ -3,6 +3,7 @@ package com.beykus.beygram.notifications
 import android.content.Context
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
+import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
@@ -45,10 +46,6 @@ class NotificationRuntime private constructor(private val context: Context) {
                 else -> Unit
             }
             _authorized.value = auth == AuthState.Ready
-        } }
-        scope.launch { source.myProfile.collect { profile ->
-            // A switched account retires the reply token; re-rendering re-posts the live reply actions with the new one.
-            if (profile.info?.id?.let(preferences::account) == true) refresh()
         } }
         scope.launch { source.connectionState.collect { flushDismissals() } }
     }
@@ -98,7 +95,9 @@ class NotificationRuntime private constructor(private val context: Context) {
     private suspend fun sendReply(chatId: Long, replyToMessageId: Long, text: String): Result<Unit> = try {
         val source = repository ?: attachRealClient() ?: throw IllegalStateException("Telegram client is unavailable")
         // A reply that starts the process can arrive before TDLib has authorized, and TDLib rejects requests until then.
+        // Without authorization in time the reply is not sent, and the notification is marked as failed.
         withTimeoutOrNull(REPLY_READY_MILLIS) { source.authState.first { it == AuthState.Ready } }
+            ?: throw IllegalStateException("Telegram client is not authorized")
         // Replying to the notified message puts the answer in its forum topic, too.
         source.sendMessage(chatId, text, replyToMessageId.takeIf { it > 0L })
     } catch (error: CancellationException) {
@@ -136,14 +135,19 @@ class NotificationRuntime private constructor(private val context: Context) {
     }
     fun attachRealClient(): TelegramRepository? {
         if (!TdLibBootstrap(context).readiness().canCreateClient) return null
-        return TdLibTelegramRepository.getInstance(context).also(::attach)
+        val repository = TdLibTelegramRepository.getInstance(context)
+        // TDLib keeps the saved proxy, and only the backend restarts its local listener. A cold reply skips the application's
+        // start-up path when background notifications are off, so the backend is created here before the client is used.
+        VpnBackend.getInstance(context, repository.connectionState, scope, repository::setMihomoProxyEnabled, repository::isMihomoProxyEnabled)
+        return repository.also(::attach)
     }
     companion object {
         private const val DISMISS_ATTEMPTS = 4
         private const val DISMISS_RETRY_MILLIS = 2_000L
         // Keeps a reply broadcast inside the system's receiver time limit; a slower send still completes.
         private const val REPLY_BROADCAST_MILLIS = 8_000L
-        private const val REPLY_READY_MILLIS = 5_000L
+        // Longest wait for TDLib's authorization after the broadcast has ended; the send itself is not bound to the broadcast.
+        private const val REPLY_READY_MILLIS = 30_000L
         @Volatile private var instance: NotificationRuntime? = null
         fun get(context: Context): NotificationRuntime = instance ?: synchronized(this) {
             instance ?: NotificationRuntime(context.applicationContext).also { instance = it }

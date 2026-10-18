@@ -25,8 +25,14 @@ class NotificationPreferencesStore(context: Context) {
     var authorized: Boolean
         get() = preferences.getBoolean("authorized", false)
         set(value) {
-            // Sign-out retires outstanding reply actions, so a listener cannot send from them into the next account.
-            if (!value && authorized) rotateReplyToken()
+            // Sign-out ends the session that the watermarks and reply actions belong to. Group IDs restart for the next account,
+            // so the watermarks go before its notifications can render, and outstanding reply actions are retired.
+            if (!value && authorized) {
+                val editor = preferences.edit()
+                preferences.all.keys.filter { it.startsWith("handled_") || it.startsWith("dismissed_") || it.startsWith("pending_") }.forEach(editor::remove)
+                editor.apply()
+                rotateReplyToken()
+            }
             preferences.edit().putBoolean("authorized", value).apply()
         }
     fun handled(groupId: Int) = preferences.getInt("handled_$groupId", 0)
@@ -39,17 +45,4 @@ class NotificationPreferencesStore(context: Context) {
         key.removePrefix("pending_").toIntOrNull()?.takeIf { key.startsWith("pending_") }?.let { it to (value as? Int ?: 0) }
     }.toMap()
     fun acknowledge(groupId: Int, maxId: Int) { if (preferences.getInt("pending_$groupId", 0) <= maxId) preferences.edit().remove("pending_$groupId").apply() }
-    /** Returns true when another account was stored before; its live reply actions then carry a retired token until they are re-posted. */
-    fun account(id: Long): Boolean {
-        val old = preferences.getLong("account", 0)
-        val switched = old != 0L && old != id
-        if (switched) {
-            val editor = preferences.edit()
-            preferences.all.keys.filter { it.startsWith("handled_") || it.startsWith("dismissed_") || it.startsWith("pending_") }.forEach(editor::remove)
-            editor.apply()
-            rotateReplyToken()
-        }
-        preferences.edit().putLong("account", id).apply()
-        return switched
-    }
 }
