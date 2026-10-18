@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.theme
 
 import android.os.Build
+import androidx.annotation.ChecksSdkIntAtLeast
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -14,6 +15,7 @@ import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.ThemePreset
 
 /** Colours from the system wallpaper exist from Android 12. Older systems have no such scheme. */
+@get:ChecksSdkIntAtLeast(api = Build.VERSION_CODES.S)
 val SystemColorsAvailable: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 /**
