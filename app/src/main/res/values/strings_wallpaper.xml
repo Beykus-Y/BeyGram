@@ -2,8 +2,8 @@
 <resources>
     <string name="wallpaper_title">Обои чата</string>
     <string name="wallpaper_option_none">Без обоев</string>
-    <string name="wallpaper_option_solid">Однотонный фон</string>
-    <string name="wallpaper_option_gradient">Градиент</string>
+    <string name="wallpaper_option_solid">Однотонный фон %1$d</string>
+    <string name="wallpaper_option_gradient">Градиент %1$d</string>
     <string name="wallpaper_option_photo">Фото из галереи</string>
     <string name="wallpaper_dim">Затемнение</string>
     <string name="wallpaper_import_failed">Не удалось открыть это фото</string>

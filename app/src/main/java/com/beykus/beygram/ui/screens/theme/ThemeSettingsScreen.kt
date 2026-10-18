@@ -72,7 +72,8 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
     // Once a picture is applied, the copies of the pictures that were only tried are no longer needed.
     val context = LocalContext.current
     LaunchedEffect(saved.wallpaper) {
-        WallpaperFiles.deleteAllExcept(context, (saved.wallpaper as? ChatWallpaper.Photo)?.fileName)
+        // The restored draft is kept too, so turning the screen does not delete a picture that is still on screen.
+        WallpaperFiles.deleteAllExcept(context, setOfNotNull((saved.wallpaper as? ChatWallpaper.Photo)?.fileName, (wallpaper as? ChatWallpaper.Photo)?.fileName))
     }
     BackHandler(onBack = onBack)
 

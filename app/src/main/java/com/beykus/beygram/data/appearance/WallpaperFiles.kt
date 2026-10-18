@@ -28,24 +28,28 @@ object WallpaperFiles {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+            val longSide = maxOf(bounds.outWidth, bounds.outHeight)
             var sample = 1
-            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE_PX) sample *= 2
+            while (longSide / (sample * 2) >= MAX_SIDE_PX) sample *= 2
             val decoded = resolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
             } ?: return@runCatching null
-            val rotation = resolver.openInputStream(uri)?.use { exifRotation(it) } ?: 0
-            val upright = if (rotation == 0) decoded else Bitmap.createBitmap(
-                decoded, 0, 0, decoded.width, decoded.height, Matrix().apply { postRotate(rotation.toFloat()) }, true
-            )
+            val orientation = resolver.openInputStream(uri)?.use {
+                ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            } ?: ExifInterface.ORIENTATION_NORMAL
+            // Sampling only halves in steps, so the picture can still be up to twice the limit: scale it down exactly.
+            val scale = minOf(1f, MAX_SIDE_PX.toFloat() / maxOf(decoded.width, decoded.height))
+            val matrix = orientationMatrix(orientation).apply { postScale(scale, scale) }
+            val upright = if (matrix.isIdentity) decoded else Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
             val name = "wallpaper_${System.currentTimeMillis()}.jpg"
             File(dir(context), name).outputStream().use { upright.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
             name
         }.getOrNull()
     }
 
-    /** Removes every stored picture except [keep]. */
-    suspend fun deleteAllExcept(context: Context, keep: String?) = withContext(Dispatchers.IO) {
-        dir(context).listFiles()?.filter { it.name != keep }?.forEach { it.delete() }
+    /** Removes every stored picture except those named in [keep]. */
+    suspend fun deleteAllExcept(context: Context, keep: Set<String>) = withContext(Dispatchers.IO) {
+        dir(context).listFiles()?.filter { it.name !in keep }?.forEach { it.delete() }
     }
 
     /** Decodes the stored picture for drawing. Returns null when the file is gone or damaged. */
@@ -54,11 +58,15 @@ object WallpaperFiles {
         runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull()
     }
 
-    private fun exifRotation(stream: java.io.InputStream): Int =
-        when (ExifInterface(stream).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> 90
-            ExifInterface.ORIENTATION_ROTATE_180 -> 180
-            ExifInterface.ORIENTATION_ROTATE_270 -> 270
-            else -> 0
+    private fun orientationMatrix(orientation: Int): Matrix = Matrix().apply {
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> postRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> { postRotate(90f); postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_90 -> postRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> { postRotate(-90f); postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_270 -> postRotate(270f)
         }
+    }
 }

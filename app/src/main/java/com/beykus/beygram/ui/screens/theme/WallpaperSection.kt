@@ -6,7 +6,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -58,16 +59,15 @@ internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onS
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            // Only the applied picture is worth keeping: older drafts are dropped before the new copy is made.
-            WallpaperFiles.deleteAllExcept(context, (saved as? ChatWallpaper.Photo)?.fileName)
             val name = WallpaperFiles.import(context, uri)
-            if (name != null) onSelect(ChatWallpaper.Photo(name, (selected as? ChatWallpaper.Photo)?.dimPercent ?: ChatWallpaper.DEFAULT_DIM_PERCENT))
-            else Toast.makeText(context, R.string.wallpaper_import_failed, Toast.LENGTH_SHORT).show()
+            if (name != null) {
+                // The new copy is in place: only the applied picture and this one are worth keeping.
+                WallpaperFiles.deleteAllExcept(context, setOfNotNull((saved as? ChatWallpaper.Photo)?.fileName, name))
+                onSelect(ChatWallpaper.Photo(name, (selected as? ChatWallpaper.Photo)?.dimPercent ?: ChatWallpaper.DEFAULT_DIM_PERCENT))
+            } else Toast.makeText(context, R.string.wallpaper_import_failed, Toast.LENGTH_SHORT).show()
         }
     }
     val noneLabel = stringResource(R.string.wallpaper_option_none)
-    val solidLabel = stringResource(R.string.wallpaper_option_solid)
-    val gradientLabel = stringResource(R.string.wallpaper_option_gradient)
     val photoLabel = stringResource(R.string.wallpaper_option_photo)
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -77,13 +77,13 @@ internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onS
                     Icon(Icons.Rounded.Block, null, tint = palette.textSecondary)
                 }
             }
-            WallpaperSolidChoices.forEach { color ->
-                Tile(selected == ChatWallpaper.Solid(color), solidLabel, { onSelect(ChatWallpaper.Solid(color)) }) {
+            WallpaperSolidChoices.forEachIndexed { index, color ->
+                Tile(selected == ChatWallpaper.Solid(color), stringResource(R.string.wallpaper_option_solid, index + 1), { onSelect(ChatWallpaper.Solid(color)) }) {
                     Box(Modifier.size(56.dp).background(Color(color)))
                 }
             }
-            WallpaperGradientChoices.forEach { (top, bottom) ->
-                Tile(selected == ChatWallpaper.Gradient(top, bottom), gradientLabel, { onSelect(ChatWallpaper.Gradient(top, bottom)) }) {
+            WallpaperGradientChoices.forEachIndexed { index, (top, bottom) ->
+                Tile(selected == ChatWallpaper.Gradient(top, bottom), stringResource(R.string.wallpaper_option_gradient, index + 1), { onSelect(ChatWallpaper.Gradient(top, bottom)) }) {
                     Box(Modifier.size(56.dp).background(Brush.verticalGradient(listOf(Color(top), Color(bottom)))))
                 }
             }
@@ -115,6 +115,6 @@ private fun Tile(isSelected: Boolean, description: String, onClick: () -> Unit, 
             .border(if (isSelected) 3.dp else 1.dp, if (isSelected) palette.accent else palette.divider, TileShape)
             .padding(3.dp).clip(RoundedCornerShape(11.dp))
             .semantics { contentDescription = description }
-            .clickable(onClick = onClick)
+            .selectable(selected = isSelected, role = Role.RadioButton, onClick = onClick)
     ) { content() }
 }
