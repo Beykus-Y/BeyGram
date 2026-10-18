@@ -4,13 +4,22 @@ import com.beykus.beygram.domain.model.CachePolicy
 import com.beykus.beygram.domain.model.StorageCategory
 import com.beykus.beygram.domain.model.StorageUsage
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 
-/** Занятое место и очистка файлов TDLib. TDLib удаляет только файлы: база сообщений здесь не затрагивается. */
-internal class TdStorage(private val client: () -> Client, private val uploadDirectories: List<File>) {
+/**
+ * Занятое место и очистка файлов TDLib. TDLib удаляет только файлы: база сообщений здесь не затрагивается.
+ * [sentUploads] — папка копий, из которых отправлены файлы; [mediaFileIds] — файлы, которые показывают загруженные чаты.
+ */
+internal class TdStorage(
+    private val client: () -> Client,
+    private val uploadDirectories: List<File>,
+    private val sentUploads: File,
+    private val mediaFileIds: () -> Set<Int>
+) {
     private val requests = TdRequests(client)
     /** Очистка и применение лимита идут по одному, включая фоновую проверку: TDLib не должен удалять файлы параллельно. */
     private val lane = MaintenanceLane()
@@ -51,8 +60,64 @@ internal class TdStorage(private val client: () -> Client, private val uploadDir
      */
     suspend fun applyPolicy(policy: CachePolicy): Long = lane.latestOnly(skipped = 0L) {
         val fileTypes = statistics(TDLIB_BACKSTOP_MS).fileTypeEntries().map { it.fileType }.distinctBy { it.javaClass }.toTypedArray()
-        val request = policy.optimizeRequest(fileTypes) ?: return@latestOnly 0L
-        requests(request, TDLIB_BACKSTOP_MS).size
+        val tdlibFreed = policy.optimizeRequest(fileTypes)?.let { requests(it, TDLIB_BACKSTOP_MS).size } ?: 0L
+        tdlibFreed + removeSentUploads(policy)
+    }
+
+    /**
+     * Копии отправленных файлов живут как кэш: их убирают по сроку и по лимиту. Трогаем только папки с меткой отправки
+     * ([SENT_UPLOAD_MARKER]). Папку не трогаем, пока её файл показывает загруженный чат, и пока она не старше
+     * [IN_USE_GRACE_MILLIS].
+     * Срок отсчитывается от последнего изменения файлов. Лимит считается отдельно от кэша TDLib.
+     */
+    private suspend fun removeSentUploads(policy: CachePolicy): Long {
+        val now = System.currentTimeMillis()
+        val referenced = referencedPaths()
+        val maxAgeSeconds = policy.maxAgeSeconds
+        val removed = withContext(Dispatchers.IO) {
+            val folders = sentUploads.listFiles { it.isDirectory }.orEmpty().map { folder ->
+                val files = folder.walkTopDown().filter { it.isFile }.toList()
+                val lastUsed = files.maxOfOrNull { it.lastModified() } ?: folder.lastModified()
+                val inUse = now - lastUsed < IN_USE_GRACE_MILLIS || files.any { it.canonicalPath in referenced.keys }
+                val sent = File(folder, SENT_UPLOAD_MARKER).exists()
+                SentUpload(folder, bytes = files.sumOf { it.length() }, lastUsedMillis = lastUsed, inUse = inUse || !sent)
+            }
+            val candidates = folders.filter { !it.inUse }.sortedBy { it.lastUsedMillis }
+            val expired = candidates.filter { maxAgeSeconds != null && now - it.lastUsedMillis > maxAgeSeconds * 1000L }
+            val removed = mutableListOf<SentUpload>().apply { addAll(expired) }
+            val limit = policy.maxBytes
+            if (limit != null) {
+                var total = folders.sumOf { it.bytes } - expired.sumOf { it.bytes }
+                for (folder in candidates - expired.toSet()) {
+                    if (total <= limit) break
+                    removed += folder
+                    total -= folder.bytes
+                }
+            }
+            removed
+        }
+        // TDLib forgets the local copy of each file it knows, so its state and the media store never point at a deleted file.
+        return removed.sumOf { upload ->
+            val prefix = upload.folder.canonicalPath + File.separator
+            referenced.filterKeys { it.startsWith(prefix) }.values.forEach { fileId -> requests(TdApi.DeleteFile(fileId)) }
+            if (upload.folder.deleteRecursively()) upload.bytes else 0L
+        }
+    }
+
+    /** Файлы загруженных чатов, которые TDLib держит локально: канонический путь -> id файла. */
+    private suspend fun referencedPaths(): Map<String, Int> {
+        val local = mediaFileIds().mapNotNull { id ->
+            try {
+                id to requests(TdApi.GetFile(id)).local?.path
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        }
+        return withContext(Dispatchers.IO) {
+            local.mapNotNull { (id, path) -> path?.takeIf { it.isNotBlank() }?.let { File(it).canonicalPath to id } }.toMap()
+        }
     }
 
     private suspend fun statistics(timeoutMillis: Long): TdApi.StorageStatistics =
@@ -71,8 +136,20 @@ internal class TdStorage(private val client: () -> Client, private val uploadDir
          * операция не должна начаться рядом с ней. Предел нужен только на случай, когда TDLib совсем не отвечает.
          */
         const val TDLIB_BACKSTOP_MS = 10 * 60_000L
+
+        /** Папка моложе этого срока может принадлежать отправке, которая ещё идёт, и не трогается. */
+        const val IN_USE_GRACE_MILLIS = 10 * 60_000L
     }
 }
+
+/** Папка копий отправленных файлов: [bytes] — её размер, [lastUsedMillis] — последнее изменение файлов. */
+private class SentUpload(val folder: File, val bytes: Long, val lastUsedMillis: Long, val inUse: Boolean)
+
+/**
+ * Метка в папке копий: её ставит отправка, которую TDLib подтвердила. Без метки папка — черновик или отправка, которая
+ * ещё не прошла, и очистка её не трогает.
+ */
+internal const val SENT_UPLOAD_MARKER = ".sent"
 
 /** Размер всех файлов в папках, включая вложенные. Папки, которых нет, занимают 0 байт. */
 internal fun filesBytesIn(directories: List<File>): Long =

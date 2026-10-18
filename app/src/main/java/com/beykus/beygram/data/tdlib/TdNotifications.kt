@@ -110,7 +110,8 @@ internal class TdNotifications(
         chat.type !is TdApi.ChatTypeSecret && (chat.type as? TdApi.ChatTypeSupergroup)?.isChannel != true && chat.permissions.canSendBasicMessages
     private fun notice(notification: TdApi.Notification): TelegramNotice? = when (val type = notification.type) {
         is TdApi.NotificationTypeNewMessage -> TelegramNotice(notification.id, notification.date.toLong(), senderName(type.message.senderId),
-            if (type.showPreview) preview(type.message.content) else UiText.Res(R.string.notif_new_message), type.showPreview, type.message.id)
+            if (type.showPreview) preview(type.message.content) else UiText.Res(R.string.notif_new_message), type.showPreview, type.message.id,
+            (type.message.topicId as? TdApi.MessageTopicForum)?.forumTopicId?.toLong() ?: 0L)
         is TdApi.NotificationTypeNewSecretChat -> TelegramNotice(notification.id, notification.date.toLong(), "", UiText.Res(R.string.notif_new_secret_chat), false)
         else -> null // No FCM registration; push payloads and unimplemented calls are not rendered.
     }

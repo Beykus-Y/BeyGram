@@ -302,7 +302,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     // ---- Память и кэш --------------------------------------------------------
 
-    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")))
+    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")), File(appContext.filesDir, "uploads")) { messageHistory.mediaFileIds() }
     private val storageSettings = StorageSettingsStore.getInstance(context)
     private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
     override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
@@ -585,10 +585,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = conversationActions.isForum(chatId)
 
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
         leaveJumpWindow(chatId)
         conversationEffects.endActivity(chatId, ChatActivity.Typing)
-        return conversationActions.sendText(chatId, text, replyToMessageId, entities)
+        return conversationActions.sendText(chatId, text, replyToMessageId, entities, forumTopicId)
     }
 
     // =========================================================================
@@ -701,19 +701,24 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     /**
-     * Files stay on disk until TDLib reports the message sent. Then their copies under uploads go; unsent files stay.
-     * Only voice notes and video notes are cleaned: TDLib keeps the local path of a sent photo, video, audio or document
-     * and reads it for the feed and the viewer, so removing it would show an empty message.
+     * Files stay on disk until TDLib reports the message sent. Then the folder of the copy gets a sent mark, so the
+     * cache policy may remove it later; unsent files stay unmarked. Voice notes and video notes are removed at once:
+     * TDLib keeps the local path of a sent photo, video, audio or document and reads it for the feed and the viewer,
+     * so those copies wait for the cache policy.
      */
     private fun cleanupSentUploads(message: TdApi.Message) {
         val content = message.content
-        if (content !is TdApi.MessageVoiceNote && content !is TdApi.MessageVideoNote) return
         content.localFiles().mapNotNull { it?.local?.path }.filter { it.isNotBlank() }.forEach { localPath ->
             runCatching {
                 val uploads = File(appContext.filesDir, "uploads").canonicalFile
                 val file = File(localPath).canonicalFile
                 // TDLib's own cache is outside uploads and is never touched here.
                 if (!file.path.startsWith(uploads.path + File.separator)) return@runCatching
+                if (content !is TdApi.MessageVoiceNote && content !is TdApi.MessageVideoNote) {
+                    val folder = generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }
+                    File(folder, SENT_UPLOAD_MARKER).createNewFile()
+                    return@runCatching
+                }
                 if (content is TdApi.MessageVideoNote) {
                     // A session folder can hold segments that still wait to be sent, so only this segment's files and an emptied folder go.
                     file.delete()

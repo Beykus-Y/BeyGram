@@ -23,6 +23,34 @@ class ReplyOutboxTest {
         assertEquals(listOf(added), outbox().entries())
     }
 
+    @Test fun forumTopicSurvivesReopen() {
+        val added = outbox().add(chatId = -1001L, groupId = 1, maxId = 1, replyToMessageId = 5L, text = "в тему", nowMillis = 1L, session = session, topicId = 77L)
+        assertEquals(77L, outbox().entries().single().topicId)
+        assertEquals(added.id, outbox().entries().single().id)
+    }
+
+    @Test fun replyStoredBeforeTopicsReadsWithoutTopic() {
+        directory.mkdirs()
+        val id = "legacy-reply"
+        java.io.DataOutputStream(File(directory, "$id.reply").outputStream().buffered()).use { output ->
+            val text = "старый".toByteArray(Charsets.UTF_8)
+            output.writeInt(2)
+            output.writeUTF(id)
+            output.writeUTF(session)
+            output.writeLong(-1001L)
+            output.writeInt(1)
+            output.writeInt(1)
+            output.writeLong(5L)
+            output.writeLong(1L)
+            output.writeInt(0)
+            output.writeInt(text.size)
+            output.write(text)
+        }
+        val entry = outbox().entries().single()
+        assertEquals(0L, entry.topicId)
+        assertEquals("старый", entry.text)
+    }
+
     @Test fun removeDeletesOnlyTheSentReply() {
         val outbox = outbox()
         val sent = outbox.add(chatId = 1L, groupId = 1, maxId = 1, replyToMessageId = 0L, text = "первый", nowMillis = 1L, session = session)

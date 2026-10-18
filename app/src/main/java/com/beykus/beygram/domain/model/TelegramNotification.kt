@@ -2,7 +2,8 @@ package com.beykus.beygram.domain.model
 
 import com.beykus.beygram.domain.UiText
 
-data class TelegramNotice(val id: Int, val dateSeconds: Long, val sender: String, val text: UiText, val previewAllowed: Boolean, val messageId: Long = 0L)
+/** [topicId] is the forum topic of the message, zero outside a forum; a reply from the notice keeps it. */
+data class TelegramNotice(val id: Int, val dateSeconds: Long, val sender: String, val text: UiText, val previewAllowed: Boolean, val messageId: Long = 0L, val topicId: Long = 0L)
 data class TelegramNoticeGroup(
     val id: Int, val chatId: Long, val title: String = "Telegram", val isGroup: Boolean = false,
     val isSecret: Boolean = false, val totalCount: Int, val notices: List<TelegramNotice>, val alertId: Int = 0, val metadataReady: Boolean = false,

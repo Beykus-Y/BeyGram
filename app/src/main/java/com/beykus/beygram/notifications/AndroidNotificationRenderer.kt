@@ -75,7 +75,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
                 .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
                 .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH)
             // A reply needs a visible chat title and a chat the user can write to, so other groups get no reply action.
-            if (!hideContent && group.replyable) builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId))
+            if (!hideContent && group.replyable) builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId, latest.topicId))
             if (failedReplies.containsKey(group.id)) builder.setSubText(context.getString(R.string.notif_reply_failed))
             val notification = builder.build()
             try {
@@ -97,7 +97,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
     }
     fun cancelGroup(id: Int) { manager.cancel(tag(id), 0); failedReplies.remove(id) }
     fun markReplyFailed(id: Int, maxId: Int) { failedReplies[id] = maxId }
-    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, context.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId))
+    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, context.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId, topicId))
         .addRemoteInput(RemoteInput.Builder(NotificationIntents.REPLY_TEXT).setLabel(context.getString(R.string.notif_reply_hint)).build())
         .setAllowGeneratedReplies(false)
         .build()

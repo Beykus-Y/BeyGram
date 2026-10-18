@@ -123,7 +123,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun openChat(chatId: Long) {}
     override fun closeChat(chatId: Long) {}
     override fun loadOlderMessages(chatId: Long) {}
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> = unavailable()
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> = unavailable()
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = unavailable()
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> = unavailable()
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()

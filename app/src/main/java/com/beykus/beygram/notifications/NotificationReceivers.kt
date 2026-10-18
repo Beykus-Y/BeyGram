@@ -36,6 +36,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             groupId = intent.getIntExtra(NotificationIntents.GROUP_ID, 0),
             maxId = intent.getIntExtra(NotificationIntents.MAX_ID, 0),
             replyToMessageId = intent.getLongExtra(NotificationIntents.REPLY_TO, 0L),
+            topicId = intent.getLongExtra(NotificationIntents.TOPIC, 0L),
             text = text,
             session = session,
             finished = { pending.finish() }

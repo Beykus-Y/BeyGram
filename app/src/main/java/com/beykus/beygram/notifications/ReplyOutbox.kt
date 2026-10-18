@@ -28,6 +28,8 @@ internal class ReplyOutbox(private val directory: File) {
         val groupId: Int,
         val maxId: Int,
         val replyToMessageId: Long,
+        /** Тема форума, в которую уходит ответ; ноль, если чат не форум. */
+        val topicId: Long,
         val text: String,
         val createdAtMillis: Long,
         val attempts: Int
@@ -40,8 +42,8 @@ internal class ReplyOutbox(private val directory: File) {
 
     /** Сохраняет ответ и возвращает его только после записи на диск. Если записать не удалось, бросает [IOException]. */
     @Synchronized
-    fun add(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String, nowMillis: Long, session: String): Entry {
-        val entry = Entry(UUID.randomUUID().toString(), session, chatId, groupId, maxId, replyToMessageId, text, nowMillis, attempts = 0)
+    fun add(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String, nowMillis: Long, session: String, topicId: Long = 0L): Entry {
+        val entry = Entry(UUID.randomUUID().toString(), session, chatId, groupId, maxId, replyToMessageId, topicId, text, nowMillis, attempts = 0)
         write(entry)
         return entry
     }
@@ -123,6 +125,7 @@ internal class ReplyOutbox(private val directory: File) {
         output.writeInt(entry.groupId)
         output.writeInt(entry.maxId)
         output.writeLong(entry.replyToMessageId)
+        output.writeLong(entry.topicId)
         output.writeLong(entry.createdAtMillis)
         output.writeInt(entry.attempts)
         output.writeInt(text.size)
@@ -130,7 +133,8 @@ internal class ReplyOutbox(private val directory: File) {
     }
 
     private fun decode(file: File): Entry = DataInputStream(BufferedInputStream(FileInputStream(file))).use { input ->
-        if (input.readInt() != FORMAT_VERSION) throw CorruptReplyException()
+        val version = input.readInt()
+        if (version != FORMAT_VERSION && version != PREVIOUS_FORMAT_VERSION) throw CorruptReplyException()
         val id = input.readUTF()
         // The file name is the key that remove() uses, so a file under another name is not a reply of this outbox.
         if (id + SUFFIX != file.name) throw CorruptReplyException()
@@ -139,19 +143,22 @@ internal class ReplyOutbox(private val directory: File) {
         val groupId = input.readInt()
         val maxId = input.readInt()
         val replyToMessageId = input.readLong()
+        // Version 2 has no topic; a reply stored by it goes out as before.
+        val topicId = if (version == FORMAT_VERSION) input.readLong() else 0L
         val createdAtMillis = input.readLong()
         val attempts = input.readInt()
         val size = input.readInt()
         if (size !in 0..MAX_TEXT_BYTES) throw CorruptReplyException()
         val text = ByteArray(size).also { input.readFully(it) }
-        Entry(id, session, chatId, groupId, maxId, replyToMessageId, String(text, Charsets.UTF_8), createdAtMillis, attempts)
+        Entry(id, session, chatId, groupId, maxId, replyToMessageId, topicId, String(text, Charsets.UTF_8), createdAtMillis, attempts)
     }
 
     private companion object {
         const val SUFFIX = ".reply"
         const val TEMP_SUFFIX = ".reply.tmp"
-        // Version 2 adds the session token. Version 1 was never released, and its files are removed as damaged.
-        const val FORMAT_VERSION = 2
+        // Version 3 adds the forum topic. Version 2 adds the session token; version 1 was never released, and its files are removed as damaged.
+        const val FORMAT_VERSION = 3
+        const val PREVIOUS_FORMAT_VERSION = 2
         const val MAX_TEXT_BYTES = 64 * 1024
     }
 }
