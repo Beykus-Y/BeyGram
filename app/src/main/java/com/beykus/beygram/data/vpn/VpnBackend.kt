@@ -102,6 +102,15 @@ internal class VpnBackend private constructor(
                 previouslyConnected = connected
             }
         }
+        scope.launch {
+            // The connection flow may already be Connected before the listener reaches RUNNING.
+            // Reconcile its current value on start/restart, even if TDLib emits no new state.
+            runtimeState.collect { proxy ->
+                if (proxy.status == ProxyRuntimeStatus.RUNNING) {
+                    MihomoProxyService.reportTelegramConnection(connectionState.value == TelegramConnectionState.Connected)
+                }
+            }
+        }
         scope.launch(Dispatchers.IO) { restore() }
     }
 
