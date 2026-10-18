@@ -7,9 +7,12 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.TelegramConnectionState
@@ -23,17 +26,23 @@ class TelegramNotificationService : Service() {
     private var startupWakeLock: PowerManager.WakeLock? = null
     // Held only while TDLib reports pending deliveries; it also expires by itself.
     private var deliveryWakeLock: PowerManager.WakeLock? = null
+    private var createdAt = 0L
+    private var connectedReported = false
+    private var startReported = false
+    // Reason recorded when the service stops; stays "system" when the platform stops it.
+    private var stopReason = "system"
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
+        createdAt = SystemClock.elapsedRealtime()
         runtime = NotificationRuntime.get(this)
         AndroidNotificationRenderer.channels(this)
         val initial = statusNotification(getString(R.string.notif_service_connecting))
         try {
             if (Build.VERSION.SDK_INT >= 34) startForeground(AndroidNotificationRenderer.SERVICE_ID, initial, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
             else startForeground(AndroidNotificationRenderer.SERVICE_ID, initial)
-        } catch (_: RuntimeException) { runtime.serviceState(false, UiText.Res(R.string.err_notif_background_denied)); stopSelf(); return }
-        if (!shouldRun(this)) { stopSelf(); return }
+        } catch (_: RuntimeException) { stopReason = "foreground_denied"; runtime.serviceState(false, UiText.Res(R.string.err_notif_background_denied)); stopSelf(); return }
+        if (!shouldRun(this)) { stopReason = "not_allowed"; stopSelf(); return }
         runtime.serviceState(true)
         startupWakeLock = newWakeLock().apply { acquire(STARTUP_WAKE_LOCK_MILLIS) }
         deliveryWakeLock = newWakeLock()
@@ -41,8 +50,11 @@ class TelegramNotificationService : Service() {
         if (repository == null) { runtime.serviceState(false, UiText.Res(R.string.err_notif_telegram_start_failed)); stopSelf(); return }
         scope.launch {
             combine(repository.connectionState, repository.authState, runtime.preferences.state) { connection, auth, config ->
-                if (connection == TelegramConnectionState.Connected) startupWakeLock.releaseIfHeld()
-                if (!config.enabled || !config.background || auth == AuthState.WaitingForPhone) { stopSelf(); return@combine }
+                if (connection == TelegramConnectionState.Connected) { startupWakeLock.releaseIfHeld(); reportConnectedOnce() }
+                if (!config.enabled || !config.background || auth == AuthState.WaitingForPhone) {
+                    stopReason = if (!config.enabled || !config.background) "disabled" else "logged_out"
+                    stopSelf(); return@combine
+                }
                 val text = when (connection) {
                     TelegramConnectionState.Connected -> getString(R.string.notif_service_receiving)
                     TelegramConnectionState.WaitingForNetwork -> getString(R.string.notif_service_waiting_network)
@@ -57,22 +69,34 @@ class TelegramNotificationService : Service() {
         } }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!startReported) {
+            startReported = true
+            recordAppEvent(EventKind.NOTIFICATION, "service_started", "Фоновая служба запущена", attrs = mapOf("source" to (intent?.getStringExtra(EXTRA_SOURCE) ?: "system")))
+        }
         if (intent?.action == STOP) {
+            stopReason = "user"
             runtime.preferences.update(runtime.preferences.state.value.copy(background = false))
             stopSelf(); return START_NOT_STICKY
         }
-        if (!shouldRun(this)) { stopSelf(); return START_NOT_STICKY }
+        if (!shouldRun(this)) { stopReason = "not_allowed"; stopSelf(); return START_NOT_STICKY }
         return START_STICKY
     }
     override fun onDestroy() {
         scope.cancel()
         startupWakeLock.releaseIfHeld()
         deliveryWakeLock.releaseIfHeld()
+        if (startReported) recordAppEvent(EventKind.NOTIFICATION, "service_stopped", "Фоновая служба остановлена", attrs = mapOf("reason" to stopReason))
         if (::runtime.isInitialized) runtime.serviceState(false)
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
-    override fun onTimeout(startId: Int, fgsType: Int) { stopSelf() }
+    override fun onTimeout(startId: Int, fgsType: Int) { stopReason = "timeout"; stopSelf() }
+    private fun reportConnectedOnce() {
+        if (connectedReported) return
+        connectedReported = true
+        val elapsed = SystemClock.elapsedRealtime() - createdAt
+        recordAppEvent(EventKind.NOTIFICATION, "startup_connected", "Фоновое соединение готово", attrs = mapOf("elapsed_ms" to elapsed.toString()))
+    }
     private fun newWakeLock(): PowerManager.WakeLock = getSystemService(PowerManager::class.java)
         .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:notification_delivery").apply { setReferenceCounted(false) }
     private fun PowerManager.WakeLock?.releaseIfHeld() {
@@ -86,13 +110,14 @@ class TelegramNotificationService : Service() {
     }
     companion object {
         private const val STOP = "com.beykus.beygram.STOP_BACKGROUND_NOTIFICATIONS"
+        private const val EXTRA_SOURCE = "source"
         private const val STARTUP_WAKE_LOCK_MILLIS = 15_000L
         private const val DELIVERY_WAKE_LOCK_MILLIS = 60_000L
         fun shouldRun(context: Context): Boolean = NotificationRuntime.get(context).preferences.let { it.authorized && it.state.value.enabled && it.state.value.background && AndroidNotificationRenderer.canNotify(context) }
-        /** Call only from a resumed UI or an allowed system boot/package replacement receiver. */
-        fun reconcileFromAllowedContext(context: Context) {
+        /** Call only from a resumed UI or an allowed system boot/package replacement receiver; [source] goes to diagnostics. */
+        fun reconcileFromAllowedContext(context: Context, source: String) {
             if (!shouldRun(context)) { context.stopService(Intent(context, TelegramNotificationService::class.java)); return }
-            try { ContextCompat.startForegroundService(context, Intent(context, TelegramNotificationService::class.java)) }
+            try { ContextCompat.startForegroundService(context, Intent(context, TelegramNotificationService::class.java).putExtra(EXTRA_SOURCE, source)) }
             catch (_: RuntimeException) { NotificationRuntime.get(context).serviceState(false, UiText.Res(R.string.err_notif_background_start_failed)) }
         }
     }

@@ -53,7 +53,7 @@ internal fun NotificationPermissionCoordinator(runtime: NotificationRuntime) {
     }
     LifecycleResumeEffect(runtime, config, permissionRevision to sessionReady) {
         runtime.refresh()
-        TelegramNotificationService.reconcileFromAllowedContext(context)
+        TelegramNotificationService.reconcileFromAllowedContext(context, "ui")
         onPauseOrDispose { }
     }
 }
@@ -81,7 +81,7 @@ fun NotificationSettingsScreen(
         messagesBlocked = AndroidNotificationRenderer.messagesChannelBlocked(context)
         unrestricted = power.isIgnoringBatteryOptimizations(context.packageName)
         runtime.refresh()
-        TelegramNotificationService.reconcileFromAllowedContext(context)
+        TelegramNotificationService.reconcileFromAllowedContext(context, "ui")
         onPauseOrDispose { }
     }
     BackHandler(onBack = onBack)
