@@ -82,6 +82,8 @@ fun ChatScreen(
     var replyId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     // Bumped whenever a reply starts, so the composer takes focus and the keyboard opens.
     var replyFocusRequest by remember(chat.id) { mutableIntStateOf(0) }
+    // The message of the latest swipe; a slower capability check for an older swipe is ignored.
+    var swipedReplyId by remember(chat.id) { mutableLongStateOf(0L) }
     var actionsId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var editId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var editText by rememberSaveable(chat.id) { mutableStateOf("") }
@@ -278,8 +280,10 @@ fun ChatScreen(
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }
     val actionMessage = messages.firstOrNull { it.id == actionsId }
     val editMessage = messages.firstOrNull { it.id == editId }
-    // A swipe reply needs the composer on screen: no search, deletion, edit, recording or open action menu.
-    val swipeReplyAllowed = !searching && !deleting && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active
+    // A swipe reply needs an idle composer on screen: no search, deletion, edit, recording or open action menu, and no
+    // send in flight, because a finished send clears the reply target it used.
+    val swipeReplyAllowed = !searching && !deleting && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
+        !sending && !attachments.sending && !recordingQueueSending && pendingVideoNotes.isEmpty()
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) replyId = botKeyboard?.messageId }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
@@ -363,9 +367,13 @@ fun ChatScreen(
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = messageId }
     }
     // The reply is checked on the server first: a channel, or a chat without reply rights, must not enter reply mode.
+    // Only the latest swipe may apply its answer, so a slower check cannot reopen the composer for an older message.
     fun swipeReply(messageId: Long) {
+        swipedReplyId = messageId
         scope.launch {
-            conversation.messageCapabilities(chat.id, messageId)
+            val result = conversation.messageCapabilities(chat.id, messageId)
+            if (swipedReplyId != messageId) return@launch
+            result
                 .onSuccess {
                     if (it.canReply) {
                         replyId = messageId
