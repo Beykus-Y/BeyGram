@@ -131,7 +131,6 @@ class NotificationRuntime private constructor(private val context: Context) {
             val failure = sendReply(pending).exceptionOrNull()
             if (failure is AccountChangedException) {
                 // The reply was made for an account that has signed out since. It is dropped without a failed mark.
-                if (pending.stored) outbox { remove(entry.id) }
                 recordAppEvent(EventKind.NOTIFICATION, "reply_account_changed", "Ответ из уведомления отменён: аккаунт сменился", Severity.WARNING)
                 return true
             }
@@ -162,13 +161,12 @@ class NotificationRuntime private constructor(private val context: Context) {
      */
     private fun flushReplies() {
         if (repository?.authState?.value != AuthState.Ready) return
-        val generation = accountGeneration.get()
         scope.launch {
             var retry = false
             val expired = outbox { discardExpired(System.currentTimeMillis(), REPLY_TTL_MILLIS) }
             if (expired > 0) recordAppEvent(EventKind.NOTIFICATION, "reply_expired", "Устаревшие ответы из уведомлений удалены", Severity.WARNING, mapOf("count" to expired.toString()))
             for (entry in outbox { entries() }) {
-                if (!deliverReply(PendingReply(entry, stored = true, generation = generation))) retry = true
+                if (!deliverReply(PendingReply(entry, stored = true, generation = accountGeneration.get()))) retry = true
             }
             if (retry) scheduleReplyRetry()
         }
@@ -186,24 +184,30 @@ class NotificationRuntime private constructor(private val context: Context) {
     private suspend fun <T> outbox(block: ReplyOutbox.() -> T): T = withContext(Dispatchers.IO) { replyOutbox.block() }
     /**
      * A reply on its way to Telegram. Only a [stored] reply is kept on disk until it is sent. [generation] is the account
-     * generation the reply was made for; a sign-out after that ends the reply.
+     * generation the reply was made for; it is checked only for a reply that is not stored, see [stillOwned].
      */
     private class PendingReply(val entry: ReplyOutbox.Entry, val stored: Boolean, val generation: Int)
     /** The account that the reply was made for signed out before the reply was sent. */
     private class AccountChangedException : IllegalStateException("Telegram account changed before the reply was sent")
+    /**
+     * A stored reply belongs to the account while the outbox keeps it, because a sign-out clears the outbox. A reply that is not
+     * stored has no entry, so it belongs to the account generation it was made for.
+     */
+    private suspend fun stillOwned(pending: PendingReply): Boolean =
+        if (pending.stored) outbox { isStored(pending.entry.id) } else accountGeneration.get() == pending.generation
     private suspend fun sendReply(pending: PendingReply): Result<Unit> = try {
         val entry = pending.entry
         val source = repository ?: attachRealClient() ?: throw IllegalStateException("Telegram client is unavailable")
-        // The reply is sent only for the account it was made for.
-        if (accountGeneration.get() != pending.generation) throw AccountChangedException()
+        // The reply is sent only while it still belongs to the account it was made for.
+        if (!stillOwned(pending)) throw AccountChangedException()
         // A signed-out account cannot send, and a reply does not wait for another account to sign in.
         if (source.authState.value == AuthState.WaitingForPhone) throw IllegalStateException("Telegram client is not authorized")
         // A reply that starts the process can arrive before TDLib has authorized, and TDLib rejects requests until then.
         // Without authorization in time the reply is not sent, and the notification is marked as failed.
         withTimeoutOrNull(REPLY_READY_MILLIS) { source.authState.first { it == AuthState.Ready } }
             ?: throw IllegalStateException("Telegram client is not authorized")
-        // A sign-out while the reply waited ends it, and so does a stored reply that the outbox no longer has.
-        if (accountGeneration.get() != pending.generation || (pending.stored && !outbox { isStored(entry.id) })) throw AccountChangedException()
+        // A sign-out while the reply waited ends it.
+        if (!stillOwned(pending)) throw AccountChangedException()
         // Replying to the notified message puts the answer in its forum topic, too.
         source.sendMessage(entry.chatId, entry.text, entry.replyToMessageId.takeIf { it > 0L })
     } catch (error: CancellationException) {
