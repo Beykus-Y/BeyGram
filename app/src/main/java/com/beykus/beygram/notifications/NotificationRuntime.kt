@@ -10,6 +10,7 @@ import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.*
@@ -57,7 +58,7 @@ class NotificationRuntime private constructor(private val context: Context) {
         }
         scope.launch { source.authState.collect { auth ->
             when (auth) {
-                AuthState.Ready -> { preferences.authorized = true; flushDismissals(); flushReplies() }
+                AuthState.Ready -> { preferences.authorized = true; reopenExhaustedDismissals(); flushDismissals(); flushReplies() }
                 AuthState.WaitingForPhone -> {
                     // The sign-out replaces the session token before the outbox is cleared. A reply that the clear misses
                     // belongs to the old token, so it is never sent.
@@ -71,7 +72,7 @@ class NotificationRuntime private constructor(private val context: Context) {
             }
             _authorized.value = auth == AuthState.Ready
         } }
-        scope.launch { source.connectionState.collect { flushDismissals() } }
+        scope.launch { source.connectionState.collect { if (it == TelegramConnectionState.Connected) reopenExhaustedDismissals(); flushDismissals() } }
     }
     fun refresh() {
         repository?.authState?.value?.let { auth ->
@@ -291,6 +292,12 @@ class NotificationRuntime private constructor(private val context: Context) {
             recordDismiss(accepted, tries)
         } }
     }
+    /** A restored session or connection gives groups that used up their retry rounds a fresh budget. */
+    private fun reopenExhaustedDismissals() {
+        dismissNotBefore.entries.removeIf { it.value == Long.MAX_VALUE }
+        dismissRetryRounds.clear()
+    }
+
     /** Schedule a finite second-level retry window, deduplicated by group. */
     private fun scheduleDismissRetry(group: Int) {
         if (preferences.pendingDismissals()[group] == null) return

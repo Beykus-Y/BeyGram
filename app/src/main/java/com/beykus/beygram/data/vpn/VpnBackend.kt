@@ -96,7 +96,10 @@ internal class VpnBackend private constructor(
                 // Only the enum is logged; never include endpoints, subscription keys or messages.
                 MihomoRuntimeDiagnostics.event("tdlib", "connection_state=${state.name}")
                 // Re-check only on a meaningful connectivity loss, never with periodic polling.
-                if (previouslyConnected && !connected && runtimeState.value.status == ProxyRuntimeStatus.RUNNING) {
+                val lost = state == TelegramConnectionState.Connecting || state == TelegramConnectionState.WaitingForNetwork
+                val running = runtimeState.value.status == ProxyRuntimeStatus.RUNNING
+                if (running && ((previouslyConnected && lost) ||
+                        (connected && runtimeState.value.upstreamReachable != true))) {
                     checkSelectedRoute()
                 }
                 previouslyConnected = connected
