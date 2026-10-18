@@ -15,8 +15,10 @@ import kotlin.coroutines.resume
 
 internal class TdRequestError(val code: Int, message: String) : IllegalStateException(message)
 
+private const val DEFAULT_REQUEST_TIMEOUT_MS = 30_000L
+
 internal class TdRequests(private val client: () -> Client) {
-    suspend operator fun <T : TdApi.Object> invoke(function: TdApi.Function<T>): T = withTimeout(30_000) {
+    suspend operator fun <T : TdApi.Object> invoke(function: TdApi.Function<T>, timeoutMillis: Long = DEFAULT_REQUEST_TIMEOUT_MS): T = withTimeout(timeoutMillis) {
         suspendCancellableCoroutine { continuation ->
             client().send(function, Client.ResultHandler { result ->
                 if (continuation.isActive) {
@@ -45,6 +47,12 @@ internal suspend fun <T> conversationResult(timeoutMessage: UiText = MESSAGE_TIM
 
 /** Контакты, звонки и чаты: сообщений здесь нет, поэтому 404 не значит удалённое сообщение. */
 internal suspend fun <T> requestResult(block: suspend () -> T): Result<T> = telegramResult(REQUEST_TIMEOUT, block, ::requestErrorText)
+
+/** Локальные операции с файлами: таймаут значит медленный диск, а не сеть, поэтому в диагностику соединения он не попадает. */
+internal suspend fun <T> storageResult(block: suspend () -> T): Result<T> = try { Result.success(block()) }
+catch (timeout: TimeoutCancellationException) { Result.failure(timeout) }
+catch (cancelled: CancellationException) { throw cancelled }
+catch (error: Exception) { Result.failure(error) }
 
 private suspend fun <T> telegramResult(timeoutMessage: UiText, block: suspend () -> T, errorText: (Exception) -> UiText): Result<T> = try { Result.success(block()) }
 catch (timeout: TimeoutCancellationException) {

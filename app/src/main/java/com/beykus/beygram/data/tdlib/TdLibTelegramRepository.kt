@@ -20,6 +20,10 @@ import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
+import com.beykus.beygram.data.storage.StorageSettingsStore
+import com.beykus.beygram.domain.model.CachePolicy
+import com.beykus.beygram.domain.model.StorageCategory
+import com.beykus.beygram.domain.model.StorageUsage
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.CallHistoryPage
@@ -295,6 +299,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
     private val conversationEffects = TdConversationEffects({ client }, policy)
+
+    // ---- Память и кэш --------------------------------------------------------
+
+    private val storage = TdStorage { client }
+    private val storageSettings = StorageSettingsStore.getInstance(context)
+    private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
+    override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
+    override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> =
+        storageResult { storage.clear(categories, onProgress) }
+    override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> = storageResult { storage.applyPolicy(policy) }
 
     // ---- Канал подтверждения диагностических отчётов --------------------------
     // Pinning id бота задан публичной конфигурацией сборки; 0 — пиннинг выключен.
@@ -726,11 +740,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 conversationActions.initialize()
                 conversationEffects.authorized()
                 notificationFeed.initialize()
+                cacheMaintenance.authorized()
             }
             is TdApi.AuthorizationStateLoggingOut,
             is TdApi.AuthorizationStateClosed -> {
                 _authState.value = AuthState.WaitingForPhone
                 conversationEffects.signedOut()
+                cacheMaintenance.signedOut()
             }
             else -> Unit
         }
