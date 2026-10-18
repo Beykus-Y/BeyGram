@@ -10,6 +10,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
+import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import com.beykus.beygram.R
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
@@ -18,12 +19,15 @@ import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.text.resolve
+import java.util.concurrent.ConcurrentHashMap
 
 internal class AndroidNotificationRenderer(private val context: Context, private val preferences: NotificationPreferencesStore) {
     private val manager = context.getSystemService(NotificationManager::class.java)
     private val compat = NotificationManagerCompat.from(context)
     // The last reason Messages notifications were blocked; the diagnostics journal records only changes.
     private var blockedReason: String? = null
+    // Groups whose direct reply was rejected. The note stays until a new alert arrives or the group is cancelled.
+    private val failedReplies = ConcurrentHashMap.newKeySet<Int>()
     init { channels(context) }
     fun render(state: TelegramNotifications, config: NotificationPreferences, presentation: NotificationPresentation, authorized: Boolean) {
         if (!state.initialized && authorized) return // Wait for TDLib's startup snapshot before reconciling old tray entries.
@@ -45,6 +49,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             val tag = tag(group.id)
             val maxId = group.notices.maxOfOrNull { it.id } ?: 0
             val fresh = group.alertId > preferences.handled(group.id)
+            if (fresh) failedReplies.remove(group.id)
             val notices = group.notices.filter { it.id > preferences.dismissed(group.id) }
             if (!authorized || !config.enabled || !canNotify(context) || notices.isEmpty() || presentation.foreground && group.chatId in presentation.openedChats) {
                 // Deliberate suppression consumes the alert, so re-enabling notifications later does not ring for old messages.
@@ -61,12 +66,16 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             }
             val latest = notices.last()
             val public = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle("BeyGram").setContentText(context.getString(R.string.notif_new_message)).build()
-            val notification = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle(title)
+            val builder = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle(title)
                 .setContentText(if (config.previews && latest.previewAllowed && !hideContent) latest.text.resolve(context) else context.getString(R.string.notif_new_message))
                 .setStyle(style).setCategory(NotificationCompat.CATEGORY_MESSAGE).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
                 .setWhen(latest.dateSeconds * 1000).setShowWhen(true).setNumber(group.totalCount).setAutoCancel(true)
                 .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
-                .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH).build()
+                .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH)
+            // A reply needs a visible chat title, so groups with hidden content get no reply action.
+            if (!hideContent) builder.addAction(replyAction(group.chatId, group.id, maxId))
+            if (group.id in failedReplies) builder.setSubText(context.getString(R.string.notif_reply_failed))
+            val notification = builder.build()
             try {
                 compat.notify(tag, 0, notification)
                 // Advanced only after the system accepted the post, so a failed alert is retried on the next render.
@@ -80,7 +89,12 @@ internal class AndroidNotificationRenderer(private val context: Context, private
         // Stale entries are cancelled only once TDLib's state has arrived (startup snapshot or a group update), so a cold start keeps the tray.
         if (state.snapshot) manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
     }
-    fun cancelGroup(id: Int) { manager.cancel(tag(id), 0) }
+    fun cancelGroup(id: Int) { manager.cancel(tag(id), 0); failedReplies.remove(id) }
+    fun markReplyFailed(id: Int) { failedReplies.add(id) }
+    private fun replyAction(chatId: Long, groupId: Int, maxId: Int): NotificationCompat.Action = NotificationCompat.Action.Builder(0, context.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId))
+        .addRemoteInput(RemoteInput.Builder(NotificationIntents.REPLY_TEXT).setLabel(context.getString(R.string.notif_reply_hint)).build())
+        .setAllowGeneratedReplies(false)
+        .build()
     private fun blockedText(reason: String?): String = when (reason) {
         "disabled" -> "Уведомления о сообщениях выключены в настройках"
         "permission" -> "Нет разрешения на показ уведомлений"

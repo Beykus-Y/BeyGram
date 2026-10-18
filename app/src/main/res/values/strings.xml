@@ -349,6 +349,7 @@
     <string name="nav_locked_hint">обязательно</string>
     <string name="nav_preview_caption">Так будет выглядеть нижнее меню</string>
     <string name="nav_title">Нижнее меню</string>
+    <string name="notif_action_reply">Ответить</string>
     <string name="notif_action_stop">Остановить</string>
     <string name="notif_allow_background_work">Разрешить работу во сне</string>
     <string name="notif_allow_notifications">Разрешить уведомления</string>
@@ -380,6 +381,8 @@
     <string name="notif_preview_photo_caption">Фото: %1$s</string>
     <string name="notif_preview_video_caption">Видео: %1$s</string>
     <string name="notif_preview_voice">Голосовое сообщение</string>
+    <string name="notif_reply_failed">Ответ не отправлен</string>
+    <string name="notif_reply_hint">Сообщение</string>
     <string name="notif_service_connecting">Подключение к Telegram…</string>
     <string name="notif_service_receiving">Получение сообщений в фоне</string>
     <string name="notif_service_waiting_network">Ожидание сети</string>

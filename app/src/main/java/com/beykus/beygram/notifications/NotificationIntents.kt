@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import com.beykus.beygram.MainActivity
 
 internal object NotificationIntents {
@@ -11,9 +12,11 @@ internal object NotificationIntents {
     const val OPEN_SETTINGS = "com.beykus.beygram.OPEN_NOTIFICATION_SETTINGS"
     const val OPEN_PROXY = "com.beykus.beygram.OPEN_NOTIFICATION_PROXY"
     const val DISMISS = "com.beykus.beygram.DISMISS_NOTIFICATION"
+    const val REPLY = "com.beykus.beygram.REPLY_NOTIFICATION"
     const val CHAT_ID = "notification_chat_id"
     const val GROUP_ID = "notification_group_id"
     const val MAX_ID = "notification_max_id"
+    const val REPLY_TEXT = "notification_reply_text"
     private const val TOKEN = "notification_intent_token"
     fun valid(context: Context, intent: Intent): Boolean = intent.getStringExtra(TOKEN) == NotificationRuntime.get(context).preferences.intentToken()
     fun chat(context: Context, chatId: Long, groupId: Int, maxId: Int): PendingIntent = PendingIntent.getActivity(context, 0,
@@ -29,4 +32,11 @@ internal object NotificationIntents {
     fun dismiss(context: Context, groupId: Int, maxId: Int): PendingIntent = PendingIntent.getBroadcast(context, 0,
         Intent(context, NotificationDismissReceiver::class.java).setAction(DISMISS).setData(Uri.parse("beygram://${context.packageName}/dismiss/$groupId/$maxId"))
             .putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    /** Mutable because Android attaches the typed text to the intent; the receiver is not exported and still checks the token. */
+    fun reply(context: Context, chatId: Long, groupId: Int, maxId: Int): PendingIntent = PendingIntent.getBroadcast(context, 0,
+        Intent(context, NotificationReplyReceiver::class.java).setAction(REPLY).setData(Uri.parse("beygram://${context.packageName}/reply/$groupId/$maxId"))
+            .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()),
+        PendingIntent.FLAG_UPDATE_CURRENT or mutability())
+    // FLAG_MUTABLE exists only from Android 12; older systems create mutable PendingIntents by default.
+    private fun mutability(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
 }

@@ -63,6 +63,39 @@ class NotificationRuntime private constructor(private val context: Context) {
         renderer.cancelGroup(groupId)
         refresh(); flushDismissals()
     }
+    /**
+     * Sends a reply typed in a notification. An accepted send dismisses the group; a rejected one keeps the notification
+     * and marks it. [finished] ends the broadcast in time, while a slower send keeps running.
+     */
+    fun reply(chatId: Long, groupId: Int, maxId: Int, text: String, finished: () -> Unit) {
+        // A blank reply sends nothing; re-posting the notification still clears the inline field.
+        val send = scope.launch { if (text.isBlank()) refresh() else deliverReply(chatId, groupId, maxId, text) }
+        scope.launch {
+            withTimeoutOrNull(REPLY_BROADCAST_MILLIS) { send.join() }
+            finished()
+        }
+    }
+    private suspend fun deliverReply(chatId: Long, groupId: Int, maxId: Int, text: String) {
+        val failure = sendReply(chatId, text).exceptionOrNull()
+        if (failure == null) {
+            recordAppEvent(EventKind.NOTIFICATION, "reply_sent", "Ответ из уведомления отправлен")
+            dismiss(groupId, maxId)
+        } else {
+            renderer.markReplyFailed(groupId)
+            recordAppEvent(EventKind.NOTIFICATION, "reply_failed", "Ответ из уведомления не отправлен", Severity.WARNING, mapOf("cause" to failure.javaClass.simpleName))
+            refresh()
+        }
+    }
+    private suspend fun sendReply(chatId: Long, text: String): Result<Unit> = try {
+        val source = repository ?: attachRealClient() ?: throw IllegalStateException("Telegram client is unavailable")
+        // A reply that starts the process can arrive before TDLib has authorized, and TDLib rejects requests until then.
+        withTimeoutOrNull(REPLY_READY_MILLIS) { source.authState.first { it == AuthState.Ready } }
+        source.sendMessage(chatId, text)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
     private fun flushDismissals() {
         val source = repository ?: return
         if (source.authState.value != AuthState.Ready) return
@@ -98,6 +131,9 @@ class NotificationRuntime private constructor(private val context: Context) {
     companion object {
         private const val DISMISS_ATTEMPTS = 4
         private const val DISMISS_RETRY_MILLIS = 2_000L
+        // Keeps a reply broadcast inside the system's receiver time limit; a slower send still completes.
+        private const val REPLY_BROADCAST_MILLIS = 8_000L
+        private const val REPLY_READY_MILLIS = 5_000L
         @Volatile private var instance: NotificationRuntime? = null
         fun get(context: Context): NotificationRuntime = instance ?: synchronized(this) {
             instance ?: NotificationRuntime(context.applicationContext).also { instance = it }
