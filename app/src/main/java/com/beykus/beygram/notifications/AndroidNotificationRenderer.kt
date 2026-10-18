@@ -95,9 +95,10 @@ internal class AndroidNotificationRenderer(private val context: Context, private
         private const val TAG_PREFIX = "beygram_message_"
         private fun tag(id: Int) = "$TAG_PREFIX$id"
         fun canNotify(context: Context): Boolean = (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) && NotificationManagerCompat.from(context).areNotificationsEnabled()
-        /** Android can switch the Messages channel off; notify() then posts nothing and throws nothing. */
-        fun messagesChannelBlocked(context: Context): Boolean =
-            context.getSystemService(NotificationManager::class.java).getNotificationChannel(MESSAGES)?.importance == NotificationManager.IMPORTANCE_NONE
+        /** Android can switch a channel off; notify() then posts nothing and throws nothing. */
+        fun channelBlocked(context: Context, channelId: String): Boolean =
+            context.getSystemService(NotificationManager::class.java).getNotificationChannel(channelId)?.importance == NotificationManager.IMPORTANCE_NONE
+        fun messagesChannelBlocked(context: Context): Boolean = channelBlocked(context, MESSAGES)
         fun channels(context: Context) {
             context.getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(
                 NotificationChannel(MESSAGES, context.getString(R.string.notif_channel_messages), NotificationManager.IMPORTANCE_HIGH).apply { description = context.getString(R.string.notif_channel_messages_description); lockscreenVisibility = Notification.VISIBILITY_PRIVATE },
