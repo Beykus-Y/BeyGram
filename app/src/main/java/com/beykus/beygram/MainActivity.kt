@@ -24,6 +24,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
+import com.beykus.beygram.ui.screens.chat.LocalChatWallpaper
 import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.chats.LocalChatListDensity
 import com.beykus.beygram.ui.screens.chats.chatListDensityFor
@@ -59,7 +60,8 @@ class MainActivity : ComponentActivity() {
                 // Bubble shape and list density come from the same saved choice as the colours.
                 CompositionLocalProvider(
                     LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density),
-                    LocalChatListDensity provides chatListDensityFor(config.density)
+                    LocalChatListDensity provides chatListDensityFor(config.density),
+                    LocalChatWallpaper provides config.wallpaper
                 ) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),

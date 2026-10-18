@@ -9,5 +9,6 @@ data class AppearanceConfig(
     /** ARGB accent chosen in the editor, or null to keep the accent of the preset. */
     val accentColor: Int? = null,
     /** ARGB colour of outgoing bubbles chosen in the editor, or null to derive it from the accent. */
-    val outgoingBubbleColor: Int? = null
+    val outgoingBubbleColor: Int? = null,
+    val wallpaper: ChatWallpaper = ChatWallpaper.None
 )

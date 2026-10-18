@@ -29,6 +29,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -43,7 +46,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.AppearanceConfig
+import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.ThemeMode
+import com.beykus.beygram.data.appearance.WallpaperFiles
+import com.beykus.beygram.data.appearance.chatWallpaperFromStored
+import com.beykus.beygram.data.appearance.encode
 import com.beykus.beygram.data.appearance.ThemePreset
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
@@ -62,7 +69,14 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
     var preset by rememberSaveable { mutableStateOf(saved.preset) }
     var mode by rememberSaveable { mutableStateOf(saved.mode) }
     // Keeps the bubble style and density that the screen does not edit, so picking a palette never resets them.
-    val draft = saved.copy(preset = preset, mode = mode)
+    var wallpaper by rememberSaveable(stateSaver = WallpaperSaver) { mutableStateOf(saved.wallpaper) }
+    val draft = saved.copy(preset = preset, mode = mode, wallpaper = wallpaper)
+    // Once a picture is applied, the copies of the pictures that were only tried are no longer needed.
+    val context = LocalContext.current
+    LaunchedEffect(saved.wallpaper) {
+        // The restored draft is kept too, so turning the screen does not delete a picture that is still on screen.
+        WallpaperFiles.deleteAllExcept(context, setOfNotNull((saved.wallpaper as? ChatWallpaper.Photo)?.fileName, (wallpaper as? ChatWallpaper.Photo)?.fileName))
+    }
     BackHandler(onBack = onBack)
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -104,6 +118,8 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
                 Text(stringResource(R.string.theme_editor_open), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = palette.textSecondary)
             }
+            SectionTitle(stringResource(R.string.wallpaper_title))
+            WallpaperSection(selected = wallpaper, saved = saved.wallpaper, onSelect = { wallpaper = it })
             Text(stringResource(R.string.theme_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
         }
         Button(
@@ -196,3 +212,6 @@ private fun BrightnessRow(title: String, value: ThemeMode, selected: ThemeMode, 
         Text(title, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.padding(start = 6.dp))
     }
 }
+
+/** Keeps the wallpaper draft across rotation. */
+private val WallpaperSaver = Saver<ChatWallpaper, String>(save = { it.encode() }, restore = { chatWallpaperFromStored(it) })

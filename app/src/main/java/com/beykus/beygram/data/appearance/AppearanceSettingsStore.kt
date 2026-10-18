@@ -24,6 +24,7 @@ private val BubbleStyleKey = stringPreferencesKey("bubble_style")
 private val ListDensityKey = stringPreferencesKey("list_density")
 private val AccentColorKey = intPreferencesKey("accent_color")
 private val OutgoingBubbleColorKey = intPreferencesKey("outgoing_bubble_color")
+private val WallpaperKey = stringPreferencesKey("chat_wallpaper")
 
 private val Context.appearanceDataStore by preferencesDataStore(
     name = "appearance",
@@ -44,7 +45,8 @@ class AppearanceSettingsStore(context: Context) {
                 bubbleStyle = bubbleStyleFromStored(preferences[BubbleStyleKey]),
                 density = listDensityFromStored(preferences[ListDensityKey]),
                 accentColor = preferences[AccentColorKey],
-                outgoingBubbleColor = preferences[OutgoingBubbleColorKey]
+                outgoingBubbleColor = preferences[OutgoingBubbleColorKey],
+                wallpaper = chatWallpaperFromStored(preferences[WallpaperKey])
             )
         }
 
@@ -58,6 +60,7 @@ class AppearanceSettingsStore(context: Context) {
             if (accent != null) preferences[AccentColorKey] = accent else preferences.remove(AccentColorKey)
             val bubble = config.outgoingBubbleColor
             if (bubble != null) preferences[OutgoingBubbleColorKey] = bubble else preferences.remove(OutgoingBubbleColorKey)
+            preferences[WallpaperKey] = config.wallpaper.encode()
         }
     }
 }
