@@ -629,7 +629,7 @@
     <string name="storage_database">База и служебные данные</string>
     <string name="storage_database_detail">Сообщения, чаты и журнал. Очистка их не трогает.</string>
     <string name="storage_uploads">Файлы для отправки</string>
-    <string name="storage_uploads_detail">Неотправленные файлы остаются, пока их не отправят. Отправленные удаляются сразу. Очистка кэша их не трогает.</string>
+    <string name="storage_uploads_detail">Неотправленные файлы остаются, пока их не отправят. Копии отправленных удаляются по сроку и лимиту кэша, если открытый чат их не показывает.</string>
     <string name="storage_selected_size">Выбрано для очистки: %1$s</string>
     <string name="storage_clear_selected">Очистить выбранное</string>
     <string name="storage_clear_all">Очистить весь кэш</string>

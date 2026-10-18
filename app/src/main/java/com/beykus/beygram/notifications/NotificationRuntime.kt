@@ -84,12 +84,12 @@ class NotificationRuntime private constructor(private val context: Context) {
      * and a write or send that is slower keeps running after it. An accepted send dismisses the group; a rejected one keeps the
      * notification and marks it. [session] is the session token that validated the action.
      */
-    fun reply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String, session: String, finished: () -> Unit) {
+    fun reply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long, text: String, session: String, finished: () -> Unit) {
         scope.launch {
             try {
                 // A blank reply sends nothing; re-posting the notification still clears the inline field.
                 // The reply is written before the broadcast ends, so a process that stops after that still sends it later.
-                val pending = if (text.isBlank()) null else storeReply(chatId, groupId, maxId, replyToMessageId, text, session)
+                val pending = if (text.isBlank()) null else storeReply(chatId, groupId, maxId, replyToMessageId, topicId, text, session)
                 val work = launch {
                     // The submitted action is spent, so the notification is re-posted; re-posting needs an attached repository.
                     if (repository == null) runCatching { attachRealClient() }
@@ -105,17 +105,17 @@ class NotificationRuntime private constructor(private val context: Context) {
      * Keeps the reply on disk under the session token that validated it. A reply made while signed out, or one the disk refuses,
      * is sent once and not kept.
      */
-    private suspend fun storeReply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String, session: String): PendingReply {
+    private suspend fun storeReply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long, text: String, session: String): PendingReply {
         val now = System.currentTimeMillis()
         val saved: ReplyOutbox.Entry? = if (repository?.authState?.value == AuthState.WaitingForPhone) null else try {
-            outbox { add(chatId, groupId, maxId, replyToMessageId, text, now, session) }
+            outbox { add(chatId, groupId, maxId, replyToMessageId, text, now, session, topicId) }
         } catch (error: IOException) {
             recordAppEvent(EventKind.NOTIFICATION, "reply_not_stored", "Ответ из уведомления не удалось сохранить", Severity.WARNING, mapOf("cause" to error.javaClass.simpleName))
             null
         }
         val entry = saved ?: ReplyOutbox.Entry(
             id = UUID.randomUUID().toString(), session = session, chatId = chatId, groupId = groupId, maxId = maxId,
-            replyToMessageId = replyToMessageId, text = text, createdAtMillis = now, attempts = 0
+            replyToMessageId = replyToMessageId, topicId = topicId, text = text, createdAtMillis = now, attempts = 0
         )
         return PendingReply(entry, stored = saved != null)
     }
@@ -218,13 +218,18 @@ class NotificationRuntime private constructor(private val context: Context) {
         if (!stillOwned(pending)) throw AccountChangedException()
         // Replying to the notified message puts the answer in its forum topic, too.
         val replyId = entry.replyToMessageId.takeIf { it > 0L }
-        val sent = source.sendMessage(entry.chatId, entry.text, replyId)
+        val sent = source.sendMessage(entry.chatId, entry.text, replyId, forumTopicId = entry.topicId)
         // The notified message can be deleted or no longer take replies since the notice. Then the text goes out as a plain message.
         if (replyId == null || !sent.exceptionOrNull().isReplyRejected()) sent else {
             // The session can change while the first send waits, so the fallback needs the same ownership check.
             if (!stillOwned(pending)) throw AccountChangedException()
-            // In a forum the topic lives on the replied-to message, which is gone. A plain send would land in General, so it is not sent.
-            if (source.isForumChat(entry.chatId).getOrDefault(true)) sent else source.sendMessage(entry.chatId, entry.text, null)
+            when {
+                // The topic was stored with the reply, so the fallback lands in it.
+                entry.topicId > 0L -> source.sendMessage(entry.chatId, entry.text, null, forumTopicId = entry.topicId)
+                // In a forum the topic lives on the replied-to message, which is gone. A plain send would land in General, so it is not sent.
+                source.isForumChat(entry.chatId).getOrDefault(true) -> sent
+                else -> source.sendMessage(entry.chatId, entry.text, null)
+            }
         }
     } catch (error: CancellationException) {
         throw error

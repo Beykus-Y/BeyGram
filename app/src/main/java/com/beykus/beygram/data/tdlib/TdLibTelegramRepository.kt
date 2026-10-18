@@ -302,7 +302,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     // ---- Память и кэш --------------------------------------------------------
 
-    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")))
+    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")), File(appContext.filesDir, "uploads")) { messageHistory.mediaFileIds() }
     private val storageSettings = StorageSettingsStore.getInstance(context)
     private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
     override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
@@ -585,10 +585,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = conversationActions.isForum(chatId)
 
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
         leaveJumpWindow(chatId)
         conversationEffects.endActivity(chatId, ChatActivity.Typing)
-        return conversationActions.sendText(chatId, text, replyToMessageId, entities)
+        return conversationActions.sendText(chatId, text, replyToMessageId, entities, forumTopicId)
     }
 
     // =========================================================================

@@ -70,10 +70,10 @@ internal class TdConversationActions(
         request(TdApi.GetSupergroup(type.supergroupId)).isForum
     }
 
-    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
+    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
         if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_message_too_long))
-        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); clearDraft = true }, replyId)
+        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); clearDraft = true }, replyId, forumTopicId)
     }.onFailure { recordSendFailure("text", it) }
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
@@ -110,7 +110,8 @@ internal class TdConversationActions(
         request(TdApi.ResendMessages(chatId, orderedIds.toLongArray(), null, 0L))
         Unit
     }
-    private suspend fun send(chatId: Long, content: TdApi.InputMessageContent, replyId: Long?) {
+    /** [forumTopicId] is used only without a reply target: a reply already carries its topic. */
+    private suspend fun send(chatId: Long, content: TdApi.InputMessageContent, replyId: Long?, forumTopicId: Long = 0L) {
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
             request(TdApi.GetMessage(chatId, it))
@@ -120,6 +121,8 @@ internal class TdConversationActions(
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+            } else if (forumTopicId > 0L) {
+                topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }
         })
         history.put(map(message)); hydrateReply(message)
