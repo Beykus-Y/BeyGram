@@ -193,7 +193,8 @@ internal fun SharedMediaStatus(kind: SharedMediaKind, tab: SharedMediaWindow, on
                 Text(error, color = palette.danger, fontSize = 14.sp, textAlign = TextAlign.Center)
                 TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
             }
-            tab.loaded -> Text(stringResource(kind.emptyRes()), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+            // Пусто только тогда, когда дальше грузить нечего: страница без нужных вложений ещё не значит пустую вкладку.
+            tab.loaded && !tab.hasOlder -> Text(stringResource(kind.emptyRes()), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
             else -> CircularProgressIndicator(Modifier.size(28.dp), color = palette.accent, strokeWidth = 2.dp)
         }
     }

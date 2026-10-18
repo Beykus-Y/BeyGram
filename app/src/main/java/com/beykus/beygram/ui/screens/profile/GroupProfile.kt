@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -83,15 +84,20 @@ internal fun GroupProfileScreen(
     val windows = rememberSharedMediaWindows(info.id) { kind, from, newer -> sharedMessages?.invoke(kind, from, newer) ?: Result.failure(IllegalStateException()) }
     val tabs = if (sharedMessages == null) listOf(GroupTab.Members) else GroupTab.entries
     var selectedTab by rememberSaveable(info.id) { mutableStateOf(GroupTab.Members) }
+    // Сохранённая вкладка может пропасть из полоски, если источника вложений больше нет: тогда показываем участников.
+    val activeTab = selectedTab.takeIf { it in tabs } ?: GroupTab.Members
     var viewing by remember(info.id) { mutableStateOf<Long?>(null) }
-    val window = selectedTab.kind?.let { windows.getValue(it) }
+    val window = activeTab.kind?.let { windows.getValue(it) }
+    val title = info.title.ifBlank { stringResource(R.string.user_name_unknown) }
+    // Индекс полоски вкладок в списке: перед ней идут шапка, строки и, если есть, администраторы.
+    val tabsIndex = if (info.administrators.isEmpty()) 2 else 3
     val nearEnd by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= listState.layoutInfo.totalItemsCount - PREFETCH_ROWS } ?: true } }
     // Пока список дошёл до конца вкладки, грузим её страницы; первая страница вкладки грузится тем же путём.
     if (window != null) LaunchedEffect(window, nearEnd, window.messages.size, window.hasOlder) {
         if (nearEnd && window.hasOlder) window.loadOlder()
     }
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        GroupProfileToolbar(info.title, collapse, refreshEnabled = !state.isLoading, onBack = onBack, onRefresh = onRefresh)
+        GroupProfileToolbar(title, collapse, refreshEnabled = !state.isLoading, onBack = onBack, onRefresh = onRefresh)
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(bottom = 28.dp)) {
             item(key = "header") {
@@ -104,7 +110,7 @@ internal fun GroupProfileScreen(
                             .clickable(enabled = info.photo != null, onClick = onAvatarClick))
                     Spacer(Modifier.height(16.dp))
                     Column(Modifier.fillMaxWidth().graphicsLayer { alpha = 1f - collapse.value }, horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(info.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                        Text(title, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                         Spacer(Modifier.height(4.dp))
                         ProfileSubtitle(info, lastSeenStyle)
                         ProfileBadges(info)
@@ -115,13 +121,17 @@ internal fun GroupProfileScreen(
             if (info.administrators.isNotEmpty()) item(key = "administrators") { AdministratorsSection(info.administrators, onOpenUser) }
             stickyHeader(key = "tabs") {
                 GroupTabRow(
-                    tabs = tabs, selected = selectedTab,
+                    tabs = tabs, selected = activeTab,
                     countText = { tab -> if (tab == GroupTab.Members) info.memberCount?.toString() else tab.kind?.let { info.sharedCounts?.countOf(it)?.toString() } },
-                    onSelect = { selectedTab = it }
+                    onSelect = { tab ->
+                        selectedTab = tab
+                        // Если список ушёл вниз по прежней вкладке, возвращаем его к полоске: иначе новая вкладка окажется за своим концом.
+                        scope.launch { if (listState.firstVisibleItemIndex >= tabsIndex) listState.scrollToItem(tabsIndex) }
+                    }
                 )
             }
-            val kind = selectedTab.kind
-            if (kind == null || window == null) item(key = "members") { GroupMembers(info, observeFile, downloadFile, onMembers, onOpenUser) }
+            val kind = activeTab.kind
+            if (kind == null || window == null) item(key = "members") { GroupMembers(info, state.isLoading, observeFile, downloadFile, onMembers, onOpenUser) }
             else sharedItems(kind, window, observeFile, downloadFile, onOpenMedia = { viewing = it }, onOpenMessage = onOpenMessage, onRetry = { scope.launch { window.loadOlder() } })
             state.error?.let { error -> item(key = "error") { Text(error.resolve(), color = palette.danger, modifier = Modifier.padding(20.dp)) } }
         }
@@ -169,10 +179,17 @@ private fun GroupTabRow(tabs: List<GroupTab>, selected: GroupTab, countText: (Gr
 
 /** Участники группы из профиля. Полный список открывается отдельным экраном. */
 @Composable
-private fun GroupMembers(info: ProfileInfo, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onMembers: () -> Unit, onOpenUser: (Long) -> Unit) {
+private fun GroupMembers(info: ProfileInfo, isLoading: Boolean, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onMembers: () -> Unit, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
     if (!info.canListMembers) {
         Text(stringResource(R.string.profile_members_hidden), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp))
+        return
+    }
+    // Пока превью не пришло, показываем загрузку, а не одну кнопку «Все участники». Пустое превью без загрузки ничего не рисует.
+    if (info.memberPreview.isEmpty()) {
+        if (isLoading) Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(28.dp), color = palette.accent, strokeWidth = 2.dp)
+        }
         return
     }
     Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
@@ -192,18 +209,20 @@ private fun LazyListScope.sharedItems(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit, onRetry: () -> Unit
 ) {
-    if (window.messages.isEmpty()) {
+    // «Ссылки» бывают и в тексте, поэтому им вложение не нужно; остальные вкладки показывают только сообщения с вложением.
+    val shown = window.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null }
+    if (shown.isEmpty()) {
         item(key = "status") {
             Box(Modifier.fillMaxWidth().height(SHARED_STATUS_HEIGHT), contentAlignment = Alignment.Center) { SharedMediaStatus(kind, window, onRetry) }
         }
         return
     }
     if (kind == SharedMediaKind.Media) {
-        items(window.messages.asReversed().filter { it.media != null }.chunked(GRID_COLUMNS), key = { row -> row.first().id }) { row ->
+        items(shown.chunked(GRID_COLUMNS), key = { row -> row.first().id }) { row ->
             SharedMediaGridRow(row, observeFile, downloadFile, onOpenMedia, onOpenMessage)
         }
     } else {
-        items(window.messages.asReversed(), key = { it.id }) { message ->
+        items(shown, key = { it.id }) { message ->
             SharedMediaRowItem(kind, message, observeFile, onClick = { onOpenMessage(message.id) })
         }
     }
