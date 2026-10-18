@@ -46,18 +46,30 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
     val playbackState = PlaybackEngine.state.collectAsStateWithLifecycle()
     // Общий плеер читает только пузырь, который играет: у остальных значение null, и на каждом шаге прогресса они не перерисовываются.
     val voice = remember(key) { derivedStateOf { playbackState.value.takeIf { it.item?.key == key } } }.value
-    val waitingForVoice = pendingPlaybackFileId.value == media.fileId
+    // Строка пузыря в общем ожидании загрузки: ждёт только последнее нажатое, даже если такой же файл стоит в другом сообщении.
+    val row = remember(media.fileId) { Any() }
+    val waitingForVoice = pendingPlaybackRow.value === row
+    // Отметку «прослушано» получает только пузырь, по которому нажали, и только когда плеер сообщил о старте.
+    var requested by remember(media.fileId) { mutableStateOf(false) }
     val playing = voice?.playing == true
+    val started = voice?.started == true
     val loading = (voice != null && voice.durationMs == 0L && !voice.failed) || (waitingForVoice && path == null)
     val fraction = voice?.fraction ?: 0f
     val shownSeconds = if (voice != null && voice.positionMs > 0L) (voice.positionMs / 1000).toInt() else media.durationSeconds
     val bars = remember(media.fileId, media.waveform) { resampleWaveform(media.waveform, BAR_COUNT) }
     val currentOnPlayed by rememberUpdatedState(onPlayed)
-    // Голосовое считается прослушанным, когда начинает играть.
-    LaunchedEffect(playing) { if (playing) currentOnPlayed() }
+    // Голосовое считается прослушанным, когда плеер сообщил, что оно играет. Другие пузыри с тем же файлом этого не получают.
+    LaunchedEffect(requested, started) {
+        if (requested && started) {
+            requested = false
+            currentOnPlayed()
+        }
+    }
     // Голосовое и кружок в ленте не играют вместе: запуск голосового останавливает кружок.
     fun startVoice(localPath: String) {
         InlinePlaybackFocus.stopAll()
+        val state = PlaybackEngine.state.value
+        requested = !(state.item?.key == key && state.playing)
         PlaybackEngine.toggle(context, media.playbackItem(localPath, label))
     }
     // Перемотка по волне: в текущем файле двигает позицию, другой файл начинает с этой точки.
@@ -66,18 +78,27 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
         val state = PlaybackEngine.state.value
         if (state.item?.key == key) {
             PlaybackEngine.seekTo(target)
-            if (!state.playing) PlaybackEngine.togglePlayPause()
-        } else PlaybackEngine.play(context, media.playbackItem(localPath, label), target)
+            if (!state.playing) {
+                requested = true
+                PlaybackEngine.togglePlayPause()
+            }
+        } else {
+            requested = true
+            PlaybackEngine.play(context, media.playbackItem(localPath, label), target)
+        }
     }
     fun togglePlay() {
-        if (path == null) { pendingPlaybackFileId.value = media.fileId; downloadFile(media.fileId) } else startVoice(path)
+        if (path == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startVoice(path)
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть.
     LaunchedEffect(path, waitingForVoice) {
         if (waitingForVoice && path != null) {
-            pendingPlaybackFileId.value = null
+            pendingPlaybackRow.value = null
             startVoice(path)
         }
+    }
+    DisposableEffect(row) {
+        onDispose { if (pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
     }
     // Промежутки между кнопкой и волной тоже запускают воспроизведение, а не открывают просмотрщик вложения.
     Row(

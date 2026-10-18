@@ -67,6 +67,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @OptIn(FlowPreview::class)
@@ -290,6 +292,10 @@ fun ChatScreen(
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); InlinePlaybackFocus.stopAll() }
+    }
+    // Кружок в ленте останавливается, когда общий плеер снова начинает играть: голосовое или музыку можно продолжить из мини-плеера, уведомления или гарнитуры.
+    LaunchedEffect(Unit) {
+        PlaybackEngine.state.map { it.playing }.distinctUntilChanged().filter { it }.collect { InlinePlaybackFocus.stopAll() }
     }
     val window = LocalWindowInfo.current
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }
