@@ -41,4 +41,24 @@ class SharedMediaSectionTest {
         assertFalse(shouldLoadSharedPreview(MessageMedia(MediaKind.Video, fileId = 2), revealed = true))
         assertTrue(shouldLoadSharedPreview(MessageMedia(MediaKind.Video, fileId = 2, thumbnailFileId = 3), revealed = true))
     }
+
+    @Test fun secretAttachmentOpensInChatEvenWhenDownloaded() {
+        assertEquals(SharedRowAction.ShowInChat, sharedRowAction(MessageMedia(MediaKind.Document, fileId = 1, isSecret = true), "/files/a.pdf"))
+    }
+
+    @Test fun notDownloadedAttachmentIsDownloadedFirst() {
+        assertEquals(SharedRowAction.Download, sharedRowAction(MessageMedia(MediaKind.Document, fileId = 2), null))
+    }
+
+    @Test fun downloadedAttachmentOpensFromItsPath() {
+        assertEquals(SharedRowAction.Open("/files/a.pdf"), sharedRowAction(MessageMedia(MediaKind.Document, fileId = 3), "/files/a.pdf"))
+    }
+
+    @Test fun linkUnderSpoilerDefersToChat() {
+        assertTrue(sharedLinkUnderSpoiler(message(1, "скрыто", MessageTextEntity(0, 6, TextStyleKind.Spoiler), MessageTextEntity(0, 6, TextStyleKind.Url, "https://example.com"))))
+    }
+
+    @Test fun visibleLinkOpensFromList() {
+        assertFalse(sharedLinkUnderSpoiler(message(1, "см. https://example.com тут", MessageTextEntity(4, 19, TextStyleKind.Url), MessageTextEntity(24, 3, TextStyleKind.Spoiler))))
+    }
 }

@@ -668,7 +668,7 @@ private fun startAudio(context: Context, item: PlaybackItem) {
     PlaybackEngine.toggle(context, item)
 }
 
-private fun openExternalMedia(context: Context, path: String, mime: String): String? = runCatching {
+internal fun openExternalMedia(context: Context, path: String, mime: String): String? = runCatching {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
     context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
 }.exceptionOrNull()?.let { context.getString(R.string.media_no_app_for_format) }
