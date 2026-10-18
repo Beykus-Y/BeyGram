@@ -121,7 +121,7 @@ internal fun SharedMediaSection(
         pages = pages, selectedId = selected,
         onSelect = { id ->
             viewing = id
-            scope.launch { tabs.getValue(SharedMediaKind.Media).loadNear(id) }
+            scope.launch { tabs.getValue(SharedMediaKind.Media).loadNear(id) { it.media?.isSecret == false } }
         },
         observeFile = observeFile, downloadFile = downloadFile, onViewed = {}, onClose = { viewing = null },
         // Сохранение и отправка идут через чат: там проверяется, разрешено ли сообщение переслать или сохранить.

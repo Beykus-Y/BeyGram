@@ -676,8 +676,9 @@ fun ChatScreen(
     val viewedInChat = messages.firstOrNull { it.id == selectedMediaId }
     val viewed = viewedInChat ?: mediaWindow.messages.firstOrNull { it.id == selectedMediaId }
     val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it) } }
-    // Пока окно не пришло или не загрузилось, показываем открытое вложение одно.
-    val viewerPages = windowPages.takeIf { pages -> pages.any { it.messageId == selectedMediaId } }
+    val historyPages = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it) } } }
+    // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
+    val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
         ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it) } })
     if (viewed != null && viewed.media != null) MediaViewer(
         pages = viewerPages, selectedId = viewed.id, onSelect = { selectedMediaId = it },

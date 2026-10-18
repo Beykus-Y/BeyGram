@@ -65,12 +65,17 @@ internal class SharedMediaWindow(
     /** Догружает вложения новее уже загруженных. Если новее больше нет, ничего не делает. */
     suspend fun loadNewer() = loadPage(newer = true)
 
-    /** Догружает ту сторону окна, к которой подошло вложение [messageId], например при свайпе в просмотрщике. */
-    suspend fun loadNear(messageId: Long) {
-        val index = messages.indexOfFirst { it.id == messageId }
+    /**
+     * Догружает ту сторону окна, к которой подошло вложение [messageId], например при свайпе в просмотрщике.
+     * Край считаем среди [visible] вложений: просмотрщик не листает секретные, и они не должны сдвигать край.
+     */
+    suspend fun loadNear(messageId: Long, visible: (ChatMessage) -> Boolean = { true }) {
+        val shown = messages.filter(visible)
+        val index = shown.indexOfFirst { it.id == messageId }
         if (index < 0) return
         if (index < PREFETCH) loadOlder()
-        if (index >= messages.size - PREFETCH) loadNewer()
+        // Старые страницы дописываются слева, поэтому расстояние до правого края берём до загрузки.
+        if (shown.size - index <= PREFETCH) loadNewer()
     }
 
     private suspend fun loadPage(newer: Boolean) {

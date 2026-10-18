@@ -66,4 +66,19 @@ class SharedMediaWindowTest {
         assertEquals(listOf(0L to false, 40L to false, 40L to false), requested)
         assertEquals(listOf(4L, 5L), window.messages.map { it.id })
     }
+
+    @Test fun loadNearMeasuresEdgeAmongVisibleMessagesOnly() = runBlocking {
+        val requested = mutableListOf<Pair<Long, Boolean>>()
+        val pages = ArrayDeque(listOf(
+            MessageSearchPage((11L..20L).map { message(it) }, 10L),
+            MessageSearchPage((1L..10L).map { message(it) }, 0L)
+        ))
+        val window = SharedMediaWindow(load = { from, newer -> requested += from to newer; Result.success(pages.removeFirst()) }, failure = { "failed" })
+        window.restart(null)
+        window.loadOlder()
+        // Шесть самых старых скрыты просмотрщиком: без фильтра 17 стоял бы на седьмом месте и старые не догрузились бы.
+        window.loadNear(17L) { it.id >= 17L }
+        assertEquals(listOf(0L to false, 10L to false), requested)
+        assertEquals((1L..20L).toList(), window.messages.map { it.id })
+    }
 }
