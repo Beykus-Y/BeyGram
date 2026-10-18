@@ -10,4 +10,10 @@ class StorageUsageTest {
         assertEquals(10L, usage.filesBytes)
         assertEquals(15L, usage.totalBytes)
     }
+
+    @Test fun uploadsCountInTotalButAreNotClearable() {
+        val usage = StorageUsage(mapOf(StorageCategory.Photos to 10L), databaseBytes = 5L, uploadBytes = 7L)
+        assertEquals(10L, usage.filesBytes)
+        assertEquals(22L, usage.totalBytes)
+    }
 }

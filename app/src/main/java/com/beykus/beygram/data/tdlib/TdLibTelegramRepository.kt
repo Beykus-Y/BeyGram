@@ -302,7 +302,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     // ---- Память и кэш --------------------------------------------------------
 
-    private val storage = TdStorage { client }
+    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")))
     private val storageSettings = StorageSettingsStore.getInstance(context)
     private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
     override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
@@ -642,7 +642,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
             is TdApi.UpdateMessageSendSucceeded -> {
                 reportBotChannel.onSendSucceeded(update)
-                cleanupSentRecording(update.message)
+                cleanupSentUploads(update.message)
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
                 conversationActions.hydrateReply(update.message)
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
@@ -688,28 +688,38 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }
     }
 
-    /** Recorded files must stay on disk until TDLib reports upload completion. */
-    private fun cleanupSentRecording(message: TdApi.Message) {
-        // The video note's thumbnail is a second file in the same session directory, so it is removed with the video.
-        val localPaths = when (val content = message.content) {
-            is TdApi.MessageVideoNote -> listOfNotNull(content.videoNote.video.local.path, content.videoNote.thumbnail?.file?.local?.path)
-            is TdApi.MessageVoiceNote -> listOf(content.voiceNote.voice.local.path)
-            else -> return
-        }
-        localPaths.filter { it.isNotBlank() }.forEach { localPath ->
+    /** Files stay on disk until TDLib reports the message sent. Then their copies under uploads go; unsent files stay. */
+    private fun cleanupSentUploads(message: TdApi.Message) {
+        val content = message.content
+        content.localFiles().mapNotNull { it?.local?.path }.filter { it.isNotBlank() }.forEach { localPath ->
             runCatching {
                 val uploads = File(appContext.filesDir, "uploads").canonicalFile
                 val file = File(localPath).canonicalFile
-                val sessionDirectory = file.parentFile ?: return@runCatching
-                require(sessionDirectory.parentFile?.canonicalFile == uploads) { "Recording path is outside uploads" }
-                require(file.path.startsWith(uploads.path + File.separator)) { "Recording path is outside uploads" }
-                val deleted = file.delete()
-                if (sessionDirectory.listFiles().isNullOrEmpty()) sessionDirectory.delete()
-                if (deleted) {
-                    android.util.Log.i("BeyGramNet", "Uploaded recording cleaned kind=${message.content.javaClass.simpleName} path=$localPath")
+                // TDLib's own cache is outside uploads and is never touched here.
+                if (!file.path.startsWith(uploads.path + File.separator)) return@runCatching
+                if (content is TdApi.MessageVideoNote) {
+                    // A session folder can hold segments that still wait to be sent, so only this segment's files and an emptied folder go.
+                    file.delete()
+                    file.parentFile?.takeIf { it.listFiles().isNullOrEmpty() }?.delete()
+                } else {
+                    // Every other upload has a folder of its own. Removing it also removes files TDLib does not report, such as a photo's thumbnail.
+                    generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }.deleteRecursively()
                 }
-            }.onFailure { android.util.Log.w("BeyGramNet", "Could not clean uploaded recording: ${it.message}") }
+                android.util.Log.i("BeyGramNet", "Sent upload cleaned kind=${content.javaClass.simpleName} path=$localPath")
+            }.onFailure { android.util.Log.w("BeyGramNet", "Could not clean sent upload: ${it.message}") }
         }
+    }
+
+    /** Local files of a message content, thumbnails included. */
+    private fun TdApi.MessageContent.localFiles(): List<TdApi.File?> = when (this) {
+        is TdApi.MessagePhoto -> photo.sizes.map { it.photo }
+        is TdApi.MessageVideo -> listOf(video.video, video.thumbnail?.file)
+        is TdApi.MessageAnimation -> listOf(animation.animation, animation.thumbnail?.file)
+        is TdApi.MessageAudio -> listOf(audio.audio, audio.albumCoverThumbnail?.file)
+        is TdApi.MessageDocument -> listOf(document.document, document.thumbnail?.file)
+        is TdApi.MessageVideoNote -> listOf(videoNote.video, videoNote.thumbnail?.file)
+        is TdApi.MessageVoiceNote -> listOf(voiceNote.voice)
+        else -> emptyList()
     }
 
     // ---- Авторизация ---------------------------------------------------------

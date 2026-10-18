@@ -5,14 +5,16 @@ enum class StorageCategory { Photos, Videos, Files, VoiceAndVideoNotes, Music, O
 
 /**
  * Место, которое занимает приложение. [bytesByCategory] — загруженные файлы: их можно удалить и скачать снова.
+ * [uploadBytes] — файлы, которые готовятся к отправке: отправленные удаляются сами, неотправленные остаются.
  * [databaseBytes] — переписка на устройстве: никакая очистка её не трогает.
  */
 data class StorageUsage(
     val bytesByCategory: Map<StorageCategory, Long>,
-    val databaseBytes: Long
+    val databaseBytes: Long,
+    val uploadBytes: Long = 0L
 ) {
     val filesBytes: Long get() = bytesByCategory.values.sum()
-    val totalBytes: Long get() = filesBytes + databaseBytes
+    val totalBytes: Long get() = filesBytes + databaseBytes + uploadBytes
 
     fun bytes(category: StorageCategory): Long = bytesByCategory[category] ?: 0L
 
