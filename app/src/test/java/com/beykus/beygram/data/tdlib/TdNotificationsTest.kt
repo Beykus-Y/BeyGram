@@ -8,7 +8,9 @@ import org.junit.Test
 
 class TdNotificationsTest {
     private fun newFeed(archived: () -> Boolean = { false }) = TdNotifications({ error("TDLib is not used in unit tests") }, { "" }, debugLog = {}) { archived() }
-        .apply { chat(TdApi.Chat().apply { id = CHAT_ID; title = "Chat" }) }
+        .apply { chat(TdApi.Chat().apply { id = CHAT_ID; title = "Chat"; permissions = chatPermissions(canSend = true) }) }
+
+    private fun chatPermissions(canSend: Boolean) = TdApi.ChatPermissions().apply { canSendBasicMessages = canSend }
 
     private fun notice(id: Int, silent: Boolean = false) = TdApi.Notification().apply {
         this.id = id
@@ -91,6 +93,16 @@ class TdNotificationsTest {
         archived = true
         feed.chatPositionChanged(CHAT_ID)
         assertTrue(feed.state.value.groups.single().archived)
+    }
+
+    @Test fun replyabilityFollowsChatPermissionUpdates() {
+        val feed = newFeed()
+        feed.handle(groupUpdate(listOf(notice(7))))
+        assertTrue(feed.state.value.groups.single().replyable)
+        feed.handle(TdApi.UpdateChatPermissions().apply { chatId = CHAT_ID; permissions = chatPermissions(canSend = false) })
+        assertFalse(feed.state.value.groups.single().replyable)
+        feed.handle(TdApi.UpdateChatPermissions().apply { chatId = CHAT_ID; permissions = chatPermissions(canSend = true) })
+        assertTrue(feed.state.value.groups.single().replyable)
     }
 
     private companion object {

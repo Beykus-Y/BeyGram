@@ -85,6 +85,7 @@ internal class TdNotifications(
             }
             is TdApi.UpdateHavePendingNotifications -> _state.value = _state.value.copy(hasPending = update.haveDelayedNotifications || update.haveUnreceivedNotifications)
             is TdApi.UpdateChatTitle -> chats[update.chatId]?.let { it.title = update.title; groups.replaceAll { _, group -> if (group.chatId == it.id) metadata(group) else group } }
+            is TdApi.UpdateChatPermissions -> chats[update.chatId]?.let { it.permissions = update.permissions; groups.replaceAll { _, group -> if (group.chatId == it.id) metadata(group) else group } }
             else -> return@synchronized
         }
         publish()
