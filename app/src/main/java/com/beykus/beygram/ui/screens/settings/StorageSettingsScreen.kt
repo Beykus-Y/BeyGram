@@ -154,7 +154,8 @@ private fun UsageCard(usage: StorageUsage?, loading: Boolean, selected: Set<Stor
                 val bytes = usage.bytes(category)
                 CategoryRow(category, bytes, checked = category in selected, enabled = !busy) { onToggle(category) }
             }
-            DatabaseRow(usage.databaseBytes)
+            SizeInfoRow(palette.accent, stringResource(R.string.storage_uploads), stringResource(R.string.storage_uploads_detail), usage.uploadBytes)
+            SizeInfoRow(palette.textSecondary, stringResource(R.string.storage_database), stringResource(R.string.storage_database_detail), usage.databaseBytes)
         }
     }
 }
@@ -162,7 +163,7 @@ private fun UsageCard(usage: StorageUsage?, loading: Boolean, selected: Set<Stor
 @Composable
 private fun UsageBar(usage: StorageUsage) {
     val palette = beyGramPalette()
-    val segments = StorageCategory.entries.map { it.color() to usage.bytes(it) } + (palette.textSecondary to usage.databaseBytes)
+    val segments = StorageCategory.entries.map { it.color() to usage.bytes(it) } + (palette.accent to usage.uploadBytes) + (palette.textSecondary to usage.databaseBytes)
     Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(palette.surface2)) {
         segments.filter { it.second > 0L }.forEach { (color, bytes) ->
             Box(Modifier.weight(bytes.toFloat()).fillMaxHeight().background(color))
@@ -191,15 +192,15 @@ private fun CategoryRow(category: StorageCategory, bytes: Long, checked: Boolean
 }
 
 @Composable
-private fun DatabaseRow(databaseBytes: Long) {
+private fun SizeInfoRow(color: Color, title: String, detail: String, bytes: Long) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(10.dp).clip(CircleShape).background(palette.textSecondary))
+        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(stringResource(R.string.storage_database), color = palette.textPrimary, fontSize = 15.sp)
-            Text(stringResource(R.string.storage_database_detail), color = palette.textSecondary, fontSize = 12.sp)
+            Text(title, color = palette.textPrimary, fontSize = 15.sp)
+            Text(detail, color = palette.textSecondary, fontSize = 12.sp)
         }
-        Text(storageSizeText(databaseBytes), color = palette.textSecondary, fontSize = 14.sp)
+        Text(storageSizeText(bytes), color = palette.textSecondary, fontSize = 14.sp)
     }
 }
 

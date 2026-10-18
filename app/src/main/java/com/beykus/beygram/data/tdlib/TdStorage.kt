@@ -3,11 +3,14 @@ package com.beykus.beygram.data.tdlib
 import com.beykus.beygram.domain.model.CachePolicy
 import com.beykus.beygram.domain.model.StorageCategory
 import com.beykus.beygram.domain.model.StorageUsage
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 
 /** Занятое место и очистка файлов TDLib. TDLib удаляет только файлы: база сообщений здесь не затрагивается. */
-internal class TdStorage(private val client: () -> Client) {
+internal class TdStorage(private val client: () -> Client, private val uploadDirectories: List<File>) {
     private val requests = TdRequests(client)
 
     suspend fun usage(): StorageUsage {
@@ -17,7 +20,9 @@ internal class TdStorage(private val client: () -> Client) {
             bytesByCategory = files.fileTypeEntries().groupingBy { storageCategoryOf(it.fileType) }
                 .fold(0L) { total, entry -> total + entry.size },
             // База, языковые пакеты и журнал TDLib: очистка их не трогает, но в «занято приложением» они входят.
-            databaseBytes = database.databaseSize + database.languagePackDatabaseSize + database.logSize
+            databaseBytes = database.databaseSize + database.languagePackDatabaseSize + database.logSize,
+            // Файлы на отправку лежат в папках приложения, поэтому TDLib их не считает: размер берём с диска.
+            uploadBytes = withContext(Dispatchers.IO) { filesBytesIn(uploadDirectories) }
         )
     }
 
@@ -56,3 +61,7 @@ internal class TdStorage(private val client: () -> Client) {
         const val STORAGE_TIMEOUT_MS = 120_000L
     }
 }
+
+/** Размер всех файлов в папках, включая вложенные. Папки, которых нет, занимают 0 байт. */
+internal fun filesBytesIn(directories: List<File>): Long =
+    directories.filter { it.isDirectory }.sumOf { directory -> directory.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
