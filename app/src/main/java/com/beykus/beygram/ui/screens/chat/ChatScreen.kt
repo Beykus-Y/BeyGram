@@ -279,18 +279,17 @@ fun ChatScreen(
     val currentMessages by rememberUpdatedState(messages)
     val newest = messages.lastOrNull()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    // Голосовое и кружок не играют в фоне и после выхода из чата; запись кружка в фоне отменяется.
+    // Кружок в ленте не играет в фоне и после выхода из чата, запись кружка в фоне отменяется. Голосовое играет в общем плеере.
     DisposableEffect(lifecycle) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                VoicePlayback.stop()
                 InlinePlaybackFocus.stopAll()
                 videoNote.stopForRecovery()
                 audioNote.stopForRecovery()
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); VoicePlayback.stop(); InlinePlaybackFocus.stopAll() }
+        onDispose { lifecycle.removeObserver(observer); InlinePlaybackFocus.stopAll() }
     }
     val window = LocalWindowInfo.current
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }

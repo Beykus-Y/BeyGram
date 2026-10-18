@@ -48,9 +48,12 @@ data class PlaybackState(
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 }
 
-/** Файл из сообщения как элемент общего плеера. Ключ один на весь файл, поэтому повторный запуск не начинает его сначала. */
+/** Ключ файла в общем плеере: один на весь файл, поэтому повторный запуск не начинает его сначала. */
+internal fun MessageMedia.playbackKey(): String = "$kind:$fileId"
+
+/** Файл из сообщения как элемент общего плеера. */
 fun MessageMedia.playbackItem(path: String, fallbackTitle: String): PlaybackItem = PlaybackItem(
-    key = "$kind:$fileId",
+    key = playbackKey(),
     kind = kind,
     path = path,
     title = fileName.ifBlank { fallbackTitle },
@@ -107,8 +110,8 @@ object PlaybackEngine {
         if (exo != null && _state.value.item?.key == item.key) togglePlayPause() else play(context, item)
     }
 
-    /** Запускает файл сначала. Скорость сохраняется между файлами. */
-    fun play(context: Context, item: PlaybackItem) {
+    /** Запускает файл с начала или с доли [startFraction]. Скорость сохраняется между файлами. */
+    fun play(context: Context, item: PlaybackItem, startFraction: Float = 0f) {
         val target = player(context)
         target.setMediaItem(
             MediaItem.Builder()
@@ -118,6 +121,8 @@ object PlaybackEngine {
                 .build()
         )
         target.prepare()
+        // Длина из сообщения: доля нужна до того, как плеер узнает длину файла.
+        if (startFraction > 0f) target.seekTo((startFraction.coerceIn(0f, 1f) * item.durationSeconds * 1000).toLong())
         target.play()
         _state.value = PlaybackState(item = item, playing = true, speed = _state.value.speed)
         startPlaybackService()
