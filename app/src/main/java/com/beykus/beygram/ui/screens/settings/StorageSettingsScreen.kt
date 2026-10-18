@@ -76,12 +76,13 @@ fun StorageSettingsScreen(repository: StorageRepository, onBack: () -> Unit) {
     val settings by model.settings.collectAsStateWithLifecycle()
     val usage = model.usage
     val cleaningProgress = model.cleaningProgress
-    val busy = cleaningProgress != null
+    val busy = model.busy
     var pendingClear by remember { mutableStateOf<ClearScope?>(null) }
     LaunchedEffect(Unit) { model.refresh() }
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.settings_storage_title), onBack)
+        if (model.applying) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = palette.accent)
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -101,7 +102,7 @@ fun StorageSettingsScreen(repository: StorageRepository, onBack: () -> Unit) {
                 Text(stringResource(R.string.storage_limit_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_limit_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageSizeLimit.entries.forEach { limit ->
-                    ChoiceRow(limit.label(), selected = settings.sizeLimit == limit, enabled = !busy) {
+                    ChoiceRow(limit.label(), selected = settings.sizeLimit == limit, enabled = cleaningProgress == null) {
                         if (settings.sizeLimit != limit) model.changeSettings { it.copy(sizeLimit = limit) }
                     }
                 }
@@ -110,7 +111,7 @@ fun StorageSettingsScreen(repository: StorageRepository, onBack: () -> Unit) {
                 Text(stringResource(R.string.storage_retention_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_retention_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageRetention.entries.forEach { retention ->
-                    ChoiceRow(retention.label(), selected = settings.retention == retention, enabled = !busy) {
+                    ChoiceRow(retention.label(), selected = settings.retention == retention, enabled = cleaningProgress == null) {
                         if (settings.retention != retention) model.changeSettings { it.copy(retention = retention) }
                     }
                 }

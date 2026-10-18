@@ -307,8 +307,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
     override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
     override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> =
-        storageResult { storage.clear(categories, onProgress) }
-    override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> = storageResult { storage.applyPolicy(policy) }
+        storageInAuthScope { storage.clear(categories, onProgress) }
+    override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> = storageInAuthScope { storage.applyPolicy(policy) }
+
+    /**
+     * Очистка и лимит идут в области входа: уход с экрана их не прерывает, а очередь [TdStorage] держится до ответа TDLib.
+     * Ждущий получает результат, когда он готов.
+     */
+    private suspend fun <T> storageInAuthScope(block: suspend () -> T): Result<T> = storageResult { authScope.async { block() }.await() }
 
     // ---- Канал подтверждения диагностических отчётов --------------------------
     // Pinning id бота задан публичной конфигурацией сборки; 0 — пиннинг выключен.

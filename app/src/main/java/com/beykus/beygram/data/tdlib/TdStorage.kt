@@ -12,9 +12,11 @@ import org.drinkless.tdlib.TdApi
 /** Занятое место и очистка файлов TDLib. TDLib удаляет только файлы: база сообщений здесь не затрагивается. */
 internal class TdStorage(private val client: () -> Client, private val uploadDirectories: List<File>) {
     private val requests = TdRequests(client)
+    /** Очистка и применение лимита идут по одному, включая фоновую проверку: TDLib не должен удалять файлы параллельно. */
+    private val lane = MaintenanceLane()
 
     suspend fun usage(): StorageUsage {
-        val files = statistics()
+        val files = statistics(STORAGE_TIMEOUT_MS)
         val database = requests(TdApi.GetStorageStatisticsFast())
         return StorageUsage(
             bytesByCategory = files.fileTypeEntries().groupingBy { storageCategoryOf(it.fileType) }
@@ -27,8 +29,8 @@ internal class TdStorage(private val client: () -> Client, private val uploadDir
     }
 
     /** Очищает категории по одной, чтобы прогресс отражал реальный ход работы. Возвращает освобождённые байты. */
-    suspend fun clear(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Long {
-        val typesByCategory = statistics().fileTypeEntries()
+    suspend fun clear(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Long = lane.exclusive {
+        val typesByCategory = statistics(TDLIB_BACKSTOP_MS).fileTypeEntries()
             .map { it.fileType }
             .distinctBy { it.javaClass }
             .groupBy { storageCategoryOf(it) }
@@ -37,28 +39,38 @@ internal class TdStorage(private val client: () -> Client, private val uploadDir
         var freed = 0L
         targets.forEachIndexed { index, category ->
             onProgress(index, targets.size)
-            freed += requests(clearFileTypesRequest(typesByCategory.getValue(category)), STORAGE_TIMEOUT_MS).size
+            freed += requests(clearFileTypesRequest(typesByCategory.getValue(category)), TDLIB_BACKSTOP_MS).size
         }
         onProgress(targets.size, targets.size)
-        return freed
+        freed
     }
 
-    suspend fun applyPolicy(policy: CachePolicy): Long {
-        val fileTypes = statistics().fileTypeEntries().map { it.fileType }.distinctBy { it.javaClass }.toTypedArray()
-        val request = policy.optimizeRequest(fileTypes) ?: return 0L
-        return requests(request, STORAGE_TIMEOUT_MS).size
+    /**
+     * Приводит файлы к политике. Если пока она ждала очереди, пришла более новая, эта пропускается:
+     * последнюю политику применит её собственный вызов.
+     */
+    suspend fun applyPolicy(policy: CachePolicy): Long = lane.latestOnly(skipped = 0L) {
+        val fileTypes = statistics(TDLIB_BACKSTOP_MS).fileTypeEntries().map { it.fileType }.distinctBy { it.javaClass }.toTypedArray()
+        val request = policy.optimizeRequest(fileTypes) ?: return@latestOnly 0L
+        requests(request, TDLIB_BACKSTOP_MS).size
     }
 
-    private suspend fun statistics(): TdApi.StorageStatistics =
-        requests(TdApi.GetStorageStatistics(NO_CHAT_BREAKDOWN), STORAGE_TIMEOUT_MS)
+    private suspend fun statistics(timeoutMillis: Long): TdApi.StorageStatistics =
+        requests(TdApi.GetStorageStatistics(NO_CHAT_BREAKDOWN), timeoutMillis)
 
     /** Статистика приходит по чатам; для категорий чаты не нужны, поэтому записи складываем вместе. */
     private fun TdApi.StorageStatistics.fileTypeEntries(): List<TdApi.StorageStatisticsByFileType> =
         byChat.flatMap { it.byFileType.asList() }
 
     private companion object {
-        /** Подсчёт и удаление файлов по большому кэшу занимают заметное время. */
+        /** Подсчёт для экрана: если TDLib молчит дольше, экран покажет ошибку. */
         const val STORAGE_TIMEOUT_MS = 120_000L
+
+        /**
+         * Очистка и оптимизация держат очередь до ответа TDLib: отказавшись ждать, TDLib ещё удаляет файлы, и следующая
+         * операция не должна начаться рядом с ней. Предел нужен только на случай, когда TDLib совсем не отвечает.
+         */
+        const val TDLIB_BACKSTOP_MS = 10 * 60_000L
     }
 }
 

@@ -7,7 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.beykus.beygram.R
 import com.beykus.beygram.data.storage.StorageSettings
-import com.beykus.beygram.data.storage.StorageSettingsStore
+import com.beykus.beygram.data.storage.StorageSettingsSource
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.StorageCategory
@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 /** Состояние экрана «Память и кэш». Экран сам вызывает [refresh] при каждом открытии, поэтому данные не устаревают. */
 class StorageSettingsViewModel(
     private val repository: StorageRepository,
-    private val store: StorageSettingsStore
+    private val store: StorageSettingsSource
 ) : ViewModel() {
     val settings: StateFlow<StorageSettings> = store.settings
 
@@ -33,11 +33,18 @@ class StorageSettingsViewModel(
     /** Доля готовой очистки от 0 до 1; null, когда очистки нет. */
     var cleaningProgress: Float? by mutableStateOf(null)
         private set
+    /** Сколько смен лимита или срока ещё применяются. */
+    private var pendingChanges: Int by mutableStateOf(0)
     /** Сколько освободили последняя очистка или смена лимита. */
     var freedBytes: Long? by mutableStateOf(null)
         private set
     var error: UiText? by mutableStateOf(null)
         private set
+
+    /** Смены лимита или срока, которые ещё применяются. Очистка ждёт, пока они закончатся. */
+    val applying: Boolean get() = pendingChanges > 0
+    /** Экран занят, пока идёт очистка или применяется настройка. */
+    val busy: Boolean get() = cleaningProgress != null || applying
 
     fun refresh() {
         if (cleaningProgress != null) return
@@ -51,7 +58,7 @@ class StorageSettingsViewModel(
     }
 
     fun clear(categories: Set<StorageCategory>) {
-        if (cleaningProgress != null || categories.isEmpty()) return
+        if (busy || categories.isEmpty()) return
         error = null
         freedBytes = null
         cleaningProgress = 0f
@@ -66,17 +73,35 @@ class StorageSettingsViewModel(
         }
     }
 
-    /** Новый лимит или срок сразу применяются: всё лишнее удаляется, а цифры на экране пересчитываются. */
+    /**
+     * Новый лимит или срок сразу сохраняются, а применяются в фоне: всё лишнее удаляется, и цифры пересчитываются.
+     * Смены, которые пришли во время применения, не ждут друг друга: репозиторий применит только последнюю.
+     */
     fun changeSettings(transform: (StorageSettings) -> StorageSettings) {
         if (cleaningProgress != null) return
-        store.update(transform)
+        if (store.update(transform).isFailure) {
+            // Прежняя настройка осталась на месте; экран показывает ошибку и ничего не применяет.
+            error = UiText.Res(R.string.storage_settings_save_failed)
+            return
+        }
         error = null
-        freedBytes = null
+        // Серия смен суммирует освобождённое: вторая может ничего не освободить, потому что первая уже сделала всё.
+        if (!applying) freedBytes = null
+        pendingChanges++
         viewModelScope.launch {
-            repository.applyCachePolicy(store.settings.value.policy())
-                .onSuccess { freedBytes = it.takeIf { bytes -> bytes > 0L } }
-                .onFailure { error = it.toUiText(R.string.storage_clear_failed) }
-            loadUsage()
+            try {
+                repository.applyCachePolicy(store.settings.value.policy())
+                    .onSuccess { bytes ->
+                        // Успех последнего применения снимает ошибку более раннего: она уже не относится к текущей настройке.
+                        error = null
+                        if (bytes > 0L) freedBytes = (freedBytes ?: 0L) + bytes
+                    }
+                    .onFailure { error = it.toUiText(R.string.storage_clear_failed) }
+            } finally {
+                pendingChanges--
+            }
+            // Цифры пересчитываем один раз, когда применены все смены.
+            if (!applying) loadUsage()
         }
     }
 
