@@ -2,7 +2,10 @@ package com.beykus.beygram.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-/** Design tokens from the BeyGram design system (warm neutrals + violet accent). */
+/**
+ * One theme's colour roles from the BeyGram design system (warm neutrals + violet accent).
+ * Material's colour scheme and beyGramPalette() are both built from these, so they cannot disagree.
+ */
 data class BeyGramTokens(
     val bg: Color,
     val surface: Color,
