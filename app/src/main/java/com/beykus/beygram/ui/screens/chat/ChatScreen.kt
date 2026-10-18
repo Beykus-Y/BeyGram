@@ -680,7 +680,7 @@ fun ChatScreen(
     val viewerPages = windowPages.takeIf { pages -> pages.any { it.messageId == selectedMediaId } }
         ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it) } })
     if (viewed != null && viewed.media != null) MediaViewer(
-        pages = viewerPages, selectedId = viewed.id, onSelect = { id -> selectedMediaId = id; scope.launch { mediaWindow.loadNear(id) } },
+        pages = viewerPages, selectedId = viewed.id, onSelect = { selectedMediaId = it },
         observeFile = observeFile, downloadFile = onDownloadFile, onViewed = { id -> conversation.openMessageContent(chat.id, id) }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
         canExport = viewedRights?.canSave == true, confirmExport = { id -> conversation.messageCapabilities(chat.id, id).getOrNull()?.canSave == true },
