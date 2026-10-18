@@ -19,4 +19,22 @@
     <string name="theme_preview_today">Сегодня</string>
     <string name="theme_preview_time">12:40</string>
     <string name="theme_preview_time_reply">12:41</string>
+    <string name="theme_editor_open">Настроить тему</string>
+    <string name="theme_editor_title">Редактор темы</string>
+    <string name="theme_editor_accent">Акцентный цвет</string>
+    <string name="theme_editor_bubble_color">Цвет исходящих сообщений</string>
+    <string name="theme_editor_default">По умолчанию</string>
+    <string name="theme_editor_bubble_shape">Форма пузырей</string>
+    <string name="theme_editor_shape_rounded">Скруглённая</string>
+    <string name="theme_editor_shape_soft">Мягкая</string>
+    <string name="theme_editor_shape_square">Строгая</string>
+    <string name="theme_editor_density">Плотность списков</string>
+    <string name="theme_editor_density_compact">Компактная</string>
+    <string name="theme_editor_density_comfortable">Обычная</string>
+    <string name="theme_editor_density_spacious">Свободная</string>
+    <string name="theme_editor_reset">Сбросить всё</string>
+    <string name="theme_editor_cancel">Отмена</string>
+    <string name="theme_editor_warning_bubble">Текст плохо читается на этом цвете сообщений. Выберите другой.</string>
+    <string name="theme_editor_warning_accent">Акцентный цвет почти сливается с фоном. Выберите другой.</string>
+    <string name="theme_editor_swatch">Цвет %1$d</string>
 </resources>

@@ -59,6 +59,7 @@ import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
+import com.beykus.beygram.ui.screens.theme.ThemeEditorScreen
 import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
 import com.beykus.beygram.domain.model.NotificationOpenRequest
@@ -163,6 +164,8 @@ private fun BeyGramAppContent(
 
     // ---- Локальный UI-state --------------------------------------------------
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
+    // The choice made on the theme screen but not applied yet, so the editor starts from it.
+    var editorSeed by remember { mutableStateOf<AppearanceConfig?>(null) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
     // Вложение из профиля открывает чат у своего сообщения; 0 значит, что переход не нужен.
@@ -526,7 +529,14 @@ private fun BeyGramAppContent(
                 AppRoute.Appearance -> ThemeSettingsScreen(
                     saved = appearance,
                     onSave = onAppearanceChange,
+                    onOpenEditor = { pending -> editorSeed = pending; routeName = AppRoute.ThemeEditor.name },
                     onBack = { routeName = AppRoute.MyProfile.name }
+                )
+                AppRoute.ThemeEditor -> ThemeEditorScreen(
+                    saved = editorSeed ?: appearance,
+                    current = appearance,
+                    onSave = onAppearanceChange,
+                    onBack = { routeName = AppRoute.Appearance.name }
                 )
                 AppRoute.EditProfile -> {
                     myProfile.info?.let { info ->

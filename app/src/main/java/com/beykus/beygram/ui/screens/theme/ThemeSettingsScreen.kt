@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
@@ -61,7 +63,7 @@ import com.beykus.beygram.ui.theme.tokensFor
  * The choice reaches the rest of the app only after «Применить». Leaving the screen drops it.
  */
 @Composable
-fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> Unit, onBack: () -> Unit) {
+fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> Unit, onOpenEditor: (AppearanceConfig) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()
     val systemDark = isSystemInDarkTheme()
     var preset by rememberSaveable { mutableStateOf(saved.preset) }
@@ -84,7 +86,7 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SectionTitle(stringResource(R.string.theme_preview_title))
-            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = tokensFor(preset, mode, systemDark)) {
+            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = tokensFor(draft, systemDark)) {
                 ThemePreview()
             }
 
@@ -109,6 +111,13 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
                 BrightnessRow(stringResource(R.string.theme_brightness_dark), ThemeMode.Dark, mode) { mode = ThemeMode.Dark }
                 BrightnessRow(stringResource(R.string.theme_brightness_amoled), ThemeMode.Amoled, mode) { mode = ThemeMode.Amoled }
             }
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).clickable { onOpenEditor(draft) }.padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(stringResource(R.string.theme_editor_open), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = palette.textSecondary)
+            }
             SectionTitle(stringResource(R.string.wallpaper_title))
             WallpaperSection(selected = wallpaper, saved = saved.wallpaper, onSelect = { wallpaper = it })
             Text(stringResource(R.string.theme_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
@@ -124,18 +133,18 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     val palette = beyGramPalette()
     Text(text, color = palette.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 4.dp))
 }
 
 /** A small chat with fake messages, drawn with the tokens of the choice being made. */
 @Composable
-private fun ThemePreview() {
+internal fun ThemePreview(bubbleRadius: Dp = 16.dp, spacing: Dp = 8.dp) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.screen).padding(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(spacing)
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accentSoft), contentAlignment = Alignment.Center) {
@@ -147,8 +156,8 @@ private fun ThemePreview() {
             }
             Text(stringResource(R.string.theme_preview_time), color = palette.textSecondary, fontSize = 12.sp)
         }
-        PreviewBubble(text = stringResource(R.string.theme_preview_incoming), time = stringResource(R.string.theme_preview_time), outgoing = false)
-        PreviewBubble(text = stringResource(R.string.theme_preview_outgoing), time = stringResource(R.string.theme_preview_time_reply), outgoing = true)
+        PreviewBubble(text = stringResource(R.string.theme_preview_incoming), time = stringResource(R.string.theme_preview_time), outgoing = false, radius = bubbleRadius)
+        PreviewBubble(text = stringResource(R.string.theme_preview_outgoing), time = stringResource(R.string.theme_preview_time_reply), outgoing = true, radius = bubbleRadius)
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
                 stringResource(R.string.theme_preview_today),
@@ -161,14 +170,14 @@ private fun ThemePreview() {
 }
 
 @Composable
-private fun PreviewBubble(text: String, time: String, outgoing: Boolean) {
+private fun PreviewBubble(text: String, time: String, outgoing: Boolean, radius: Dp) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start
     ) {
         Row(
-            Modifier.clip(RoundedCornerShape(16.dp))
+            Modifier.clip(RoundedCornerShape(radius))
                 .background(if (outgoing) palette.outgoingBubble else palette.incomingBubble)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.Bottom
