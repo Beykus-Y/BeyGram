@@ -140,8 +140,9 @@ object PlaybackEngine {
     /** Пауза или продолжение. Конец файла и ошибку обрабатывает обёртка плеера, поэтому системные кнопки ведут себя так же. */
     fun togglePlayPause() {
         val target = controls ?: return
-        if (target.isPlaying) {
-            target.pause()
+        // Решает то же состояние, что видит интерфейс: файл, который уже буферизуется, пауза отменяет, а не запускает снова.
+        if (_state.value.playing) {
+            pause()
             return
         }
         _state.update { it.copy(failed = false) }
