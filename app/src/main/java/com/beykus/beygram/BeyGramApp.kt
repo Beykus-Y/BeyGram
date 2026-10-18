@@ -228,7 +228,8 @@ private fun BeyGramAppContent(
     LaunchedEffect(authState, notificationRequest?.token) {
         val request = notificationRequest ?: return@LaunchedEffect
         if (authState != AuthState.Ready) return@LaunchedEffect
-        if (request.settings) openNotifications(AppRoute.Chats)
+        if (request.proxy) openProxy(AppRoute.Chats)
+        else if (request.settings) openNotifications(AppRoute.Chats)
         else request.chatId?.let { chatId ->
             val result = repository.loadChat(chatId)
             if (result.isSuccess) { selectedChatId = chatId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name }

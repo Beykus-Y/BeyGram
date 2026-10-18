@@ -1,17 +1,17 @@
 package com.beykus.beygram.data.vpn
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
 import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.notifications.AndroidNotificationRenderer
+import com.beykus.beygram.notifications.NotificationIntents
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +43,7 @@ class MihomoProxyService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        AndroidNotificationRenderer.channels(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -158,10 +158,11 @@ class MihomoProxyService : Service() {
         }.also { lastRequest = it }
     }
 
-    private fun buildNotification(@StringRes text: Int): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildNotification(@StringRes text: Int): Notification = NotificationCompat.Builder(this, AndroidNotificationRenderer.PROXY)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(getString(R.string.proxy_notification_title))
         .setContentText(getString(text))
+        .setContentIntent(NotificationIntents.proxy(this))
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
@@ -171,17 +172,9 @@ class MihomoProxyService : Service() {
     private fun textFor(status: ProxyRuntimeStatus): Int =
         if (status == ProxyRuntimeStatus.RUNNING) R.string.proxy_notification_text else R.string.proxy_notification_starting
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, getString(R.string.proxy_notification_title), NotificationManager.IMPORTANCE_LOW)
-        )
-    }
-
     companion object {
         const val ACTION_START = "com.beykus.beygram.mihomo_proxy.START"
         const val ACTION_STOP = "com.beykus.beygram.mihomo_proxy.STOP"
-        private const val CHANNEL_ID = "beygram-mihomo-proxy"
         private const val NOTIFICATION_ID = 7012
         private val _runtimeState = MutableStateFlow(ProxyRuntimeState(ProxyRuntimeStatus.STOPPED))
         val runtimeState: StateFlow<ProxyRuntimeState> = _runtimeState.asStateFlow()

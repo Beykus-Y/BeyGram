@@ -105,6 +105,7 @@ fun NotificationSettingsScreen(
             TextButton(onClick = { open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text(stringResource(R.string.notif_sound_settings)) }
             TextButton(onClick = { open(channelSettings(context, AndroidNotificationRenderer.MESSAGES)) }) { Text(stringResource(R.string.notif_channel_settings_messages)) }
             TextButton(onClick = { open(channelSettings(context, AndroidNotificationRenderer.CONNECTION)) }) { Text(stringResource(R.string.notif_channel_settings_connection)) }
+            TextButton(onClick = { open(channelSettings(context, AndroidNotificationRenderer.PROXY)) }) { Text(stringResource(R.string.notif_channel_settings_proxy)) }
             HorizontalDivider(color = palette.divider)
             Text(if (unrestricted) stringResource(R.string.notif_battery_unrestricted) else stringResource(R.string.notif_battery_restricted), color = palette.textSecondary)
             if (!unrestricted) OutlinedButton(onClick = {

@@ -28,7 +28,7 @@ The grouping and startup behavior follow the [TDLib Notification API](https://co
 - Swiping away a notification stores a per-group dismissal watermark immediately, then calls TDLib `RemoveNotificationGroup`. Removal is retried with bounded backoff (four attempts) and again on authorization or connectivity changes. It never invokes `ViewMessages`, `OpenMessageContent` or an online-presence operation. An old dismissal cannot erase a newer notice ID in that group.
 - Opening a chat leaves read decisions to `ConversationRepository` and its interaction policy. The service never announces that the app UI is in the foreground. This keeps future unread/stealth behavior independent of notification delivery.
 
-Settings are under the bell in the chat list and My Profile → Notifications and background operation. The user can disable notifications, disable the persistent connection, hide text, open the Android settings of the Messages and background-connection channels, or request unrestricted battery operation. A Messages channel blocked in Android is shown on the settings screen. No app setting overrides Android notification permission or a blocked channel.
+Settings are under the bell in the chat list and My Profile → Notifications and background operation. The user can disable notifications, disable the persistent connection, hide text, open the Android settings of the Messages, background-connection and proxy channels, or request unrestricted battery operation. Tapping the proxy notification opens the proxy screen. A Messages channel blocked in Android is shown on the settings screen. No app setting overrides Android notification permission or a blocked channel.
 
 ## Development
 

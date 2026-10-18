@@ -363,6 +363,7 @@
     <string name="notif_channel_messages_description">Новые сообщения, упоминания и ответы</string>
     <string name="notif_channel_settings_connection">Настройки канала «Фоновое подключение»</string>
     <string name="notif_channel_settings_messages">Настройки канала «Сообщения»</string>
+    <string name="notif_channel_settings_proxy">Настройки канала «Прокси BeyGram»</string>
     <string name="notif_connection_status">Связь с Telegram: %1$s</string>
     <string name="notif_diagnostics_note">Соберёт модель устройства, состояние соединения, тип сети и недавние события подключения. Номера, коды, пароли и токены в файл не попадают. Файл никуда не отправляется: вы сами выбираете, куда поделиться.</string>
     <string name="notif_diagnostics_title">Диагностика подключения</string>
