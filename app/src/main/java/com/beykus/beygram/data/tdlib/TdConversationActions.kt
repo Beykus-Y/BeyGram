@@ -26,6 +26,8 @@ internal class TdConversationActions(
     private val reactionLocks = KeyedMutex<Pair<Long, Long>>()
     private val _limits = MutableStateFlow(MessageLimits())
     val limits = _limits.asStateFlow()
+    private val _activeReactions = MutableStateFlow<List<String>>(emptyList())
+    fun activeEmojiReactions(emojis: List<String>) { _activeReactions.value = emojis }
     fun option(name: String, value: TdApi.OptionValue) {
         val limit = (value as? TdApi.OptionValueInteger)?.value?.toInt()?.coerceIn(1, 65536) ?: return
         when (name) {
@@ -152,10 +154,14 @@ internal class TdConversationActions(
         if (!forwarded.messages.orEmpty().any { it != null }) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
     }
 
-    /** Emoji from the message's top, recent and popular reactions; premium-only ones are left out for users without Premium. */
+    /**
+     * Emoji the user can add to the message, in the picker's order: TDLib's top, recent and popular reactions, then the chat's
+     * own list, or every active emoji when the chat allows all of them. Premium-only ones are left out for users without Premium.
+     */
     suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<String>> = conversationResult<List<String>> {
-        val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_REACTION_COUNT))
-        if (available.unavailabilityReason != null) emptyList() else pickerEmojis(available, premium = request(TdApi.GetMe()).isPremium)
+        val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_ROW_SIZE))
+        if (available.unavailabilityReason != null) emptyList()
+        else pickerEmojis(available, request(TdApi.GetChat(chatId)).availableReactions, _activeReactions.value, premium = request(TdApi.GetMe()).isPremium)
     }
 
     /**

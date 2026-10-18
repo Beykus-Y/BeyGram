@@ -51,21 +51,46 @@ class MessageReactionsTest {
     @Test fun `picker lists top, recent and popular emoji once each`() {
         val emojis = pickerEmojis(
             available(top = listOf(offer("🔥"), offer("👍")), recent = listOf(offer("👍"), offer("❤")), popular = listOf(offer("😂"), offer("🔥"))),
-            premium = false
+            chat = null, activeEmojis = emptyList(), premium = false
         )
         assertEquals(listOf("🔥", "👍", "❤", "😂"), emojis)
     }
 
     @Test fun `premium-only emoji are left out unless the user has Premium`() {
         val reactions = available(top = listOf(offer("🔥"), offer("💎", premium = true)))
-        assertEquals(listOf("🔥"), pickerEmojis(reactions, premium = false))
-        assertEquals(listOf("🔥", "💎"), pickerEmojis(reactions, premium = true))
+        assertEquals(listOf("🔥"), pickerEmojis(reactions, chat = null, activeEmojis = emptyList(), premium = false))
+        assertEquals(listOf("🔥", "💎"), pickerEmojis(reactions, chat = null, activeEmojis = emptyList(), premium = true))
     }
 
-    @Test fun `custom emoji are not offered and the picker holds eight at most`() {
+    @Test fun `custom emoji are not offered and the picker is not capped`() {
         val custom = TdApi.AvailableReaction(TdApi.ReactionTypeCustomEmoji(7L), false)
-        val emojis = pickerEmojis(available(top = listOf(custom) + (1..10).map { offer("e$it") }), premium = true)
-        assertEquals((1..8).map { "e$it" }, emojis)
+        val emojis = pickerEmojis(available(top = listOf(custom) + (1..12).map { offer("e$it") }), chat = null, activeEmojis = emptyList(), premium = true)
+        assertEquals((1..12).map { "e$it" }, emojis)
+    }
+
+    @Test fun `a chat with its own list adds those emoji after TDLib's for Premium users`() {
+        val chat = TdApi.ChatAvailableReactionsSome(arrayOf(TdApi.ReactionTypeEmoji("🎉"), TdApi.ReactionTypeCustomEmoji(9L), TdApi.ReactionTypeEmoji("🔥")), 3)
+        val reactions = available(top = listOf(offer("🔥")))
+        assertEquals(listOf("🔥", "🎉"), pickerEmojis(reactions, chat, activeEmojis = listOf("👍"), premium = true))
+        assertEquals(listOf("🔥"), pickerEmojis(reactions, chat, activeEmojis = listOf("👍"), premium = false))
+    }
+
+    @Test fun `a chat that allows every reaction offers every active emoji to Premium users only`() {
+        val reactions = available(top = listOf(offer("🔥")))
+        assertEquals(listOf("🔥", "👍", "❤"), pickerEmojis(reactions, TdApi.ChatAvailableReactionsAll(3), activeEmojis = listOf("👍", "🔥", "❤"), premium = true))
+        assertEquals(listOf("🔥"), pickerEmojis(reactions, TdApi.ChatAvailableReactionsAll(3), activeEmojis = listOf("👍", "🔥", "❤"), premium = false))
+    }
+
+    @Test fun `chat list and active emoji that may need Premium are not added without Premium`() {
+        val chat = TdApi.ChatAvailableReactionsSome(arrayOf(TdApi.ReactionTypeEmoji("💎"), TdApi.ReactionTypeEmoji("🎉")), 3)
+        val reactions = available(top = listOf(offer("💎", premium = true)))
+        assertEquals(emptyList<String>(), pickerEmojis(reactions, chat, activeEmojis = emptyList(), premium = false))
+        assertEquals(listOf("💎", "🎉"), pickerEmojis(reactions, chat, activeEmojis = emptyList(), premium = true))
+    }
+
+    @Test fun `emoji that differ only by the U+FE0F selector are listed once`() {
+        val emojis = pickerEmojis(available(top = listOf(offer("❤"))), TdApi.ChatAvailableReactionsAll(3), activeEmojis = listOf("❤\uFE0F", "👍"), premium = true)
+        assertEquals(listOf("❤", "👍"), emojis)
     }
 
     @Test fun `a full reaction limit makes room for one more`() {
