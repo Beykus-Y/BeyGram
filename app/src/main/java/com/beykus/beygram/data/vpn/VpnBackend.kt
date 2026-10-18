@@ -81,6 +81,10 @@ internal class VpnBackend private constructor(
     init {
         networkMonitor.start()
         selector.start()
+        // TDLib connectivity belongs to its own metric, not to listener or testDelay health.
+        scope.launch { connectionState.collect { state ->
+            MihomoProxyService.reportTelegramConnection(state == TelegramConnectionState.Connected)
+        } }
         scope.launch(Dispatchers.IO) { restore() }
     }
 
@@ -199,6 +203,8 @@ internal class VpnBackend private constructor(
                 appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
                 throw tdlib.exceptionOrNull() ?: UserMessageException(UiText.Res(R.string.err_vpn_telegram_connect_failed))
             }
+            MihomoRuntimeDiagnostics.event("tdlib", "EnableProxy accepted; actual connection is reported separately")
+            checkSelectedRoute()
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
             MihomoRuntimeDiagnostics.event("backend", "start timed out")
@@ -208,6 +214,24 @@ internal class VpnBackend private constructor(
             Result.failure(UserMessageException(UiText.Res(R.string.err_vpn_start_timeout)))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { MihomoRuntimeDiagnostics.failure("backend start", error); Result.failure(error) }
+    }
+
+    /** Probe the selected route once after enabling/changing it; do not block TDLib setup on upstream health. */
+    private fun checkSelectedRoute() {
+        MihomoProxyService.resetUpstream()
+        scope.launch(Dispatchers.IO) {
+            val result = MihomoProxyClient.probeUpstream()
+            MihomoProxyService.reportUpstream(result.reachable)
+            MihomoRuntimeDiagnostics.outcome(
+                "proxy_upstream",
+                if (result.reachable) "Прокси: выбранный маршрут доступен" else "Прокси: выбранный маршрут недоступен",
+                if (result.reachable) com.beykus.beygram.diagnostics.report.Severity.INFO else com.beykus.beygram.diagnostics.report.Severity.WARNING,
+                mapOf("result" to if (result.reachable) "reachable" else "unreachable",
+                    "http_code" to (result.httpCode?.toString() ?: "none"),
+                    "elapsed_ms" to result.elapsedMillis.toString(),
+                    "error_type" to (result.errorType ?: "none"))
+            )
+        }
     }
 
     /** Turns the subscription proxy off: TDLib returns to the proxy it used before, then the listener stops. */
@@ -352,6 +376,7 @@ internal class VpnBackend private constructor(
     suspend fun selectConnection(name: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             mihomo.selectConnection(settings.value.connectionGroup, name)
+            if (runtimeState.value.status == ProxyRuntimeStatus.RUNNING) checkSelectedRoute()
             _connections.value = mihomo.listConnections(settings.value.connectionGroup)
             Result.success(Unit)
         } catch (error: Exception) {
