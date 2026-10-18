@@ -5,7 +5,7 @@
 - `domain/repository/ConversationRepository.kt` is the UI port for conversation queries, commands and user interaction events. UI components do not construct TDLib requests or set protocol flags.
 - `domain/model/ChatMessage.kt` holds immutable messages, replies, capabilities, server read markers and limits. Permissions are queried separately because they can change while a message remains on screen.
 - `data/tdlib/TdConversationActions.kt` implements sending, replies, edit/delete, reply hydration and context retrieval. Each edit/delete/reply rechecks TDLib permissions at execution time. Responses and updates converge on the same message identity in `MessageHistoryStore`.
-- `data/tdlib/TdConversationEffects.kt` is the only gateway for `ViewMessages`, `OpenMessageContent` and the TDLib `online` option. These effects are deliberately independent of history retrieval and message commands.
+- `data/tdlib/TdConversationEffects.kt` is the only gateway for `ViewMessages`, `OpenMessageContent`, the TDLib `online` option and `SendChatAction`. These effects are deliberately independent of history retrieval and message commands. Chat activity (typing, recording, uploading) starts from the composer and from TDLib upload updates, and is sent again while it lasts.
 - `domain/model/InteractionPolicy.kt` decides whether an effect is permitted for the account and optional chat. `Standard` preserves ordinary Telegram behavior. `ConfigurableInteractionPolicy` accepts account preferences and per-chat overrides as providers; a future settings store can supply these without changing screens.
 
 The policy is injected when the process's TDLib client/repository is created (`getInstance(context, policy)`). After changing a provider's settings, call `refreshInteractionPolicy()` to apply presence and clear view deduplication. This does not replay suppressed receipts. A future multi-account implementation must scope the repository, TDLib database and policy to an account, rather than reuse one singleton across accounts.
@@ -32,7 +32,7 @@ Native content/edit/delete updates patch visible history. In-flight history page
 
 ## Extending privacy behavior
 
-Future unread mode can deny `ReadHistory`; content receipts and online presence are separate decisions. `Typing` is reserved for a future typing sender. Any new presence, typing, draft-sync or read side effect must pass a domain policy boundary; never add a direct native call to a composable or history loader.
+Future unread mode can deny `ReadHistory`; content receipts and online presence are separate decisions. `Typing` gates every chat activity shown to other members (typing, recording and uploading), and the sender rechecks it while an activity lasts. Any new presence, typing, draft-sync or read side effect must pass a domain policy boundary; never add a direct native call to a composable or history loader.
 
 Policy suppression alone must not be advertised as guaranteed invisibility: server behavior can reveal activity through other actions. Before exposing a mode that suppresses content receipts, handle self-destructing/view-once media before loading or playback; silently displaying it while dropping its required open event is not a complete implementation. No stealth settings are exposed by this slice.
 

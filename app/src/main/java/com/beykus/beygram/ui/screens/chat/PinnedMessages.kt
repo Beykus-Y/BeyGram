@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.List
@@ -25,6 +25,10 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.launch
 
+/**
+ * Pins are listed newest first. The bar shows the pin the next tap opens. Each tap moves on to the next, older pin,
+ * and after the oldest one the cycle starts again from the newest.
+ */
 @Composable
 internal fun PinnedMessagesBar(chatId: Long, conversation: ConversationRepository, connected: Boolean, onOpen: (ChatMessage) -> Unit) {
     val version by remember(conversation, chatId) { conversation.observePinnedMessagesVersion(chatId) }.collectAsStateWithLifecycle()
@@ -35,6 +39,8 @@ internal fun PinnedMessagesBar(chatId: Long, conversation: ConversationRepositor
     var failed by remember(chatId) { mutableStateOf(false) }
     var attempt by remember(chatId) { mutableIntStateOf(0) }
     var expanded by remember(chatId) { mutableStateOf(false) }
+    // Index into [messages] of the pin the bar shows. It can be one past the loaded pins; the next page loads then.
+    var cursor by remember(chatId) { mutableIntStateOf(0) }
     // Reject an older pagination response if pins changed while the request was in flight.
     var generation by remember(chatId) { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
@@ -48,36 +54,51 @@ internal fun PinnedMessagesBar(chatId: Long, conversation: ConversationRepositor
                 messages = it.messages.distinctBy(ChatMessage::id)
                 total = it.totalCount
                 nextId = it.nextFromMessageId
+                cursor = 0
             }.onFailure { failed = true }
         } finally { loading = false }
     }
-    fun loadMore() {
+    suspend fun loadMore() {
         if (loading || nextId == 0L) return
         val requestedId = nextId
         val requestedGeneration = generation
         loading = true
         failed = false
-        scope.launch {
-            try {
-                conversation.pinnedMessages(chatId, requestedId).onSuccess {
-                    if (generation == requestedGeneration) {
-                        messages = (messages + it.messages).distinctBy(ChatMessage::id)
-                        total = it.totalCount
-                        nextId = if (it.nextFromMessageId == requestedId) 0L else it.nextFromMessageId
-                    }
-                }.onFailure { if (generation == requestedGeneration) failed = true }
-            } finally { if (generation == requestedGeneration) loading = false }
-        }
+        try {
+            conversation.pinnedMessages(chatId, requestedId).onSuccess {
+                if (generation == requestedGeneration) {
+                    messages = (messages + it.messages).distinctBy(ChatMessage::id)
+                    total = it.totalCount
+                    nextId = if (it.nextFromMessageId == requestedId) 0L else it.nextFromMessageId
+                }
+            }.onFailure { if (generation == requestedGeneration) failed = true }
+        } finally { if (generation == requestedGeneration) loading = false }
     }
-    val latest = messages.firstOrNull()
-    if (latest != null) {
+    fun openPinned(index: Int) {
+        val target = messages.getOrNull(index) ?: return
+        cursor = index + 1
+        onOpen(target)
+    }
+    // The cycle has run past the loaded pins: load the next page, or start again from the newest pin when there is none.
+    // A failed page keeps the cursor at the end, so the bar offers a retry instead of wrapping to the newest pin.
+    LaunchedEffect(cursor, messages.size, nextId) {
+        if (cursor < messages.size) return@LaunchedEffect
+        if (nextId != 0L) loadMore() else cursor = 0
+    }
+    // Past the loaded pins the next page is loading: the bar stays inert until it arrives, or offers a retry after a failure.
+    val pageEnd = cursor >= messages.size
+    val shownIndex = if (pageEnd) 0 else cursor
+    val shown = messages.getOrNull(shownIndex)
+    if (pageEnd && failed && messages.isNotEmpty()) {
+        TextButton(onClick = { scope.launch { loadMore() } }) { Text(stringResource(R.string.chat_pinned_failed) + " · " + stringResource(R.string.chat_pinned_retry)) }
+    } else if (shown != null) {
         Row(Modifier.fillMaxWidth().background(palette.surface), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).clickable { onOpen(latest) }.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).clickable(enabled = !pageEnd) { openPinned(shownIndex) }.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.PushPin, null, tint = palette.accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(10.dp))
                 Column {
-                    Text(stringResource(R.string.chat_pinned_count, total.coerceAtLeast(messages.size)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text(pinnedPreview(latest), color = palette.textPrimary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(stringResource(R.string.chat_pinned_position, shownIndex + 1, total.coerceAtLeast(messages.size)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(pinnedPreview(shown), color = palette.textPrimary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             IconButton(onClick = { expanded = true }) { Icon(Icons.Rounded.List, stringResource(R.string.chat_pinned_list), tint = palette.accent) }
@@ -92,8 +113,8 @@ internal fun PinnedMessagesBar(chatId: Long, conversation: ConversationRepositor
         text = {
             Column(Modifier.fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp).weight(1f, fill = false)) {
-                    items(messages, key = { it.id }) { message ->
-                        Column(Modifier.fillMaxWidth().clickable { expanded = false; onOpen(message) }.padding(vertical = 10.dp)) {
+                    itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
+                        Column(Modifier.fillMaxWidth().clickable { expanded = false; openPinned(index) }.padding(vertical = 10.dp)) {
                             if (message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp)
                             Text(pinnedPreview(message), maxLines = 3, overflow = TextOverflow.Ellipsis)
                             Text(message.time, color = palette.textSecondary, fontSize = 12.sp)
@@ -102,7 +123,7 @@ internal fun PinnedMessagesBar(chatId: Long, conversation: ConversationRepositor
                 }
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (failed) Text(stringResource(R.string.chat_pinned_failed), color = palette.warningText)
-                if (!loading && (nextId != 0L || failed)) TextButton(onClick = { if (failed) attempt++ else loadMore() }) {
+                if (!loading && (nextId != 0L || failed)) TextButton(onClick = { if (failed) attempt++ else scope.launch { loadMore() } }) {
                     Text(stringResource(if (failed) R.string.chat_pinned_retry else R.string.chat_pinned_more))
                 }
             }

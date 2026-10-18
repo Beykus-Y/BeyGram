@@ -651,7 +651,7 @@
     <string name="user_name_unknown">Пользователь</string>
     <string name="chat_message_open_failed">Не удалось открыть сообщение</string>
     <string name="chat_pinned_title">Закреплённые сообщения</string>
-    <string name="chat_pinned_count">Закреплённое · %1$d</string>
+    <string name="chat_pinned_position">Закреплённое · %1$d из %2$d</string>
     <string name="chat_pinned_list">Показать все закреплённые сообщения</string>
     <string name="chat_pinned_failed">Не удалось загрузить закреплённые сообщения</string>
     <string name="chat_pinned_more">Загрузить ещё</string>
