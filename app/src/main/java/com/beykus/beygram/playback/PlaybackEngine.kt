@@ -116,6 +116,8 @@ object PlaybackEngine {
     private var interruptedMusic: InterruptedMusic? = null
     /** Отметка «прослушано», которую плеер вызовет, когда файл начнёт играть. Работает, даже если пузырь уже ушёл с экрана. */
     private var startedCallback: Pair<String, () -> Unit>? = null
+    /** Приложение на переднем плане. Отметку репозиторий принимает только отсюда, поэтому файл, начавший играть в фоне, ждёт возврата. */
+    private var foreground = false
 
     /**
      * Общий плеер для системного управления: уведомление, экран блокировки и гарнитура. «Играть» после конца файла начинает
@@ -148,11 +150,17 @@ object PlaybackEngine {
 
     /**
      * Тот же файл ставит на паузу или продолжает, другой файл начинает играть сначала. [onStarted] вызывается один раз, когда
-     * файл начнёт играть, даже если пузырь, который его запустил, уже ушёл с экрана.
+     * файл начнёт играть, даже если пузырь, который его запустил, уже ушёл с экрана. Если это случилось в фоне, вызов ждёт [setForeground].
      */
     fun toggle(context: Context, item: PlaybackItem, onStarted: (() -> Unit)? = null) {
         if (onStarted != null) startedCallback = item.key to onStarted
         if (exo != null && _state.value.item?.key == item.key) togglePlayPause() else play(context, item)
+    }
+
+    /** Приложение ушло в фон или вернулось на передний план. Отметка, которую файл начал в фоне, уходит на возврате. */
+    fun setForeground(active: Boolean) {
+        foreground = active
+        if (active) fireStartedCallback()
     }
 
     /**
@@ -306,10 +314,10 @@ object PlaybackEngine {
         play(context, music.item)
     }
 
-    /** Отдаёт отметку текущему файлу один раз. Если файл сменился, отметка уже сброшена в [play]. */
+    /** Отдаёт отметку текущему файлу один раз, когда он уже играет и приложение на переднем плане. Если файл сменился, отметка уже сброшена в [play]. */
     private fun fireStartedCallback() {
         val pending = startedCallback ?: return
-        if (pending.first != _state.value.item?.key) return
+        if (!foreground || !_state.value.started || pending.first != _state.value.item?.key) return
         startedCallback = null
         pending.second()
     }

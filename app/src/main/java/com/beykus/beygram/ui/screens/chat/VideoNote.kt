@@ -148,7 +148,7 @@ internal fun VideoNoteBubble(
     var played by remember(media.fileId) { mutableStateOf(false) }
     val path = file.localPath
     val currentOnPlayed by rememberUpdatedState(onPlayed)
-    val markPlayed: () -> Unit = { played = true; currentOnPlayed() }
+    val markPlayed: () -> Unit = { if (!played) { played = true; currentOnPlayed() } }
     val playingSize = LocalConfiguration.current.screenWidthDp.dp
     var showControls by remember(media.fileId) { mutableStateOf(false) }
     LaunchedEffect(showing, playing) {
