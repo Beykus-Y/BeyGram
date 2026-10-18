@@ -56,7 +56,8 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.BeyGramTokens
-import com.beykus.beygram.ui.theme.tokensFor
+import com.beykus.beygram.ui.theme.SystemColorsAvailable
+import com.beykus.beygram.ui.theme.resolveTokens
 
 /**
  * Lets the user pick a palette and a brightness. The preview shows the choice as it is being made.
@@ -66,7 +67,7 @@ import com.beykus.beygram.ui.theme.tokensFor
 fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> Unit, onOpenEditor: (AppearanceConfig) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()
     val systemDark = isSystemInDarkTheme()
-    var preset by rememberSaveable { mutableStateOf(saved.preset) }
+    var preset by rememberSaveable { mutableStateOf(saved.preset.takeUnless { it == ThemePreset.MaterialYou && !SystemColorsAvailable } ?: ThemePreset.Warm) }
     var mode by rememberSaveable { mutableStateOf(saved.mode) }
     // Keeps the bubble style and density that the screen does not edit, so picking a palette never resets them.
     var wallpaper by rememberSaveable(stateSaver = WallpaperSaver) { mutableStateOf(saved.wallpaper) }
@@ -86,7 +87,7 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SectionTitle(stringResource(R.string.theme_preview_title))
-            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = tokensFor(draft, systemDark)) {
+            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
                 ThemePreview()
             }
 
@@ -95,13 +96,20 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
                 PresetRow(
                     title = stringResource(R.string.theme_palette_warm),
                     selected = preset == ThemePreset.Warm,
-                    swatch = tokensFor(ThemePreset.Warm, mode, systemDark)
+                    swatch = resolveTokens(ThemePreset.Warm, mode, systemDark)
                 ) { preset = ThemePreset.Warm }
                 PresetRow(
                     title = stringResource(R.string.theme_palette_graphite),
                     selected = preset == ThemePreset.Graphite,
-                    swatch = tokensFor(ThemePreset.Graphite, mode, systemDark)
+                    swatch = resolveTokens(ThemePreset.Graphite, mode, systemDark)
                 ) { preset = ThemePreset.Graphite }
+                if (SystemColorsAvailable) {
+                    PresetRow(
+                        title = stringResource(R.string.theme_palette_system),
+                        selected = preset == ThemePreset.MaterialYou,
+                        swatch = resolveTokens(ThemePreset.MaterialYou, mode, systemDark)
+                    ) { preset = ThemePreset.MaterialYou }
+                }
             }
 
             SectionTitle(stringResource(R.string.theme_brightness_title))

@@ -49,9 +49,9 @@ import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.ui.theme.resolveTokens
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.contrastIssues
-import com.beykus.beygram.ui.theme.tokensFor
 
 /** Colours offered for the accent and for outgoing bubbles. */
 private val AccentChoices = listOf(0xFF6A4FDC, 0xFF3B5BDB, 0xFF1C7ED6, 0xFF0F9D8A, 0xFF2F9E44, 0xFFE8890C, 0xFFD6336C, 0xFFC2410C).map { it.toInt() }
@@ -71,7 +71,7 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
     var density by rememberSaveable { mutableStateOf(saved.density) }
     // Keeps the palette and brightness that the editor does not change.
     val draft = saved.copy(accentColor = accent, outgoingBubbleColor = bubbleColor, bubbleStyle = style, density = density)
-    val tokens = tokensFor(draft, systemDark)
+    val tokens = resolveTokens(draft, systemDark)
     val issues = contrastIssues(tokens, bubbleColor)
     val metrics = bubbleMetricsFor(style, density)
     BackHandler(onBack = onBack)

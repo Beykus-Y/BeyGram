@@ -12,8 +12,9 @@ import com.beykus.beygram.data.appearance.ThemePreset
 fun tokensFor(preset: ThemePreset, mode: ThemeMode, systemDark: Boolean): BeyGramTokens {
     val dark = mode.isDark(systemDark)
     val tokens = when (preset) {
-        ThemePreset.Warm -> if (dark) DarkTokens else LightTokens
         ThemePreset.Graphite -> if (dark) GraphiteDarkTokens else GraphiteLightTokens
+        // The system colours need a Context. resolveTokens() supplies them; this pure path is the fallback.
+        ThemePreset.Warm, ThemePreset.MaterialYou -> if (dark) DarkTokens else LightTokens
     }
     return if (mode == ThemeMode.Amoled) tokens.toAmoled() else tokens
 }
@@ -23,7 +24,7 @@ fun tokensFor(config: AppearanceConfig, systemDark: Boolean): BeyGramTokens =
     tokensFor(config.preset, config.mode, systemDark)
         .withOverrides(config.accentColor, config.outgoingBubbleColor, config.mode.isDark(systemDark))
 
-private fun BeyGramTokens.toAmoled(): BeyGramTokens = copy(
+internal fun BeyGramTokens.toAmoled(): BeyGramTokens = copy(
     bg = Color(0xFF000000),
     surface = Color(0xFF121214),
     surface2 = Color(0xFF1C1C20),

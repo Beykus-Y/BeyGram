@@ -8,6 +8,10 @@ class ThemePresetTest {
         ThemePreset.entries.forEach { preset -> assertEquals(preset, themePresetFromStored(preset.name)) }
     }
 
+    @Test fun systemColorsPresetIsStoredByName() {
+        assertEquals(ThemePreset.MaterialYou, themePresetFromStored("MaterialYou"))
+    }
+
     @Test fun missingOrUnknownStoredValueIsWarm() {
         assertEquals(ThemePreset.Warm, themePresetFromStored(null))
         assertEquals(ThemePreset.Warm, themePresetFromStored("Neon"))

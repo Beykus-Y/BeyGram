@@ -30,7 +30,7 @@ import com.beykus.beygram.ui.screens.chats.LocalChatListDensity
 import com.beykus.beygram.ui.screens.chats.chatListDensityFor
 import com.beykus.beygram.ui.theme.AppearanceViewModel
 import com.beykus.beygram.ui.theme.BeyGramTheme
-import com.beykus.beygram.ui.theme.tokensFor
+import com.beykus.beygram.ui.theme.resolveTokens
 
 class MainActivity : ComponentActivity() {
     private var notificationRequest by mutableStateOf<NotificationOpenRequest?>(null)
@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            BeyGramTheme(darkTheme = isDarkTheme, tokens = tokensFor(config, systemDark)) {
+            BeyGramTheme(darkTheme = isDarkTheme, tokens = resolveTokens(config, systemDark)) {
                 // Bubble shape and list density come from the same saved choice as the colours.
                 CompositionLocalProvider(
                     LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density),

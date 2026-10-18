@@ -5,6 +5,7 @@
     <string name="theme_palette_title">Палитра</string>
     <string name="theme_palette_warm">BeyGram Warm</string>
     <string name="theme_palette_graphite">BeyGram Graphite</string>
+    <string name="theme_palette_system">Цвета системы</string>
     <string name="theme_brightness_title">Яркость</string>
     <string name="theme_brightness_system">Как в системе</string>
     <string name="theme_brightness_light">Светлая</string>
