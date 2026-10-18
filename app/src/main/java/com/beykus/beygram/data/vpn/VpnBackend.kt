@@ -22,12 +22,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The VPN/proxy controller of the process. It is created once with the application scope, so the proxy
@@ -53,7 +55,10 @@ internal class VpnBackend private constructor(
         settings = settingsStore.settings,
         runtimeState = MihomoProxyService.runtimeState,
         mihomo = mihomo,
-        report = { _autoSelectEvents.value = it }
+        report = { event ->
+            _autoSelectEvents.value = event
+            if (event is AutoSelectEvent.Switched) checkSelectedRoute()
+        }
     )
 
     val settings: StateFlow<VpnSettings> = settingsStore.settings
@@ -65,6 +70,7 @@ internal class VpnBackend private constructor(
     val probes: StateFlow<Map<String, MihomoProbeResult>> = _probes.asStateFlow()
     private val _autoSelectEvents = MutableStateFlow<AutoSelectEvent?>(null)
     val autoSelectEvents: StateFlow<AutoSelectEvent?> = _autoSelectEvents.asStateFlow()
+    private val routeProbeGeneration = AtomicInteger()
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
     private val _probeProgress = MutableStateFlow<ProbeProgress?>(null)
@@ -218,9 +224,12 @@ internal class VpnBackend private constructor(
 
     /** Probe the selected route once after enabling/changing it; do not block TDLib setup on upstream health. */
     private fun checkSelectedRoute() {
+        val generation = routeProbeGeneration.incrementAndGet()
         MihomoProxyService.resetUpstream()
         scope.launch(Dispatchers.IO) {
             val result = MihomoProxyClient.probeUpstream()
+            // Ignore a route that was replaced or disabled while its HTTPS check was in flight.
+            if (generation != routeProbeGeneration.get()) return@launch
             MihomoProxyService.reportUpstream(result.reachable)
             MihomoRuntimeDiagnostics.outcome(
                 "proxy_upstream",
@@ -238,6 +247,7 @@ internal class VpnBackend private constructor(
     suspend fun stopProxy(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy stop requested")
+            routeProbeGeneration.incrementAndGet()
             val tdlib = setTdLibProxy(false)
             if (tdlib.isFailure) throw tdlib.exceptionOrNull() ?: UserMessageException(UiText.Res(R.string.err_vpn_stop_failed))
             // TDLib no longer uses the proxy, so the restore question and hint are settled even if the listener stop fails below.
@@ -268,6 +278,7 @@ internal class VpnBackend private constructor(
     }
 
     private suspend fun stopListenerNow() {
+        routeProbeGeneration.incrementAndGet()
         if (runtimeState.value.status == ProxyRuntimeStatus.STOPPED) return
         appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
         withTimeout(10_000) { MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.STOPPED } }
