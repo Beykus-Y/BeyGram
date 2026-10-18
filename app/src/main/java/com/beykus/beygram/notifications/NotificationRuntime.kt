@@ -234,6 +234,7 @@ class NotificationRuntime private constructor(private val context: Context) {
     /** Telegram refuses this text every time it is sent, so retrying cannot help. */
     private fun Throwable.isPermanentReplyFailure(): Boolean =
         ((this as? UserMessageException)?.text as? UiText.Res)?.id == R.string.err_message_too_long
+
     private fun flushDismissals() {
         val source = repository ?: return
         if (source.authState.value != AuthState.Ready) return
