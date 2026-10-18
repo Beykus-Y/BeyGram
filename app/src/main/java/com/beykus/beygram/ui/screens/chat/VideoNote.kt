@@ -3,9 +3,6 @@ package com.beykus.beygram.ui.screens.chat
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.graphics.SurfaceTexture
-import android.media.MediaPlayer
-import android.view.Surface
 import android.view.TextureView
 import android.view.WindowManager
 import androidx.compose.animation.core.animateDpAsState
@@ -47,6 +44,8 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.playbackItem
+import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,122 +61,6 @@ private val NoThumbnailState = MutableStateFlow(MediaFileState(0)).asStateFlow()
 
 /** Голосовое и кружок играют прямо в ленте, поэтому тап по пузырю для них не открывает просмотрщик. */
 internal fun MediaKind.playsInline(): Boolean = this == MediaKind.Voice || this == MediaKind.VideoNote
-
-/** Общий фокус воспроизведения: в ленте играет одно голосовое или кружок, новый запуск останавливает предыдущий. */
-internal object InlinePlaybackFocus {
-    private var owner: Any? = null
-    private var stopOwner: (() -> Unit)? = null
-
-    fun claim(newOwner: Any, stop: () -> Unit) {
-        val previousOwner = owner
-        val previousStop = stopOwner
-        owner = newOwner
-        stopOwner = stop
-        if (previousOwner !== newOwner) previousStop?.invoke()
-    }
-
-    fun release(oldOwner: Any) {
-        if (owner === oldOwner) {
-            owner = null
-            stopOwner = null
-        }
-    }
-
-    fun stopAll() {
-        val previousStop = stopOwner
-        owner = null
-        stopOwner = null
-        previousStop?.invoke()
-    }
-}
-
-/** Состояние одного кружка: плеер и поверхность живут, пока кружок играет или стоит на паузе. */
-private class VideoNoteHolder {
-    private var player: MediaPlayer? = null
-    private var surface: Surface? = null
-    var started by mutableStateOf(false)
-        private set
-    var playing by mutableStateOf(false)
-        private set
-    var positionMs by mutableIntStateOf(0)
-        private set
-    var durationMs by mutableIntStateOf(0)
-        private set
-
-    fun start(path: String, onStarted: () -> Unit) {
-        PlaybackEngine.pause()
-        InlinePlaybackFocus.claim(this) { stop() }
-        releasePlayer()
-        val created = MediaPlayer()
-        player = created
-        started = true
-        playing = false
-        positionMs = 0
-        durationMs = 0
-        try {
-            created.setDataSource(path)
-            surface?.let { created.setSurface(it) }
-            created.setOnPreparedListener { mp ->
-                durationMs = mp.duration.coerceAtLeast(1)
-                mp.start()
-                playing = true
-                onStarted()
-            }
-            created.setOnCompletionListener { stop() }
-            created.setOnErrorListener { _, _, _ -> stop(); true }
-            created.prepareAsync()
-        } catch (_: Exception) {
-            stop()
-        }
-    }
-
-    fun pause() {
-        runCatching { player?.pause() }
-        playing = false
-    }
-
-    fun resume() {
-        PlaybackEngine.pause()
-        InlinePlaybackFocus.claim(this) { stop() }
-        runCatching { player?.start() }
-        playing = player != null
-    }
-
-    fun tick() {
-        if (playing) positionMs = runCatching { player?.currentPosition ?: 0 }.getOrDefault(0)
-    }
-
-    fun stop() {
-        releasePlayer()
-        started = false
-        playing = false
-        positionMs = 0
-        InlinePlaybackFocus.release(this)
-    }
-
-    fun attach(texture: Surface) {
-        surface?.release()
-        surface = texture
-        player?.let { runCatching { it.setSurface(texture) } }
-    }
-
-    fun detach() {
-        surface?.release()
-        surface = null
-        stop()
-    }
-
-    fun dispose() {
-        stop()
-        surface?.release()
-        surface = null
-    }
-
-    private fun releasePlayer() {
-        runCatching { player?.release() }
-        player = null
-    }
-}
 
 private fun Context.findActivity(): Activity? {
     var context = this
@@ -229,7 +112,7 @@ internal fun PendingVideoNoteBubble(pending: PendingVideoNote) {
     }
 }
 
-/** Кружок в ленте: круг 220 dp с отметкой непросмотренного; при проигрывании растёт и показывает кольцо прогресса. */
+/** Кружок в ленте: круг 220 dp с отметкой непросмотренного; при проигрывании растёт и показывает кольцо прогресса. Звук идёт через общий плеер, поэтому кружок продолжает играть вне ленты. */
 @Composable
 internal fun VideoNoteBubble(
     media: MessageMedia,
@@ -245,59 +128,74 @@ internal fun VideoNoteBubble(
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
-    val holder = remember(media.fileId) { VideoNoteHolder() }
-    var wantPlay by remember(media.fileId) { mutableStateOf(false) }
+    val hostContext = LocalContext.current
+    val label = media.kind.label(hostContext)
+    val key = media.playbackKey()
+    val playbackState = PlaybackEngine.state.collectAsStateWithLifecycle()
+    // Общий плеер читает только кружок, который играет: у остальных значение null, и на каждом шаге прогресса они не перерисовываются.
+    val circle = remember(key) { derivedStateOf { playbackState.value.takeIf { it.item?.key == key } } }.value
+    val started = circle?.started == true
+    val playing = circle?.playing == true
+    // Кружок показан, пока он начат и не доиграл до конца или не сломался.
+    val showing = started && circle?.ended != true && circle?.failed != true
+    val fraction = circle?.fraction ?: 0f
+    // Строка пузыря в общем ожидании загрузки: ждёт только последнее нажатое, как голосовое.
+    val row = remember(media.fileId) { Any() }
+    val waitingForCircle = pendingPlaybackRow.value === row
+    // Отметку «прослушано» получает только кружок, по которому нажали, и только когда плеер сообщил о старте.
+    var requested by remember(media.fileId) { mutableStateOf(false) }
     var played by remember(media.fileId) { mutableStateOf(false) }
     val path = file.localPath
     val currentOnPlayed by rememberUpdatedState(onPlayed)
     val playingSize = LocalConfiguration.current.screenWidthDp.dp
     var showControls by remember(media.fileId) { mutableStateOf(false) }
-    LaunchedEffect(holder.started, holder.playing) {
-        showControls = holder.started
+    LaunchedEffect(showing, playing) {
+        showControls = showing
         delay(500)
         showControls = false
     }
-    val size by animateDpAsState(targetValue = if (holder.started) playingSize else IDLE_SIZE, label = "video note size")
-    DisposableEffect(holder) { onDispose { holder.dispose() } }
-    val hostContext = LocalContext.current
+    val size by animateDpAsState(targetValue = if (showing) playingSize else IDLE_SIZE, label = "video note size")
+    LaunchedEffect(requested, started) {
+        if (requested && started) {
+            requested = false
+            played = true
+            currentOnPlayed()
+        }
+    }
     // Секретный кружок во время проигрывания не должен попасть на скриншот или запись экрана.
-    val secureWhilePlaying = media.isSecret && holder.started
+    val secureWhilePlaying = media.isSecret && showing
     DisposableEffect(secureWhilePlaying) {
         val window = hostContext.findActivity()?.window
         if (secureWhilePlaying) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { if (secureWhilePlaying) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
-    // Миниатюра показывается до старта; у секретного кружка её не грузим, иначе кадр виден до просмотра.
+    // Миниатюра лежит под кадрами видео: пока кадра нет, например сразу после старта или возврата в ленту, виден не чёрный круг. У секретного кружка её не грузим.
     val thumbnailId = media.thumbnailFileId?.takeUnless { media.isSecret }
     val thumbnail by remember(thumbnailId) { thumbnailId?.let(observeFile) ?: NoThumbnailState }.collectAsStateWithLifecycle()
     LaunchedEffect(thumbnailId) { if (thumbnailId != null) downloadFile(thumbnailId) }
-    // Нажатие до окончания загрузки запоминается: как только файл готов, кружок начинает играть.
-    LaunchedEffect(path, wantPlay) {
-        if (wantPlay && path != null) {
-            wantPlay = false
-            holder.start(path) { played = true; currentOnPlayed() }
+    // Запуск заменяет файл в общем плеере, а тот же кружок ставит на паузу или продолжает.
+    fun startCircle(localPath: String) {
+        val state = PlaybackEngine.state.value
+        requested = !(state.item?.key == key && state.playing)
+        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label))
+    }
+    fun togglePlay() {
+        if (path == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startCircle(path)
+    }
+    // Нажатие до окончания загрузки запоминается: как только файл готов, кружок начинает играть. Ждёт только последнее нажатое.
+    LaunchedEffect(path, waitingForCircle) {
+        if (waitingForCircle && path != null) {
+            pendingPlaybackRow.value = null
+            startCircle(path)
         }
     }
     // Ошибка загрузки снимает ожидание: спиннер не крутится вечно, повтор — новым нажатием.
-    LaunchedEffect(file.error) { if (file.error != null) wantPlay = false }
-    LaunchedEffect(holder.playing) {
-        while (holder.playing) {
-            holder.tick()
-            delay(120)
-        }
+    LaunchedEffect(file.error) { if (file.error != null && pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
+    DisposableEffect(row) {
+        onDispose { if (pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
     }
-    fun togglePlay() {
-        val local = path
-        when {
-            local == null -> { wantPlay = true; downloadFile(media.fileId) }
-            !holder.started -> holder.start(local) { played = true; currentOnPlayed() }
-            holder.playing -> holder.pause()
-            else -> holder.resume()
-        }
-    }
-    val fraction = if (holder.durationMs > 0) (holder.positionMs.toFloat() / holder.durationMs).coerceIn(0f, 1f) else 0f
     // Во время проигрывания показывается оставшееся время, как в оригинальном клиенте.
-    val shownSeconds = if (holder.started && holder.durationMs > 0) (holder.durationMs - holder.positionMs + 500) / 1000 else media.durationSeconds
+    val shownSeconds = if (circle != null && showing && circle.durationMs > 0L) ((circle.durationMs - circle.positionMs + 500L) / 1000L).toInt() else media.durationSeconds
     Column(horizontalAlignment = Alignment.End) {
         Box(Modifier.size(size).then(if (highlighted) Modifier.border(2.dp, palette.accent, CircleShape) else Modifier)) {
             Box(
@@ -307,31 +205,25 @@ internal fun VideoNoteBubble(
             ) {
                 val thumbnailPath = thumbnail.localPath
                 // Миниатюра ещё не скачана: вместо чёрного круга показываем размытое минипревью из TDLib, кроме секретных кружков.
-                if (!holder.started && thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize())
-                else if (!holder.started && !media.isSecret) media.minithumbnail?.let { MinithumbnailImage(it, Modifier.fillMaxSize()) }
-                if (holder.started) AndroidView(
-                    factory = { context ->
-                        TextureView(context).apply {
-                            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                                override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) = holder.attach(Surface(texture))
-                                override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) = Unit
-                                override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean { holder.detach(); return true }
-                                override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
-                            }
-                        }
-                    },
+                if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize())
+                else if (!media.isSecret) media.minithumbnail?.let { MinithumbnailImage(it, Modifier.fillMaxSize()) }
+                // Кадры выводятся в общий плеер, пока кружок показан. Звук от них не зависит: без экрана он продолжает играть.
+                if (showing) AndroidView(
+                    factory = { TextureView(it).apply { setOpaque(false) } },
+                    update = { PlaybackEngine.attachVideo(row, it) },
+                    onRelease = { PlaybackEngine.detachVideo(row) },
                     modifier = Modifier.fillMaxSize()
                 )
                 // Свой кружок во время загрузки на сервер: кольцо показывает прогресс, после приёма кружок принимает обычный вид.
-                if (holder.started) ProgressRing(fraction)
+                if (showing) ProgressRing(fraction)
                 else if (file.isUploading) ProgressRing(file.uploadProgress)
-                if (holder.started && showControls) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                    Icon(if (holder.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                if (showing && showControls) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                    Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
                 }
-                if (path == null && (wantPlay || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
-                if (path == null && file.error != null && !wantPlay) Text(stringResource(R.string.video_note_download_failed), color = Color.White, fontSize = 12.sp,
+                if (path == null && (waitingForCircle || file.isDownloading)) CircularProgressIndicator(modifier = Modifier.size(40.dp), color = Color.White, strokeWidth = 3.dp)
+                if (path == null && file.error != null && !waitingForCircle) Text(stringResource(R.string.video_note_download_failed), color = Color.White, fontSize = 12.sp,
                     textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 24.dp))
-                if (!holder.started) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
+                if (!showing) Icon(Icons.Rounded.VolumeOff, contentDescription = null, tint = Color.White,
                     modifier = Modifier.align(Alignment.TopStart).padding(10.dp).size(28.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(6.dp))
             }
             if (unseen && !played) Box(Modifier.align(Alignment.CenterEnd).size(10.dp).background(palette.accent, CircleShape))

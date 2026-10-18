@@ -3,6 +3,7 @@ package com.beykus.beygram.playback
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.view.TextureView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -43,7 +44,9 @@ data class PlaybackState(
     val speed: Float = 1f,
     val failed: Boolean = false,
     /** Плеер хотя бы раз сообщил, что файл реально играет. Отметка «прослушано» ставится по этому флагу, потому что [playing] выставляется уже при нажатии. */
-    val started: Boolean = false
+    val started: Boolean = false,
+    /** Файл доиграл до конца. Кружок в ленте сворачивается, а новый запуск начинает файл сначала. */
+    val ended: Boolean = false
 ) {
     /** Доля проигранного от 0 до 1. Пока длина неизвестна, она равна 0. */
     val fraction: Float
@@ -80,6 +83,8 @@ object PlaybackEngine {
     private var appContext: Context? = null
     private var progress: Job? = null
     private var pendingStartFraction = 0f
+    private var videoOwner: Any? = null
+    private var videoView: TextureView? = null
 
     /**
      * Общий плеер для системного управления: уведомление, экран блокировки и гарнитура. «Играть» после конца файла начинает
@@ -165,6 +170,24 @@ object PlaybackEngine {
         _state.update { it.copy(speed = speed) }
     }
 
+    /** Выводит видео текущего файла на [view]. Пузырь кружка вызывает это, пока кружок показан: без экрана звук продолжает играть. */
+    fun attachVideo(owner: Any, view: TextureView) {
+        val target = exo ?: return
+        if (videoOwner === owner && videoView === view) return
+        videoView?.let { target.clearVideoTextureView(it) }
+        videoOwner = owner
+        videoView = view
+        target.setVideoTextureView(view)
+    }
+
+    /** Снимает видео, если его держит [owner]. Чужой пузырь ничего не снимает, поэтому порядок ухода с экрана не важен. */
+    fun detachVideo(owner: Any) {
+        if (videoOwner !== owner) return
+        videoView?.let { exo?.clearVideoTextureView(it) }
+        videoOwner = null
+        videoView = null
+    }
+
     /** Останавливает звук, убирает файл из мини-плеера и снимает уведомление, которое держал сервис. */
     fun stop() {
         progress?.cancel()
@@ -192,7 +215,7 @@ object PlaybackEngine {
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) applyPendingStartFraction()
-            _state.update { it.copy(durationMs = durationNow()) }
+            _state.update { it.copy(durationMs = durationNow(), ended = playbackState == Player.STATE_ENDED) }
         }
 
         // Перемотку с уведомления или экрана блокировки делает сам плеер, минуя PlaybackEngine: позицию обновляем и на паузе.

@@ -517,9 +517,8 @@ private fun AudioInPlayer(media: MessageMedia, path: String, active: Boolean, on
     )
 }
 
-/** Музыка из чата и просмотрщика идёт через общий плеер. Кружок в ленте при этом останавливается. */
+/** Музыка из чата и просмотрщика идёт через общий плеер. Новый файл заменяет текущий, в том числе кружок в ленте. */
 private fun startAudio(context: Context, item: PlaybackItem) {
-    InlinePlaybackFocus.stopAll()
     PlaybackEngine.toggle(context, item)
 }
 

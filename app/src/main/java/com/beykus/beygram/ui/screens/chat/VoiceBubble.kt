@@ -65,16 +65,14 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
             currentOnPlayed()
         }
     }
-    // Голосовое и кружок в ленте не играют вместе: запуск голосового останавливает кружок.
+    // Новый запуск заменяет файл в общем плеере, в том числе кружок в ленте.
     fun startVoice(localPath: String) {
-        InlinePlaybackFocus.stopAll()
         val state = PlaybackEngine.state.value
         requested = !(state.item?.key == key && state.playing)
         PlaybackEngine.toggle(context, media.playbackItem(localPath, label))
     }
     // Перемотка по волне: в текущем файле двигает позицию, другой файл начинает с этой точки.
     fun seekVoice(localPath: String, target: Float) {
-        InlinePlaybackFocus.stopAll()
         val state = PlaybackEngine.state.value
         if (state.item?.key == key) {
             PlaybackEngine.seekTo(target)
