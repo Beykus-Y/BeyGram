@@ -536,7 +536,7 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
     }
     fun play() {
         if (video.ended) player.seekToDefaultPosition()
-        // Отметка не ставится снова, пока файл уже играет: иначе она осталась бы до следующей буферизации.
+        // Пока файл уже играет, отметку не ставим: иначе следующий возврат из буферизации снова её отправит.
         if (!player.isPlaying) startRequested = true
         player.play()
     }
@@ -544,7 +544,8 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) player.pause()
             // Анимация без панели управления играет сама, пока страница на экране: после возврата в приложение она продолжает.
-            if (event == Lifecycle.Event.ON_START && loop && currentActive) play()
+            // Возврат не ставит отметку снова: первый запуск её уже поставил.
+            if (event == Lifecycle.Event.ON_START && loop && currentActive) player.play()
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
@@ -627,8 +628,10 @@ private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Un
             modifier = Modifier.weight(1f),
             colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White)
         )
+        // Пока палец двигает ползунок, время показывает ту же позицию, что и ползунок.
+        val shownMs = dragFraction?.let { seekPositionMs(it, state.durationMs) } ?: state.positionMs
         Text(
-            "${duration((state.positionMs / 1000).toInt())} / ${duration((state.durationMs / 1000).toInt())}",
+            "${duration((shownMs / 1000).toInt())} / ${duration((state.durationMs / 1000).toInt())}",
             color = Color.White,
             fontSize = 12.sp,
             modifier = Modifier.padding(start = 8.dp)
