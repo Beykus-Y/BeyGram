@@ -481,18 +481,15 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
     else AndroidView(factory = { video }, modifier = Modifier.fillMaxSize())
 }
 
-/** Звук в просмотрщике идёт через общий плеер: страница запускает файл, когда становится видимой, и не перезапускает уже играющий. */
+/** Звук в просмотрщике идёт через общий плеер. Открытие ничего не запускает, поэтому текущий трек не прерывается. */
 @Composable
-private fun AudioInPlayer(media: MessageMedia, path: String, active: Boolean, onStarted: () -> Unit) {
+private fun AudioInPlayer(media: MessageMedia, path: String, active: Boolean, onViewed: () -> Unit) {
     val context = LocalContext.current
     val item = media.playbackItem(path, media.kind.label(context))
     val state by PlaybackEngine.state.collectAsStateWithLifecycle()
-    val currentOnStarted by rememberUpdatedState(onStarted)
+    val currentOnViewed by rememberUpdatedState(onViewed)
     LaunchedEffect(item.key, active) {
-        if (active && PlaybackEngine.state.value.item?.key != item.key) {
-            startAudio(context, item)
-            currentOnStarted()
-        }
+        if (active) currentOnViewed()
     }
     // Пока файл не играет в общем плеере, его перемотка и скорость относятся к другому файлу, поэтому выключены.
     val current = state.item?.key == item.key
