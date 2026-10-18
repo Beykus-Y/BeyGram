@@ -62,7 +62,7 @@ fun ProfileScreen(
     isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit, lastSeenStyle: LastSeenStyle,
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
     hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
-    sharedMessages: (suspend (SharedMediaKind, Long) -> Result<MessageSearchPage>)? = null, onOpenMessage: (Long) -> Unit = {}
+    sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)? = null, onOpenMessage: (Long) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()

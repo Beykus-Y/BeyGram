@@ -141,7 +141,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
-    override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
+    override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean): Result<MessageSearchPage> = unavailable()
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) {}
     override fun setAppForeground(foreground: Boolean) {}
     override fun refreshInteractionPolicy() {}

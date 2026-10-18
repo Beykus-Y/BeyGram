@@ -53,6 +53,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
 import com.beykus.beygram.ui.screens.chat.MediaViewerItem
+import com.beykus.beygram.ui.screens.chat.SharedMediaWindow
 import com.beykus.beygram.ui.screens.chat.duration
 import com.beykus.beygram.ui.screens.chat.formatMediaSize
 import com.beykus.beygram.ui.screens.chat.formatSearchDate
@@ -74,24 +75,26 @@ private val PAGER_MIN_HEIGHT = 360.dp
  */
 @Composable
 internal fun SharedMediaSection(
-    chatId: Long, counts: SharedCounts?, load: suspend (SharedMediaKind, Long) -> Result<MessageSearchPage>,
+    chatId: Long, counts: SharedCounts?, load: suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentLoad by rememberUpdatedState(load)
-    val tabs = remember(chatId) { SharedMediaKind.entries.associateWith { SharedMediaTab() } }
+    val tabs = remember(chatId) {
+        SharedMediaKind.entries.associateWith { kind ->
+            SharedMediaWindow(
+                load = { from, newer -> currentLoad(kind, from, newer) },
+                failure = { error -> error.userMessage(context, R.string.profile_shared_load_failed) }
+            )
+        }
+    }
     val pagerState = rememberPagerState { SharedMediaKind.entries.size }
     val pagerHeight = (LocalConfiguration.current.screenHeightDp * PAGER_SCREEN_FRACTION).dp.coerceAtLeast(PAGER_MIN_HEIGHT)
     var viewing by remember(chatId) { mutableStateOf<Long?>(null) }
     fun loadMore(kind: SharedMediaKind) {
-        scope.launch {
-            tabs.getValue(kind).loadNext(
-                load = { from -> currentLoad(kind, from) },
-                failure = { error -> error.userMessage(context, R.string.profile_shared_load_failed) }
-            )
-        }
+        scope.launch { tabs.getValue(kind).loadOlder() }
     }
 
     Text(stringResource(R.string.profile_shared_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
@@ -118,7 +121,7 @@ internal fun SharedMediaSection(
         pages = pages, selectedId = selected,
         onSelect = { id ->
             viewing = id
-            if (pages.indexOfFirst { it.messageId == id } >= pages.size - PREFETCH_ROWS) loadMore(SharedMediaKind.Media)
+            scope.launch { tabs.getValue(SharedMediaKind.Media).loadNear(id) { it.media?.isSecret == false } }
         },
         observeFile = observeFile, downloadFile = downloadFile, onViewed = {}, onClose = { viewing = null },
         // Сохранение и отправка идут через чат: там проверяется, разрешено ли сообщение переслать или сохранить.
@@ -149,7 +152,7 @@ private fun SharedMediaTabBar(titles: List<String>, counts: List<String?>, selec
 
 @Composable
 private fun SharedMediaPageContent(
-    kind: SharedMediaKind, tab: SharedMediaTab, onMore: () -> Unit,
+    kind: SharedMediaKind, tab: SharedMediaWindow, onMore: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
@@ -163,7 +166,7 @@ private fun SharedMediaPageContent(
 }
 
 @Composable
-private fun SharedMediaStatus(kind: SharedMediaKind, tab: SharedMediaTab, onRetry: () -> Unit) {
+private fun SharedMediaStatus(kind: SharedMediaKind, tab: SharedMediaWindow, onRetry: () -> Unit) {
     val palette = beyGramPalette()
     val error = tab.error
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -179,7 +182,7 @@ private fun SharedMediaStatus(kind: SharedMediaKind, tab: SharedMediaTab, onRetr
 }
 
 @Composable
-private fun SharedMediaFooter(tab: SharedMediaTab, onRetry: () -> Unit) {
+private fun SharedMediaFooter(tab: SharedMediaWindow, onRetry: () -> Unit) {
     val palette = beyGramPalette()
     val error = tab.error
     if (!tab.loading && error == null) return
@@ -193,17 +196,17 @@ private fun SharedMediaFooter(tab: SharedMediaTab, onRetry: () -> Unit) {
 
 @Composable
 private fun SharedMediaGrid(
-    tab: SharedMediaTab, onMore: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
+    tab: SharedMediaWindow, onMore: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val gridState = rememberLazyGridState()
     val nearEnd by remember(tab) { derivedStateOf { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= tab.messages.size - PREFETCH_CELLS } ?: true } }
-    LaunchedEffect(nearEnd, tab.messages.size, tab.hasMore) { if (nearEnd && tab.hasMore) onMore() }
+    LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
     LazyVerticalGrid(
         columns = GridCells.Fixed(GRID_COLUMNS), state = gridState, modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        items(tab.messages, key = { it.id }) { message ->
+        items(tab.messages.asReversed(), key = { it.id }) { message ->
             message.media?.let { media ->
                 SharedMediaCell(media, observeFile, downloadFile, onClick = { if (media.isSecret) onOpenMessage(message.id) else onOpenMedia(message.id) })
             }
@@ -214,14 +217,14 @@ private fun SharedMediaGrid(
 
 @Composable
 private fun SharedMediaList(
-    kind: SharedMediaKind, tab: SharedMediaTab, onMore: () -> Unit,
+    kind: SharedMediaKind, tab: SharedMediaWindow, onMore: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, onOpenMessage: (Long) -> Unit
 ) {
     val listState = rememberLazyListState()
     val nearEnd by remember(tab) { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= tab.messages.size - PREFETCH_ROWS } ?: true } }
-    LaunchedEffect(nearEnd, tab.messages.size, tab.hasMore) { if (nearEnd && tab.hasMore) onMore() }
+    LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
-        items(tab.messages, key = { it.id }) { message ->
+        items(tab.messages.asReversed(), key = { it.id }) { message ->
             SharedMediaRowItem(kind, message, observeFile, onClick = { onOpenMessage(message.id) })
         }
         item(key = "footer") { SharedMediaFooter(tab, onRetry = onMore) }
@@ -296,42 +299,6 @@ private fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow
             duration(media.durationSeconds), color = Color.White, fontSize = 11.sp,
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp)
         )
-    }
-}
-
-/** Одна вкладка. Страницы идут от новых к старым; после пустой страницы или курсора 0 загружать больше нечего. */
-@Stable
-internal class SharedMediaTab {
-    var messages by mutableStateOf<List<ChatMessage>>(emptyList())
-        private set
-    /** Первая страница пришла: пустой список тогда значит «ничего нет», а не «ещё грузим». */
-    var loaded by mutableStateOf(false)
-        private set
-    var hasMore by mutableStateOf(true)
-        private set
-    var loading by mutableStateOf(false)
-        private set
-    var error by mutableStateOf<String?>(null)
-        private set
-    private var cursor = 0L
-
-    /** Догружает следующую страницу. Пока она грузится или когда страницы кончились, вызов ничего не делает. */
-    suspend fun loadNext(load: suspend (Long) -> Result<MessageSearchPage>, failure: (Throwable) -> String) {
-        if (loading || !hasMore) return
-        loading = true
-        error = null
-        try {
-            load(cursor)
-                .onSuccess { page ->
-                    messages = (messages + page.messages).distinctBy { it.id }
-                    cursor = page.nextFromMessageId
-                    hasMore = page.nextFromMessageId != 0L && page.messages.isNotEmpty()
-                    loaded = true
-                }
-                .onFailure { error = failure(it) }
-        } finally {
-            loading = false
-        }
     }
 }
 
