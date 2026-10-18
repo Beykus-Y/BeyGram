@@ -11,8 +11,8 @@ sealed interface ProfilePresence {
     data object Bot : ProfilePresence
     data object DeletedAccount : ProfilePresence
     data object Online : ProfilePresence
-    /** Был(а) в сети в [at]; время уже отформатировано по локали. */
-    data class LastSeen(val at: String) : ProfilePresence
+    /** Был(а) в сети в [wasOnlineMillis]; текст строит интерфейс по настройке и текущему времени, поэтому здесь только момент. */
+    data class LastSeen(val wasOnlineMillis: Long) : ProfilePresence
     data object Recently : ProfilePresence
     data object LastWeek : ProfilePresence
     data object LastMonth : ProfilePresence

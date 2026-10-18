@@ -8,8 +8,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
-import java.text.DateFormat
-import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
@@ -341,7 +339,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         if (user.type is TdApi.UserTypeDeleted) return ProfilePresence.DeletedAccount
         return when (val status = user.status) {
             is TdApi.UserStatusOnline -> if (status.expires > System.currentTimeMillis() / 1000) ProfilePresence.Online else ProfilePresence.Recently
-            is TdApi.UserStatusOffline -> if (status.wasOnline > 0) ProfilePresence.LastSeen(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(status.wasOnline * 1000L))) else ProfilePresence.LongAgo
+            is TdApi.UserStatusOffline -> if (status.wasOnline > 0) ProfilePresence.LastSeen(status.wasOnline * 1000L) else ProfilePresence.LongAgo
             is TdApi.UserStatusRecently -> ProfilePresence.Recently
             is TdApi.UserStatusLastWeek -> ProfilePresence.LastWeek
             is TdApi.UserStatusLastMonth -> ProfilePresence.LastMonth

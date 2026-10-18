@@ -44,6 +44,7 @@ import com.beykus.beygram.ui.screens.contacts.ContactsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ConnectionDiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.DiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
+import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
@@ -57,6 +58,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.presence.LastSeenSettingsStore
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
 import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
@@ -74,6 +76,7 @@ fun BeyGramApp(
 ) {
     val context = LocalContext.current
     val videoMessageSettings = remember(context) { VideoMessageSettingsStore(context) }
+    val lastSeenSettings = remember(context) { LastSeenSettingsStore(context) }
     val tdLibReadiness = remember(context) {
         TdLibBootstrap(context).readiness()
     }
@@ -107,6 +110,7 @@ fun BeyGramApp(
         notificationRuntime = notificationRuntime,
         vpnBackend = vpnBackend,
         recordingSettings = videoMessageSettings,
+        lastSeenSettings = lastSeenSettings,
         notificationRequest = notificationRequest,
         onNotificationHandled = onNotificationHandled
     )
@@ -121,6 +125,7 @@ private fun BeyGramAppContent(
     notificationRuntime: NotificationRuntime,
     vpnBackend: VpnBackend,
     recordingSettings: VideoMessageSettingsStore,
+    lastSeenSettings: LastSeenSettingsStore,
     notificationRequest: NotificationOpenRequest?,
     onNotificationHandled: (Long) -> Unit
 ) {
@@ -132,6 +137,7 @@ private fun BeyGramAppContent(
     val connectionState by repository.connectionState.collectAsStateWithLifecycle()
     val myProfile by repository.myProfile.collectAsStateWithLifecycle()
     val bioLimit by repository.bioLengthLimit.collectAsStateWithLifecycle()
+    val lastSeenStyle by lastSeenSettings.style.collectAsStateWithLifecycle()
     LifecycleResumeEffect(repository) {
         repository.setAppForeground(true)
         onPauseOrDispose { repository.setAppForeground(false) }
@@ -344,6 +350,7 @@ private fun BeyGramAppContent(
                 ChatScreen(
                     chat = chat,
                     info = chatInfo.info,
+                    lastSeenStyle = lastSeenStyle,
                     history = history,
                     conversation = repository,
                     chats = chats,
@@ -366,7 +373,7 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
-            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange,
+            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle,
             sharedMessages = { kind, fromMessageId -> repository.sharedMessages(selectedChatId, kind, fromMessageId) },
             onOpenMessage = { messageId -> chatFocusMessageId = messageId; routeName = AppRoute.Chat.name })
     }
@@ -386,7 +393,7 @@ private fun BeyGramAppContent(
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = memberReturnRouteName }, onRefresh = { repository.refreshChatInfo(memberChatId) },
             onEdit = {}, setPhoto = repository::setMyProfilePhoto,
-            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
+            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle)
     }
 
     when (route) {
@@ -466,7 +473,7 @@ private fun BeyGramAppContent(
                 onNotifications = { openNotifications(AppRoute.MyProfile) },
                 hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
                 onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
-                isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
+                isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle)
         }
         AppRoute.EditProfile -> {
             myProfile.info?.let { info ->
@@ -505,6 +512,7 @@ private fun BeyGramAppContent(
         AppRoute.Settings -> MainTabsScaffold(MainTab.Settings.route.name, MainTab.Settings, tabVisibility, selectTab, tabStateHolder) {
             SettingsScreen(
                 onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
+                onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
                 onNotifications = { openNotifications(AppRoute.Settings) },
                 onProxy = { openProxy(AppRoute.Settings) },
                 onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
@@ -529,6 +537,7 @@ private fun BeyGramAppContent(
             onVisibilityChange = onTabVisibilityChange,
             onBack = { routeName = AppRoute.Settings.name }
         )
+        AppRoute.LastSeenSettings -> LastSeenSettingsScreen(lastSeenStyle, onStyleChange = lastSeenSettings::setStyle, onBack = { routeName = AppRoute.Settings.name })
         AppRoute.Proxy -> ProxyListScreen(
             repository = repository,
             vpnBackend = vpnBackend,
