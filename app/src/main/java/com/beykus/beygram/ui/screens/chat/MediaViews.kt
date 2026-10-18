@@ -8,10 +8,8 @@ import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.media.AudioAttributes
 import android.content.ClipData
 import android.content.ContentValues
-import android.media.MediaPlayer
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.LruCache
@@ -76,7 +74,13 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackItem
+import com.beykus.beygram.playback.PlaybackState
+import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.playback.NowPlayingControls
+import com.beykus.beygram.ui.screens.playback.ViewerNowPlayingColors
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -189,6 +193,9 @@ private fun DownloadBadge(downloading: Boolean, onClick: () -> Unit) {
 
 private const val BLUR_PREVIEW_DIMENSION = 24
 
+/** Вложение, которое ждёт загрузки после нажатия на музыку. Ждёт только последнее нажатое, иначе более ранняя загрузка перебьёт его. */
+private val pendingAudioFileId = mutableStateOf<Int?>(null)
+
 @Composable
 internal fun MediaPreview(
     media: MessageMedia,
@@ -209,6 +216,23 @@ internal fun MediaPreview(
     val imageFile = if (media.isSecret) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
     LaunchedEffect(thumbId, revealed) {
         if (!media.isSecret && revealed && isVisual && (thumbId != media.fileId || media.mimeType.startsWith("image/") && file.size <= 300_000)) downloadFile(thumbId)
+    }
+    // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
+    val audioTitle = media.kind.label(context)
+    val audioPath = file.localPath
+    val waitingForAudio = pendingAudioFileId.value == media.fileId
+    fun playAudio() {
+        if (audioPath == null) { pendingAudioFileId.value = media.fileId; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle))
+    }
+    // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
+    LaunchedEffect(audioPath, waitingForAudio) {
+        if (waitingForAudio && audioPath != null) {
+            pendingAudioFileId.value = null
+            startAudio(context, media.playbackItem(audioPath, audioTitle))
+        }
+    }
+    DisposableEffect(media.fileId) {
+        onDispose { if (pendingAudioFileId.value == media.fileId) pendingAudioFileId.value = null }
     }
     if (media.kind == MediaKind.Voice) {
         VoiceBubble(media, file, downloadFile, onPlayed, onLongPress)
@@ -248,7 +272,7 @@ internal fun MediaPreview(
             )
         }
     } else {
-        Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = { if (media.kind == MediaKind.Audio) playAudio() else onOpen() }, onLongClick = onLongPress).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(if (media.kind == MediaKind.Audio) Icons.Rounded.MusicNote else Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
                 modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(10.dp))
             Spacer(Modifier.width(12.dp))
@@ -256,6 +280,10 @@ internal fun MediaPreview(
                 Text(if (media.kind == MediaKind.Audio) media.fileName.ifBlank { stringResource(R.string.media_kind_audio) } else media.fileName.ifBlank { stringResource(R.string.media_kind_file) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "", color = palette.textSecondary, fontSize = 13.sp)
                 if (file.isDownloading || file.isUploading) LinearProgressIndicator(progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+            }
+            // Тап по музыке запускает её в общем плеере, а действия с вложением (поделиться, сохранить, переслать) открываются отсюда.
+            if (media.kind == MediaKind.Audio) IconButton(onClick = onOpen) {
+                Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = palette.textSecondary)
             }
         }
     }
@@ -393,7 +421,7 @@ private fun MediaViewerPage(
             media.mimeType.startsWith("image/") -> ZoomableImage(path)
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
-            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> LocalAudio(path, active) { currentOnViewed(item.messageId) }
+            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, active) { currentOnViewed(item.messageId) }
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -450,50 +478,47 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
         onDispose { video.stopPlayback() }
     }
     // Играет только текущая страница; соседнее видео, которое увели свайпом, ставим на паузу.
-    LaunchedEffect(active) { if (active) video.start() else video.pause() }
+    // Звук видео не идёт поверх музыки из общего плеера: когда видео становится активным, музыка на паузе.
+    LaunchedEffect(active) {
+        if (active) {
+            PlaybackEngine.pause()
+            video.start()
+        } else {
+            video.pause()
+        }
+    }
     if (error) Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray, modifier = Modifier.padding(24.dp))
     else AndroidView(factory = { video }, modifier = Modifier.fillMaxSize())
 }
 
+/** Звук в просмотрщике идёт через общий плеер. Открытие ничего не запускает, поэтому текущий трек не прерывается. */
 @Composable
-private fun LocalAudio(path: String, active: Boolean, onStarted: () -> Unit) {
-    val player = remember(path) { MediaPlayer() }
-    var ready by remember(path) { mutableStateOf(false) }
-    var playing by remember(path) { mutableStateOf(false) }
-    var position by remember(path) { mutableIntStateOf(0) }
-    var total by remember(path) { mutableIntStateOf(0) }
-    var error by remember(path) { mutableStateOf(false) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(player, lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) { runCatching { if (player.isPlaying) player.pause() }; playing = false }
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+private fun AudioInPlayer(media: MessageMedia, path: String, active: Boolean, onViewed: () -> Unit) {
+    val context = LocalContext.current
+    val item = media.playbackItem(path, media.kind.label(context))
+    val state by PlaybackEngine.state.collectAsStateWithLifecycle()
+    val currentOnViewed by rememberUpdatedState(onViewed)
+    // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.
+    val playingHere = state.item?.key == item.key && state.playing
+    LaunchedEffect(playingHere, active) {
+        if (active && playingHere) currentOnViewed()
     }
-    DisposableEffect(player) {
-        try {
-            player.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-            player.setDataSource(path)
-            player.setOnPreparedListener { ready = true; total = it.duration }
-            player.setOnCompletionListener { playing = false; position = 0 }
-            player.setOnErrorListener { _, _, _ -> error = true; playing = false; true }
-            player.prepareAsync()
-        } catch (_: Exception) { error = true }
-        onDispose { player.release() }
-    }
-    LaunchedEffect(playing) { while (playing) { position = runCatching { player.currentPosition }.getOrDefault(0); delay(250) } }
-    // Как у видео: играет только активная страница. Соседнюю ставим на паузу, чтобы её звук не шёл поверх текущей.
-    LaunchedEffect(active) { if (!active) { runCatching { if (player.isPlaying) player.pause() }; playing = false } }
-    Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("♫", color = Color.White, fontSize = 56.sp)
-        if (error) Text(stringResource(R.string.media_audio_play_failed), color = Color.LightGray)
-        else {
-            Slider(value = position.toFloat().coerceIn(0f, total.coerceAtLeast(1).toFloat()), onValueChange = { position = it.toInt(); player.seekTo(position) }, valueRange = 0f..total.coerceAtLeast(1).toFloat(), enabled = ready)
-            Text("${duration(position / 1000)} / ${duration(total / 1000)}", color = Color.White)
-            TextButton(enabled = ready, onClick = { if (playing) player.pause() else { player.start(); onStarted() }; playing = !playing }) { Text(if (playing) stringResource(R.string.common_pause) else stringResource(R.string.common_play)) }
-        }
-    }
+    // Пока файл не играет в общем плеере, его перемотка и скорость относятся к другому файлу, поэтому выключены.
+    val current = state.item?.key == item.key
+    NowPlayingControls(
+        state = if (current) state else PlaybackState(item = item),
+        item = item,
+        colors = ViewerNowPlayingColors,
+        enabled = current,
+        onPlayPause = { startAudio(context, item) }
+    )
+}
+
+/** Музыка и голосовые из чата и просмотрщика идут через общий плеер. Голосовое и кружок в ленте при этом останавливаются. */
+private fun startAudio(context: Context, item: PlaybackItem) {
+    VoicePlayback.stop()
+    InlinePlaybackFocus.stopAll()
+    PlaybackEngine.toggle(context, item)
 }
 
 private fun openExternalMedia(context: Context, path: String, mime: String): String? = runCatching {

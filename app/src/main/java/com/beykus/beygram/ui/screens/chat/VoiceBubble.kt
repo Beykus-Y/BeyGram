@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -100,6 +101,7 @@ internal object VoicePlayback {
     }
 
     private fun resume(active: MediaPlayer, onStarted: () -> Unit) {
+        PlaybackEngine.pause()
         InlinePlaybackFocus.claim(VoicePlayback) { stop() }
         runCatching { active.start() }
         _state.update { it.copy(playing = true) }

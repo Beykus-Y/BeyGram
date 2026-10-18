@@ -2,6 +2,10 @@ package com.beykus.beygram
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
@@ -13,6 +17,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,8 +70,12 @@ import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
 import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyRestoreDialog
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
+import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
+
+/** Экраны, где мини-плеер встроен в свою разметку: над нижним меню или над полем ввода. На остальных экранах он стоит снизу. */
+private val playerBarHostRoutes = setOf(AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat)
 
 @Composable
 fun BeyGramApp(
@@ -406,165 +415,170 @@ private fun BeyGramAppContent(
             isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle)
     }
 
-    when (route) {
-        AppRoute.Start -> StartScreen(
-            tdLibReadiness = tdLibReadiness,
-            authState = authState,
-            onProxySettings = { openProxy(AppRoute.Start) },
-            onStartClick = {
-                repository.startAuthorization()
-                // Явно переходим на экран телефона, не дожидаясь LaunchedEffect
-                // (startAuthorization не всегда меняет authState синхронно в real impl)
-                routeName = AppRoute.LoginPhone.name
-            }
-        )
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when (route) {
+                AppRoute.Start -> StartScreen(
+                    tdLibReadiness = tdLibReadiness,
+                    authState = authState,
+                    onProxySettings = { openProxy(AppRoute.Start) },
+                    onStartClick = {
+                        repository.startAuthorization()
+                        // Явно переходим на экран телефона, не дожидаясь LaunchedEffect
+                        // (startAuthorization не всегда меняет authState синхронно в real impl)
+                        routeName = AppRoute.LoginPhone.name
+                    }
+                )
 
-        AppRoute.LoginPhone -> LoginPhoneScreen(
-            authState = authState,
-            connectionState = connectionState,
-            onReconnect = repository::reconnect,
-            onProxySettings = { openProxy(AppRoute.LoginPhone) },
-            onBack = {
-                repository.resetError()
-                routeName = AppRoute.Start.name
-            },
-            onContinue = { submittedPhone ->
-                phone = submittedPhone
-                repository.submitPhoneNumber(submittedPhone)
-                // Навигация произойдёт через LaunchedEffect(authState) при WaitingForCode
-            }
-        )
+                AppRoute.LoginPhone -> LoginPhoneScreen(
+                    authState = authState,
+                    connectionState = connectionState,
+                    onReconnect = repository::reconnect,
+                    onProxySettings = { openProxy(AppRoute.LoginPhone) },
+                    onBack = {
+                        repository.resetError()
+                        routeName = AppRoute.Start.name
+                    },
+                    onContinue = { submittedPhone ->
+                        phone = submittedPhone
+                        repository.submitPhoneNumber(submittedPhone)
+                        // Навигация произойдёт через LaunchedEffect(authState) при WaitingForCode
+                    }
+                )
 
-        AppRoute.LoginCode -> LoginCodeScreen(
-            phone = phone,
-            authState = authState,
-            onBack = {
-                repository.resetError()
-                routeName = AppRoute.LoginPhone.name
-            },
-            onComplete = { code ->
-                repository.submitCode(code)
-                // Навигация произойдёт через LaunchedEffect(authState) при Ready или WaitingForPassword
-            },
-            onResendCode = {
-                repository.resendCode()
-            }
-        )
+                AppRoute.LoginCode -> LoginCodeScreen(
+                    phone = phone,
+                    authState = authState,
+                    onBack = {
+                        repository.resetError()
+                        routeName = AppRoute.LoginPhone.name
+                    },
+                    onComplete = { code ->
+                        repository.submitCode(code)
+                        // Навигация произойдёт через LaunchedEffect(authState) при Ready или WaitingForPassword
+                    },
+                    onResendCode = {
+                        repository.resendCode()
+                    }
+                )
 
-        AppRoute.LoginPassword -> {
-            val hint = (authState as? AuthState.WaitingForPassword)?.hint ?: ""
-            LoginPasswordScreen(
-                hint = hint,
-                authState = authState,
-                onBack = {
-                    repository.resetError()
-                    routeName = AppRoute.LoginPhone.name
-                },
-                onSubmit = { password ->
-                    repository.submitPassword(password)
-                    // Навигация произойдёт через LaunchedEffect(authState) при Ready
+                AppRoute.LoginPassword -> {
+                    val hint = (authState as? AuthState.WaitingForPassword)?.hint ?: ""
+                    LoginPasswordScreen(
+                        hint = hint,
+                        authState = authState,
+                        onBack = {
+                            repository.resetError()
+                            routeName = AppRoute.LoginPhone.name
+                        },
+                        onSubmit = { password ->
+                            repository.submitPassword(password)
+                            // Навигация произойдёт через LaunchedEffect(authState) при Ready
+                        }
+                    )
                 }
-            )
-        }
 
-        AppRoute.Chats -> chatsTab()
+                AppRoute.Chats -> chatsTab()
 
-        AppRoute.Archive -> archiveRoute()
+                AppRoute.Archive -> archiveRoute()
 
-        AppRoute.Chat -> chatRoute()
-        AppRoute.ChatInfo -> chatInfoRoute()
-        AppRoute.ChatMembers -> chatMembersRoute()
-        AppRoute.MemberProfile -> memberProfileRoute()
-        AppRoute.MyProfile -> {
-            LaunchedEffect(repository) { repository.refreshMyProfile() }
-            ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile,
-                onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
-                onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
-                onNotifications = { openNotifications(AppRoute.MyProfile) },
-                hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
-                onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
-                isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle)
-        }
-        AppRoute.EditProfile -> {
-            myProfile.info?.let { info ->
-                EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)
-            } ?: LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
-        }
-        AppRoute.Notifications -> NotificationSettingsScreen(
-            runtime = notificationRuntime,
-            connectionState = connectionState,
-            onBack = { routeName = notificationsReturnRouteName },
-            onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name }
-        )
-        AppRoute.ConnectionDiagnostics -> ConnectionDiagnosticsScreen(
-            repository = repository,
-            vpnBackend = vpnBackend,
-            connectionState = connectionState,
-            onBack = { routeName = AppRoute.Notifications.name }
-        )
-        AppRoute.Calls -> MainTabsScaffold(MainTab.Calls.route.name, MainTab.Calls, tabVisibility, selectTab, tabStateHolder) {
-            CallsScreen(loadCalls = repository::loadCallHistory, observeFile = repository::observeFile, downloadFile = repository::downloadFile)
-        }
-        AppRoute.Contacts -> MainTabsScaffold(MainTab.Contacts.route.name, MainTab.Contacts, tabVisibility, selectTab, tabStateHolder) {
-            ContactsScreen(
-                loadContacts = repository::loadContacts,
-                addContact = repository::addContact,
-                openPrivateChat = repository::openPrivateChat,
-                observeFile = repository::observeFile,
-                downloadFile = repository::downloadFile,
-                onChatOpened = { chatId ->
-                    selectedChatId = chatId
-                    chatBackRouteName = AppRoute.Contacts.name
-                    routeName = AppRoute.Chat.name
+                AppRoute.Chat -> chatRoute()
+                AppRoute.ChatInfo -> chatInfoRoute()
+                AppRoute.ChatMembers -> chatMembersRoute()
+                AppRoute.MemberProfile -> memberProfileRoute()
+                AppRoute.MyProfile -> {
+                    LaunchedEffect(repository) { repository.refreshMyProfile() }
+                    ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile,
+                        onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
+                        onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
+                        onNotifications = { openNotifications(AppRoute.MyProfile) },
+                        hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
+                        onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
+                        isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle)
                 }
-            )
-        }
-        AppRoute.Settings -> MainTabsScaffold(MainTab.Settings.route.name, MainTab.Settings, tabVisibility, selectTab, tabStateHolder) {
-            SettingsScreen(
-                onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
-                onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
-                onNotifications = { openNotifications(AppRoute.Settings) },
-                onStorage = { routeName = AppRoute.StorageSettings.name },
-                onProxy = { openProxy(AppRoute.Settings) },
-                onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
-                onDiagnostics = { routeName = AppRoute.Diagnostics.name },
-                onUpdates = { routeName = AppRoute.Updates.name }
-            )
-        }
-        AppRoute.Updates -> StableUpdatesScreen(onBack = { routeName = AppRoute.Settings.name })
-        AppRoute.Diagnostics -> DiagnosticsScreen(
-            connectionState = connectionState,
-            onBack = { routeName = AppRoute.Settings.name },
-            onReportProblem = { routeName = AppRoute.ReportProblem.name }
-        )
-        AppRoute.ReportProblem -> ReportProblemScreen(
-            repository = repository,
-            connectionState = connectionState,
-            onBack = { routeName = AppRoute.Diagnostics.name }
-        )
-        AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings) { routeName = AppRoute.Settings.name }
-        AppRoute.StorageSettings -> StorageSettingsScreen(repository = repository, onBack = { routeName = AppRoute.Settings.name })
-        AppRoute.NavigationSettings -> NavigationSettingsScreen(
-            visibility = tabVisibility,
-            onVisibilityChange = onTabVisibilityChange,
-            onBack = { routeName = AppRoute.Settings.name }
-        )
-        AppRoute.LastSeenSettings -> LastSeenSettingsScreen(lastSeenStyle, onStyleChange = lastSeenSettings::setStyle, onBack = { routeName = AppRoute.Settings.name })
-        AppRoute.Proxy -> ProxyListScreen(
-            repository = repository,
-            vpnBackend = vpnBackend,
-            onBack = { routeName = proxyReturnRouteName },
-            onAddProxy = { openProxyConnect(ProxyConnectTab.MTPROTO) },
-            onSubscriptionServers = { openProxyConnect(ProxyConnectTab.SUBSCRIPTION) }
-        )
+                AppRoute.EditProfile -> {
+                    myProfile.info?.let { info ->
+                        EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)
+                    } ?: LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
+                }
+                AppRoute.Notifications -> NotificationSettingsScreen(
+                    runtime = notificationRuntime,
+                    connectionState = connectionState,
+                    onBack = { routeName = notificationsReturnRouteName },
+                    onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name }
+                )
+                AppRoute.ConnectionDiagnostics -> ConnectionDiagnosticsScreen(
+                    repository = repository,
+                    vpnBackend = vpnBackend,
+                    connectionState = connectionState,
+                    onBack = { routeName = AppRoute.Notifications.name }
+                )
+                AppRoute.Calls -> MainTabsScaffold(MainTab.Calls.route.name, MainTab.Calls, tabVisibility, selectTab, tabStateHolder) {
+                    CallsScreen(loadCalls = repository::loadCallHistory, observeFile = repository::observeFile, downloadFile = repository::downloadFile)
+                }
+                AppRoute.Contacts -> MainTabsScaffold(MainTab.Contacts.route.name, MainTab.Contacts, tabVisibility, selectTab, tabStateHolder) {
+                    ContactsScreen(
+                        loadContacts = repository::loadContacts,
+                        addContact = repository::addContact,
+                        openPrivateChat = repository::openPrivateChat,
+                        observeFile = repository::observeFile,
+                        downloadFile = repository::downloadFile,
+                        onChatOpened = { chatId ->
+                            selectedChatId = chatId
+                            chatBackRouteName = AppRoute.Contacts.name
+                            routeName = AppRoute.Chat.name
+                        }
+                    )
+                }
+                AppRoute.Settings -> MainTabsScaffold(MainTab.Settings.route.name, MainTab.Settings, tabVisibility, selectTab, tabStateHolder) {
+                    SettingsScreen(
+                        onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
+                        onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
+                        onNotifications = { openNotifications(AppRoute.Settings) },
+                        onStorage = { routeName = AppRoute.StorageSettings.name },
+                        onProxy = { openProxy(AppRoute.Settings) },
+                        onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
+                        onDiagnostics = { routeName = AppRoute.Diagnostics.name },
+                        onUpdates = { routeName = AppRoute.Updates.name }
+                    )
+                }
+                AppRoute.Updates -> StableUpdatesScreen(onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.Diagnostics -> DiagnosticsScreen(
+                    connectionState = connectionState,
+                    onBack = { routeName = AppRoute.Settings.name },
+                    onReportProblem = { routeName = AppRoute.ReportProblem.name }
+                )
+                AppRoute.ReportProblem -> ReportProblemScreen(
+                    repository = repository,
+                    connectionState = connectionState,
+                    onBack = { routeName = AppRoute.Diagnostics.name }
+                )
+                AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings) { routeName = AppRoute.Settings.name }
+                AppRoute.StorageSettings -> StorageSettingsScreen(repository = repository, onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.NavigationSettings -> NavigationSettingsScreen(
+                    visibility = tabVisibility,
+                    onVisibilityChange = onTabVisibilityChange,
+                    onBack = { routeName = AppRoute.Settings.name }
+                )
+                AppRoute.LastSeenSettings -> LastSeenSettingsScreen(lastSeenStyle, onStyleChange = lastSeenSettings::setStyle, onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.Proxy -> ProxyListScreen(
+                    repository = repository,
+                    vpnBackend = vpnBackend,
+                    onBack = { routeName = proxyReturnRouteName },
+                    onAddProxy = { openProxyConnect(ProxyConnectTab.MTPROTO) },
+                    onSubscriptionServers = { openProxyConnect(ProxyConnectTab.SUBSCRIPTION) }
+                )
 
-        AppRoute.ProxyConnect -> ProxyConnectScreen(
-            repository = repository,
-            vpnBackend = vpnBackend,
-            connectionState = connectionState,
-            initialTab = ProxyConnectTab.valueOf(proxyConnectTabName),
-            onBack = { routeName = AppRoute.Proxy.name }
-        )
+                AppRoute.ProxyConnect -> ProxyConnectScreen(
+                    repository = repository,
+                    vpnBackend = vpnBackend,
+                    connectionState = connectionState,
+                    initialTab = ProxyConnectTab.valueOf(proxyConnectTabName),
+                    onBack = { routeName = AppRoute.Proxy.name }
+                )
+            }
+        }
+        if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
     }
     noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
         text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }

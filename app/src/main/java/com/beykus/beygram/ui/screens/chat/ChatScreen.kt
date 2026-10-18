@@ -54,8 +54,10 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
+import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
@@ -254,12 +256,18 @@ fun ChatScreen(
     }
     fun startRecording() {
         if (videoNote.active || audioNote.active) return
+        // Микрофон записывает и звук из общего плеера, поэтому музыку ставим на паузу, когда запись начинается.
         if (recordingMode == ComposerRecordingMode.Voice) {
-            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) audioNote.press()
-            else audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                PlaybackEngine.pause()
+                audioNote.press()
+            } else audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
         } else if (!VIDEO_NOTE_RECORDING_ENABLED) {
             error = context.getString(R.string.recorder_video_note_unavailable)
-        } else if (videoNoteAllowed(context)) videoNote.press() else videoPermissions.launch(videoNotePermissions)
+        } else if (videoNoteAllowed(context)) {
+            PlaybackEngine.pause()
+            videoNote.press()
+        } else videoPermissions.launch(videoNotePermissions)
     }
     val messages = history.messages
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
@@ -554,6 +562,8 @@ fun ChatScreen(
         val recordingCanceling = if (recordingMode == ComposerRecordingMode.Voice) audioNote.canceling else videoNote.canceling
         val showRecord = recordingActive || (!editing && !attachments.active && fieldText.isBlank())
         if (!deleting && !searching && typingNames.isNotEmpty()) TypingRow(typingNames)
+        // Мини-плеер стоит над полем ввода и остаётся на месте при поиске и при выборе сообщений. Без поля ввода он внизу экрана, поэтому отступает от системной навигации.
+        NowPlayingBar(bottomInset = deleting || searching)
         if (!deleting && !searching) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {

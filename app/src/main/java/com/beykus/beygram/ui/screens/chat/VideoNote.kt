@@ -46,6 +46,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,6 +105,7 @@ private class VideoNoteHolder {
         private set
 
     fun start(path: String, onStarted: () -> Unit) {
+        PlaybackEngine.pause()
         InlinePlaybackFocus.claim(this) { stop() }
         releasePlayer()
         val created = MediaPlayer()
@@ -135,6 +137,7 @@ private class VideoNoteHolder {
     }
 
     fun resume() {
+        PlaybackEngine.pause()
         InlinePlaybackFocus.claim(this) { stop() }
         runCatching { player?.start() }
         playing = player != null
