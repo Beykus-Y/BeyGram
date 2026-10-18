@@ -53,6 +53,22 @@ data class PlaybackState(
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 }
 
+/** Музыка, которую прервало голосовое или кружок. Продолжается с [positionMs], когда прерывающий файл доиграет. */
+internal data class InterruptedMusic(val item: PlaybackItem, val positionMs: Long)
+
+/**
+ * Что ждёт музыку после запуска [next]. Играющая музыка ждёт, пока голосовое или кружок доиграет. Новая музыка заменяет
+ * ждущую, а голосовое или кружок поверх другого голосового или кружка ждущую не трогают.
+ */
+internal fun interruptedAfterStart(current: PlaybackState, waiting: InterruptedMusic?, next: PlaybackItem): InterruptedMusic? {
+    val playingMusic = current.item?.takeIf { it.kind == MediaKind.Audio && current.playing }
+    return when {
+        next.kind == MediaKind.Audio -> null
+        playingMusic != null -> InterruptedMusic(playingMusic, current.positionMs)
+        else -> waiting
+    }
+}
+
 /** Ключ файла в общем плеере: один на весь файл, поэтому повторный запуск не начинает его сначала. */
 internal fun MessageMedia.playbackKey(): String = "$kind:$fileId"
 
@@ -85,6 +101,8 @@ object PlaybackEngine {
     private var pendingStartFraction = 0f
     private var videoOwner: Any? = null
     private var videoView: TextureView? = null
+    /** Музыка, которая ждёт, пока голосовое или кружок доиграет. Очищается при остановке и при новом запуске музыки. */
+    private var interruptedMusic: InterruptedMusic? = null
 
     /**
      * Общий плеер для системного управления: уведомление, экран блокировки и гарнитура. «Играть» после конца файла начинает
@@ -118,21 +136,29 @@ object PlaybackEngine {
         if (exo != null && _state.value.item?.key == item.key) togglePlayPause() else play(context, item)
     }
 
-    /** Запускает файл с начала или с доли [startFraction]. Скорость сохраняется между файлами. */
+    /**
+     * Запускает файл с начала или с доли [startFraction]. Скорость сохраняется между файлами. Если запустили музыку, которую
+     * прервало голосовое или кружок, она продолжается с того же места.
+     */
     fun play(context: Context, item: PlaybackItem, startFraction: Float = 0f) {
         val target = player(context)
+        syncPosition()
+        val waiting = interruptedMusic
+        val resumeMs = waiting?.takeIf { it.item.key == item.key }?.positionMs ?: 0L
+        interruptedMusic = interruptedAfterStart(_state.value, waiting, item)
         target.setMediaItem(
             MediaItem.Builder()
                 .setMediaId(item.key)
                 .setUri(Uri.fromFile(File(item.path)))
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
-                .build()
+                .build(),
+            resumeMs
         )
         target.prepare()
         // Длина из сообщения округлена до секунды, поэтому долю применяем, когда плеер узнает настоящую длину файла.
         pendingStartFraction = startFraction.coerceIn(0f, 1f)
         target.play()
-        _state.value = PlaybackState(item = item, playing = true, speed = _state.value.speed)
+        _state.value = PlaybackState(item = item, playing = true, positionMs = resumeMs, speed = _state.value.speed)
         startPlaybackService()
         startProgress()
     }
@@ -145,7 +171,8 @@ object PlaybackEngine {
             pause()
             return
         }
-        _state.update { it.copy(failed = false) }
+        // Повтор доигравшего файла снимает отметку конца сразу, чтобы возврат музыки не сработал до первого события плеера.
+        _state.update { it.copy(failed = false, ended = false) }
         startPlaybackService()
         target.play()
     }
@@ -194,6 +221,7 @@ object PlaybackEngine {
         progress?.cancel()
         progress = null
         pendingStartFraction = 0f
+        interruptedMusic = null
         exo?.let {
             it.stop()
             it.clearMediaItems()
@@ -217,6 +245,8 @@ object PlaybackEngine {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) applyPendingStartFraction()
             _state.update { it.copy(durationMs = durationNow(), ended = playbackState == Player.STATE_ENDED) }
+            // Музыку возвращаем после того, как плеер закончит обрабатывать конец файла, а не внутри его обработчика.
+            if (playbackState == Player.STATE_ENDED) scope.launch { resumeInterruptedMusic() }
         }
 
         // Перемотку с уведомления или экрана блокировки делает сам плеер, минуя PlaybackEngine: позицию обновляем и на паузе.
@@ -239,6 +269,14 @@ object PlaybackEngine {
         if (pendingStartFraction <= 0f || duration == C.TIME_UNSET || duration <= 0L) return
         target.seekTo((pendingStartFraction * duration).toLong())
         pendingStartFraction = 0f
+    }
+
+    /** Голосовое или кружок доиграл: музыка, которую он прервал, продолжается с того же места. Если файл уже снова запущен, возврат отменяется. */
+    private fun resumeInterruptedMusic() {
+        val music = interruptedMusic ?: return
+        if (!_state.value.ended) return
+        val context = appContext ?: return
+        play(context, music.item)
     }
 
     private fun syncPosition() {
