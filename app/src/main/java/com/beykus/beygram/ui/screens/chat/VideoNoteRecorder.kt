@@ -11,7 +11,9 @@ import android.util.Rational
 import android.util.Log
 import android.view.Surface
 import android.view.ViewGroup
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.ViewPort
@@ -31,6 +33,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,12 +61,16 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoQualityPreset
 import com.beykus.beygram.data.media.requestedFrameRateRange
 import com.beykus.beygram.data.media.chooseSupportedFrameRateRange
+import com.beykus.beygram.data.media.videoMirrorToggleSupported
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -127,9 +134,14 @@ internal class VideoNoteRecorder(
     /** Запись фактически началась: CameraX сообщил о Start. До этого переключать камеру нельзя. */
     var started by mutableStateOf(false)
         private set
+    /** Кратность зума текущей камеры. Жест масштабирования меняет её до и во время записи; при смене камеры сбрасывается к 1x. */
+    var zoomRatio by mutableFloatStateOf(1f)
+        private set
 
     private var provider: ProcessCameraProvider? = null
     private var videoCapture: VideoCapture<Recorder>? = null
+    /** Привязанная камера: нужна для управления зумом, после отвязки обнуляется. */
+    private var camera: Camera? = null
     /** Диапазон FPS, зашитый в текущий VideoCapture на этапе создания: пересоздать его без обрыва записи нельзя. */
     private var captureFpsRange: Range<Int>? = null
     /** Persistent-запись не отвязывается от VideoCapture при перепривязке камеры. Если устройство её не умеет, переключение скрывается. */
@@ -180,7 +192,8 @@ internal class VideoNoteRecorder(
                 }
             }
             Log.i(TAG, "video_camera_switch_started front=$targetFront")
-            cameraProvider.unbindAll()
+            zoomRatio = 1f
+            unbindCamera()
             unbound = true
             bind(cameraProvider, selector, current.settings, capture)
             preferFrontCamera = targetFront
@@ -209,6 +222,7 @@ internal class VideoNoteRecorder(
             timer?.cancel()
             timer = null
             requestStop(current)
+            recordRecordingFailure("camera_switch", failure)
             onError(context.getString(R.string.recorder_camera_switch_aborted))
         }
     }
@@ -227,6 +241,7 @@ internal class VideoNoteRecorder(
         // Проверяем пиковый объём: RAW с камеры и перекодированные сегменты живут на диске одновременно.
         val requiredBytes = videoPeakStorageBytes(videoCameraBitrate(settings), maxDurationMs / 1000)
         if (StatFs(context.filesDir.absolutePath).availableBytes < requiredBytes) {
+            recordAppEvent(EventKind.UI, "video_note_storage_low", "Кружок: мало места на устройстве", Severity.WARNING)
             onError(context.getString(R.string.recorder_storage_low))
             return
         }
@@ -234,6 +249,7 @@ internal class VideoNoteRecorder(
         locked = false
         canceling = false
         started = false
+        zoomRatio = 1f
         elapsedMs = 0L
         val current = ++attempt
         val future = ProcessCameraProvider.getInstance(context)
@@ -257,11 +273,18 @@ internal class VideoNoteRecorder(
                 videoCapture = capture
                 bind(cameraProvider, startSelector, settings, capture)
                 startRecording(settings)
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
                 Log.e(TAG, "video_camera_open_failed")
+                recordRecordingFailure("camera_open", failure)
                 fail(context.getString(R.string.recorder_camera_open_failed))
             }
         }, ContextCompat.getMainExecutor(context))
+    }
+
+    /** Жест масштабирования: множитель пальцев умножается на текущий зум и ограничивается диапазоном камеры. */
+    fun zoomBy(scale: Float) {
+        val bound = camera ?: return
+        applyZoom(bound, zoomRatio * scale)
     }
 
     /** Палец ушёл влево за порог: при отпускании запись будет отменена. */
@@ -282,7 +305,7 @@ internal class VideoNoteRecorder(
         val current = take
         if (current == null) {
             // Камера ещё открывается: записи пока нет. Отпускание без отмены сообщает о короткой записи, а не теряет нажатие.
-            provider?.unbindAll()
+            unbindCamera()
             if (!cancel) onError(context.getString(R.string.recorder_too_short))
             return
         }
@@ -309,9 +332,24 @@ internal class VideoNoteRecorder(
         timer = null
         val current = take
         if (current == null) {
-            provider?.unbindAll()
+            unbindCamera()
         } else requestStop(current)
     }
+
+    private fun recordStarted() = recordAppEvent(
+        kind = EventKind.UI,
+        code = "video_note_recording_started",
+        text = "Кружок: запись началась",
+        attrs = mapOf("persistent" to persistentSupported.toString())
+    )
+
+    private fun recordRecordingFailure(stage: String, cause: Exception) = recordAppEvent(
+        kind = EventKind.UI,
+        code = "video_note_recording_failed",
+        text = "Кружок: сбой записи",
+        severity = Severity.ERROR,
+        attrs = mapOf("stage" to stage, "cause" to cause.javaClass.simpleName)
+    )
 
     private fun fail(message: String) {
         active = false
@@ -320,7 +358,7 @@ internal class VideoNoteRecorder(
         started = false
         timer?.cancel()
         timer = null
-        if (take == null) provider?.unbindAll()
+        if (take == null) unbindCamera()
         onError(message)
     }
 
@@ -344,6 +382,13 @@ internal class VideoNoteRecorder(
         current.stopRequested = true
         current.recording?.stop()
     }
+
+    /**
+     * Одно правило и для превью, и для записи: иначе отправленный кружок расходится с тем, что видно при съёмке.
+     * До API 33 переключателя нет, и фронтальная запись отражается как превью PreviewView.
+     */
+    private fun mirrorMode(settings: VideoMessageSettings): Int =
+        if (settings.mirrorFrontCamera || !videoMirrorToggleSupported()) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF
 
     /** Пара Recorder и VideoCapture создаётся один раз на запись: persistent-запись требует, чтобы при смене камеры она не пересоздавалась. */
     private fun createCapture(
@@ -376,6 +421,8 @@ internal class VideoNoteRecorder(
                 .setTargetVideoEncodingBitRate(bitrate)
                 .build()
         )
+        // Запись фронтальной камеры отражается так же, как превью: отправленный кружок совпадает с тем, что видно при записи.
+        captureBuilder.setMirrorMode(mirrorMode(settings))
         if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
         captureFpsRange = fpsRange
         return captureBuilder.build()
@@ -396,6 +443,7 @@ internal class VideoNoteRecorder(
         )
         val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         val previewBuilder = Preview.Builder()
+        previewBuilder.setMirrorMode(mirrorMode(settings))
         if (fpsRange != null) previewBuilder.setTargetFrameRate(fpsRange)
         val preview = previewBuilder.build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
@@ -404,7 +452,21 @@ internal class VideoNoteRecorder(
             .addUseCase(capture)
             .setViewPort(ViewPort.Builder(Rational(1, 1), rotation).setScaleType(ViewPort.FILL_CENTER).build())
             .build()
-        cameraProvider.bindToLifecycle(lifecycleOwner, selector, group)
+        val bound = cameraProvider.bindToLifecycle(lifecycleOwner, selector, group)
+        camera = bound
+        applyZoom(bound, zoomRatio)
+    }
+
+    private fun unbindCamera() {
+        provider?.unbindAll()
+        camera = null
+    }
+
+    /** Диапазон зума берётся у конкретной камеры: ультраширокая и фронтальная имеют разные границы. */
+    private fun applyZoom(bound: Camera, ratio: Float) {
+        val range = bound.cameraInfo.zoomState.value ?: return
+        zoomRatio = ratio.coerceIn(range.minZoomRatio, range.maxZoomRatio)
+        bound.cameraControl.setZoomRatio(zoomRatio)
     }
 
     /** Отсчёт идёт с момента, когда CameraX сообщил о старте записи, а не с нажатия: открытие камеры в минуту не входит. */
@@ -434,10 +496,11 @@ internal class VideoNoteRecorder(
         try {
             current.recording = prepare(current, persistent = persistentSupported)
             Log.i(TAG, "video_recording_started session=$sessionName persistent=$persistentSupported")
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
             // Persistent-запись нужна только для смены камеры во время записи: без неё кружок пишется как раньше.
             if (!persistentSupported) {
                 Log.e(TAG, "video_recording_start_failed session=$sessionName")
+                recordRecordingFailure("recording_start", failure)
                 take = null
                 current.file.parentFile?.deleteRecursively()
                 fail(context.getString(R.string.recorder_start_failed))
@@ -449,8 +512,9 @@ internal class VideoNoteRecorder(
             try {
                 current.recording = prepare(current, persistent = false)
                 Log.i(TAG, "video_recording_started session=$sessionName persistent=false")
-            } catch (_: Exception) {
+            } catch (retryFailure: Exception) {
                 Log.e(TAG, "video_recording_start_failed session=$sessionName")
+                recordRecordingFailure("recording_start", retryFailure)
                 take = null
                 current.file.parentFile?.deleteRecursively()
                 fail(context.getString(R.string.recorder_start_failed))
@@ -469,6 +533,7 @@ internal class VideoNoteRecorder(
                 if (event is VideoRecordEvent.Start && take === current && active) {
                     started = true
                     startClock()
+                    recordStarted()
                 }
                 if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
             }
@@ -477,7 +542,7 @@ internal class VideoNoteRecorder(
     private fun onFinalize(current: VideoTake, event: VideoRecordEvent.Finalize) {
         if (take === current) {
             take = null
-            provider?.unbindAll()
+            unbindCamera()
             // Внеплановый Finalize без stop(): гасим состояние записи, иначе интерфейс остаётся «идёт запись».
             active = false
             locked = false
@@ -488,7 +553,15 @@ internal class VideoNoteRecorder(
         }
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
-        when (videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)) {
+        val outcome = videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)
+        recordAppEvent(
+            kind = EventKind.UI,
+            code = "video_note_finalized",
+            text = "Кружок: запись остановлена, $seconds с",
+            severity = if (outcome == VideoTakeOutcome.SaveFailed) Severity.ERROR else Severity.INFO,
+            attrs = mapOf("outcome" to outcome.name, "duration_s" to seconds.toString(), "codec_error" to event.error.toString())
+        )
+        when (outcome) {
             VideoTakeOutcome.Discarded -> current.file.parentFile?.deleteRecursively()
             VideoTakeOutcome.TooShort -> {
                 current.file.parentFile?.deleteRecursively()
@@ -664,7 +737,13 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
         verticalArrangement = Arrangement.Center
     ) {
         val progress = (recorder.elapsedMs.toFloat() / recorder.durationLimitMs).coerceIn(0f, 1f)
-        Box(Modifier.fillMaxWidth().aspectRatio(1f), contentAlignment = Alignment.Center) {
+        // Жест масштабирования на кадре: щипок двумя пальцами меняет зум, пока камера привязана.
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(1f).pointerInput(recorder) {
+                detectTransformGestures { _, _, zoom, _ -> recorder.zoomBy(zoom) }
+            },
+            contentAlignment = Alignment.Center
+        ) {
             Canvas(Modifier.fillMaxSize()) {
                 val stroke = 4.dp.toPx()
                 val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
@@ -675,6 +754,15 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
             Box(Modifier.fillMaxSize().padding(4.dp).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.TopCenter) {
                 // PreviewView переиспользуется между записями: снимаем его со старого контейнера, иначе addView упадёт.
                 AndroidView(factory = { recorder.previewView.also { (it.parent as? ViewGroup)?.removeView(it) } }, modifier = Modifier.fillMaxSize())
+                if (recorder.zoomRatio != 1f) {
+                    Text(
+                        stringResource(R.string.recorder_zoom_value, recorder.zoomRatio),
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp)
+                            .clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.4f)).padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
             }
             // Кнопка живёт вне контейнера с clip(CircleShape): в углу квадрата она оказалась бы за вписанной окружностью и обрезалась.
             if (recorder.canSwitchCamera) {

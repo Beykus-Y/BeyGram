@@ -1,6 +1,9 @@
 package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.*
@@ -19,6 +22,8 @@ internal class TdConversationActions(
     private val request = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val replyRequests = ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
+    // Нажатия на одно сообщение идут по очереди: каждое читает реакции, которые меняет. Другие сообщения не ждут.
+    private val reactionLocks = KeyedMutex<Pair<Long, Long>>()
     private val _limits = MutableStateFlow(MessageLimits())
     val limits = _limits.asStateFlow()
     fun option(name: String, value: TdApi.OptionValue) {
@@ -57,18 +62,18 @@ internal class TdConversationActions(
         MediaKind.Sticker -> error("Стикеры не нумеруются")
     }
 
-    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult {
+    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
         if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_message_too_long))
         send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); clearDraft = true }, replyId)
-    }
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult {
+    }.onFailure { recordSendFailure("text", it) }
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
         send(chatId, media.toInputContent(caption, entities), replyId)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
-    }
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult {
+    }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
         require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
         if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
         val replyTarget = replyId?.let {
@@ -84,7 +89,7 @@ internal class TdConversationActions(
             }
         })
         messages.messages.filterNotNull().forEach { message -> history.put(map(message)); hydrateReply(message) }
-    }
+    }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
 
     suspend fun pinnedMessages(chatId: Long, fromMessageId: Long): Result<PinnedMessagePage> = conversationResult {
         val page = request(pinnedMessagesRequest(chatId, fromMessageId))
@@ -147,6 +152,49 @@ internal class TdConversationActions(
         if (!forwarded.messages.orEmpty().any { it != null }) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
     }
 
+    /** Emoji from the message's top, recent and popular reactions; premium-only ones are left out for users without Premium. */
+    suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<String>> = conversationResult<List<String>> {
+        val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_REACTION_COUNT))
+        if (available.unavailabilityReason != null) emptyList() else pickerEmojis(available, premium = request(TdApi.GetMe()).isPremium)
+    }
+
+    /**
+     * Removes [emoji] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
+     * chosen reaction in the server's order makes room, and it comes back if the new reaction can't be added.
+     * [addToRecent] is set only for a reaction picked from the extended menu. Returns the message's reactions after the change.
+     */
+    suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
+        reactionLocks.withLock(chatId to messageId) {
+            val chosen = request(TdApi.GetMessage(chatId, messageId)).interactionInfo?.reactions?.reactions.orEmpty()
+                .filter { it.isChosen && it.type !is TdApi.ReactionTypePaid }
+            val own = chosen.firstOrNull { (it.type as? TdApi.ReactionTypeEmoji)?.emoji == emoji }
+            if (own != null) {
+                request(TdApi.RemoveMessageReaction(chatId, messageId, own.type))
+            } else {
+                replaceReactions(
+                    displaced = overflowReactions(chosen.map { it.type }, maxReactionCount(chatId)),
+                    add = { request(TdApi.AddMessageReaction(chatId, messageId, TdApi.ReactionTypeEmoji(emoji), false, addToRecent)) },
+                    remove = { request(TdApi.RemoveMessageReaction(chatId, messageId, it)) },
+                    // Возвращённые реакции были выбраны раньше, поэтому в недавние они не попадают.
+                    restore = { request(TdApi.AddMessageReaction(chatId, messageId, it, false, false)) },
+                )
+            }
+            val reactions = messageReactions(request(TdApi.GetMessage(chatId, messageId)).interactionInfo)
+            history.update(chatId, messageId) { it.copy(reactions = reactions) }
+            reactions
+        }
+    }
+
+    private suspend fun maxReactionCount(chatId: Long): Int {
+        val available = request(TdApi.GetChat(chatId)).availableReactions
+        val limit = when (available) {
+            is TdApi.ChatAvailableReactionsAll -> available.maxReactionCount
+            is TdApi.ChatAvailableReactionsSome -> available.maxReactionCount
+            else -> 1
+        }
+        return limit.coerceAtLeast(1)
+    }
+
     /** Messages around [messageId], newest last. TDLib may return fewer messages, so the target is fetched separately. */
     suspend fun window(chatId: Long, messageId: Long): Result<List<TdApi.Message>> = conversationResult {
         if (chatId == 0L || messageId <= 0) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
@@ -167,6 +215,18 @@ internal class TdConversationActions(
     suspend fun search(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
         val found = request(TdApi.SearchChatMessages(chatId, null, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
         MessageSearchPage(found.messages.orEmpty().map(map), found.nextFromMessageId)
+    }
+
+    /** Вкладка профиля: пустой запрос с фильтром вида вложения, новые сообщения первыми. */
+    suspend fun shared(chatId: Long, kind: SharedMediaKind, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
+        val found = request(TdApi.SearchChatMessages(chatId, null, "", null, fromMessageId, 0, SEARCH_PAGE_SIZE, sharedFilter(kind)))
+        MessageSearchPage(found.messages.orEmpty().filterNotNull().map(map), found.nextFromMessageId)
+    }
+    private fun sharedFilter(kind: SharedMediaKind): TdApi.SearchMessagesFilter = when (kind) {
+        SharedMediaKind.Media -> TdApi.SearchMessagesFilterPhotoAndVideo()
+        SharedMediaKind.Files -> TdApi.SearchMessagesFilterDocument()
+        SharedMediaKind.Links -> TdApi.SearchMessagesFilterUrl()
+        SharedMediaKind.Voice -> TdApi.SearchMessagesFilterVoiceNote()
     }
 
     fun hydrateReply(message: TdApi.Message) {
@@ -200,4 +260,29 @@ internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long) = TdApi.Se
     this.fromMessageId = fromMessageId
     limit = 50
     filter = TdApi.SearchMessagesFilterPinned()
+}
+
+/** Медиа в журнале видны и принятые, и неудачные: текстовые сообщения слишком частые, поэтому там только сбои. */
+private fun recordMediaAccepted(kind: String) = recordAppEvent(
+    kind = EventKind.TDLIB,
+    code = "media_send_accepted",
+    text = "Медиа принято к отправке: $kind",
+    attrs = mapOf("kind" to kind)
+)
+
+/** Пишем каждый сбой отправки. Проверка до запроса (пустой текст, ответ недоступен) без причины TDLib получает local_check. */
+private fun recordSendFailure(kind: String, error: Throwable) {
+    val cause = error.cause
+    val reason = when {
+        cause is TdRequestError -> "tdlib_${cause.code}"
+        cause == null && error is UserMessageException -> "local_check"
+        else -> (cause ?: error).javaClass.simpleName
+    }
+    recordAppEvent(
+        kind = EventKind.TDLIB,
+        code = "send_request_failed",
+        text = "Отправка не удалась: $kind, причина: $reason",
+        severity = Severity.ERROR,
+        attrs = mapOf("kind" to kind, "reason" to reason)
+    )
 }

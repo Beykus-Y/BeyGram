@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +25,7 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 /** A separate history window keeps distant replies from creating gaps in the main pagination. */
 @Composable
@@ -43,6 +45,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     // Имя context занято состоянием контекста сообщения, поэтому контекст Android берём под другим именем.
     val androidContext = LocalContext.current
     val list = rememberLazyListState()
+    val reactionScope = rememberCoroutineScope()
     LaunchedEffect(chatId, targetId, attempt) {
         context = null; error = null
         val result = conversation.messageContext(chatId, targetId)
@@ -50,6 +53,14 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     }
     LaunchedEffect(context) {
         context?.messages?.indexOfFirst { it.id == targetId }?.takeIf { it >= 0 }?.let { list.scrollToItem(it) }
+    }
+    // The dialog keeps its own copy of the messages, so the reactions TDLib returns are written back into that copy.
+    fun react(messageId: Long, emoji: String) {
+        reactionScope.launch {
+            conversation.toggleReaction(chatId, messageId, emoji, addToRecent = false)
+                .onSuccess { reactions -> context = context?.let { current -> current.copy(messages = current.messages.map { if (it.id == messageId) it.copy(reactions = reactions) else it }) } }
+                .onFailure { failure -> Toast.makeText(androidContext, failure.userMessage(androidContext, R.string.chat_reaction_failed), Toast.LENGTH_SHORT).show() }
+        }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -69,7 +80,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                 context == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else -> LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(context!!.messages, key = { it.id }) { message ->
-                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = { selected = message }, inlineContent = { InlineBotButtons(message, conversation) })
+                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = { selected = message }, onReaction = ::react, inlineContent = { InlineBotButtons(message, conversation) })
                     }
                 }
             }

@@ -57,6 +57,12 @@ enum class ProxyConnectTab(@StringRes val labelRes: Int) {
 /** Порты, которые экран подставляет сам; при переключении вкладки заменяются на порт новой вкладки. */
 private val DEFAULT_PORTS = setOf("443", "1080", "8080")
 
+/**
+ * Выбор пользователя действует, пока его нода есть в текущем списке подписки; иначе берётся нода, которую отметил сервер.
+ */
+internal fun effectiveSelectedName(userChoice: String?, names: List<String>, serverChoice: String?): String? =
+    userChoice?.takeIf { it in names } ?: serverChoice
+
 private fun defaultPort(tab: ProxyConnectTab): String = when (tab) {
     ProxyConnectTab.MTPROTO -> "443"
     ProxyConnectTab.SOCKS5 -> "1080"
@@ -93,7 +99,7 @@ internal fun ProxyConnectScreen(
     var subscriptionUrl by remember { mutableStateOf(settings.subscriptionUrl) }
     var subscriptionError by remember { mutableStateOf<String?>(null) }
     var selectedName by remember { mutableStateOf<String?>(null) }
-    val effectiveSelected = selectedName ?: connections.firstOrNull { it.selected }?.name
+    val effectiveSelected = effectiveSelectedName(selectedName, connections.map { it.name }, connections.firstOrNull { it.selected }?.name)
 
     val draft: TelegramProxyDraft? = when (tab) {
         ProxyConnectTab.MTPROTO -> TelegramProxyDraft(TelegramProxyKind.MTPROTO, server.trim(), port.toIntOrNull() ?: 0, secret = secret)

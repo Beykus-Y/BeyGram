@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.BitmapDrawable
@@ -18,6 +19,7 @@ import android.webkit.MimeTypeMap
 import android.widget.ImageView
 import android.widget.MediaController
 import android.widget.VideoView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -50,9 +52,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -154,6 +158,37 @@ internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: B
     }
 }
 
+/** Минипревью TDLib: крошечный JPEG, растянутый на весь кадр, поэтому выглядит размытым. */
+@Composable
+internal fun MinithumbnailImage(data: ByteArray, modifier: Modifier = Modifier) {
+    val bitmap = remember(data) { BitmapFactory.decodeByteArray(data, 0, data.size)?.asImageBitmap() }
+    bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier) }
+}
+
+/** Заглушка до загрузки полного файла: миниатюра, уменьшенная до [BLUR_PREVIEW_DIMENSION] px, остаётся только цвет и форма. */
+@Composable
+private fun BlurredMediaPreview(media: MessageMedia, thumbnailPath: String?, modifier: Modifier) {
+    val minithumbnail = media.minithumbnail
+    when {
+        thumbnailPath != null -> LocalMediaImage(thumbnailPath, modifier, maxDimension = BLUR_PREVIEW_DIMENSION)
+        minithumbnail != null -> MinithumbnailImage(minithumbnail, modifier)
+    }
+}
+
+/** Кнопка загрузки поверх заглушки; пока файл грузится, вместо стрелки крутится индикатор. */
+@Composable
+private fun DownloadBadge(downloading: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).clickable(enabled = !downloading, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (downloading) CircularProgressIndicator(Modifier.size(26.dp), color = Color.White, strokeWidth = 2.dp)
+        else Icon(Icons.Rounded.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+    }
+}
+
+private const val BLUR_PREVIEW_DIMENSION = 24
+
 @Composable
 internal fun MediaPreview(
     media: MessageMedia,
@@ -170,9 +205,10 @@ internal fun MediaPreview(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation, MediaKind.Sticker)
-    val imageFile = if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
+    // Секретное вложение в ленте не грузим и не показываем до открытия: превью иначе видно раньше просмотрщика.
+    val imageFile = if (media.isSecret) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
     LaunchedEffect(thumbId, revealed) {
-        if (revealed && isVisual && (thumbId != media.fileId || !media.isSecret && media.mimeType.startsWith("image/") && file.size <= 300_000)) downloadFile(thumbId)
+        if (!media.isSecret && revealed && isVisual && (thumbId != media.fileId || media.mimeType.startsWith("image/") && file.size <= 300_000)) downloadFile(thumbId)
     }
     if (media.kind == MediaKind.Voice) {
         VoiceBubble(media, file, downloadFile, onPlayed, onLongPress)
@@ -184,14 +220,18 @@ internal fun MediaPreview(
     }
     if (isVisual) {
         val ratio = if (media.width > 0 && media.height > 0) media.width.toFloat() / media.height else 1.5f
+        // Полного файла ещё нет: вместо растянутой миниатюры показываем размытую заглушку и кнопку загрузки.
+        val awaitingFile = revealed && !media.isSecret && file.localPath == null && media.kind != MediaKind.Sticker
         Box(
             Modifier.width(244.dp).height((244 / ratio).coerceIn(120f, 280f).dp)
                 .background(palette.disabled)
                 .combinedClickable(onClick = { if (!revealed) revealed = true else onOpen() }, onLongClick = onLongPress),
             contentAlignment = Alignment.Center
         ) {
-            if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize(), fit = media.kind == MediaKind.Sticker)
+            if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
+            else if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize(), fit = media.kind == MediaKind.Sticker)
             if (!revealed) Text(stringResource(R.string.media_spoiler_hint), color = palette.textPrimary, modifier = Modifier.padding(16.dp))
+            else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, onClick = { downloadFile(media.fileId) })
             else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
                 val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
                 Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
@@ -254,6 +294,8 @@ internal fun MediaViewer(
         val settled = pages.getOrNull(pagerState.settledPage)?.messageId
         if (settled != null && settled != selectedId) onSelect(settled)
     }
+    // Выбранное вложение догоняет свайп только после его окончания, поэтому защиту экрана берём с видимой страницы.
+    val settledMedia = pages.getOrNull(pagerState.settledPage)?.media ?: shown.media
     val shownFile by remember(shown.media.fileId) { observeFile(shown.media.fileId) }.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -265,7 +307,7 @@ internal fun MediaViewer(
         externalError = openExternalMedia(context, path, item.media.mimeType)
         if (externalError == null) onViewed(item.messageId)
     }
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (shown.media.isSecret) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
@@ -301,7 +343,7 @@ internal fun MediaViewer(
     }
 }
 
-/** Одна страница просмотрщика. [active] — страница, которую сейчас видно целиком: только её видео играет и только она отмечается просмотренной. */
+/** Одна страница просмотрщика. [active] — страница, которую сейчас видно целиком: только её видео и аудио играют, только она отмечается просмотренной и только на ней открывается секретное вложение. */
 @Composable
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
@@ -312,14 +354,20 @@ private fun MediaViewerPage(
     val tgs = media.mimeType == "application/x-tgsticker"
     val previewId = media.thumbnailFileId
     val exportable = canExport && !media.isSecret
+    // Соседняя секретная страница при свайпе не грузится и ничего не показывает, даже если файл уже на диске.
+    val concealed = MediaViewerPolicy.concealed(media, active)
     val currentOnViewed by rememberUpdatedState(onViewed)
     LaunchedEffect(media.fileId, file.localPath, active) {
         if (active && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
     }
-    LaunchedEffect(media.fileId) { if (!tgs) downloadFile(media.fileId) else previewId?.let(downloadFile) }
+    LaunchedEffect(media.fileId, concealed) {
+        if (concealed) return@LaunchedEffect
+        if (!tgs) downloadFile(media.fileId) else previewId?.let(downloadFile)
+    }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
         when {
+            concealed -> Unit
             tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (previewId != null) {
                     val preview by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
@@ -335,7 +383,7 @@ private fun MediaViewerPage(
             media.mimeType.startsWith("image/") -> ZoomableImage(path)
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
-            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> LocalAudio(path) { currentOnViewed(item.messageId) }
+            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> LocalAudio(path, active) { currentOnViewed(item.messageId) }
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -398,7 +446,7 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
 }
 
 @Composable
-private fun LocalAudio(path: String, onStarted: () -> Unit) {
+private fun LocalAudio(path: String, active: Boolean, onStarted: () -> Unit) {
     val player = remember(path) { MediaPlayer() }
     var ready by remember(path) { mutableStateOf(false) }
     var playing by remember(path) { mutableStateOf(false) }
@@ -425,6 +473,8 @@ private fun LocalAudio(path: String, onStarted: () -> Unit) {
         onDispose { player.release() }
     }
     LaunchedEffect(playing) { while (playing) { position = runCatching { player.currentPosition }.getOrDefault(0); delay(250) } }
+    // Как у видео: играет только активная страница. Соседнюю ставим на паузу, чтобы её звук не шёл поверх текущей.
+    LaunchedEffect(active) { if (!active) { runCatching { if (player.isPlaying) player.pause() }; playing = false } }
     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("♫", color = Color.White, fontSize = 56.sp)
         if (error) Text(stringResource(R.string.media_audio_play_failed), color = Color.LightGray)

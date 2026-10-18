@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,29 +30,45 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.ProfilePresence
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
+import kotlinx.coroutines.delay
 
 /** Строка под названием чата: статус собеседника или число участников онлайн. */
-internal fun chatPresenceLine(chat: ChatPreview, info: ProfileInfo?): UiText = when {
+internal fun chatPresenceLine(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, nowMillis: Long): UiText = when {
     chat.isGroup -> info?.onlineMemberCount?.takeIf { it > 0 }?.let { UiText.Res(R.string.presence_online_count, listOf(it)) } ?: UiText.Res(R.string.presence_group)
-    else -> info?.status?.let { presenceText(it) } ?: UiText.Res(R.string.presence_private_chat)
+    else -> info?.status?.let { presenceText(it, lastSeenStyle, nowMillis) } ?: UiText.Res(R.string.presence_private_chat)
 }
 
 /** Статус собеседника из TDLib: текст выбирается по виду статуса, а не по строке от TDLib. */
-internal fun presenceText(status: ProfilePresence): UiText = when (status) {
+internal fun presenceText(status: ProfilePresence, lastSeenStyle: LastSeenStyle, nowMillis: Long): UiText = when (status) {
     ProfilePresence.Bot -> UiText.Res(R.string.presence_bot)
     ProfilePresence.DeletedAccount -> UiText.Res(R.string.presence_deleted_account)
     ProfilePresence.Online -> UiText.Res(R.string.presence_online)
-    is ProfilePresence.LastSeen -> UiText.Res(R.string.presence_last_seen_at, listOf(status.at))
+    is ProfilePresence.LastSeen -> lastSeenText(status.wasOnlineMillis, nowMillis, lastSeenStyle)
     ProfilePresence.Recently -> UiText.Res(R.string.presence_recently)
     ProfilePresence.LastWeek -> UiText.Res(R.string.presence_last_week)
     ProfilePresence.LastMonth -> UiText.Res(R.string.presence_last_month)
     ProfilePresence.LongAgo -> UiText.Res(R.string.presence_long_ago)
+}
+
+private const val PRESENCE_REFRESH_MS = 30_000L
+
+/**
+ * Текущее время для строки статуса. Пока статус — время последнего входа, оно пересчитывается раз в 30 секунд,
+ * иначе «5 минут назад» застыло бы в шапке. Для остальных статусов ничего не тикает.
+ */
+@Composable
+internal fun rememberPresenceClock(lastSeen: Boolean): State<Long> = produceState(System.currentTimeMillis(), lastSeen) {
+    while (lastSeen) {
+        value = System.currentTimeMillis()
+        delay(PRESENCE_REFRESH_MS)
+    }
 }
 
 /** «Анна и Дима печатают…»: имена в порядке начала набора; при четырёх и больше остальные сворачиваются в «и ещё N». */

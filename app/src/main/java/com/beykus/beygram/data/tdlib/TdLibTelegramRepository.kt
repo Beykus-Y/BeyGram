@@ -7,6 +7,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
@@ -19,6 +20,10 @@ import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
+import com.beykus.beygram.data.storage.StorageSettingsStore
+import com.beykus.beygram.domain.model.CachePolicy
+import com.beykus.beygram.domain.model.StorageCategory
+import com.beykus.beygram.domain.model.StorageUsage
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.CallHistoryPage
@@ -32,6 +37,7 @@ import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.NotificationPresentation
 import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.TelegramProxyKind
@@ -39,6 +45,7 @@ import com.beykus.beygram.data.vpn.LoopbackProxyCredentials
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import com.beykus.beygram.diagnostics.ConnectionEventLog
 import com.beykus.beygram.diagnostics.StructuredEventLog
+import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.repository.TelegramRepository
@@ -53,6 +60,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -251,7 +261,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override val notificationPresentation = _notificationPresentation.asStateFlow()
     override suspend fun dismissNotifications(groupId: Int, maxNotificationId: Int) = notificationFeed.dismiss(groupId, maxNotificationId)
     private val chatStates = ConcurrentHashMap<Long, MutableStateFlow<ChatPreview?>>()
-    override fun observeChat(chatId: Long): StateFlow<ChatPreview?> = chatStates.computeIfAbsent(chatId) { MutableStateFlow(chatCache[it]) }.asStateFlow()
+    override fun observeChat(chatId: Long): StateFlow<ChatPreview?> = chatStates.computeIfAbsent(chatId) { MutableStateFlow(chatCache[it]?.withMute()) }.asStateFlow()
     override suspend fun loadChat(chatId: Long): Result<Unit> = requestResult {
         handleNewChat(TdRequests { client }(TdApi.GetChat(chatId))); Unit
     }
@@ -290,6 +300,22 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
+    // ---- Память и кэш --------------------------------------------------------
+
+    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")))
+    private val storageSettings = StorageSettingsStore.getInstance(context)
+    private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
+    override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
+    override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> =
+        storageInAuthScope { storage.clear(categories, onProgress) }
+    override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> = storageInAuthScope { storage.applyPolicy(policy) }
+
+    /**
+     * Очистка и лимит идут в области входа: уход с экрана их не прерывает, а очередь [TdStorage] держится до ответа TDLib.
+     * Ждущий получает результат, когда он готов.
+     */
+    private suspend fun <T> storageInAuthScope(block: suspend () -> T): Result<T> = storageResult { authScope.async { block() }.await() }
+
     // ---- Канал подтверждения диагностических отчётов --------------------------
     // Pinning id бота задан публичной конфигурацией сборки; 0 — пиннинг выключен.
     private val reportBotChannel = TdReportBotChannel({ client }, BuildConfig.REPORT_BOT_USER_ID)
@@ -304,11 +330,18 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun messageCapabilities(chatId: Long, messageId: Long) = conversationActions.capabilities(chatId, messageId)
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind) = conversationActions.mediaPosition(chatId, messageId, kind)
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>) = conversationActions.edit(chatId, messageId, text, entities)
-    override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) = conversationActions.delete(chatId, messageId, scope)
+    override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) =
+        conversationActions.delete(chatId, messageId, scope).onSuccess { conversationEffects.uploadFinished(chatId, messageId) }
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long) = conversationActions.forward(fromChatId, messageId, toChatId)
+    override suspend fun availableReactions(chatId: Long, messageId: Long) = conversationActions.availableReactions(chatId, messageId)
+    override suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean) =
+        conversationActions.toggleReaction(chatId, messageId, emoji, addToRecent)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
+    override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long) = conversationActions.shared(chatId, kind, fromMessageId)
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
+    override fun startChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.startActivity(chatId, activity)
+    override fun endChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.endActivity(chatId, activity)
     override fun setAppForeground(foreground: Boolean) {
         conversationEffects.setForeground(foreground)
         _notificationPresentation.update { it.copy(foreground = foreground) }
@@ -338,13 +371,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
      * пересобираются не чаще раза в [CHAT_LIST_PUBLISH_DELAY_MS].
      */
     private val chatCache = ConcurrentHashMap<Long, ChatPreview>()
+    private val muteState = ChatMuteState()
     // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
     private val historyRequests = ConcurrentHashMap<Long, Long>()
     private val chatListScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val chatListPublisher = CoalescedPublisher(chatListScope, CHAT_LIST_PUBLISH_DELAY_MS) {
         // Main-list ordering comes from Telegram, including pins and draft activity.
-        _chats.value = orderedMainChats(chatCache.values)
-        _archivedChats.value = orderedArchivedChats(chatCache.values)
+        val previews = chatCache.values.map { it.withMute() }
+        _chats.value = orderedMainChats(previews)
+        _archivedChats.value = orderedArchivedChats(previews)
     }
 
     /** Номер телефона, введённый пользователем — нужен для [WaitingForCode]. */
@@ -448,7 +483,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         client.send(TdApi.DownloadFile(fileId, 16, 0, 0, false), Client.ResultHandler { result ->
             when (result) {
                 is TdApi.File -> mediaFiles.update(result.toMediaFileState())
-                is TdApi.Error -> mediaFiles.fail(fileId, UiText.Res(R.string.err_media_download_failed))
+                is TdApi.Error -> {
+                    recordAppEvent(
+                        kind = EventKind.TDLIB,
+                        code = "file_download_failed",
+                        text = "Файл не загрузился, код ${result.code}",
+                        severity = Severity.WARNING,
+                        attrs = mapOf("error_code" to result.code.toString())
+                    )
+                    mediaFiles.fail(fileId, UiText.Res(R.string.err_media_download_failed))
+                }
             }
         })
     }
@@ -539,6 +583,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
         leaveJumpWindow(chatId)
+        conversationEffects.endActivity(chatId, ChatActivity.Typing)
         return conversationActions.sendText(chatId, text, replyToMessageId, entities)
     }
 
@@ -562,6 +607,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateChatPosition -> handleChatPosition(update.chatId, update.position)
             is TdApi.UpdateChatDraftMessage -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.withPositions(update.positions) }
+                notificationFeed.chatPositionChanged(update.chatId)
                 publishChat(update.chatId)
             }
             is TdApi.UpdateChatReadInbox -> {
@@ -569,7 +615,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadCount = update.unreadCount) }
                 publishChat(update.chatId)
             }
-            is TdApi.UpdateChatReadOutbox -> messageHistory.readOutbox(update.chatId, update.lastReadOutboxMessageId)
+            is TdApi.UpdateChatReadOutbox -> {
+                messageHistory.readOutbox(update.chatId, update.lastReadOutboxMessageId)
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(lastReadOutboxMessageId = update.lastReadOutboxMessageId) }
+                publishChat(update.chatId)
+            }
             is TdApi.UpdateMessageContent -> messageHistory.update(update.chatId, update.messageId) { message ->
                 val attachment = mediaMapper.media(update.newContent)
                 message.copy(text = contentText(update.newContent, attachment != null), entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
@@ -578,30 +628,49 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 message.copy(media = message.media?.copy(isViewed = true))
             }
             is TdApi.UpdateMessageEdited -> messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
+            is TdApi.UpdateMessageInteractionInfo -> messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
             is TdApi.UpdateChatPhoto -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(photo = profiles.photo(update.photo)) }
                 publishChat(update.chatId)
             }
+            is TdApi.UpdateChatNotificationSettings -> {
+                muteState.updateChat(update.chatId, update.notificationSettings)
+                publishChat(update.chatId)
+            }
+            is TdApi.UpdateScopeNotificationSettings -> handleScopeNotificationSettings(NotificationScope.ofScope(update.scope), update.notificationSettings)
             is TdApi.UpdateNewMessage         -> {
                 reportBotChannel.onNewMessage(update.message)
                 handleNewMessage(update.message)
+                conversationEffects.uploadStarted(update.message)
             }
             is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
             is TdApi.UpdateMessageSendSucceeded -> {
                 reportBotChannel.onSendSucceeded(update)
-                cleanupSentRecording(update.message)
+                cleanupSentUploads(update.message)
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
                 conversationActions.hydrateReply(update.message)
+                conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateMessageSendFailed -> {
                 reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
                 android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} code=${sendError?.code} error=${sendError?.message}")
+                recordAppEvent(
+                    kind = EventKind.TDLIB,
+                    code = "message_send_failed",
+                    text = "Сообщение не отправлено: ${update.message.content.javaClass.simpleName}, код ${sendError?.code ?: 0}",
+                    severity = Severity.ERROR,
+                    attrs = mapOf("content" to update.message.content.javaClass.simpleName, "error_code" to (sendError?.code ?: 0).toString())
+                )
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+                conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
-            is TdApi.UpdateDeleteMessages -> if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())
+            is TdApi.UpdateDeleteMessages -> {
+                update.messageIds.forEach { conversationEffects.uploadFinished(update.chatId, it) }
+                if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())
+            }
             is TdApi.UpdateConnectionState    -> {
                 ConnectionEventLog.shared.record("Соединение с Telegram: ${update.state.logLabel()}")
                 StructuredEventLog.shared.record(
@@ -625,25 +694,38 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }
     }
 
-    /** Recorded files must stay on disk until TDLib reports upload completion. */
-    private fun cleanupSentRecording(message: TdApi.Message) {
-        val localPath = when (val content = message.content) {
-            is TdApi.MessageVideoNote -> content.videoNote.video.local.path
-            is TdApi.MessageVoiceNote -> content.voiceNote.voice.local.path
-            else -> return
-        }.takeIf { it.isNotBlank() } ?: return
-        runCatching {
-            val uploads = File(appContext.filesDir, "uploads").canonicalFile
-            val file = File(localPath).canonicalFile
-            val sessionDirectory = file.parentFile ?: return
-            require(sessionDirectory.parentFile?.canonicalFile == uploads) { "Recording path is outside uploads" }
-            require(file.path.startsWith(uploads.path + File.separator)) { "Recording path is outside uploads" }
-            val deleted = file.delete()
-            if (sessionDirectory.listFiles().isNullOrEmpty()) sessionDirectory.delete()
-            if (deleted) {
-                android.util.Log.i("BeyGramNet", "Uploaded recording cleaned kind=${message.content.javaClass.simpleName} path=$localPath")
-            }
-        }.onFailure { android.util.Log.w("BeyGramNet", "Could not clean uploaded recording: ${it.message}") }
+    /** Files stay on disk until TDLib reports the message sent. Then their copies under uploads go; unsent files stay. */
+    private fun cleanupSentUploads(message: TdApi.Message) {
+        val content = message.content
+        content.localFiles().mapNotNull { it?.local?.path }.filter { it.isNotBlank() }.forEach { localPath ->
+            runCatching {
+                val uploads = File(appContext.filesDir, "uploads").canonicalFile
+                val file = File(localPath).canonicalFile
+                // TDLib's own cache is outside uploads and is never touched here.
+                if (!file.path.startsWith(uploads.path + File.separator)) return@runCatching
+                if (content is TdApi.MessageVideoNote) {
+                    // A session folder can hold segments that still wait to be sent, so only this segment's files and an emptied folder go.
+                    file.delete()
+                    file.parentFile?.takeIf { it.listFiles().isNullOrEmpty() }?.delete()
+                } else {
+                    // Every other upload has a folder of its own. Removing it also removes files TDLib does not report, such as a photo's thumbnail.
+                    generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }.deleteRecursively()
+                }
+                android.util.Log.i("BeyGramNet", "Sent upload cleaned kind=${content.javaClass.simpleName} path=$localPath")
+            }.onFailure { android.util.Log.w("BeyGramNet", "Could not clean sent upload: ${it.message}") }
+        }
+    }
+
+    /** Local files of a message content, thumbnails included. */
+    private fun TdApi.MessageContent.localFiles(): List<TdApi.File?> = when (this) {
+        is TdApi.MessagePhoto -> photo.sizes.map { it.photo }
+        is TdApi.MessageVideo -> listOf(video.video, video.thumbnail?.file)
+        is TdApi.MessageAnimation -> listOf(animation.animation, animation.thumbnail?.file)
+        is TdApi.MessageAudio -> listOf(audio.audio, audio.albumCoverThumbnail?.file)
+        is TdApi.MessageDocument -> listOf(document.document, document.thumbnail?.file)
+        is TdApi.MessageVideoNote -> listOf(videoNote.video, videoNote.thumbnail?.file)
+        is TdApi.MessageVoiceNote -> listOf(voiceNote.voice)
+        else -> emptyList()
     }
 
     // ---- Авторизация ---------------------------------------------------------
@@ -674,16 +756,19 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             }
             is TdApi.AuthorizationStateReady -> {
                 _authState.value = AuthState.Ready
-                loadChats()
+                loadChatsWithNotificationScopes()
                 syncArchiveReturnSetting()
                 profiles.refreshMe()
                 conversationActions.initialize()
                 conversationEffects.authorized()
                 notificationFeed.initialize()
+                cacheMaintenance.authorized()
             }
             is TdApi.AuthorizationStateLoggingOut,
             is TdApi.AuthorizationStateClosed -> {
                 _authState.value = AuthState.WaitingForPhone
+                conversationEffects.signedOut()
+                cacheMaintenance.signedOut()
             }
             else -> Unit
         }
@@ -718,6 +803,33 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         loadChatList(TdApi.ChatListArchive())
     }
 
+    /**
+     * Чаты грузим сразу, а общие настройки звука читаем параллельно. Пока настройка области не пришла, новое сообщение
+     * не возвращает её архивный чат в основной список: чат может быть заглушён (см. [ChatMuteState.isKnown]).
+     */
+    private fun loadChatsWithNotificationScopes() {
+        loadChats()
+        chatListScope.launch { loadNotificationScopes() }
+    }
+
+    /**
+     * Ошибка чтения одной области оставляет её без общего значения: чаты на общей настройке этой области не возвращаются
+     * из архива, пока TDLib не пришлёт её значение.
+     */
+    private suspend fun loadNotificationScopes() = coroutineScope {
+        NotificationScope.entries.map { scope ->
+            async {
+                runCatching { tdRequests(TdApi.GetScopeNotificationSettings(scope.toTd())) }
+                    .onSuccess { handleScopeNotificationSettings(scope, it) }
+            }
+        }.awaitAll()
+    }
+
+    /** Общая настройка меняет только звук: списки пересобираются с ним при публикации, а наблюдатели одного чата звук не показывают. */
+    private fun handleScopeNotificationSettings(scope: NotificationScope, settings: TdApi.ScopeNotificationSettings) {
+        if (muteState.updateScope(scope, settings).isNotEmpty()) chatListPublisher.request()
+    }
+
     /** Переключатель возврата из архива показывает настройку аккаунта, поэтому читаем её при входе. */
     private fun syncArchiveReturnSetting() {
         chatListScope.launch {
@@ -741,23 +853,32 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleNewChat(chat: TdApi.Chat) {
         profiles.putChat(chat)
-        notificationFeed.chat(chat)
         messageHistory.readInbox(chat.id, chat.lastReadInboxMessageId)
         messageHistory.readOutbox(chat.id, chat.lastReadOutboxMessageId)
-        val preview = chat.toChatPreview() ?: return
-        chatCache[chat.id] = preview
-        publishChat(chat.id)
+        muteState.putChat(chat.id, NotificationScope.ofChat(chat.type), chat.notificationSettings)
+        val preview = chat.toChatPreview()
+        // The notification groups read the archived flag from chatCache, so the preview is stored before they are updated.
+        preview?.let { chatCache[chat.id] = it }
+        notificationFeed.chat(chat)
+        if (preview != null) publishChat(chat.id)
     }
 
     private fun handleChatLastMessage(chatId: Long, lastMessage: TdApi.Message?, positions: Array<TdApi.ChatPosition>) {
         val existing = chatCache[chatId] ?: return
-        chatCache[chatId] = existing.copy(
-            lastMessage = lastMessage?.toTextPreview() ?: UiText.Raw(""),
-            lastMessageTime = lastMessage?.toTimeString().orEmpty(),
-            lastMessageId = lastMessage?.id ?: 0L
-        ).withPositions(positions)
+        chatCache[chatId] = existing.withLastMessage(lastMessage).withPositions(positions)
+        notificationFeed.chatPositionChanged(chatId)
         publishChat(chatId)
     }
+
+    /** Поля строки чата, которые зависят от последнего сообщения: текст, время, отправитель и статус своего сообщения. */
+    private fun ChatPreview.withLastMessage(message: TdApi.Message?): ChatPreview = copy(
+        lastMessage = message?.toTextPreview() ?: UiText.Raw(""),
+        lastMessageTime = message?.toTimeString().orEmpty(),
+        lastMessageId = message?.id ?: 0L,
+        lastMessageOutgoing = message?.isOutgoing == true,
+        lastMessageSender = message?.let { profiles.senderName(it.senderId) }.orEmpty(),
+        lastMessageSendState = message?.sendingState.toSendState()
+    )
 
     /** Позиции чата в основном списке и в архиве; нет позиции в списке — чат там не показывается. */
     private fun ChatPreview.withPositions(positions: Array<TdApi.ChatPosition>): ChatPreview {
@@ -777,6 +898,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.ChatListArchive -> existing.copy(archiveOrder = position.order)
             else -> return
         }
+        notificationFeed.chatPositionChanged(chatId)
         publishChat(chatId)
     }
 
@@ -790,8 +912,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         messageHistory.put(message.toChatMessage())
         conversationActions.hydrateReply(message)
         val chat = chatCache[message.chatId]
-        // Muted archived chats stay in the archive, as they do in Telegram.
-        if (!message.isOutgoing && chat != null && chat.archiveOrder > 0L && !chat.isMuted && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage) {
+        // Muted archived chats stay in the archive, as they do in Telegram. Until the chat's notification settings are
+        // known, it stays in the archive too: it may be muted.
+        if (!message.isOutgoing && chat != null && chat.archiveOrder > 0L && muteState.isKnown(message.chatId) &&
+            !muteState.isMuted(message.chatId) && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage
+        ) {
             returningFromArchive += message.chatId
             chatListScope.launch {
                 setChatArchived(message.chatId, false).onFailure { ConnectionEventLog.shared.record("Возврат чата из архива: ошибка") }
@@ -809,17 +934,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         time = toTimeString(),
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
-        sendState = when (sendingState) {
-            is TdApi.MessageSendingStatePending -> MessageSendState.Sending
-            is TdApi.MessageSendingStateFailed -> MessageSendState.Failed
-            else -> MessageSendState.Sent
-        },
+        sendState = sendingState.toSendState(),
         media = attachment,
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
         isEdited = editDate > 0,
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),
+        reactions = messageReactions(interactionInfo),
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
@@ -829,9 +951,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     /** Updates observers of this chat right away and queues the shared lists; other chats are not touched. */
     private fun publishChat(chatId: Long) {
-        chatStates[chatId]?.value = chatCache[chatId]
+        chatStates[chatId]?.value = chatCache[chatId]?.withMute()
         chatListPublisher.request()
     }
+
+    /** Заглушённость берём из состояния звука в момент публикации, поэтому общие настройки не пишутся в каждый чат. */
+    private fun ChatPreview.withMute(): ChatPreview = copy(isMuted = muteState.isMuted(id))
 
     // =========================================================================
     // Конвертеры TdApi → domain models
@@ -851,10 +976,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isPinned = mainPosition?.isPinned == true,
-            isMuted = notificationSettings?.muteFor?.let { it > 0 } == true,
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,
             lastMessageId = lastMessage?.id ?: 0L,
+            lastMessageOutgoing = lastMessage?.isOutgoing == true,
+            lastMessageSender = lastMessage?.let { profiles.senderName(it.senderId) }.orEmpty(),
+            lastMessageSendState = lastMessage?.sendingState.toSendState(),
+            lastReadOutboxMessageId = lastReadOutboxMessageId,
             photo = profiles.photo(photo)
         )
     }
@@ -886,6 +1014,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.MessageVoiceNote -> UiText.Res(R.string.chat_preview_voice)
             else                      -> UiText.Res(R.string.message_title)
         }
+
+    private fun TdApi.MessageSendingState?.toSendState(): MessageSendState = when (this) {
+        is TdApi.MessageSendingStatePending -> MessageSendState.Sending
+        is TdApi.MessageSendingStateFailed -> MessageSendState.Failed
+        else -> MessageSendState.Sent
+    }
 
     private fun TdApi.Message.toTimeString(): String =
         DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(date * 1000L))

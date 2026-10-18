@@ -47,11 +47,18 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.reactionMessage
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
 
-internal data class ChatMessageListItem(val key: String, val messages: List<ChatMessage>, val mediaAlbumId: Long = 0L)
+internal data class ChatMessageListItem(
+    val key: String,
+    val messages: List<ChatMessage>,
+    val mediaAlbumId: Long = 0L,
+    /** Автоматический кружок, который ещё не принят TDLib; в ленте показывается вместо сообщения. */
+    val pendingVideoNote: PendingVideoNote? = null
+)
 
 /** Combines messages only when TDLib supplied the same nonzero mediaAlbumId. */
 internal fun groupTelegramMediaAlbums(messages: List<ChatMessage>): List<ChatMessageListItem> {
@@ -76,6 +83,8 @@ internal fun MessageAlbumBubble(
     onOpen: (Long) -> Unit,
     onActions: (Long) -> Unit,
     onReplyClick: (MessageReply) -> Unit,
+    onReply: ((Long) -> Unit)? = null,
+    onReaction: (Long, String) -> Unit,
     onRetry: () -> Unit = {}
 ) {
     if (messages.isEmpty()) return
@@ -87,52 +96,57 @@ internal fun MessageAlbumBubble(
     val captions = chronological.filter { it.text.isNotBlank() }
     val captionMessage = captions.lastOrNull() ?: latest
     val reply = chronological.firstNotNullOfOrNull { it.reply }
+    val reactionOwner = reactionMessage(chronological)
 
-    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = if (latest.isOutgoing) Arrangement.End else Arrangement.Start) {
-        BubbleLayout(
-            Modifier.widthIn(max = 292.dp).clip(shape)
-                .then(if (highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-                .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble),
-            overlayMeta = false,
-            body = {
-                Column {
-                    if (!latest.isOutgoing && latest.senderName.isNotBlank()) {
-                        Text(latest.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp))
-                    }
-                    val rows = chronological.chunked(columns)
-                    rows.forEachIndexed { index, rowMessages ->
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                            rowMessages.forEach { message ->
-                                val media = message.media ?: return@forEach
-                                AlbumMediaTile(media, observeFile, onDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) }, Modifier.weight(1f))
+    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
+        SwipeToReply(enabled = onReply != null && captionMessage.sendState == MessageSendState.Sent, outgoing = latest.isOutgoing,
+            onReply = { onReply?.invoke(captionMessage.id) }) { swipe ->
+            BubbleLayout(
+                swipe.widthIn(max = 292.dp).clip(shape)
+                    .then(if (highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
+                    .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble),
+                overlayMeta = false,
+                body = {
+                    Column {
+                        if (!latest.isOutgoing && latest.senderName.isNotBlank()) {
+                            Text(latest.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp))
+                        }
+                        val rows = chronological.chunked(columns)
+                        rows.forEachIndexed { index, rowMessages ->
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                rowMessages.forEach { message ->
+                                    val media = message.media ?: return@forEach
+                                    AlbumMediaTile(media, observeFile, onDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) }, Modifier.weight(1f))
+                                }
+                                repeat(columns - rowMessages.size) { SpacerTile(Modifier.weight(1f)) }
                             }
-                            repeat(columns - rowMessages.size) { SpacerTile(Modifier.weight(1f)) }
+                            if (index < rows.lastIndex) Spacer(Modifier.height(2.dp))
                         }
-                        if (index < rows.lastIndex) Spacer(Modifier.height(2.dp))
-                    }
-                    if (reply != null) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).clip(RoundedCornerShape(10.dp))
-                            .background(palette.surface.copy(alpha = 0.72f)).combinedClickable(onClick = { onReplyClick(reply) }, onLongClick = { onActions(captionMessage.id) })
-                            .padding(horizontal = 9.dp, vertical = 6.dp)) {
-                            Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk,
-                                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (reply != null) {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).clip(RoundedCornerShape(10.dp))
+                                .background(palette.surface.copy(alpha = 0.72f)).combinedClickable(onClick = { onReplyClick(reply) }, onLongClick = { onActions(captionMessage.id) })
+                                .padding(horizontal = 9.dp, vertical = 6.dp)) {
+                                Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk,
+                                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        if (captions.isNotEmpty()) {
+                            Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { onActions(captionMessage.id) })
+                                .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp)) {
+                                captions.forEach { FormattedMessageText(it) }
+                            }
                         }
                     }
-                    if (captions.isNotEmpty()) {
-                        Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { onActions(captionMessage.id) })
-                            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp)) {
-                            captions.forEach { FormattedMessageText(it) }
-                        }
-                    }
+                },
+                meta = {
+                    BubbleMeta(latest, isRead, retryAvailable = latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed },
+                        overlay = false, onRetry = onRetry)
                 }
-            },
-            meta = {
-                BubbleMeta(latest, isRead, retryAvailable = latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed },
-                    overlay = false, onRetry = onRetry)
-            }
-        )
+            )
+        }
+        MessageReactionChips(reactionOwner.reactions, onToggle = { onReaction(reactionOwner.id, it.emoji) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }
 
@@ -151,8 +165,9 @@ private fun AlbumMediaTile(
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val visual = media.kind in setOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
-    val imagePath = if (media.mimeType.startsWith("image/") && !media.isSecret && file.size <= 300_000) file.localPath ?: thumb.localPath else thumb.localPath
-    LaunchedEffect(thumbId, revealed) { if (revealed && visual) onDownloadFile(thumbId) }
+    // Секретное вложение в альбоме не грузим и не показываем до открытия, как в ленте.
+    val imagePath = if (media.isSecret) null else if (media.mimeType.startsWith("image/") && file.size <= 300_000) file.localPath ?: thumb.localPath else thumb.localPath
+    LaunchedEffect(thumbId, revealed) { if (!media.isSecret && revealed && visual) onDownloadFile(thumbId) }
 
     Box(modifier.aspectRatio(1f).padding(1.dp).clip(RoundedCornerShape(5.dp)).background(palette.disabled)
         .combinedClickable(onClick = { if (!revealed) revealed = true else onOpen() }, onLongClick = onLongPress),

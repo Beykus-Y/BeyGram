@@ -1,16 +1,19 @@
 package com.beykus.beygram.data.vpn
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
+import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.notifications.AndroidNotificationRenderer
+import com.beykus.beygram.notifications.NotificationIntents
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,10 +42,12 @@ data class ProxyRuntimeState(val status: ProxyRuntimeStatus, val message: UiText
 class MihomoProxyService : Service() {
     // Newest start id received, so a failed start can stop the service once every command so far is answered.
     private var lastStartId = 0
+    // When the newest start request arrived, so the problem report can say how long the listener took to become ready.
+    private var startRequestedAt = 0L
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        AndroidNotificationRenderer.channels(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -65,10 +70,11 @@ class MihomoProxyService : Service() {
     }
 
     private fun startProxy() {
-        // Every start intent gets startForeground, including one that finds the listener already on its way.
-        startForeground(NOTIFICATION_ID, buildNotification())
         val status = _runtimeState.value.status
+        // Every start intent gets startForeground, including one that finds the listener already on its way.
+        startForeground(NOTIFICATION_ID, buildNotification(textFor(status)))
         if (status == ProxyRuntimeStatus.RUNNING || status == ProxyRuntimeStatus.STARTING) return
+        startRequestedAt = SystemClock.elapsedRealtime()
         _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STARTING)
         MihomoRuntimeDiagnostics.event("service", "start requested; profileExists=${MihomoCoreBridge(applicationContext).profileExists()}")
         startJob = enqueue { ticket -> runStart(ticket) }
@@ -90,6 +96,9 @@ class MihomoProxyService : Service() {
                 if (ticket == latestTicket) {
                     _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.RUNNING)
                     MihomoRuntimeDiagnostics.event("service", "state=RUNNING")
+                    // "Working" is shown only after the local listener has been checked; it says nothing about upstream reachability.
+                    getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(textFor(ProxyRuntimeStatus.RUNNING)))
+                    MihomoRuntimeDiagnostics.outcome("proxy_ready", "Прокси: локальный слушатель готов", attrs = mapOf("elapsed_ms" to (SystemClock.elapsedRealtime() - startRequestedAt).toString()))
                 }
             }
         } catch (error: CancellationException) {
@@ -105,6 +114,8 @@ class MihomoProxyService : Service() {
                         ProxyRuntimeStatus.FAILED,
                         (error as? UserMessageException)?.text ?: UiText.Res(R.string.err_vpn_start_failed)
                     )
+                    val cause = (error as? UserMessageException)?.cause ?: error
+                    MihomoRuntimeDiagnostics.outcome("proxy_failed", "Прокси: запуск не удался", Severity.WARNING, mapOf("cause" to cause.javaClass.simpleName))
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     // A start that arrived meanwhile got this failure as its answer too, so stop once every command so far is answered.
                     stopSelf(lastStartId)
@@ -155,26 +166,23 @@ class MihomoProxyService : Service() {
         }.also { lastRequest = it }
     }
 
-    private fun buildNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildNotification(@StringRes text: Int): Notification = NotificationCompat.Builder(this, AndroidNotificationRenderer.PROXY)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(getString(R.string.proxy_notification_title))
-        .setContentText(getString(R.string.proxy_notification_text))
+        .setContentText(getString(text))
+        .setContentIntent(NotificationIntents.proxy(this))
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .build()
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, getString(R.string.proxy_notification_title), NotificationManager.IMPORTANCE_LOW)
-        )
-    }
+    @StringRes
+    private fun textFor(status: ProxyRuntimeStatus): Int =
+        if (status == ProxyRuntimeStatus.RUNNING) R.string.proxy_notification_text else R.string.proxy_notification_starting
 
     companion object {
         const val ACTION_START = "com.beykus.beygram.mihomo_proxy.START"
         const val ACTION_STOP = "com.beykus.beygram.mihomo_proxy.STOP"
-        private const val CHANNEL_ID = "beygram-mihomo-proxy"
         private const val NOTIFICATION_ID = 7012
         private val _runtimeState = MutableStateFlow(ProxyRuntimeState(ProxyRuntimeStatus.STOPPED))
         val runtimeState: StateFlow<ProxyRuntimeState> = _runtimeState.asStateFlow()

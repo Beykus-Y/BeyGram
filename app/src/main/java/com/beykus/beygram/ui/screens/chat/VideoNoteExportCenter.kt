@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteProcessor
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.model.OutgoingMedia
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +46,18 @@ internal fun VideoNoteExportResult.markSegmentSent(): VideoNoteExportResult =
 internal fun VideoNoteExportResult.markSendFailed(): VideoNoteExportResult =
     copy(sending = false, requiresPreview = true)
 
+/** Автоматический кружок до приёма TDLib: [processing] — идёт обработка, иначе кружок ждёт отправки. */
+internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null)
+
+/**
+ * Кружки чата для ленты: сначала обрабатываемые, затем ждущие отправки. Кружок с предпросмотром здесь не показывается:
+ * он остаётся в диалоге, пока пользователь не отправит или не удалит его. Одна сессия показывается один раз.
+ */
+internal fun pendingVideoNotesFor(chatId: Long, processing: List<PendingVideoNote>, results: List<VideoNoteExportResult>): List<PendingVideoNote> =
+    (processing.filter { it.chatId == chatId } + results.filter { it.chatId == chatId && !it.requiresPreview }
+        .map { PendingVideoNote(it.chatId, it.sessionName, processing = false, previewPath = it.media.firstOrNull()?.thumbnailPath) })
+        .distinctBy { it.sessionName }
+
 private val exportMutex = Mutex()
 
 /** Process-wide count of queued/running exports, used to block further recording. */
@@ -51,8 +66,10 @@ internal object VideoNoteExportGate {
         private set
     val busy: Boolean get() = activeExports > 0
 
-    fun begin() { activeExports++ }
-    fun end() { activeExports = (activeExports - 1).coerceAtLeast(0) }
+    // begin() вызывается из потока, который запускает экспорт, end() — из потока, где задача завершилась. Без замка обновления
+    // теряются, счётчик застревает выше нуля и запись кружков блокируется до перезапуска процесса.
+    @Synchronized fun begin() { activeExports++ }
+    @Synchronized fun end() { activeExports = (activeExports - 1).coerceAtLeast(0) }
 }
 
 /** Mutex guarantees that only one Media3 Transformer body runs at a time. */
@@ -80,6 +97,10 @@ internal object VideoNoteExportCenter {
     private val _failures = MutableStateFlow<List<Long>>(emptyList())
     val failures: StateFlow<List<Long>> = _failures.asStateFlow()
 
+    private val _pendingNotes = MutableStateFlow<List<PendingVideoNote>>(emptyList())
+    /** Автоматические кружки, которые TDLib ещё не принял: лента показывает их сразу, с индикатором. */
+    val pendingNotes: StateFlow<List<PendingVideoNote>> = _pendingNotes.asStateFlow()
+
     /** Used both by the real exporter and deterministic queue tests. */
     internal fun publish(result: VideoNoteExportResult) {
         _results.update { pending ->
@@ -89,18 +110,24 @@ internal object VideoNoteExportCenter {
 
     fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean) {
         val appContext = context.applicationContext
+        // Автоматический кружок виден в ленте сразу после отпускания, а не когда обработка закончится.
+        if (!previewFirst) _pendingNotes.update { it + PendingVideoNote(chatId, sessionName, processing = true) }
         scope.launchExclusiveExport {
             try {
                 val outputDirectory = File(appContext.filesDir, "uploads").resolve(sessionName).apply { mkdirs() }
                 Log.i(TAG, "video_processing_started session=" + sessionName + " chatId=" + chatId)
                 val media = VideoNoteProcessor(appContext).process(source, settings, outputDirectory)
                 Log.i(TAG, "video_processing_completed session=" + sessionName + " segments=" + media.size)
+                recordAppEvent(EventKind.OTHER, "video_note_processed", "Кружок: обработка завершена", attrs = mapOf("segments" to media.size.toString()))
                 publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName))
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
                 Log.e(TAG, "video_processing_failed session=" + sessionName, failure)
+                recordAppEvent(EventKind.OTHER, "video_note_processing_failed", "Кружок: обработка не удалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
                 _failures.update { it + chatId }
+            } finally {
+                _pendingNotes.update { current -> current.filterNot { it.sessionName == sessionName } }
             }
         }
     }
@@ -149,6 +176,7 @@ internal object VideoNoteExportCenter {
                 throw cancelled
             } catch (failure: Exception) {
                 Log.e(TAG, "video_note_send_failed session=" + sessionName, failure)
+                recordAppEvent(EventKind.OTHER, "video_note_send_failed", "Кружок: отправка прервалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
                 updateResult(sessionName) { it.markSendFailed() }
             }
         }
@@ -166,7 +194,10 @@ internal object VideoNoteExportCenter {
         }
         scope.launch(Dispatchers.IO) {
             // Previously accepted parts may still be in TDLib's upload queue; delete only unsent.
-            discarded.media.drop(discarded.nextIndex).forEach { runCatching { File(it.path).delete() } }
+            discarded.media.drop(discarded.nextIndex).forEach { media ->
+                runCatching { File(media.path).delete() }
+                media.thumbnailPath?.let { path -> runCatching { File(path).delete() } }
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.CallHistoryPage
+import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatPreview
@@ -16,8 +17,10 @@ import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.domain.model.MessageContext
 import com.beykus.beygram.domain.model.MessageLimits
+import com.beykus.beygram.domain.model.MessageReaction
 import com.beykus.beygram.domain.model.MessageSearchPage
 import com.beykus.beygram.domain.model.NotificationPresentation
+import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.PinnedMessagePage
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.BotKeyboard
@@ -25,7 +28,10 @@ import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
+import com.beykus.beygram.domain.model.CachePolicy
 import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.StorageCategory
+import com.beykus.beygram.domain.model.StorageUsage
 import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramNotifications
@@ -72,6 +78,9 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> = unavailable()
     override suspend fun openPrivateChat(userId: Long): Result<Long> = unavailable()
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = Result.success(CallHistoryPage(emptyList(), ""))
+    override suspend fun storageUsage(): Result<StorageUsage> = unavailable()
+    override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> = unavailable()
+    override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> = unavailable()
 
     override fun startAuthorization() {}
     override fun submitPhoneNumber(phone: String) {}
@@ -122,13 +131,18 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>): Result<Unit> = unavailable()
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit> = unavailable()
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit> = unavailable()
+    override suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<String>> = unavailable()
+    override suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean): Result<List<MessageReaction>> = unavailable()
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> = unavailable()
     override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
+    override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) {}
     override fun setAppForeground(foreground: Boolean) {}
     override fun refreshInteractionPolicy() {}
     override fun openMessageContent(chatId: Long, messageId: Long) {}
     override fun observeTyping(chatId: Long): StateFlow<List<String>> = noTyping
+    override fun startChatActivity(chatId: Long, activity: ChatActivity) {}
+    override fun endChatActivity(chatId: Long, activity: ChatActivity) {}
 }

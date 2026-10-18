@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.media.OutgoingMediaImporter
+import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.ui.components.*
@@ -39,6 +40,7 @@ import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
 import com.beykus.beygram.ui.screens.chat.MediaViewerItem
 import com.beykus.beygram.ui.screens.chat.presenceText
+import com.beykus.beygram.ui.screens.chat.rememberPresenceClock
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
@@ -57,9 +59,10 @@ fun ProfileScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onBack: () -> Unit, onRefresh: () -> Unit, onEdit: () -> Unit,
     setPhoto: suspend (OutgoingMedia) -> Result<Unit>,
-    isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit,
-    onNotifications: () -> Unit = {}, onMembers: () -> Unit = {},
-    hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {}
+    isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit, lastSeenStyle: LastSeenStyle,
+    onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
+    hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
+    sharedMessages: (suspend (SharedMediaKind, Long) -> Result<MessageSearchPage>)? = null, onOpenMessage: (Long) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -73,7 +76,7 @@ fun ProfileScreen(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             preparing = true; photoError = null
-            try { pendingPhoto = importer.prepare(uri, asDocument = false, squarePhoto = true) }
+            try { pendingPhoto = replacePendingPhoto(pendingPhoto, { importer.prepare(uri, asDocument = false, squarePhoto = true) }, importer::discard) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { photoError = error.userMessage(context, R.string.profile_photo_prepare_failed) }
             finally { preparing = false }
@@ -93,7 +96,7 @@ fun ProfileScreen(
                     Spacer(Modifier.height(16.dp))
                     Text(info.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(4.dp))
-                    Text(info.subtitle(), color = palette.textSecondary, fontSize = 14.sp)
+                    ProfileSubtitle(info, lastSeenStyle)
                     if (info.isVerified || info.isPremium) Text(listOfNotNull(if (info.isVerified) stringResource(R.string.profile_badge_verified) else null, if (info.isPremium) stringResource(R.string.profile_badge_premium) else null).joinToString(" · "), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
                     if (isOwnProfile) {
                         Spacer(Modifier.height(14.dp))
@@ -120,7 +123,8 @@ fun ProfileScreen(
                             ProfileKind.Channel -> context.getString(R.string.profile_type_channel)
                             ProfileKind.Secret -> context.getString(R.string.profile_type_secret_chat)
                         })
-                        info.sharedCounts?.let { counts ->
+                        // Со вкладками счётчики стоят в заголовках; без них (профиль участника) остаются строками карточки.
+                        if (sharedMessages == null) info.sharedCounts?.let { counts ->
                             counts.media?.let { add(context.getString(R.string.profile_shared_media) to it.toString()) }
                             counts.files?.let { add(context.getString(R.string.profile_shared_files) to it.toString()) }
                             counts.links?.let { add(context.getString(R.string.profile_shared_links) to it.toString()) }
@@ -132,8 +136,9 @@ fun ProfileScreen(
                         InfoRow(label, value)
                     }
                 }
-                if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators)
-                if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, onMembers)
+                if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
+                if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
+                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, onOpenMessage)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                 if (isOwnProfile) Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -181,14 +186,28 @@ fun ProfileScreen(
     }
 }
 
-@Composable private fun ProfileInfo.subtitle(): String = when (kind) {
+@Composable private fun ProfileSubtitle(info: ProfileInfo, lastSeenStyle: LastSeenStyle) {
+    val palette = beyGramPalette()
+    // Тик времени перерисовывает только подпись, а не весь экран профиля.
+    val now by rememberPresenceClock(info.status is ProfilePresence.LastSeen)
+    Text(info.subtitle(lastSeenStyle, now), color = palette.textSecondary, fontSize = 14.sp)
+}
+
+@Composable private fun ProfileInfo.subtitle(lastSeenStyle: LastSeenStyle, nowMillis: Long): String = when (kind) {
     ProfileKind.Group -> memberCount?.let { count ->
         onlineMemberCount?.let { stringResource(R.string.profile_group_members_online_count, count, it) } ?: stringResource(R.string.profile_group_members_count, count)
     } ?: stringResource(R.string.profile_type_group)
     ProfileKind.Channel -> memberCount?.let { stringResource(R.string.profile_channel_subscribers_count, it) } ?: stringResource(R.string.profile_type_channel)
-    ProfileKind.Secret -> stringResource(R.string.profile_secret_chat_status, status?.let { presenceText(it).resolve() }.orEmpty())
+    ProfileKind.Secret -> stringResource(R.string.profile_secret_chat_status, status?.let { presenceText(it, lastSeenStyle, nowMillis).resolve() }.orEmpty())
     ProfileKind.Bot -> stringResource(R.string.profile_type_bot)
-    ProfileKind.Person -> if (isSelf) stringResource(R.string.profile_own_account_telegram) else status?.let { presenceText(it).resolve() }.orEmpty()
+    ProfileKind.Person -> if (isSelf) stringResource(R.string.profile_own_account_telegram) else status?.let { presenceText(it, lastSeenStyle, nowMillis).resolve() }.orEmpty()
+}
+
+/** Подготавливает новое фото и удаляет прежнее. Если подготовка падает, прежнее фото не трогаем. */
+internal suspend fun <T : Any> replacePendingPhoto(previous: T?, prepare: suspend () -> T, discard: suspend (T) -> Unit): T {
+    val next = prepare()
+    previous?.let { discard(it) }
+    return next
 }
 
 /** День рождения для строки профиля; год показываем, только если аккаунт его указал. Null, если дата не сходится с календарём. */
@@ -208,44 +227,34 @@ private fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-private fun AdministratorsSection(administrators: List<ProfileAdmin>) {
+private fun AdministratorsSection(administrators: List<ProfileAdmin>, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_admins_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
     Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
         administrators.forEachIndexed { index, admin ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
-            InfoRow(adminRole(admin), admin.name.ifBlank { stringResource(R.string.user_name_unknown) })
+            Box(Modifier.fillMaxWidth().clickable { onOpenUser(admin.userId) }) {
+                InfoRow(adminRole(admin), admin.name.ifBlank { stringResource(R.string.user_name_unknown) })
+            }
         }
     }
 }
 
 @Composable
-private fun MembersSection(info: ProfileInfo, onMembers: () -> Unit) {
+private fun MembersSection(info: ProfileInfo, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onMembers: () -> Unit, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_members_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
     Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
         info.memberPreview.forEachIndexed { index, member ->
-            if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(member.name.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                Text(memberStatus(member), color = palette.textSecondary, fontSize = 13.sp)
-            }
+            if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 82.dp))
+            MemberRow(member, observeFile, downloadFile) { onOpenUser(member.userId) }
         }
         TextButton(onClick = onMembers, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.profile_members_all, info.memberCount ?: info.memberPreview.size), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
     }
-}
-
-/** Подпись участника: роль для владельца и администраторов, иначе «в сети». */
-@Composable
-internal fun memberStatus(member: ProfileMember): String = when {
-    member.role == ProfileMemberRole.Owner -> stringResource(R.string.profile_admin_owner)
-    member.role == ProfileMemberRole.Admin -> stringResource(R.string.profile_admin_role)
-    member.online -> stringResource(R.string.presence_online)
-    else -> ""
 }
 
 @Composable private fun adminRole(admin: ProfileAdmin): String = when {
@@ -322,7 +331,7 @@ fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save
             OutlinedTextField(first, { first = it.take(64) }, label = { Text(stringResource(R.string.profile_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
             OutlinedTextField(last, { last = it.take(64) }, label = { Text(stringResource(R.string.profile_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
             OutlinedTextField(username, { username = it.removePrefix("@").take(32) }, label = { Text(stringResource(R.string.profile_username)) }, prefix = { Text("@") }, supportingText = { Text(stringResource(R.string.profile_username_hint)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
-            OutlinedTextField(bio, { bio = it }, label = { Text(stringResource(R.string.profile_about_me)) }, supportingText = { Text(stringResource(R.string.profile_bio_counter, bioCount, bioLimit)) }, isError = bioCount > bioLimit, minLines = 3, maxLines = 6, enabled = !saving, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
+            OutlinedTextField(bio, { bio = it }, label = { Text(stringResource(R.string.profile_about_me)) }, supportingText = { Text(stringResource(R.string.profile_bio_counter, bioCount, bioLimit)) }, isError = bioCount > bioLimit, minLines = 3, maxLines = 6, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
             Text(stringResource(R.string.profile_save_hint), color = palette.textSecondary, fontSize = 13.sp)
             error?.let { Text(it, color = palette.danger) }
         }

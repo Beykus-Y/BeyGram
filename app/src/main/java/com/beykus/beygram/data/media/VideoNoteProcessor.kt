@@ -47,29 +47,25 @@ class VideoNoteProcessor(private val context: Context) {
         withContext(Dispatchers.IO) { outputDirectory.mkdirs() }
         // CameraX пишет кадр целиком, включая углы вне круга, а TDLib принимает кружок только в H.264: поэтому файл всегда перекодируется.
         val result = mutableListOf<OutgoingMedia>()
-        var startMs = 0L
-        var index = 0
-        while (startMs < sourceDurationMs) {
-            val endMs = minOf(startMs + MAX_SEGMENT_MS, sourceDurationMs)
+        for ((index, segment) in videoNoteSegments(sourceDurationMs, settings.longRecordingEnabled).withIndex()) {
+            val (startMs, endMs) = segment
             val output = File(outputDirectory, "video-note-${index + 1}.mp4")
             try {
                 transform(source, output, startMs, endMs, target.side, target.videoBitrate, target.audioBitrate)
                 val info = withContext(Dispatchers.IO) { metadata(output) }
                 require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }
-                require(info.durationMs in 1L..MAX_SEGMENT_MS) { "Длительность сегмента превышает 60 секунд" }
-                result += outgoingMedia(output, info, index + 1)
+                require(isAcceptedVideoNoteDuration(info.durationMs)) { "Длительность кружка превышает 60 секунд" }
+                result += outgoingMedia(output, info, index + 1, extractThumbnail(output, File(outputDirectory, "video-note-${index + 1}-thumb.jpg")))
             } catch (failure: Exception) {
                 output.delete()
                 throw failure
             }
-            startMs = endMs
-            index++
         }
         source.delete()
         return result
     }
 
-    private fun outgoingMedia(file: File, info: VideoMetadata, index: Int) = OutgoingMedia(
+    private fun outgoingMedia(file: File, info: VideoMetadata, index: Int, thumbnail: File?) = OutgoingMedia(
         path = file.absolutePath,
         fileName = "video-note-$index.mp4",
         mimeType = "video/mp4",
@@ -77,8 +73,29 @@ class VideoNoteProcessor(private val context: Context) {
         width = info.width,
         height = info.height,
         durationSeconds = ((info.durationMs + 999L) / 1000L).toInt(),
-        size = file.length()
+        thumbnailPath = thumbnail?.absolutePath,
+        size = file.length(),
+        thumbnailWidth = THUMBNAIL_SIDE,
+        thumbnailHeight = THUMBNAIL_SIDE
     )
+
+    /** Кадр для превью кружка в ленте. Неудача не мешает отправке: кружок уйдёт без миниатюры. */
+    private suspend fun extractThumbnail(video: File, output: File): File? = withContext(Dispatchers.IO) {
+        runCatching {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(video.absolutePath)
+                val frame = retriever.getFrameAtTime(THUMBNAIL_TIME_US, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) ?: return@runCatching null
+                val scaled = Bitmap.createScaledBitmap(frame, THUMBNAIL_SIDE, THUMBNAIL_SIDE, true)
+                output.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, THUMBNAIL_QUALITY, it) }
+                if (scaled !== frame) frame.recycle()
+                scaled.recycle()
+                output
+            } finally {
+                retriever.release()
+            }
+        }.getOrNull().also { if (it == null) output.delete() }
+    }
 
     private suspend fun transform(input: File, output: File, startMs: Long, endMs: Long, side: Int, videoBitrate: Int, audioBitrate: Int) {
         withContext(Dispatchers.Main.immediate) {
@@ -168,5 +185,34 @@ class VideoNoteProcessor(private val context: Context) {
         VideoQualityPreset.Custom -> TargetProfile(customSide, customVideoBitrateKbps * 1_000, customAudioBitrateKbps * 1_000)
     }
 
-    companion object { private const val MAX_SEGMENT_MS = 60_000L }
 }
+
+/** Предел длительности кружка в Telegram. */
+internal const val VIDEO_NOTE_MAX_MS = 60_000L
+
+/** Сторона миниатюры кружка: TDLib принимает JPEG до 320 px, кадр с запасом меньше 200 КБ. */
+private const val THUMBNAIL_SIDE = 320
+private const val THUMBNAIL_QUALITY = 85
+/** Кадр берётся не с нулевой секунды: первые миллисекунды после старта кодировщика часто чёрные. */
+private const val THUMBNAIL_TIME_US = 200_000L
+
+/**
+ * Длина сегмента при нарезке. Перекодированный клип выходит длиннее заданного на несколько десятков миллисекунд
+ * (кодировщик и контейнер), и клип ровно в 60 секунд не проходил проверку длительности. Режем раньше предела.
+ */
+internal const val VIDEO_NOTE_SEGMENT_MS = 59_500L
+
+/**
+ * Границы сегментов [startMs, endMs) в миллисекундах. Обычная запись останавливается таймером на минуте,
+ * а CameraX дописывает хвост задержки: он отбрасывается, и получается один кружок. Длинная запись режется подряд.
+ */
+internal fun videoNoteSegments(sourceMs: Long, longRecording: Boolean): List<Pair<Long, Long>> {
+    val totalMs = if (longRecording) sourceMs else minOf(sourceMs, VIDEO_NOTE_SEGMENT_MS)
+    return generateSequence(0L) { it + VIDEO_NOTE_SEGMENT_MS }
+        .takeWhile { it < totalMs }
+        .map { startMs -> startMs to minOf(startMs + VIDEO_NOTE_SEGMENT_MS, totalMs) }
+        .toList()
+}
+
+/** Готовый сегмент принимается, только если его длительность укладывается в предел Telegram. */
+internal fun isAcceptedVideoNoteDuration(durationMs: Long): Boolean = durationMs in 1L..VIDEO_NOTE_MAX_MS

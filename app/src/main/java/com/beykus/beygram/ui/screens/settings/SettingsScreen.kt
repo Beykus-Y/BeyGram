@@ -20,6 +20,8 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.HorizontalDivider
@@ -40,7 +42,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Настройки приложения: нижнее меню, уведомления и диагностика. */
 @Composable
-fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit, onDiagnostics: () -> Unit, onUpdates: () -> Unit) {
+fun SettingsScreen(onNavigationSettings: () -> Unit, onLastSeen: () -> Unit, onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit, onDiagnostics: () -> Unit, onUpdates: () -> Unit) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -53,11 +55,15 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onNotifications: () -> Unit
         Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
             SettingsLink(Icons.Rounded.Dashboard, stringResource(R.string.nav_title), onNavigationSettings)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsLink(Icons.Rounded.Schedule, stringResource(R.string.settings_last_seen_title), onLastSeen)
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.Videocam, stringResource(R.string.settings_video_recording_title), onVideoRecording)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.Lock, stringResource(R.string.start_proxy_settings), onProxy)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsLink(Icons.Rounded.Storage, stringResource(R.string.settings_storage_title), onStorage)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.BugReport, stringResource(R.string.diagnostics_title), onDiagnostics)
             if (BuildConfig.APPLICATION_ID == "com.beykus.beygram") {

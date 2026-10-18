@@ -44,7 +44,9 @@ import com.beykus.beygram.ui.screens.contacts.ContactsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ConnectionDiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.DiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
+import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
+import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
@@ -57,6 +59,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.presence.LastSeenSettingsStore
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
 import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
@@ -74,6 +77,7 @@ fun BeyGramApp(
 ) {
     val context = LocalContext.current
     val videoMessageSettings = remember(context) { VideoMessageSettingsStore(context) }
+    val lastSeenSettings = remember(context) { LastSeenSettingsStore(context) }
     val tdLibReadiness = remember(context) {
         TdLibBootstrap(context).readiness()
     }
@@ -107,6 +111,7 @@ fun BeyGramApp(
         notificationRuntime = notificationRuntime,
         vpnBackend = vpnBackend,
         recordingSettings = videoMessageSettings,
+        lastSeenSettings = lastSeenSettings,
         notificationRequest = notificationRequest,
         onNotificationHandled = onNotificationHandled
     )
@@ -121,6 +126,7 @@ private fun BeyGramAppContent(
     notificationRuntime: NotificationRuntime,
     vpnBackend: VpnBackend,
     recordingSettings: VideoMessageSettingsStore,
+    lastSeenSettings: LastSeenSettingsStore,
     notificationRequest: NotificationOpenRequest?,
     onNotificationHandled: (Long) -> Unit
 ) {
@@ -132,6 +138,7 @@ private fun BeyGramAppContent(
     val connectionState by repository.connectionState.collectAsStateWithLifecycle()
     val myProfile by repository.myProfile.collectAsStateWithLifecycle()
     val bioLimit by repository.bioLengthLimit.collectAsStateWithLifecycle()
+    val lastSeenStyle by lastSeenSettings.style.collectAsStateWithLifecycle()
     LifecycleResumeEffect(repository) {
         repository.setAppForeground(true)
         onPauseOrDispose { repository.setAppForeground(false) }
@@ -141,9 +148,14 @@ private fun BeyGramAppContent(
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
+    // Вложение из профиля открывает чат у своего сообщения; 0 значит, что переход не нужен.
+    var chatFocusMessageId by rememberSaveable { mutableStateOf(0L) }
+    // Профиль участника открывается по его личному чату; запоминаем чат и экран, куда вернуться.
+    var memberChatId by rememberSaveable { mutableStateOf(0L) }
+    var memberReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.ChatInfo.name) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
-    var notificationError by remember { mutableStateOf<UiText?>(null) }
+    var noticeError by remember { mutableStateOf<UiText?>(null) }
     // Скрытый архив остаётся скрытым после перезапуска: флаг лежит в настройках приложения.
     val context = LocalContext.current
     val chatPreferences = remember(context) { context.applicationContext.getSharedPreferences("chats", Context.MODE_PRIVATE) }
@@ -200,15 +212,36 @@ private fun BeyGramAppContent(
         proxyConnectTabName = tab.name
         routeName = AppRoute.ProxyConnect.name
     }
+    // Профиль участника: открываем его личный чат и показываем сведения; назад возвращаемся туда, откуда открыли.
+    val memberScope = rememberCoroutineScope()
+    // Ответ на прежнее нажатие может прийти позже нового: тогда он не должен заменить выбранного участника.
+    var latestMemberUserId by rememberSaveable { mutableStateOf(0L) }
+    val openUserProfile: (Long, AppRoute) -> Unit = { userId, returnTo ->
+        latestMemberUserId = userId
+        memberScope.launch {
+            repository.openPrivateChat(userId)
+                .onSuccess { chatId ->
+                    if (latestMemberUserId == userId) {
+                        memberChatId = chatId
+                        memberReturnRouteName = returnTo.name
+                        routeName = AppRoute.MemberProfile.name
+                    }
+                }
+                .onFailure { error ->
+                    if (latestMemberUserId == userId) noticeError = (error as? UserMessageException)?.text ?: UiText.Res(R.string.profile_member_open_failed)
+                }
+        }
+    }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, notificationRequest?.token) {
         val request = notificationRequest ?: return@LaunchedEffect
         if (authState != AuthState.Ready) return@LaunchedEffect
-        if (request.settings) openNotifications(AppRoute.Chats)
+        if (request.proxy) openProxy(AppRoute.Chats)
+        else if (request.settings) openNotifications(AppRoute.Chats)
         else request.chatId?.let { chatId ->
             val result = repository.loadChat(chatId)
             if (result.isSuccess) { selectedChatId = chatId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name }
-            else notificationError = (result.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.err_app_open_chat_failed)
+            else noticeError = (result.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.err_app_open_chat_failed)
         }
         onNotificationHandled(request.token)
     }
@@ -251,6 +284,7 @@ private fun BeyGramAppContent(
     }
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Diagnostics || route == AppRoute.ReportProblem) { routeName = AppRoute.Settings.name }
 
     // Потоки собирает сам раздел, которому они нужны: обновление списка чатов перерисовывает только открытый раздел, а не всё приложение.
@@ -326,6 +360,7 @@ private fun BeyGramAppContent(
                 ChatScreen(
                     chat = chat,
                     info = chatInfo.info,
+                    lastSeenStyle = lastSeenStyle,
                     history = history,
                     conversation = repository,
                     chats = chats,
@@ -334,7 +369,8 @@ private fun BeyGramAppContent(
                     onBack = { routeName = chatBackRouteName },
                     onChatInfo = { routeName = AppRoute.ChatInfo.name },
                     connectionState = connectionState,
-                    recordingSettings = recordingSettings
+                    recordingSettings = recordingSettings,
+                    focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L }
                 )
             }
         }
@@ -345,15 +381,29 @@ private fun BeyGramAppContent(
         LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
-            onMembers = { routeName = AppRoute.ChatMembers.name },
+            onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
-            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
+            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle,
+            sharedMessages = { kind, fromMessageId -> repository.sharedMessages(selectedChatId, kind, fromMessageId) },
+            onOpenMessage = { messageId -> chatFocusMessageId = messageId; routeName = AppRoute.Chat.name })
     }
 
     val chatMembersRoute: @Composable () -> Unit = {
         key(selectedChatId) {
-            ChatMembersScreen(loadPage = { offset, limit -> repository.loadChatMembers(selectedChatId, offset, limit) }, onBack = { routeName = AppRoute.ChatInfo.name })
+            ChatMembersScreen(loadPage = { offset, limit -> repository.loadChatMembers(selectedChatId, offset, limit) },
+                observeFile = repository::observeFile, downloadFile = repository::downloadFile,
+                onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatMembers) },
+                onBack = { routeName = AppRoute.ChatInfo.name })
         }
+    }
+    val memberProfileRoute: @Composable () -> Unit = {
+        val infoFlow = remember(repository, memberChatId) { repository.observeChatInfo(memberChatId) }
+        val info by infoFlow.collectAsStateWithLifecycle()
+        LaunchedEffect(repository, memberChatId) { repository.refreshChatInfo(memberChatId) }
+        ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
+            onBack = { routeName = memberReturnRouteName }, onRefresh = { repository.refreshChatInfo(memberChatId) },
+            onEdit = {}, setPhoto = repository::setMyProfilePhoto,
+            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle)
     }
 
     when (route) {
@@ -424,6 +474,7 @@ private fun BeyGramAppContent(
         AppRoute.Chat -> chatRoute()
         AppRoute.ChatInfo -> chatInfoRoute()
         AppRoute.ChatMembers -> chatMembersRoute()
+        AppRoute.MemberProfile -> memberProfileRoute()
         AppRoute.MyProfile -> {
             LaunchedEffect(repository) { repository.refreshMyProfile() }
             ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile,
@@ -432,7 +483,7 @@ private fun BeyGramAppContent(
                 onNotifications = { openNotifications(AppRoute.MyProfile) },
                 hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
                 onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
-                isDarkTheme = isDarkTheme, onThemeChange = onThemeChange)
+                isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle)
         }
         AppRoute.EditProfile -> {
             myProfile.info?.let { info ->
@@ -471,7 +522,9 @@ private fun BeyGramAppContent(
         AppRoute.Settings -> MainTabsScaffold(MainTab.Settings.route.name, MainTab.Settings, tabVisibility, selectTab, tabStateHolder) {
             SettingsScreen(
                 onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
+                onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
                 onNotifications = { openNotifications(AppRoute.Settings) },
+                onStorage = { routeName = AppRoute.StorageSettings.name },
                 onProxy = { openProxy(AppRoute.Settings) },
                 onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
                 onDiagnostics = { routeName = AppRoute.Diagnostics.name },
@@ -490,11 +543,13 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Diagnostics.name }
         )
         AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings) { routeName = AppRoute.Settings.name }
+        AppRoute.StorageSettings -> StorageSettingsScreen(repository = repository, onBack = { routeName = AppRoute.Settings.name })
         AppRoute.NavigationSettings -> NavigationSettingsScreen(
             visibility = tabVisibility,
             onVisibilityChange = onTabVisibilityChange,
             onBack = { routeName = AppRoute.Settings.name }
         )
+        AppRoute.LastSeenSettings -> LastSeenSettingsScreen(lastSeenStyle, onStyleChange = lastSeenSettings::setStyle, onBack = { routeName = AppRoute.Settings.name })
         AppRoute.Proxy -> ProxyListScreen(
             repository = repository,
             vpnBackend = vpnBackend,
@@ -511,7 +566,7 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Proxy.name }
         )
     }
-    notificationError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { notificationError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
-        text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { notificationError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
+    noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
+        text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
     ProxyRestoreDialog(vpnBackend = vpnBackend)
 }

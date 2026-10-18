@@ -19,6 +19,7 @@ enum class EventKind(val wire: String) {
     ERROR("error"),
     PERFORMANCE("performance"),
     UI("ui"),
+    NOTIFICATION("notification"),
     OTHER("other");
 
     companion object {
