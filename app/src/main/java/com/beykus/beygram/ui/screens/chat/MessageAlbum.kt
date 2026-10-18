@@ -94,14 +94,15 @@ internal fun MessageAlbumBubble(
     val palette = beyGramPalette()
     val chronological = remember(messages) { messages.sortedWith(compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.id }) }
     val latest = chronological.last()
-    val shape = if (latest.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+    val metrics = LocalBubbleMetrics.current
+    val shape = bubbleShape(latest.isOutgoing, metrics)
     val columns = if (chronological.size > 4) 3 else 2
     val captions = chronological.filter { it.text.isNotBlank() }
     val captionMessage = captions.lastOrNull() ?: latest
     val reply = chronological.firstNotNullOfOrNull { it.reply }
     val reactionOwner = reactionMessage(chronological)
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = metrics.sideInset), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && captionMessage.sendState == MessageSendState.Sent, outgoing = latest.isOutgoing,
             onReply = { onReply?.invoke(captionMessage.id) }) { swipe ->
             BubbleLayout(
