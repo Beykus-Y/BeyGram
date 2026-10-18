@@ -69,7 +69,11 @@ class NotificationRuntime private constructor(private val context: Context) {
      */
     fun reply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String, finished: () -> Unit) {
         // A blank reply sends nothing; re-posting the notification still clears the inline field.
-        val send = scope.launch { if (text.isBlank()) refresh() else deliverReply(chatId, groupId, maxId, replyToMessageId, text) }
+        val send = scope.launch {
+            // The submitted action is spent, so the notification is re-posted; re-posting needs an attached repository.
+            if (repository == null) runCatching { attachRealClient() }
+            if (text.isBlank()) refresh() else deliverReply(chatId, groupId, maxId, replyToMessageId, text)
+        }
         scope.launch {
             withTimeoutOrNull(REPLY_BROADCAST_MILLIS) { send.join() }
             finished()

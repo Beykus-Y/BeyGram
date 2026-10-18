@@ -33,9 +33,12 @@ internal object NotificationIntents {
     fun dismiss(context: Context, groupId: Int, maxId: Int): PendingIntent = PendingIntent.getBroadcast(context, 0,
         Intent(context, NotificationDismissReceiver::class.java).setAction(DISMISS).setData(Uri.parse("beygram://${context.packageName}/dismiss/$groupId/$maxId"))
             .putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    /** Mutable because Android attaches the typed text to the intent, and one-shot so a listener that kept it can send only once; the receiver is not exported and still checks the token. */
+    /**
+     * Mutable because Android attaches the typed text to the intent, and one-shot so a listener that kept it can send only once.
+     * One identity per group: a re-post updates the live action instead of leaving older ones behind. The receiver is not exported and still checks the token.
+     */
     fun reply(context: Context, chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long): PendingIntent = PendingIntent.getBroadcast(context, 0,
-        Intent(context, NotificationReplyReceiver::class.java).setAction(REPLY).setData(Uri.parse("beygram://${context.packageName}/reply/$groupId/$maxId"))
+        Intent(context, NotificationReplyReceiver::class.java).setAction(REPLY).setData(Uri.parse("beygram://${context.packageName}/reply/$groupId"))
             .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(REPLY_TO, replyToMessageId).putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_ONE_SHOT or mutability())
     // FLAG_MUTABLE exists only from Android 12; older systems create mutable PendingIntents by default.
