@@ -75,7 +75,8 @@ class NotificationRuntime private constructor(private val context: Context) {
                 if (accepted) preferences.acknowledge(group, max)
             } finally {
                 flushing.remove(group)
-                if (accepted && (preferences.pendingDismissals()[group] ?: 0) > max) flushDismissals()
+                // A newer dismissal that arrived during the retries goes out next, even if this round failed.
+                if ((preferences.pendingDismissals()[group] ?: 0) > max) flushDismissals()
             }
         } }
     }

@@ -43,6 +43,7 @@ internal class TdNotifications(
 
     /** Re-reads the archived flag of the chat's groups after its list position changed. */
     fun chatPositionChanged(chatId: Long) = synchronized(lock) {
+        if (groups.values.none { it.chatId == chatId }) return@synchronized
         groups.replaceAll { _, group -> if (group.chatId == chatId) metadata(group) else group }
         publish()
     }
