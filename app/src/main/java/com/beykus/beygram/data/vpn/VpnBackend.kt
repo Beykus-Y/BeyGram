@@ -90,6 +90,8 @@ internal class VpnBackend private constructor(
         // TDLib connectivity belongs to its own metric, not to listener or testDelay health.
         scope.launch { connectionState.collect { state ->
             MihomoProxyService.reportTelegramConnection(state == TelegramConnectionState.Connected)
+            // Enum only; never log endpoints, subscription keys or messages.
+            MihomoRuntimeDiagnostics.event("tdlib", "connection_state=${state.name}")
         } }
         scope.launch(Dispatchers.IO) { restore() }
     }
@@ -209,7 +211,15 @@ internal class VpnBackend private constructor(
                 appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP))
                 throw tdlib.exceptionOrNull() ?: UserMessageException(UiText.Res(R.string.err_vpn_telegram_connect_failed))
             }
-            MihomoRuntimeDiagnostics.event("tdlib", "EnableProxy accepted; actual connection is reported separately")
+            // Confirm TDLib selected this local proxy rather than treating EnableProxy's OK as connectivity.
+            val route = isTdLibProxyEnabled().getOrNull()
+            MihomoRuntimeDiagnostics.event(
+                "tdlib", "EnableProxy accepted currentRoute=${when (route) {
+                    true -> "subscription"
+                    false -> "other"
+                    null -> "unknown"
+                }}; actual connectivity is reported separately"
+            )
             checkSelectedRoute()
             Result.success(Unit)
         } catch (error: TimeoutCancellationException) {
