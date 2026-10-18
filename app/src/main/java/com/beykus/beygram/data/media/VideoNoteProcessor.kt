@@ -216,7 +216,7 @@ internal fun videoNoteSegments(sourceMs: Long, longRecording: Boolean): List<Pai
         .map { startMs -> startMs to minOf(startMs + VIDEO_NOTE_SEGMENT_MS, totalMs) }
         .toList()
     // A tail this short is too little for a clip of its own, and its failure would drop the finished segments of the recording.
-    val (tailStart, tailEnd) = segments.last()
+    val (tailStart, tailEnd) = segments.lastOrNull() ?: return segments
     return if (segments.size > 1 && tailEnd - tailStart < MIN_SEGMENT_TAIL_MS) segments.dropLast(1) else segments
 }
 
