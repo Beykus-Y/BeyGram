@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -119,11 +120,38 @@ private fun ReleaseInformation(release: StableRelease, onDownload: (() -> Unit)?
             color = palette.textSecondary, fontSize = 14.sp)
     }
     Text(stringResource(R.string.updates_changes), fontWeight = FontWeight.Bold, color = palette.textPrimary)
-    Text(release.notes.ifBlank { stringResource(R.string.updates_no_notes) },
-        color = palette.textPrimary, fontSize = 15.sp)
+    ReleaseNotesContent(release.notes)
     if (onDownload != null) {
         Button(onClick = onDownload, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.updates_download))
+        }
+    }
+}
+
+/** Show user-friendly release notes, excluding the generated PR appendix. */
+@Composable
+private fun ReleaseNotesContent(markdown: String) {
+    val palette = beyGramPalette()
+    val notes = remember(markdown) { parseReleaseNotes(markdown) }
+    if (notes.isEmpty()) {
+        Text(stringResource(R.string.updates_no_notes), color = palette.textSecondary, fontSize = 15.sp)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        notes.forEach { note ->
+            when (note.kind) {
+                ReleaseNotesKind.Section -> Text(
+                    note.text, color = palette.textPrimary, fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp, modifier = Modifier.padding(top = 6.dp)
+                )
+                ReleaseNotesKind.Bullet -> Row(verticalAlignment = Alignment.Top) {
+                    Text("•", color = palette.accent, fontSize = 15.sp, modifier = Modifier.padding(end = 10.dp))
+                    Text(note.text, color = palette.textPrimary, fontSize = 15.sp)
+                }
+                ReleaseNotesKind.Paragraph -> Text(
+                    note.text, color = palette.textPrimary, fontSize = 15.sp
+                )
+            }
         }
     }
 }
