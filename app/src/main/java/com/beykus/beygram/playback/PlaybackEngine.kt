@@ -41,16 +41,21 @@ data class PlaybackState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val speed: Float = 1f,
-    val failed: Boolean = false
+    val failed: Boolean = false,
+    /** Плеер хотя бы раз сообщил, что файл реально играет. Отметка «прослушано» ставится по этому флагу, потому что [playing] выставляется уже при нажатии. */
+    val started: Boolean = false
 ) {
     /** Доля проигранного от 0 до 1. Пока длина неизвестна, она равна 0. */
     val fraction: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 }
 
-/** Файл из сообщения как элемент общего плеера. Ключ один на весь файл, поэтому повторный запуск не начинает его сначала. */
+/** Ключ файла в общем плеере: один на весь файл, поэтому повторный запуск не начинает его сначала. */
+internal fun MessageMedia.playbackKey(): String = "$kind:$fileId"
+
+/** Файл из сообщения как элемент общего плеера. */
 fun MessageMedia.playbackItem(path: String, fallbackTitle: String): PlaybackItem = PlaybackItem(
-    key = "$kind:$fileId",
+    key = playbackKey(),
     kind = kind,
     path = path,
     title = fileName.ifBlank { fallbackTitle },
@@ -74,6 +79,7 @@ object PlaybackEngine {
     private var controls: Player? = null
     private var appContext: Context? = null
     private var progress: Job? = null
+    private var pendingStartFraction = 0f
 
     /**
      * Общий плеер для системного управления: уведомление, экран блокировки и гарнитура. «Играть» после конца файла начинает
@@ -107,8 +113,8 @@ object PlaybackEngine {
         if (exo != null && _state.value.item?.key == item.key) togglePlayPause() else play(context, item)
     }
 
-    /** Запускает файл сначала. Скорость сохраняется между файлами. */
-    fun play(context: Context, item: PlaybackItem) {
+    /** Запускает файл с начала или с доли [startFraction]. Скорость сохраняется между файлами. */
+    fun play(context: Context, item: PlaybackItem, startFraction: Float = 0f) {
         val target = player(context)
         target.setMediaItem(
             MediaItem.Builder()
@@ -118,6 +124,8 @@ object PlaybackEngine {
                 .build()
         )
         target.prepare()
+        // Длина из сообщения округлена до секунды, поэтому долю применяем, когда плеер узнает настоящую длину файла.
+        pendingStartFraction = startFraction.coerceIn(0f, 1f)
         target.play()
         _state.value = PlaybackState(item = item, playing = true, speed = _state.value.speed)
         startPlaybackService()
@@ -136,9 +144,10 @@ object PlaybackEngine {
         target.play()
     }
 
-    /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. */
+    /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
     fun pause() {
         exo?.pause()
+        _state.update { it.copy(playing = false) }
     }
 
     /** Перемотка по доле длины. Пока длина неизвестна, ничего не делает. */
@@ -160,6 +169,7 @@ object PlaybackEngine {
     fun stop() {
         progress?.cancel()
         progress = null
+        pendingStartFraction = 0f
         exo?.let {
             it.stop()
             it.clearMediaItems()
@@ -176,11 +186,12 @@ object PlaybackEngine {
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            _state.update { it.copy(playing = isPlaying, durationMs = durationNow()) }
+            _state.update { it.copy(playing = isPlaying, durationMs = durationNow(), started = it.started || isPlaying) }
             if (isPlaying) startProgress() else syncPosition()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) applyPendingStartFraction()
             _state.update { it.copy(durationMs = durationNow()) }
         }
 
@@ -196,6 +207,15 @@ object PlaybackEngine {
     }
 
     private fun durationNow(): Long = exo?.duration?.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+
+    /** Доля начала становится позицией, когда плеер знает настоящую длину файла. Пока длина неизвестна, доля ждёт. */
+    private fun applyPendingStartFraction() {
+        val target = exo ?: return
+        val duration = target.duration
+        if (pendingStartFraction <= 0f || duration == C.TIME_UNSET || duration <= 0L) return
+        target.seekTo((pendingStartFraction * duration).toLong())
+        pendingStartFraction = 0f
+    }
 
     private fun syncPosition() {
         val position = exo?.currentPosition ?: return

@@ -193,8 +193,8 @@ private fun DownloadBadge(downloading: Boolean, onClick: () -> Unit) {
 
 private const val BLUR_PREVIEW_DIMENSION = 24
 
-/** Вложение, которое ждёт загрузки после нажатия на музыку. Ждёт только последнее нажатое, иначе более ранняя загрузка перебьёт его. */
-private val pendingAudioFileId = mutableStateOf<Int?>(null)
+/** Строка, которая ждёт загрузки после нажатия на музыку или голосовое. Ждёт только последнее нажатое, и начинает играть только её строка, даже если такой же файл стоит в другом сообщении. */
+internal val pendingPlaybackRow = mutableStateOf<Any?>(null)
 
 @Composable
 internal fun MediaPreview(
@@ -220,19 +220,21 @@ internal fun MediaPreview(
     // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
     val audioTitle = media.kind.label(context)
     val audioPath = file.localPath
-    val waitingForAudio = pendingAudioFileId.value == media.fileId
+    // Голосовое ждёт загрузки в своём пузыре, поэтому здесь ожидание относится только к музыке.
+    val row = remember(media.fileId) { Any() }
+    val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
     fun playAudio() {
-        if (audioPath == null) { pendingAudioFileId.value = media.fileId; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle))
+        if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle))
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
         if (waitingForAudio && audioPath != null) {
-            pendingAudioFileId.value = null
+            pendingPlaybackRow.value = null
             startAudio(context, media.playbackItem(audioPath, audioTitle))
         }
     }
-    DisposableEffect(media.fileId) {
-        onDispose { if (pendingAudioFileId.value == media.fileId) pendingAudioFileId.value = null }
+    DisposableEffect(row) {
+        onDispose { if (pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
     }
     if (media.kind == MediaKind.Voice) {
         VoiceBubble(media, file, downloadFile, onPlayed, onLongPress)
@@ -500,8 +502,9 @@ private fun AudioInPlayer(media: MessageMedia, path: String, active: Boolean, on
     val currentOnViewed by rememberUpdatedState(onViewed)
     // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.
     val playingHere = state.item?.key == item.key && state.playing
-    LaunchedEffect(playingHere, active) {
-        if (active && playingHere) currentOnViewed()
+    val startedHere = state.item?.key == item.key && state.started
+    LaunchedEffect(playingHere, startedHere, active) {
+        if (active && playingHere && startedHere) currentOnViewed()
     }
     // Пока файл не играет в общем плеере, его перемотка и скорость относятся к другому файлу, поэтому выключены.
     val current = state.item?.key == item.key
@@ -514,9 +517,8 @@ private fun AudioInPlayer(media: MessageMedia, path: String, active: Boolean, on
     )
 }
 
-/** Музыка и голосовые из чата и просмотрщика идут через общий плеер. Голосовое и кружок в ленте при этом останавливаются. */
+/** Музыка из чата и просмотрщика идёт через общий плеер. Кружок в ленте при этом останавливается. */
 private fun startAudio(context: Context, item: PlaybackItem) {
-    VoicePlayback.stop()
     InlinePlaybackFocus.stopAll()
     PlaybackEngine.toggle(context, item)
 }

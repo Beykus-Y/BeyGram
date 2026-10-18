@@ -1,7 +1,5 @@
 package com.beykus.beygram.ui.screens.chat
 
-import android.media.AudioAttributes
-import android.media.MediaPlayer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -22,6 +20,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,151 +29,76 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.playbackItem
+import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.components.beyGramPalette
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 
 private const val BAR_COUNT = 40
 
-/** Состояние общего проигрывателя голосовых: в каждый момент играет не больше одного сообщения. */
-internal data class VoiceState(
-    val path: String? = null,
-    val playing: Boolean = false,
-    val positionMs: Int = 0,
-    val durationMs: Int = 0,
-    val failed: Boolean = false
-)
-
-/** Один MediaPlayer на процесс: запуск другого голосового останавливает текущее. */
-internal object VoicePlayback {
-    private val _state = MutableStateFlow(VoiceState())
-    val state: StateFlow<VoiceState> = _state.asStateFlow()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var player: MediaPlayer? = null
-    private var progress: Job? = null
-    private var pendingFraction = 0f
-
-    /** Пауза или продолжение того же файла; другой файл начинается сначала. */
-    fun toggle(path: String, onStarted: () -> Unit) {
-        val current = _state.value
-        val active = player
-        if (current.path == path && active != null && current.durationMs > 0) {
-            if (current.playing) pause(active) else resume(active, onStarted)
-        } else {
-            start(path, 0f, onStarted)
-        }
-    }
-
-    /** Перемотка по доле длины; если файл ещё не выбран, он запускается с этой точки. */
-    fun seek(path: String, fraction: Float, onStarted: () -> Unit) {
-        val current = _state.value
-        val active = player
-        if (current.path == path && active != null && current.durationMs > 0) {
-            val target = (fraction * current.durationMs).toInt()
-            runCatching { active.seekTo(target) }
-            _state.update { it.copy(positionMs = target) }
-            if (!current.playing) resume(active, onStarted)
-        } else {
-            start(path, fraction, onStarted)
-        }
-    }
-
-    fun stop() {
-        progress?.cancel()
-        progress = null
-        runCatching { player?.release() }
-        player = null
-        _state.value = VoiceState()
-    }
-
-    private fun pause(active: MediaPlayer) {
-        runCatching { active.pause() }
-        _state.update { it.copy(playing = false) }
-    }
-
-    private fun resume(active: MediaPlayer, onStarted: () -> Unit) {
-        PlaybackEngine.pause()
-        InlinePlaybackFocus.claim(VoicePlayback) { stop() }
-        runCatching { active.start() }
-        _state.update { it.copy(playing = true) }
-        onStarted()
-    }
-
-    private fun start(path: String, fraction: Float, onStarted: () -> Unit) {
-        InlinePlaybackFocus.claim(VoicePlayback) { stop() }
-        stop()
-        pendingFraction = fraction
-        _state.value = VoiceState(path = path)
-        val created = MediaPlayer()
-        player = created
-        try {
-            created.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-            created.setDataSource(path)
-            created.setOnPreparedListener { mp ->
-                val total = mp.duration.coerceAtLeast(1)
-                val startMs = (pendingFraction * total).toInt()
-                if (startMs > 0) mp.seekTo(startMs)
-                _state.update { it.copy(durationMs = total, positionMs = startMs) }
-                startProgress()
-                resume(mp, onStarted)
-            }
-            created.setOnCompletionListener { stop() }
-            created.setOnErrorListener { _, _, _ ->
-                stop()
-                _state.value = VoiceState(path = path, failed = true)
-                true
-            }
-            created.prepareAsync()
-        } catch (_: Exception) {
-            stop()
-            _state.value = VoiceState(path = path, failed = true)
-        }
-    }
-
-    private fun startProgress() {
-        progress?.cancel()
-        progress = scope.launch {
-            while (true) {
-                val active = player ?: break
-                val position = runCatching { active.currentPosition }.getOrDefault(0)
-                _state.update { if (it.playing) it.copy(positionMs = position) else it }
-                delay(200)
-            }
-        }
-    }
-}
-
-/** Пузырь голосового: кнопка, волна с перемоткой по нажатию и время. Звук идёт через [VoicePlayback]. */
+/** Пузырь голосового: кнопка, волна с перемоткой по нажатию и время. Звук идёт через общий плеер. */
 @Composable
 internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile: (Int) -> Unit, onPlayed: () -> Unit, onLongPress: (() -> Unit)?) {
+    val context = LocalContext.current
     val palette = beyGramPalette()
-    val playbackState = VoicePlayback.state.collectAsStateWithLifecycle()
     val path = file.localPath
-    // Общий проигрыватель читает только пузырь, который играет: у остальных значение null, и на каждом шаге прогресса они не перерисовываются.
-    val voice = remember(path) { derivedStateOf { playbackState.value.takeIf { path != null && it.path == path } } }.value
-    var wantPlay by remember(media.fileId) { mutableStateOf(false) }
+    val label = media.kind.label(context)
+    val key = media.playbackKey()
+    val playbackState = PlaybackEngine.state.collectAsStateWithLifecycle()
+    // Общий плеер читает только пузырь, который играет: у остальных значение null, и на каждом шаге прогресса они не перерисовываются.
+    val voice = remember(key) { derivedStateOf { playbackState.value.takeIf { it.item?.key == key } } }.value
+    // Строка пузыря в общем ожидании загрузки: ждёт только последнее нажатое, даже если такой же файл стоит в другом сообщении.
+    val row = remember(media.fileId) { Any() }
+    val waitingForVoice = pendingPlaybackRow.value === row
+    // Отметку «прослушано» получает только пузырь, по которому нажали, и только когда плеер сообщил о старте.
+    var requested by remember(media.fileId) { mutableStateOf(false) }
     val playing = voice?.playing == true
-    val loading = (voice != null && voice.durationMs == 0 && !voice.failed) || (wantPlay && path == null)
-    val fraction = if (voice != null && voice.durationMs > 0) (voice.positionMs.toFloat() / voice.durationMs).coerceIn(0f, 1f) else 0f
-    val shownSeconds = if (voice != null && voice.positionMs > 0) voice.positionMs / 1000 else media.durationSeconds
+    val started = voice?.started == true
+    val loading = (voice != null && voice.durationMs == 0L && !voice.failed) || (waitingForVoice && path == null)
+    val fraction = voice?.fraction ?: 0f
+    val shownSeconds = if (voice != null && voice.positionMs > 0L) (voice.positionMs / 1000).toInt() else media.durationSeconds
     val bars = remember(media.fileId, media.waveform) { resampleWaveform(media.waveform, BAR_COUNT) }
+    val currentOnPlayed by rememberUpdatedState(onPlayed)
+    // Голосовое считается прослушанным, когда плеер сообщил, что оно играет. Другие пузыри с тем же файлом этого не получают.
+    LaunchedEffect(requested, started) {
+        if (requested && started) {
+            requested = false
+            currentOnPlayed()
+        }
+    }
+    // Голосовое и кружок в ленте не играют вместе: запуск голосового останавливает кружок.
+    fun startVoice(localPath: String) {
+        InlinePlaybackFocus.stopAll()
+        val state = PlaybackEngine.state.value
+        requested = !(state.item?.key == key && state.playing)
+        PlaybackEngine.toggle(context, media.playbackItem(localPath, label))
+    }
+    // Перемотка по волне: в текущем файле двигает позицию, другой файл начинает с этой точки.
+    fun seekVoice(localPath: String, target: Float) {
+        InlinePlaybackFocus.stopAll()
+        val state = PlaybackEngine.state.value
+        if (state.item?.key == key) {
+            PlaybackEngine.seekTo(target)
+            if (!state.playing) {
+                requested = true
+                PlaybackEngine.togglePlayPause()
+            }
+        } else {
+            requested = true
+            PlaybackEngine.play(context, media.playbackItem(localPath, label), target)
+        }
+    }
     fun togglePlay() {
-        if (path == null) { wantPlay = true; downloadFile(media.fileId) } else VoicePlayback.toggle(path, onPlayed)
+        if (path == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startVoice(path)
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть.
-    LaunchedEffect(path, wantPlay) {
-        if (wantPlay && path != null) {
-            wantPlay = false
-            VoicePlayback.toggle(path, onPlayed)
+    LaunchedEffect(path, waitingForVoice) {
+        if (waitingForVoice && path != null) {
+            pendingPlaybackRow.value = null
+            startVoice(path)
         }
+    }
+    DisposableEffect(row) {
+        onDispose { if (pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
     }
     // Промежутки между кнопкой и волной тоже запускают воспроизведение, а не открывают просмотрщик вложения.
     Row(
@@ -194,7 +118,7 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
             Canvas(
                 Modifier.fillMaxWidth().height(28.dp).pointerInput(media.fileId, path) {
                     detectTapGestures(
-                        onTap = { offset -> if (path == null) togglePlay() else VoicePlayback.seek(path, (offset.x / size.width).coerceIn(0f, 1f), onPlayed) },
+                        onTap = { offset -> if (path == null) togglePlay() else seekVoice(path, (offset.x / size.width).coerceIn(0f, 1f)) },
                         onLongPress = { onLongPress?.invoke() }
                     )
                 }
