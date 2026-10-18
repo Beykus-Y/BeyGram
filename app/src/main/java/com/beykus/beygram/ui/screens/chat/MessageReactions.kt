@@ -127,7 +127,7 @@ internal fun MessageReactionPicker(
         ) {
             items(options, key = { option -> if (option.customEmojiId != 0L) "#${option.customEmojiId}" else option.emoji }) { option ->
                 val isChosen = option in chosen
-                val description = if (option.customEmojiId != 0L) stringResource(R.string.chat_reaction_custom_pick_description)
+                val description = if (option.customEmojiId != 0L) stringResource(if (isChosen) R.string.chat_reaction_custom_remove_description else R.string.chat_reaction_custom_pick_description)
                     else stringResource(if (isChosen) R.string.chat_reaction_remove_description else R.string.chat_reaction_pick_description, option.emoji)
                 Box(Modifier.size(40.dp).clip(CircleShape)
                     .background(if (isChosen) palette.accentSoft else Color.Transparent)

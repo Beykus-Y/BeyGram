@@ -38,7 +38,8 @@ internal class TdCustomEmojis(client: () -> Client) {
 
     private suspend fun lookup(customEmojiId: Long): CustomEmoji? {
         val stickers = runCatching { requests(TdApi.GetCustomEmojiStickers(longArrayOf(customEmojiId))) }.getOrNull()?.stickers.orEmpty()
-        val sticker = stickers.firstOrNull { it.id == customEmojiId } ?: return null
+        // One id is asked for, so the sticker that comes back is its own, whatever id TDLib gives the sticker itself.
+        val sticker = stickers.firstOrNull() ?: return null
         return CustomEmoji(customEmojiId, sticker.sticker.id, sticker.emoji, stickerMimeType(sticker.format))
     }
 }
