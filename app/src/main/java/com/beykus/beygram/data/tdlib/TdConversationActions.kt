@@ -248,6 +248,7 @@ internal class TdConversationActions(
         SharedMediaKind.Files -> TdApi.SearchMessagesFilterDocument()
         SharedMediaKind.Links -> TdApi.SearchMessagesFilterUrl()
         SharedMediaKind.Voice -> TdApi.SearchMessagesFilterVoiceNote()
+        SharedMediaKind.Music -> TdApi.SearchMessagesFilterAudio()
     }
 
     fun hydrateReply(message: TdApi.Message) {

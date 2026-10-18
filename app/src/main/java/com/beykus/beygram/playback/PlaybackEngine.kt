@@ -76,6 +76,15 @@ internal fun interruptedAfterStart(current: PlaybackState, waiting: InterruptedM
     }
 }
 
+/**
+ * Файл очереди, который идёт сразу за местом [index], если на этом месте играет [currentKey]. Место ищем по номеру, а не по ключу:
+ * один файл может стоять в очереди дважды. Последний файл и место, где играет другой файл, дают null.
+ */
+internal fun nextInQueue(queue: List<PlaybackItem>, index: Int, currentKey: String): PlaybackItem? {
+    if (queue.getOrNull(index)?.key != currentKey) return null
+    return queue.getOrNull(index + 1)
+}
+
 /** Ключ файла в общем плеере: один на весь файл, поэтому повторный запуск не начинает его сначала. */
 internal fun MessageMedia.playbackKey(): String = "$kind:$fileId"
 
@@ -84,7 +93,8 @@ fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: Playb
     key = playbackKey(),
     kind = kind,
     path = path,
-    title = fileName.ifBlank { fallbackTitle },
+    // У музыки в плеере показываем теги: «Исполнитель — Название», а не имя файла.
+    title = if (kind == MediaKind.Audio && (title.isNotBlank() || performer.isNotBlank())) listOf(performer, title.ifBlank { fileName }).filter { it.isNotBlank() }.joinToString(" — ") else fileName.ifBlank { fallbackTitle },
     durationSeconds = durationSeconds,
     origin = origin
 )
@@ -114,6 +124,10 @@ object PlaybackEngine {
     private var videoView: TextureView? = null
     /** Музыка, которая ждёт, пока голосовое или кружок доиграет. Очищается при остановке и при новом запуске музыки. */
     private var interruptedMusic: InterruptedMusic? = null
+    /** Очередь музыки в порядке показа. Когда файл очереди доиграл, следующий начинает играть сам. Сбрасывается при запуске файла вне очереди и при остановке. */
+    private var queue: List<PlaybackItem> = emptyList()
+    /** Место играющего файла в [queue]. По номеру место находится однозначно, даже если один файл в очереди стоит дважды. */
+    private var queueIndex = -1
     /** Отметка «прослушано», которую плеер вызовет, когда файл начнёт играть. Работает, даже если пузырь уже ушёл с экрана. */
     private var startedCallback: Pair<String, () -> Unit>? = null
     /** Приложение на переднем плане. Отметку репозиторий принимает только отсюда, поэтому файл, начавший играть в фоне, ждёт возврата. */
@@ -152,9 +166,32 @@ object PlaybackEngine {
      * Тот же файл ставит на паузу или продолжает, другой файл начинает играть сначала. [onStarted] вызывается один раз, когда
      * файл начнёт играть, даже если пузырь, который его запустил, уже ушёл с экрана. Если это случилось в фоне, вызов ждёт [setForeground].
      */
-    fun toggle(context: Context, item: PlaybackItem, onStarted: (() -> Unit)? = null) {
+    fun toggle(context: Context, item: PlaybackItem, onStarted: (() -> Unit)? = null) = startItem(context, item, emptyList(), -1, onStarted)
+
+    /** Запускает [index]-й файл очереди [items]. Когда он доиграет, следующий файл очереди начинает играть сам. Тап по играющему файлу ставит его на паузу. */
+    fun playQueue(context: Context, items: List<PlaybackItem>, index: Int, onStarted: (() -> Unit)? = null) {
+        val item = items.getOrNull(index) ?: return
+        startItem(context, item, items, index, onStarted)
+    }
+
+    /** Общая часть [toggle] и [playQueue]: тот же файл ставит на паузу или продолжает, другой запускает с очередью [items]. */
+    private fun startItem(context: Context, item: PlaybackItem, items: List<PlaybackItem>, index: Int, onStarted: (() -> Unit)?) {
         if (onStarted != null) startedCallback = item.key to onStarted
-        if (exo != null && _state.value.item?.key == item.key) togglePlayPause() else play(context, item)
+        if (exo != null && _state.value.item?.key == item.key) {
+            // Файл, который играет без очереди, например из ленты чата, берёт очередь вкладки: после паузы и продолжения она пойдёт дальше.
+            if (queue.isEmpty() && items.isNotEmpty()) {
+                queue = items
+                queueIndex = index
+            }
+            togglePlayPause()
+        } else {
+            // Голосовое или кружок поверх музыки очередь не сбрасывают: музыка продолжится и дальше пойдёт по очереди.
+            if (item.kind == MediaKind.Audio) {
+                queue = items
+                queueIndex = index
+            }
+            play(context, item)
+        }
     }
 
     /** Приложение ушло в фон или вернулось на передний план. Отметка, которую файл начал в фоне, уходит на возврате. */
@@ -255,6 +292,8 @@ object PlaybackEngine {
         progress = null
         pendingStartFraction = 0f
         interruptedMusic = null
+        queue = emptyList()
+        queueIndex = -1
         startedCallback = null
         exo?.let {
             it.stop()
@@ -280,8 +319,8 @@ object PlaybackEngine {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) applyPendingStartFraction()
             _state.update { it.copy(durationMs = durationNow(), ended = playbackState == Player.STATE_ENDED) }
-            // Музыку возвращаем после того, как плеер закончит обрабатывать конец файла, а не внутри его обработчика.
-            if (playbackState == Player.STATE_ENDED) scope.launch { resumeInterruptedMusic() }
+            // Следующий файл ставим после того, как плеер закончит обрабатывать конец файла, а не внутри его обработчика.
+            if (playbackState == Player.STATE_ENDED) scope.launch { advanceAfterEnd() }
         }
 
         // Перемотку с уведомления или экрана блокировки делает сам плеер, минуя PlaybackEngine: позицию обновляем и на паузе.
@@ -312,6 +351,21 @@ object PlaybackEngine {
         if (!_state.value.ended) return
         val context = appContext ?: return
         play(context, music.item)
+    }
+
+    /** Файл доиграл: сначала возвращаем музыку, которую прервало голосовое или кружок, иначе запускаем следующий файл очереди. */
+    private fun advanceAfterEnd() {
+        if (interruptedMusic != null) resumeInterruptedMusic() else playNextInQueue()
+    }
+
+    /** Следующий файл очереди. Если текущий файл не из очереди или отметка конца уже снята, ничего не делает. */
+    private fun playNextInQueue() {
+        if (!_state.value.ended) return
+        val current = _state.value.item?.key ?: return
+        val next = nextInQueue(queue, queueIndex, current) ?: return
+        val context = appContext ?: return
+        queueIndex += 1
+        play(context, next)
     }
 
     /** Отдаёт отметку текущему файлу один раз, когда он уже играет и приложение на переднем плане. Если файл сменился, отметка уже сброшена в [play]. */
