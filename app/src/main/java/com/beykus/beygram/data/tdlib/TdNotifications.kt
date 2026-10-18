@@ -62,7 +62,7 @@ internal class TdNotifications(
                 _state.value = _state.value.copy(initialized = true, snapshot = true)
             }
             is TdApi.UpdateNotificationGroup -> {
-                _state.value = _state.value.copy(initialized = true)
+                _state.value = _state.value.copy(initialized = true, snapshot = true)
                 if (update.type is TdApi.NotificationGroupTypeCalls) { groups.remove(update.notificationGroupId); publish(); return@synchronized }
                 val old = groups[update.notificationGroupId]?.takeIf { it.chatId == update.chatId }
                 val removed = (update.removedNotificationIds ?: intArrayOf()).toSet()

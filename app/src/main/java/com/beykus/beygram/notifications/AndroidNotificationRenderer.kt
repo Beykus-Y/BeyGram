@@ -58,7 +58,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             // A failed post keeps the earlier entry instead of cancelling it as stale.
             shown.add(tag)
         }
-        // Stale entries are cancelled only after TDLib's startup snapshot; before it, the tray still holds the previous session.
+        // Stale entries are cancelled only once TDLib's state has arrived (startup snapshot or a group update), so a cold start keeps the tray.
         if (state.snapshot) manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
     }
     fun cancelGroup(id: Int) { manager.cancel(tag(id), 0) }

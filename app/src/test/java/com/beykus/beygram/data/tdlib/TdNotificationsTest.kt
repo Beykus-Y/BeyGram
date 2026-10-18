@@ -77,10 +77,10 @@ class TdNotificationsTest {
         assertEquals(0, feed.state.value.groups.single().alertId)
     }
 
-    @Test fun groupUpdateDoesNotMarkStartupSnapshot() {
+    @Test fun firstGroupUpdateMarksStateReceivedWithoutStartupSnapshot() {
         val feed = newFeed()
         feed.handle(groupUpdate(listOf(notice(7))))
-        assertFalse(feed.state.value.snapshot)
+        assertTrue(feed.state.value.snapshot)
     }
 
     @Test fun archivedFlagIsRereadWhenChatPositionChanges() {
