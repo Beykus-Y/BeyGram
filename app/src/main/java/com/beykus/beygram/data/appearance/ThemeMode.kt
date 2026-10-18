@@ -1,17 +1,18 @@
 package com.beykus.beygram.data.appearance
 
 /**
- * The theme the user picked. [FollowSystem] tracks the system's dark setting and changes with it.
+ * The brightness the user picked. [FollowSystem] tracks the system's dark setting and changes with it.
+ * [Amoled] is the dark theme with a pure black background, whatever the system setting says.
  * Choices are stored by name, so a missing or unknown stored value means [FollowSystem].
  */
 enum class ThemeMode {
-    FollowSystem, Light, Dark;
+    FollowSystem, Light, Dark, Amoled;
 
     /** Whether this choice shows the dark theme, given the system's current setting. */
     fun isDark(systemDark: Boolean): Boolean = when (this) {
         FollowSystem -> systemDark
         Light -> false
-        Dark -> true
+        Dark, Amoled -> true
     }
 }
 
