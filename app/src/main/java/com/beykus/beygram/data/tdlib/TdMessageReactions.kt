@@ -17,9 +17,10 @@ internal fun messageReactions(interaction: TdApi.MessageInteractionInfo?): List<
     }
 
 /**
- * Emoji the picker offers: TDLib's top, recent and popular reactions, then what the chat adds. A chat with its own list adds
- * that list, and a chat that allows every reaction adds the active emoji. Premium-only ones are left out unless [premium].
- * Custom emoji are not offered yet. Emoji that differ only by U+FE0F count as one, so a reaction is never listed twice.
+ * Emoji the picker offers: TDLib's top, recent and popular reactions, without the ones that need Premium for a user without
+ * it. Premium users also get what the chat lists, or every active emoji in a chat that allows all of them. The chat's list
+ * and the active set carry no Premium flags, so a user without Premium gets only what TDLib lists for them. Custom emoji
+ * are not offered yet. Emoji that differ only by U+FE0F count as one, so a reaction is never listed twice.
  */
 internal fun pickerEmojis(
     available: TdApi.AvailableReactions,
@@ -27,15 +28,15 @@ internal fun pickerEmojis(
     activeEmojis: List<String>,
     premium: Boolean
 ): List<String> {
-    val offers = available.topReactions.orEmpty().toList() + available.recentReactions.orEmpty().toList() + available.popularReactions.orEmpty().toList()
-    val premiumOnly = offers.filter { it.needsPremium }.mapNotNullTo(hashSetOf()) { emojiOf(it.type) }
-    val chatEmojis = when (chat) {
+    val offers = (available.topReactions.orEmpty().toList() + available.recentReactions.orEmpty().toList() + available.popularReactions.orEmpty().toList())
+        .filter { premium || !it.needsPremium }
+        .mapNotNull { emojiOf(it.type) }
+    val extra: List<String> = if (!premium) emptyList() else when (chat) {
         is TdApi.ChatAvailableReactionsSome -> chat.reactions.orEmpty().mapNotNull(::emojiOf)
         is TdApi.ChatAvailableReactionsAll -> activeEmojis
         else -> emptyList()
     }
-    return (offers.filter { premium || !it.needsPremium }.mapNotNull { emojiOf(it.type) } + chatEmojis.filter { premium || it !in premiumOnly })
-        .distinctBy { emoji -> emoji.filterNot { it == '\uFE0F' } }
+    return (offers + extra).distinctBy { emoji -> emoji.filterNot { it == '\uFE0F' } }
 }
 
 private fun emojiOf(type: TdApi.ReactionType): String? = (type as? TdApi.ReactionTypeEmoji)?.emoji
