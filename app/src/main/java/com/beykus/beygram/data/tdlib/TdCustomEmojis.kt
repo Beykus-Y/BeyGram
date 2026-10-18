@@ -4,6 +4,7 @@ import com.beykus.beygram.domain.model.CustomEmoji
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -26,7 +27,13 @@ internal class TdCustomEmojis(client: () -> Client) {
         val flow = MutableStateFlow<CustomEmoji?>(null)
         flows.putIfAbsent(customEmojiId, flow)?.let { return it }
         scope.launch {
-            val emoji = lookup(customEmojiId)
+            // Наблюдатели держат этот поток, поэтому сбой не должен оставлять его пустым: пробуем снова с растущей паузой.
+            var emoji = lookup(customEmojiId)
+            for (pause in RETRY_PAUSES_MILLIS) {
+                if (emoji != null) break
+                delay(pause)
+                emoji = lookup(customEmojiId)
+            }
             if (emoji != null) {
                 flow.value = emoji
             } else {
@@ -41,5 +48,9 @@ internal class TdCustomEmojis(client: () -> Client) {
         // One id is asked for, so the sticker that comes back is its own, whatever id TDLib gives the sticker itself.
         val sticker = stickers.firstOrNull() ?: return null
         return CustomEmoji(customEmojiId, sticker.sticker.id, sticker.emoji, stickerMimeType(sticker.format))
+    }
+
+    private companion object {
+        val RETRY_PAUSES_MILLIS = longArrayOf(2_000L, 5_000L, 15_000L, 30_000L)
     }
 }

@@ -51,26 +51,20 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
     val row = remember(media.fileId) { Any() }
     val waitingForVoice = pendingPlaybackRow.value === row
     // Отметку «прослушано» получает только пузырь, по которому нажали, и только когда плеер сообщил о старте.
-    var requested by remember(media.fileId) { mutableStateOf(false) }
+    var played by remember(media.fileId) { mutableStateOf(false) }
     val playing = voice?.playing == true
-    val started = voice?.started == true
     val loading = (voice != null && voice.durationMs == 0L && !voice.failed) || (waitingForVoice && path == null)
     val fraction = voice?.fraction ?: 0f
     val shownSeconds = if (voice != null && voice.positionMs > 0L) (voice.positionMs / 1000).toInt() else media.durationSeconds
     val bars = remember(media.fileId, media.waveform) { resampleWaveform(media.waveform, BAR_COUNT) }
     val currentOnPlayed by rememberUpdatedState(onPlayed)
-    // Голосовое считается прослушанным, когда плеер сообщил, что оно играет. Другие пузыри с тем же файлом этого не получают.
-    LaunchedEffect(requested, started) {
-        if (requested && started) {
-            requested = false
-            currentOnPlayed()
-        }
-    }
+    // Голосовое считается прослушанным, когда плеер сообщил, что оно играет. Плеер вызывает отметку сам, поэтому пузырь может уйти с экрана раньше.
+    val markPlayed: () -> Unit = { if (!played) { played = true; currentOnPlayed() } }
     // Новый запуск заменяет файл в общем плеере, в том числе кружок в ленте.
     fun startVoice(localPath: String) {
         val state = PlaybackEngine.state.value
-        requested = !(state.item?.key == key && state.playing)
-        PlaybackEngine.toggle(context, media.playbackItem(localPath, label, origin))
+        val starting = !(state.item?.key == key && state.playing)
+        PlaybackEngine.toggle(context, media.playbackItem(localPath, label, origin), onStarted = if (starting) markPlayed else null)
     }
     // Перемотка по волне: в текущем файле двигает позицию, другой файл начинает с этой точки.
     fun seekVoice(localPath: String, target: Float) {
@@ -78,12 +72,10 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
         if (state.item?.key == key) {
             PlaybackEngine.seekTo(target)
             if (!state.playing) {
-                requested = true
-                PlaybackEngine.togglePlayPause()
+                PlaybackEngine.resume(key, markPlayed)
             }
         } else {
-            requested = true
-            PlaybackEngine.play(context, media.playbackItem(localPath, label, origin), target)
+            PlaybackEngine.play(context, media.playbackItem(localPath, label, origin), target, markPlayed)
         }
     }
     fun togglePlay() {
