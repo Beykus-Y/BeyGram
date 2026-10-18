@@ -166,10 +166,15 @@ private fun BeyGramAppContent(
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var noticeError by remember { mutableStateOf<UiText?>(null) }
-    // «Показать в чате» из мини-плеера открывает сообщение, из которого запущен файл. Назад из чата вернёт туда, откуда открыли.
+    // «Показать в чате» из мини-плеера открывает сообщение, из которого запущен файл. Назад из чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     LaunchedEffect(Unit) {
         PlaybackEngine.showInChat.collect { origin ->
-            if (routeName != AppRoute.Chat.name) chatBackRouteName = routeName
+            if (routeName != AppRoute.Chat.name) {
+                chatBackRouteName = when (routeName) {
+                    AppRoute.Archive.name, AppRoute.Contacts.name -> routeName
+                    else -> AppRoute.Chats.name
+                }
+            }
             selectedChatId = origin.chatId
             chatFocusMessageId = origin.messageId
             routeName = AppRoute.Chat.name
