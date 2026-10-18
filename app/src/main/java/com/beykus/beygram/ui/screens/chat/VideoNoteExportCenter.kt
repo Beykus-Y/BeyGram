@@ -66,8 +66,10 @@ internal object VideoNoteExportGate {
         private set
     val busy: Boolean get() = activeExports > 0
 
-    fun begin() { activeExports++ }
-    fun end() { activeExports = (activeExports - 1).coerceAtLeast(0) }
+    // begin() вызывается из потока, который запускает экспорт, end() — из потока, где задача завершилась. Без замка обновления
+    // теряются, счётчик застревает выше нуля и запись кружков блокируется до перезапуска процесса.
+    @Synchronized fun begin() { activeExports++ }
+    @Synchronized fun end() { activeExports = (activeExports - 1).coerceAtLeast(0) }
 }
 
 /** Mutex guarantees that only one Media3 Transformer body runs at a time. */
