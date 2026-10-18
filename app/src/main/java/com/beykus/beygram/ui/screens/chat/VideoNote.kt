@@ -44,6 +44,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -124,7 +125,8 @@ internal fun VideoNoteBubble(
     statusIcon: ImageVector? = null,
     statusDescription: String? = null,
     unseen: Boolean = false,
-    highlighted: Boolean = false
+    highlighted: Boolean = false,
+    origin: PlaybackOrigin? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
@@ -177,7 +179,7 @@ internal fun VideoNoteBubble(
     fun startCircle(localPath: String) {
         val state = PlaybackEngine.state.value
         requested = !(state.item?.key == key && state.playing)
-        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label))
+        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label, origin))
     }
     fun togglePlay() {
         if (path == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startCircle(path)

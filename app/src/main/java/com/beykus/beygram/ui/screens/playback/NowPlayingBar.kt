@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
@@ -27,6 +28,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -103,6 +105,11 @@ fun NowPlayingBar(bottomInset: Boolean = false) {
                 Text(item.title, color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(subtitle(state), color = palette.textSecondary, fontSize = 12.sp, maxLines = 1)
             }
+            item.origin?.let { origin ->
+                IconButton(onClick = { PlaybackEngine.requestShowInChat(origin) }) {
+                    Icon(Icons.Rounded.ChatBubble, contentDescription = stringResource(R.string.media_show_in_chat), tint = palette.textSecondary)
+                }
+            }
             IconButton(onClick = { PlaybackEngine.togglePlayPause() }) {
                 Icon(
                     if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
@@ -142,6 +149,14 @@ private fun NowPlayingSheet(onDismiss: () -> Unit) {
             enabled = true,
             onPlayPause = { PlaybackEngine.togglePlayPause() }
         )
+        item.origin?.let { origin ->
+            TextButton(
+                onClick = { onDismiss(); PlaybackEngine.requestShowInChat(origin) },
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 24.dp)
+            ) {
+                Text(stringResource(R.string.media_show_in_chat), color = palette.accent)
+            }
+        }
     }
 }
 

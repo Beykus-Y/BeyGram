@@ -55,6 +55,7 @@ import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
@@ -746,8 +747,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     message.sendState == MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
                                     isRead -> stringResource(R.string.chat_read_description)
                                     else -> stringResource(R.string.chat_sent_description)
-                                }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted)
-                            else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed)
+                                }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted, origin = PlaybackOrigin(message.chatId, message.id))
+                            else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed, origin = PlaybackOrigin(message.chatId, message.id))
                         }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = 12.dp, end = 12.dp, top = if (circle) 4.dp else 8.dp)) {
