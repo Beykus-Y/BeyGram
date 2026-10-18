@@ -47,6 +47,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.reactionMessage
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
@@ -83,6 +84,7 @@ internal fun MessageAlbumBubble(
     onActions: (Long) -> Unit,
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)? = null,
+    onReaction: (Long, String) -> Unit,
     onRetry: () -> Unit = {}
 ) {
     if (messages.isEmpty()) return
@@ -94,7 +96,7 @@ internal fun MessageAlbumBubble(
     val captions = chronological.filter { it.text.isNotBlank() }
     val captionMessage = captions.lastOrNull() ?: latest
     val reply = chronological.firstNotNullOfOrNull { it.reply }
-    val reactions = chronological.firstNotNullOfOrNull { message -> message.reactions.takeIf { it.isNotEmpty() } }.orEmpty()
+    val reactionOwner = reactionMessage(chronological)
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && captionMessage.sendState == MessageSendState.Sent, outgoing = latest.isOutgoing,
@@ -144,7 +146,7 @@ internal fun MessageAlbumBubble(
                 }
             )
         }
-        MessageReactionChips(reactions, Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
+        MessageReactionChips(reactionOwner.reactions, onToggle = { onReaction(reactionOwner.id, it.emoji) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }
 

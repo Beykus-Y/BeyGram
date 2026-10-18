@@ -116,6 +116,7 @@ fun ChatScreen(
     fun closeSearch() { searching = false; searchQuery = "" }
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var reactionOptions by remember(chat.id) { mutableStateOf<List<String>>(emptyList()) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
@@ -187,6 +188,13 @@ fun ChatScreen(
         if (text.isBlank()) conversation.endChatActivity(chat.id, ChatActivity.Typing)
         else conversation.startChatActivity(chat.id, ChatActivity.Typing)
     }
+    fun setReaction(messageId: Long, emoji: String, addToRecent: Boolean) {
+        scope.launch {
+            conversation.toggleReaction(chat.id, messageId, emoji, addToRecent).onFailure { error = it.userMessage(context, R.string.chat_reaction_failed) }
+        }
+    }
+    // Chip taps leave the user's recent reactions alone; only a reaction picked from the extended menu is added there.
+    fun react(messageId: Long, emoji: String) = setReaction(messageId, emoji, addToRecent = false)
     fun retryFailedMessages(messageIds: List<Long>) {
         scope.launch {
             val result = conversation.retryMessages(chat.id, messageIds)
@@ -279,6 +287,8 @@ fun ChatScreen(
     val window = LocalWindowInfo.current
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }
     val actionMessage = messages.firstOrNull { it.id == actionsId }
+    // An album's reactions sit on one of its messages, so the picker and the chips act on that message.
+    val reactionOwner = actionMessage?.let { target -> messageListItems.firstOrNull { item -> item.messages.any { it.id == target.id } }?.messages?.let(::reactionMessage) }
     val editMessage = messages.firstOrNull { it.id == editId }
     // A swipe reply needs an idle composer on screen: no search, deletion, edit, recording or open action menu, and no
     // send in flight, because a finished send clears the reply target it used.
@@ -298,6 +308,11 @@ fun ChatScreen(
         val result = conversation.messageCapabilities(chat.id, id)
         capabilities = result.getOrNull()
         capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
+    }
+    LaunchedEffect(chat.id, reactionOwner?.id) {
+        reactionOptions = emptyList()
+        val id = reactionOwner?.id ?: return@LaunchedEffect
+        reactionOptions = conversation.availableReactions(chat.id, id).getOrNull().orEmpty()
     }
     LaunchedEffect(selectedMediaId) {
         // При свайпе старые значения остаются до ответа, иначе счётчик и кнопки мигают на каждом вложении.
@@ -440,6 +455,12 @@ fun ChatScreen(
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
         else ChatTopBar(chat, info, lastSeenStyle, onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
+        reactionOwner?.takeIf { !deleting }?.let { owner ->
+            MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.emoji }) { emoji ->
+                setReaction(owner.id, emoji, addToRecent = true)
+                closeActions()
+            }
+        }
         PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected, ::jumpToPinned)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -461,13 +482,13 @@ fun ChatScreen(
                         isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                         highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
                         onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
-                        onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
+                        onReaction = ::react, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
                 } else {
                     val message = listItem.messages.single()
                     MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                         highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                         onPlayed = { conversation.openMessageContent(chat.id, message.id) },
-                        onRetry = { retryFailedMessages(listOf(message.id)) }, inlineContent = { InlineBotButtons(message, conversation) })
+                        onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, inlineContent = { InlineBotButtons(message, conversation) })
                 }
             }
             history.error?.let { item(key = "history_error") { Text(it.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp)) } }
@@ -678,7 +699,7 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
 
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, inlineContent: @Composable () -> Unit = {}) {
+    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, String) -> Unit, inlineContent: @Composable () -> Unit = {}) {
     val palette = beyGramPalette()
     val shape = if (message.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     val hasText = message.text.isNotBlank()
@@ -741,6 +762,6 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 footer = inlineContent
             )
         }
-        MessageReactionChips(message.reactions, Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
+        MessageReactionChips(message.reactions, onToggle = { onReaction(message.id, it.emoji) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }

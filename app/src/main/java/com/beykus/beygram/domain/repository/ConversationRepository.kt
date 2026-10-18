@@ -30,6 +30,13 @@ interface ConversationRepository {
     suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit>
     /** Regular forward (the original sender stays visible). TDLib refuses it when the message can't be forwarded. */
     suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit>
+    /** Emoji the current user can add to the message, in Telegram's order. Empty where reactions are not allowed. */
+    suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<String>>
+    /**
+     * Adds [emoji], or removes it when the user has already chosen it. [addToRecent] is set only for a reaction picked from the
+     * extended menu, as Telegram requires. Returns the message's reactions after the change.
+     */
+    suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean): Result<List<MessageReaction>>
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
     /** Messages in one chat whose text matches [query]. Pass 0 for the first page, then the previous page's nextFromMessageId. */
     suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>

@@ -327,6 +327,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) =
         conversationActions.delete(chatId, messageId, scope).onSuccess { conversationEffects.uploadFinished(chatId, messageId) }
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long) = conversationActions.forward(fromChatId, messageId, toChatId)
+    override suspend fun availableReactions(chatId: Long, messageId: Long) = conversationActions.availableReactions(chatId, messageId)
+    override suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean) =
+        conversationActions.toggleReaction(chatId, messageId, emoji, addToRecent)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long) = conversationActions.shared(chatId, kind, fromMessageId)

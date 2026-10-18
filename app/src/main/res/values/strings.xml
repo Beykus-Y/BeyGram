@@ -71,6 +71,9 @@
     <string name="chat_preview_video">🎥 Видео</string>
     <string name="chat_preview_voice">🎤 Голосовое</string>
     <string name="chat_reaction_description">Реакция %1$s, %2$d</string>
+    <string name="chat_reaction_failed">Не удалось поставить реакцию</string>
+    <string name="chat_reaction_pick_description">Поставить реакцию %1$s</string>
+    <string name="chat_reaction_remove_description">Убрать реакцию %1$s</string>
     <string name="chat_read_description">Прочитано</string>
     <string name="chat_reply_label">Ответ</string>
     <string name="chat_reply_media">Медиа</string>
