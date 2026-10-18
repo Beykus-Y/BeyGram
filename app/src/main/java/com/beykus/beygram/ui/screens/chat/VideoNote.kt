@@ -164,6 +164,10 @@ internal fun VideoNoteBubble(
         if (secureWhilePlaying) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { if (secureWhilePlaying) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
+    // Секретный кружок не играет, когда пузырь ушёл из списка.
+    DisposableEffect(key) {
+        onDispose { if (media.isSecret && PlaybackEngine.state.value.item?.key == key) PlaybackEngine.stopSecret() }
+    }
     // Миниатюра лежит под кадрами видео: пока кадра нет, например сразу после старта или возврата в ленту, виден не чёрный круг. У секретного кружка её не грузим.
     val thumbnailId = media.thumbnailFileId?.takeUnless { media.isSecret }
     val thumbnail by remember(thumbnailId) { thumbnailId?.let(observeFile) ?: NoThumbnailState }.collectAsStateWithLifecycle()
