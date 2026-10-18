@@ -5,6 +5,7 @@ import androidx.datastore.core.DataMigration
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -21,6 +22,8 @@ private val ThemeModeKey = stringPreferencesKey("theme_mode")
 private val ThemePresetKey = stringPreferencesKey("theme_preset")
 private val BubbleStyleKey = stringPreferencesKey("bubble_style")
 private val ListDensityKey = stringPreferencesKey("list_density")
+private val AccentColorKey = intPreferencesKey("accent_color")
+private val OutgoingBubbleColorKey = intPreferencesKey("outgoing_bubble_color")
 
 private val Context.appearanceDataStore by preferencesDataStore(
     name = "appearance",
@@ -39,7 +42,9 @@ class AppearanceSettingsStore(context: Context) {
                 preset = themePresetFromStored(preferences[ThemePresetKey]),
                 mode = themeModeFromStored(preferences[ThemeModeKey]),
                 bubbleStyle = bubbleStyleFromStored(preferences[BubbleStyleKey]),
-                density = listDensityFromStored(preferences[ListDensityKey])
+                density = listDensityFromStored(preferences[ListDensityKey]),
+                accentColor = preferences[AccentColorKey],
+                outgoingBubbleColor = preferences[OutgoingBubbleColorKey]
             )
         }
 
@@ -49,6 +54,10 @@ class AppearanceSettingsStore(context: Context) {
             preferences[ThemeModeKey] = config.mode.name
             preferences[BubbleStyleKey] = config.bubbleStyle.name
             preferences[ListDensityKey] = config.density.name
+            val accent = config.accentColor
+            if (accent != null) preferences[AccentColorKey] = accent else preferences.remove(AccentColorKey)
+            val bubble = config.outgoingBubbleColor
+            if (bubble != null) preferences[OutgoingBubbleColorKey] = bubble else preferences.remove(OutgoingBubbleColorKey)
         }
     }
 }

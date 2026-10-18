@@ -27,5 +27,6 @@ enum class AppRoute {
     ReportProblem,
     Proxy,
     ProxyConnect,
-    Appearance
+    Appearance,
+    ThemeEditor
 }

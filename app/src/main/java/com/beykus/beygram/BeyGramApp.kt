@@ -59,6 +59,7 @@ import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
+import com.beykus.beygram.ui.screens.theme.ThemeEditorScreen
 import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
 import com.beykus.beygram.domain.model.NotificationOpenRequest
@@ -526,7 +527,13 @@ private fun BeyGramAppContent(
                 AppRoute.Appearance -> ThemeSettingsScreen(
                     saved = appearance,
                     onSave = onAppearanceChange,
+                    onOpenEditor = { routeName = AppRoute.ThemeEditor.name },
                     onBack = { routeName = AppRoute.MyProfile.name }
+                )
+                AppRoute.ThemeEditor -> ThemeEditorScreen(
+                    saved = appearance,
+                    onSave = onAppearanceChange,
+                    onBack = { routeName = AppRoute.Appearance.name }
                 )
                 AppRoute.EditProfile -> {
                     myProfile.info?.let { info ->
