@@ -100,6 +100,8 @@ internal fun GroupProfileScreen(
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         GroupProfileToolbar(title, collapse, refreshEnabled = !state.isLoading, onBack = onBack, onRefresh = onRefresh)
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        // Ошибку показываем над списком: в конце длинной вкладки она оказалась бы за сотнями строк.
+        state.error?.let { error -> Text(error.resolve(), color = palette.danger, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(bottom = 28.dp)) {
             item(key = "header") {
                 Column(
@@ -134,7 +136,6 @@ internal fun GroupProfileScreen(
             val kind = activeTab.kind
             if (kind == null || window == null) item(key = "members") { GroupMembers(info, state.isLoading, observeFile, downloadFile, onMembers, onOpenUser) }
             else sharedItems(kind, info.id, window, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMedia = { viewing = it }, onOpenMessage = onOpenMessage, onRetry = { scope.launch { window.loadOlder() } })
-            state.error?.let { error -> item(key = "error") { Text(error.resolve(), color = palette.danger, modifier = Modifier.padding(20.dp)) } }
         }
     }
     SharedMediaViewer(media = windows.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
