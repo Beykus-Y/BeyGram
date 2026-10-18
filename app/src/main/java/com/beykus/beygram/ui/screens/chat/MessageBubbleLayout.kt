@@ -16,21 +16,73 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.BubbleStyle
+import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Отступ плашки времени от края фото, когда время стоит поверх него. */
 private val OverlayInset = 6.dp
+
+/**
+ * Размеры пузырей и отступы списка сообщений. [Default] — вид, который BeyGram всегда имел.
+ * [LocalBubbleMetrics] несёт значения, которые действуют сейчас: тема меняет числа, код отрисовки остаётся прежним.
+ */
+internal data class BubbleMetrics(
+    /** Радиус трёх углов пузыря, которые не у хвоста. */
+    val cornerRadius: Dp = 20.dp,
+    /** Радиус угла у хвоста: внизу, со стороны отправителя. */
+    val tailRadius: Dp = 6.dp,
+    /** Расстояние от пузыря до краёв чата с обеих сторон. */
+    val sideInset: Dp = 14.dp,
+    /** Отступ текста внутри пузыря слева и справа. */
+    val textInset: Dp = 12.dp,
+    /** Отступ текста внутри пузыря сверху. */
+    val textTopInset: Dp = 8.dp,
+    /** Промежуток между соседними элементами списка сообщений. */
+    val itemSpacing: Dp = 8.dp,
+    /** Отступ над первым и под последним элементом списка сообщений. */
+    val listPadding: Dp = 16.dp,
+    /** Радиус скруглённой цитаты ответа внутри пузыря. */
+    val replyRadius: Dp = 12.dp,
+    /** Отступ сверху у текста под кружком видео. */
+    val circleTopInset: Dp = 4.dp
+)
+
+internal val LocalBubbleMetrics = compositionLocalOf { BubbleMetrics() }
+
+/** Форма пузыря. Хвост внизу со стороны отправителя: справа у исходящих, слева у входящих. */
+internal fun bubbleShape(outgoing: Boolean, metrics: BubbleMetrics): RoundedCornerShape {
+    val corner = metrics.cornerRadius
+    val tail = metrics.tailRadius
+    return if (outgoing) RoundedCornerShape(corner, corner, tail, corner) else RoundedCornerShape(corner, corner, corner, tail)
+}
+
+/** Размеры для выбранной формы пузырей и плотности. Скруглённые пузыри при комфортной плотности дают прежний вид. */
+internal fun bubbleMetricsFor(style: BubbleStyle, density: ListDensity): BubbleMetrics {
+    val shaped = when (style) {
+        BubbleStyle.Rounded -> BubbleMetrics()
+        BubbleStyle.Soft -> BubbleMetrics(cornerRadius = 14.dp, tailRadius = 4.dp, replyRadius = 9.dp)
+        BubbleStyle.Square -> BubbleMetrics(cornerRadius = 8.dp, tailRadius = 2.dp, replyRadius = 4.dp)
+    }
+    return when (density) {
+        ListDensity.Compact -> shaped.copy(itemSpacing = 4.dp, listPadding = 8.dp)
+        ListDensity.Comfortable -> shaped
+        ListDensity.Spacious -> shaped.copy(itemSpacing = 12.dp, listPadding = 20.dp)
+    }
+}
 
 /**
  * Пузырь из трёх частей: [body] — содержимое сверху, [meta] — время и статус в правом нижнем углу,

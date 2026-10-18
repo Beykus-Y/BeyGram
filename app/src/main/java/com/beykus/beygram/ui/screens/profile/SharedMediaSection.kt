@@ -75,11 +75,11 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-private const val GRID_COLUMNS = 3
+internal const val GRID_COLUMNS = 3
 private const val GRID_PREVIEW_PX = 256
 /** Сколько ячеек или строк остаётся до конца вкладки, когда следующая страница уже нужна. */
 private const val PREFETCH_CELLS = 12
-private const val PREFETCH_ROWS = 6
+internal const val PREFETCH_ROWS = 6
 private const val PAGER_SCREEN_FRACTION = 0.7f
 private val PAGER_MIN_HEIGHT = 360.dp
 
@@ -95,25 +95,11 @@ internal fun SharedMediaSection(
     onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val palette = beyGramPalette()
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val currentLoad by rememberUpdatedState(load)
-    val tabs = remember(chatId) {
-        SharedMediaKind.entries.associateWith { kind ->
-            SharedMediaWindow(
-                load = { from, newer -> currentLoad(kind, from, newer) },
-                failure = { error -> error.userMessage(context, R.string.profile_shared_load_failed) }
-            )
-        }
-    }
+    val tabs = rememberSharedMediaWindows(chatId, load)
     val pagerState = rememberPagerState { SharedMediaKind.entries.size }
     val pagerHeight = (LocalConfiguration.current.screenHeightDp * PAGER_SCREEN_FRACTION).dp.coerceAtLeast(PAGER_MIN_HEIGHT)
     var viewing by remember(chatId) { mutableStateOf<Long?>(null) }
-    var viewerRights by remember(chatId) { mutableStateOf<MessageRights?>(null) }
-    var forwardId by remember(chatId) { mutableStateOf<Long?>(null) }
-    var forwardBusy by remember(chatId) { mutableStateOf(false) }
-    var forwardError by remember(chatId) { mutableStateOf<String?>(null) }
-    val currentRights by rememberUpdatedState(messageRights)
     fun loadMore(kind: SharedMediaKind) {
         scope.launch { tabs.getValue(kind).loadOlder() }
     }
@@ -134,9 +120,47 @@ internal fun SharedMediaSection(
             onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = onOpenMessage)
     }
 
-    // Просмотрщик листает только загруженные фото и видео; секретные открываются в чате, где есть все проверки.
+    SharedMediaViewer(media = tabs.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
+        observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = onOpenMessage,
+        confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
+        onContentOpened = onContentOpened)
+}
+
+/** Окна вкладок по видам вложений. Новые создаются только при смене чата и переживают пересборку экрана. */
+@Composable
+internal fun rememberSharedMediaWindows(
+    chatId: Long, load: suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>
+): Map<SharedMediaKind, SharedMediaWindow> {
+    val context = LocalContext.current
+    val currentLoad by rememberUpdatedState(load)
+    return remember(chatId) {
+        SharedMediaKind.entries.associateWith { kind ->
+            SharedMediaWindow(
+                load = { from, newer -> currentLoad(kind, from, newer) },
+                failure = { error -> error.userMessage(context, R.string.profile_shared_load_failed) }
+            )
+        }
+    }
+}
+
+/** Просмотрщик фото и видео из вкладки «Медиа». Листает загруженное; секретные открываются в чате, где есть все проверки. */
+@Composable
+internal fun SharedMediaViewer(
+    media: SharedMediaWindow, viewing: Long?, onViewing: (Long?) -> Unit,
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit,
+    confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
+    forwardMessage: suspend (Long, Long) -> Result<Unit> = { _, _ -> Result.failure(IllegalStateException()) }, chats: List<ChatPreview> = emptyList(),
+    onContentOpened: (Long) -> Unit = {}
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val currentRights by rememberUpdatedState(messageRights)
+    var viewerRights by remember(media) { mutableStateOf<MessageRights?>(null) }
+    var forwardId by remember(media) { mutableStateOf<Long?>(null) }
+    var forwardBusy by remember(media) { mutableStateOf(false) }
+    var forwardError by remember(media) { mutableStateOf<String?>(null) }
     val selected = viewing
-    val pages = tabs.getValue(SharedMediaKind.Media).messages.mapNotNull { message ->
+    val pages = media.messages.mapNotNull { message ->
         message.media?.takeUnless { it.isSecret }?.let { MediaViewerItem(message.id, it) }
     }
     // Права на сообщение нужны кнопкам просмотрщика: сохранение и пересылка показываются, только если Telegram их разрешает.
@@ -147,17 +171,17 @@ internal fun SharedMediaSection(
     if (selected != null && pages.any { it.messageId == selected }) MediaViewer(
         pages = pages, selectedId = selected,
         onSelect = { id ->
-            viewing = id
-            scope.launch { tabs.getValue(SharedMediaKind.Media).loadNear(id) { it.media?.isSecret == false } }
+            onViewing(id)
+            scope.launch { media.loadNear(id) { it.media?.isSecret == false } }
         },
-        observeFile = observeFile, downloadFile = downloadFile, onViewed = onContentOpened, onClose = { viewing = null },
+        observeFile = observeFile, downloadFile = downloadFile, onViewed = onContentOpened, onClose = { onViewing(null) },
         // Сохранение заново проверяет право на сообщение перед каждым действием, как строки списка.
         canExport = viewedRights?.canSave == true, confirmExport = confirmExport,
         actions = if (viewedRights?.canForward == true) MediaViewerActions(
             canForward = true, canEdit = false, canDelete = false,
-            onForward = { forwardId = selected; viewing = null }, onEdit = {}, onDelete = {}
+            onForward = { forwardId = selected; onViewing(null) }, onEdit = {}, onDelete = {}
         ) else null,
-        onShowInChat = { messageId -> viewing = null; onOpenMessage(messageId) }
+        onShowInChat = { messageId -> onViewing(null); onOpenMessage(messageId) }
     )
     forwardId?.let { id ->
         ForwardChatDialog(chats, forwardBusy, forwardError,
@@ -210,7 +234,7 @@ private fun SharedMediaPageContent(
 }
 
 @Composable
-private fun SharedMediaStatus(kind: SharedMediaKind, tab: SharedMediaWindow, onRetry: () -> Unit) {
+internal fun SharedMediaStatus(kind: SharedMediaKind, tab: SharedMediaWindow, onRetry: () -> Unit) {
     val palette = beyGramPalette()
     val error = tab.error
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -219,14 +243,15 @@ private fun SharedMediaStatus(kind: SharedMediaKind, tab: SharedMediaWindow, onR
                 Text(error, color = palette.danger, fontSize = 14.sp, textAlign = TextAlign.Center)
                 TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
             }
-            tab.loaded -> Text(stringResource(kind.emptyRes()), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+            // Пусто только тогда, когда дальше грузить нечего: страница без нужных вложений ещё не значит пустую вкладку.
+            tab.loaded && !tab.hasOlder -> Text(stringResource(kind.emptyRes()), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
             else -> CircularProgressIndicator(Modifier.size(28.dp), color = palette.accent, strokeWidth = 2.dp)
         }
     }
 }
 
 @Composable
-private fun SharedMediaFooter(tab: SharedMediaWindow, onRetry: () -> Unit) {
+internal fun SharedMediaFooter(tab: SharedMediaWindow, onRetry: () -> Unit) {
     val palette = beyGramPalette()
     val error = tab.error
     if (!tab.loading && error == null) return
@@ -278,7 +303,7 @@ private fun SharedMediaList(
 
 /** Строка списка. Ссылка может быть обычным текстом, поэтому для вкладки «Ссылки» вложение не нужно. */
 @Composable
-private fun SharedMediaRowItem(
+internal fun SharedMediaRowItem(
     kind: SharedMediaKind, chatId: Long, message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean, onContentOpened: (Long) -> Unit,
     onOpenMessage: (Long) -> Unit
@@ -413,7 +438,7 @@ internal fun sharedRowAction(media: MessageMedia, localPath: String?): SharedRow
  * Видео без превью не грузим: TDLib отдал бы весь файл, а картинки нет. Секретные вложения не грузим и не показываем.
  */
 @Composable
-private fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit) {
+internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     val thumbId = media.thumbnailFileId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
@@ -422,7 +447,7 @@ private fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow
     val loadPreview = shouldLoadSharedPreview(media, revealed)
     LaunchedEffect(thumbId, loadPreview) { if (loadPreview) downloadFile(thumbId) }
     Box(
-        Modifier.aspectRatio(1f).clip(RoundedCornerShape(4.dp)).background(palette.disabled)
+        modifier.aspectRatio(1f).clip(RoundedCornerShape(4.dp)).background(palette.disabled)
             .clickable(onClick = { if (!revealed) revealed = true else onClick() }),
         contentAlignment = Alignment.Center
     ) {
@@ -466,7 +491,7 @@ private fun SharedMediaKind.emptyRes(): Int = when (this) {
     SharedMediaKind.Voice -> R.string.profile_shared_empty_voice
 }
 
-private fun SharedCounts.countOf(kind: SharedMediaKind): Int? = when (kind) {
+internal fun SharedCounts.countOf(kind: SharedMediaKind): Int? = when (kind) {
     SharedMediaKind.Media -> media
     SharedMediaKind.Files -> files
     SharedMediaKind.Links -> links
