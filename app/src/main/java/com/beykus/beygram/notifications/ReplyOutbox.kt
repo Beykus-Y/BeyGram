@@ -15,13 +15,15 @@ import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 /**
- * Ответы из уведомлений, которые ещё не отправлены. Каждый ответ лежит отдельным файлом. Запись идёт через временный
- * файл с fsync и переименованием, поэтому оборванная запись не портит уже сохранённые ответы. Каталог приватный и не
- * попадает в резервные копии. Все операции синхронизированы: отправка и очистка не пересекаются.
+ * Ответы из уведомлений, которые ещё не отправлены. Каждый ответ лежит отдельным файлом и помнит токен сессии, в которой он
+ * сделан. Запись идёт через временный файл с fsync и переименованием, поэтому оборванная запись не портит уже сохранённые
+ * ответы. Каталог приватный и не попадает в резервные копии. Все операции синхронизированы: отправка и очистка не пересекаются.
  */
 internal class ReplyOutbox(private val directory: File) {
+    /** [session] — токен сессии, в которой ответ сделан. Ответ из другой сессии не отправляется. */
     data class Entry(
         val id: String,
+        val session: String,
         val chatId: Long,
         val groupId: Int,
         val maxId: Int,
@@ -38,8 +40,8 @@ internal class ReplyOutbox(private val directory: File) {
 
     /** Сохраняет ответ и возвращает его только после записи на диск. Если записать не удалось, бросает [IOException]. */
     @Synchronized
-    fun add(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String, nowMillis: Long): Entry {
-        val entry = Entry(UUID.randomUUID().toString(), chatId, groupId, maxId, replyToMessageId, text, nowMillis, attempts = 0)
+    fun add(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String, nowMillis: Long, session: String): Entry {
+        val entry = Entry(UUID.randomUUID().toString(), session, chatId, groupId, maxId, replyToMessageId, text, nowMillis, attempts = 0)
         write(entry)
         return entry
     }
@@ -59,17 +61,15 @@ internal class ReplyOutbox(private val directory: File) {
     fun isStored(id: String): Boolean = File(directory, id + SUFFIX).exists()
 
     /**
-     * Засчитывает неудачную попытку. Возвращает true, если ответ больше не будет отправляться: попытки исчерпаны или
-     * ответ уже удалён очисткой. Удалённый ответ не записывается заново. Если запись не удалась, бросает [IOException].
+     * Засчитывает неудачную попытку. Возвращает true, если ответ удалён и больше не будет отправляться: попытки исчерпаны и файл
+     * убран, либо очистка уже удалила ответ. Если убрать файл не удалось, возвращает false, и ответ ждёт следующей попытки.
+     * Удалённый ответ не записывается заново. Если запись не удалась, бросает [IOException].
      */
     @Synchronized
     fun recordFailure(entry: Entry, maxAttempts: Int): Boolean {
         if (!isStored(entry.id)) return true
         val next = entry.copy(attempts = entry.attempts + 1)
-        if (next.attempts >= maxAttempts) {
-            remove(entry.id)
-            return true
-        }
+        if (next.attempts >= maxAttempts) return remove(entry.id)
         write(next)
         return false
     }
@@ -80,11 +80,12 @@ internal class ReplyOutbox(private val directory: File) {
         .filter { nowMillis - it.createdAtMillis > ttlMillis }
         .count { remove(it.id) }
 
-    /** Удаляет все ответы, например при смене аккаунта: они относятся к прежнему аккаунту. */
+    /**
+     * Удаляет все ответы, например при выходе из аккаунта. Возвращает, сколько файлов убрать не удалось. Оставшиеся ответы
+     * не отправляются: токен сессии уже сменился, и они ему не соответствуют.
+     */
     @Synchronized
-    fun clear() {
-        directory.listFiles()?.forEach { it.delete() }
-    }
+    fun clear(): Int = directory.listFiles().orEmpty().count { file -> !file.delete() && file.exists() }
 
     private fun write(entry: Entry) {
         directory.mkdirs()
@@ -117,6 +118,7 @@ internal class ReplyOutbox(private val directory: File) {
         if (text.size > MAX_TEXT_BYTES) throw IOException("Reply is too large to store")
         output.writeInt(FORMAT_VERSION)
         output.writeUTF(entry.id)
+        output.writeUTF(entry.session)
         output.writeLong(entry.chatId)
         output.writeInt(entry.groupId)
         output.writeInt(entry.maxId)
@@ -132,6 +134,7 @@ internal class ReplyOutbox(private val directory: File) {
         val id = input.readUTF()
         // The file name is the key that remove() uses, so a file under another name is not a reply of this outbox.
         if (id + SUFFIX != file.name) throw CorruptReplyException()
+        val session = input.readUTF()
         val chatId = input.readLong()
         val groupId = input.readInt()
         val maxId = input.readInt()
@@ -141,13 +144,14 @@ internal class ReplyOutbox(private val directory: File) {
         val size = input.readInt()
         if (size !in 0..MAX_TEXT_BYTES) throw CorruptReplyException()
         val text = ByteArray(size).also { input.readFully(it) }
-        Entry(id, chatId, groupId, maxId, replyToMessageId, String(text, Charsets.UTF_8), createdAtMillis, attempts)
+        Entry(id, session, chatId, groupId, maxId, replyToMessageId, String(text, Charsets.UTF_8), createdAtMillis, attempts)
     }
 
     private companion object {
         const val SUFFIX = ".reply"
         const val TEMP_SUFFIX = ".reply.tmp"
-        const val FORMAT_VERSION = 1
+        // Version 2 adds the session token. Version 1 was never released, and its files are removed as damaged.
+        const val FORMAT_VERSION = 2
         const val MAX_TEXT_BYTES = 64 * 1024
     }
 }
