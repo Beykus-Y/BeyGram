@@ -2,12 +2,14 @@ package com.beykus.beygram.domain.model
 
 import com.beykus.beygram.domain.UiText
 
-data class TelegramNotice(val id: Int, val dateSeconds: Long, val sender: String, val text: UiText, val previewAllowed: Boolean)
+data class TelegramNotice(val id: Int, val dateSeconds: Long, val sender: String, val text: UiText, val previewAllowed: Boolean, val messageId: Long = 0L)
 data class TelegramNoticeGroup(
     val id: Int, val chatId: Long, val title: String = "Telegram", val isGroup: Boolean = false,
     val isSecret: Boolean = false, val totalCount: Int, val notices: List<TelegramNotice>, val alertId: Int = 0, val metadataReady: Boolean = false,
     /** Чат в архиве: уведомления приходят без звука, пока это не включено в настройках архива. */
-    val archived: Boolean = false
+    val archived: Boolean = false,
+    /** Ответ из уведомления возможен: чат не канал и пользователь может писать в него. */
+    val replyable: Boolean = false
 )
 /** [snapshot] is set once TDLib's notification state has arrived, from the startup snapshot or the first group update; only then may tray entries missing from it be cancelled. */
 data class TelegramNotifications(val groups: List<TelegramNoticeGroup> = emptyList(), val initialized: Boolean = false, val hasPending: Boolean = false, val snapshot: Boolean = false)

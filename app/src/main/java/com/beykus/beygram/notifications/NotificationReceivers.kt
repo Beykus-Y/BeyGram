@@ -33,6 +33,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             chatId = intent.getLongExtra(NotificationIntents.CHAT_ID, 0L),
             groupId = intent.getIntExtra(NotificationIntents.GROUP_ID, 0),
             maxId = intent.getIntExtra(NotificationIntents.MAX_ID, 0),
+            replyToMessageId = intent.getLongExtra(NotificationIntents.REPLY_TO, 0L),
             text = text,
             finished = { pending.finish() }
         )

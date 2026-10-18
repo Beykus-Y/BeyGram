@@ -26,8 +26,8 @@ internal class AndroidNotificationRenderer(private val context: Context, private
     private val compat = NotificationManagerCompat.from(context)
     // The last reason Messages notifications were blocked; the diagnostics journal records only changes.
     private var blockedReason: String? = null
-    // Groups whose direct reply was rejected. The note stays until a new alert arrives or the group is cancelled.
-    private val failedReplies = ConcurrentHashMap.newKeySet<Int>()
+    // Groups whose direct reply was rejected, with the newest notice id at that time. The note stays until a newer notice arrives or the group is cancelled.
+    private val failedReplies = ConcurrentHashMap<Int, Int>()
     init { channels(context) }
     fun render(state: TelegramNotifications, config: NotificationPreferences, presentation: NotificationPresentation, authorized: Boolean) {
         if (!state.initialized && authorized) return // Wait for TDLib's startup snapshot before reconciling old tray entries.
@@ -49,7 +49,8 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             val tag = tag(group.id)
             val maxId = group.notices.maxOfOrNull { it.id } ?: 0
             val fresh = group.alertId > preferences.handled(group.id)
-            if (fresh) failedReplies.remove(group.id)
+            val failedAt = failedReplies[group.id]
+            if (failedAt != null && maxId > failedAt) failedReplies.remove(group.id)
             val notices = group.notices.filter { it.id > preferences.dismissed(group.id) }
             if (!authorized || !config.enabled || !canNotify(context) || notices.isEmpty() || presentation.foreground && group.chatId in presentation.openedChats) {
                 // Deliberate suppression consumes the alert, so re-enabling notifications later does not ring for old messages.
@@ -72,8 +73,8 @@ internal class AndroidNotificationRenderer(private val context: Context, private
                 .setWhen(latest.dateSeconds * 1000).setShowWhen(true).setNumber(group.totalCount).setAutoCancel(true)
                 .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
                 .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH)
-            // A reply needs a visible chat title, so groups with hidden content get no reply action.
-            if (!hideContent) builder.addAction(replyAction(group.chatId, group.id, maxId))
+            // A reply needs a visible chat title and a chat the user can write to, so other groups get no reply action.
+            if (!hideContent && group.replyable) builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId))
             if (group.id in failedReplies) builder.setSubText(context.getString(R.string.notif_reply_failed))
             val notification = builder.build()
             try {
@@ -90,8 +91,8 @@ internal class AndroidNotificationRenderer(private val context: Context, private
         if (state.snapshot) manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
     }
     fun cancelGroup(id: Int) { manager.cancel(tag(id), 0); failedReplies.remove(id) }
-    fun markReplyFailed(id: Int) { failedReplies.add(id) }
-    private fun replyAction(chatId: Long, groupId: Int, maxId: Int): NotificationCompat.Action = NotificationCompat.Action.Builder(0, context.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId))
+    fun markReplyFailed(id: Int, maxId: Int) { failedReplies[id] = maxId }
+    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, context.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId))
         .addRemoteInput(RemoteInput.Builder(NotificationIntents.REPLY_TEXT).setLabel(context.getString(R.string.notif_reply_hint)).build())
         .setAllowGeneratedReplies(false)
         .build()

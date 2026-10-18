@@ -100,13 +100,16 @@ internal class TdNotifications(
         val archived = isArchived(group.chatId)
         return chats[group.chatId]?.let { chat ->
             group.copy(title = chat.title, metadataReady = true, isGroup = chat.type is TdApi.ChatTypeBasicGroup || chat.type is TdApi.ChatTypeSupergroup,
-                isSecret = group.isSecret || chat.type is TdApi.ChatTypeSecret, archived = archived)
+                isSecret = group.isSecret || chat.type is TdApi.ChatTypeSecret, archived = archived, replyable = replyable(chat))
         } ?: group.copy(archived = archived)
     }
     private fun publish() { _state.value = _state.value.copy(groups = groups.values.sortedBy { it.id }) }
+    /** A reply needs a chat the user can write to; channels and secret chats never get one. */
+    private fun replyable(chat: TdApi.Chat): Boolean =
+        chat.type !is TdApi.ChatTypeSecret && (chat.type as? TdApi.ChatTypeSupergroup)?.isChannel != true && chat.permissions.canSendBasicMessages
     private fun notice(notification: TdApi.Notification): TelegramNotice? = when (val type = notification.type) {
         is TdApi.NotificationTypeNewMessage -> TelegramNotice(notification.id, notification.date.toLong(), senderName(type.message.senderId),
-            if (type.showPreview) preview(type.message.content) else UiText.Res(R.string.notif_new_message), type.showPreview)
+            if (type.showPreview) preview(type.message.content) else UiText.Res(R.string.notif_new_message), type.showPreview, type.message.id)
         is TdApi.NotificationTypeNewSecretChat -> TelegramNotice(notification.id, notification.date.toLong(), "", UiText.Res(R.string.notif_new_secret_chat), false)
         else -> null // No FCM registration; push payloads and unimplemented calls are not rendered.
     }
