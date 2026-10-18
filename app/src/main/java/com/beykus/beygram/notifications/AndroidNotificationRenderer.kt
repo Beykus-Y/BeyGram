@@ -28,9 +28,12 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             val tag = tag(group.id)
             val maxId = group.notices.maxOfOrNull { it.id } ?: 0
             val fresh = group.alertId > preferences.handled(group.id)
-            preferences.handled(group.id, maxId)
             val notices = group.notices.filter { it.id > preferences.dismissed(group.id) }
-            if (!authorized || !config.enabled || !canNotify(context) || notices.isEmpty() || presentation.foreground && group.chatId in presentation.openedChats) continue
+            if (!authorized || !config.enabled || !canNotify(context) || notices.isEmpty() || presentation.foreground && group.chatId in presentation.openedChats) {
+                // Deliberate suppression consumes the alert, so re-enabling notifications later does not ring for old messages.
+                preferences.handled(group.id, maxId)
+                continue
+            }
             val hideContent = group.isSecret || !group.metadataReady
             val title = if (hideContent) "BeyGram" else group.title
             val style = NotificationCompat.MessagingStyle(Person.Builder().setName(context.getString(R.string.chat_you)).build()).setConversationTitle(title).setGroupConversation(group.isGroup)
@@ -47,9 +50,16 @@ internal class AndroidNotificationRenderer(private val context: Context, private
                 .setWhen(latest.dateSeconds * 1000).setShowWhen(true).setNumber(group.totalCount).setAutoCancel(true)
                 .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
                 .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH).build()
-            try { compat.notify(tag, 0, notification); shown.add(tag) } catch (_: SecurityException) { }
+            try {
+                compat.notify(tag, 0, notification)
+                // Advanced only after the system accepted the post, so a failed alert is retried on the next render.
+                preferences.handled(group.id, maxId)
+            } catch (_: SecurityException) { }
+            // A failed post keeps the earlier entry instead of cancelling it as stale.
+            shown.add(tag)
         }
-        manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
+        // Stale entries are cancelled only once TDLib's state has arrived (startup snapshot or a group update), so a cold start keeps the tray.
+        if (state.snapshot) manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
     }
     fun cancelGroup(id: Int) { manager.cancel(tag(id), 0) }
     companion object {
@@ -59,6 +69,9 @@ internal class AndroidNotificationRenderer(private val context: Context, private
         private const val TAG_PREFIX = "beygram_message_"
         private fun tag(id: Int) = "$TAG_PREFIX$id"
         fun canNotify(context: Context): Boolean = (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) && NotificationManagerCompat.from(context).areNotificationsEnabled()
+        /** Android can switch the Messages channel off; notify() then posts nothing and throws nothing. */
+        fun messagesChannelBlocked(context: Context): Boolean =
+            context.getSystemService(NotificationManager::class.java).getNotificationChannel(MESSAGES)?.importance == NotificationManager.IMPORTANCE_NONE
         fun channels(context: Context) {
             context.getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(
                 NotificationChannel(MESSAGES, context.getString(R.string.notif_channel_messages), NotificationManager.IMPORTANCE_HIGH).apply { description = context.getString(R.string.notif_channel_messages_description); lockscreenVisibility = Notification.VISIBILITY_PRIVATE },

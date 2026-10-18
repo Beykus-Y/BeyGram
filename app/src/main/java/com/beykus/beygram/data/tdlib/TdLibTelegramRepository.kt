@@ -583,6 +583,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateChatPosition -> handleChatPosition(update.chatId, update.position)
             is TdApi.UpdateChatDraftMessage -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.withPositions(update.positions) }
+                notificationFeed.chatPositionChanged(update.chatId)
                 publishChat(update.chatId)
             }
             is TdApi.UpdateChatReadInbox -> {
@@ -815,18 +816,20 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleNewChat(chat: TdApi.Chat) {
         profiles.putChat(chat)
-        notificationFeed.chat(chat)
         messageHistory.readInbox(chat.id, chat.lastReadInboxMessageId)
         messageHistory.readOutbox(chat.id, chat.lastReadOutboxMessageId)
         muteState.putChat(chat.id, NotificationScope.ofChat(chat.type), chat.notificationSettings)
-        val preview = chat.toChatPreview() ?: return
-        chatCache[chat.id] = preview
-        publishChat(chat.id)
+        val preview = chat.toChatPreview()
+        // The notification groups read the archived flag from chatCache, so the preview is stored before they are updated.
+        preview?.let { chatCache[chat.id] = it }
+        notificationFeed.chat(chat)
+        if (preview != null) publishChat(chat.id)
     }
 
     private fun handleChatLastMessage(chatId: Long, lastMessage: TdApi.Message?, positions: Array<TdApi.ChatPosition>) {
         val existing = chatCache[chatId] ?: return
         chatCache[chatId] = existing.withLastMessage(lastMessage).withPositions(positions)
+        notificationFeed.chatPositionChanged(chatId)
         publishChat(chatId)
     }
 
@@ -858,6 +861,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.ChatListArchive -> existing.copy(archiveOrder = position.order)
             else -> return
         }
+        notificationFeed.chatPositionChanged(chatId)
         publishChat(chatId)
     }
 

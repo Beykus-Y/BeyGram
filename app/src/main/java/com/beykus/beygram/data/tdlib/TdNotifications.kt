@@ -9,7 +9,12 @@ import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 
 /** Consume TDLib's authoritative notification groups, never infer alerts from history. */
-internal class TdNotifications(client: () -> Client, private val senderName: (TdApi.MessageSender?) -> String, private val isArchived: (Long) -> Boolean) {
+internal class TdNotifications(
+    client: () -> Client,
+    private val senderName: (TdApi.MessageSender?) -> String,
+    private val debugLog: (String) -> Unit = { android.util.Log.i("BeyGramNotify", it) },
+    private val isArchived: (Long) -> Boolean
+) {
     private val request = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
@@ -35,31 +40,45 @@ internal class TdNotifications(client: () -> Client, private val senderName: (Td
         groups.replaceAll { _, group -> if (group.chatId == chat.id) metadata(group) else group }
         publish()
     }
+
+    /** Re-reads the archived flag of the chat's groups after its list position changed. */
+    fun chatPositionChanged(chatId: Long) = synchronized(lock) {
+        if (groups.values.none { it.chatId == chatId }) return@synchronized
+        groups.replaceAll { _, group -> if (group.chatId == chatId) metadata(group) else group }
+        publish()
+    }
     fun handle(update: TdApi.Object) = synchronized(lock) {
         when (update) {
             is TdApi.UpdateActiveNotifications -> {
+                val previous = groups.toMap()
                 groups.clear()
                 update.groups.orEmpty().filterNot { it.type is TdApi.NotificationGroupTypeCalls }.forEach { group ->
+                    val notices = group.notifications.orEmpty().mapNotNull(::notice)
+                    // A pending alert survives the snapshot while its notice is still active; the renderer's watermark stops repeats.
+                    val alert = previous[group.id]?.takeIf { it.chatId == group.chatId }?.alertId?.takeIf { id -> notices.any { it.id == id } } ?: 0
                     groups[group.id] = metadata(TelegramNoticeGroup(group.id, group.chatId, totalCount = group.totalCount,
-                        notices = group.notifications.orEmpty().mapNotNull(::notice), isSecret = group.type is TdApi.NotificationGroupTypeSecretChat))
+                        notices = notices, alertId = alert, isSecret = group.type is TdApi.NotificationGroupTypeSecretChat))
                 }
-                _state.value = _state.value.copy(initialized = true)
+                _state.value = _state.value.copy(initialized = true, snapshot = true)
             }
             is TdApi.UpdateNotificationGroup -> {
-                _state.value = _state.value.copy(initialized = true)
+                _state.value = _state.value.copy(initialized = true, snapshot = true)
                 if (update.type is TdApi.NotificationGroupTypeCalls) { groups.remove(update.notificationGroupId); publish(); return@synchronized }
                 val old = groups[update.notificationGroupId]?.takeIf { it.chatId == update.chatId }
                 val removed = (update.removedNotificationIds ?: intArrayOf()).toSet()
                 val added = update.addedNotifications.orEmpty()
                 val merged = (old?.notices.orEmpty().filterNot { it.id in removed } + added.mapNotNull(::notice)).associateBy { it.id }.values.sortedBy { it.id }.takeLast(10)
-                val alert = if (update.notificationSoundId != 0L) added.filter { !it.isSilent && it.id > (old?.notices?.maxOfOrNull { n -> n.id } ?: 0) }.maxOfOrNull { it.id } ?: 0 else 0
+                val newAlert = if (update.notificationSoundId != 0L) added.filter { !it.isSilent && it.id > (old?.notices?.maxOfOrNull { n -> n.id } ?: 0) }.maxOfOrNull { it.id } ?: 0 else 0
+                // An alert the renderer has not posted yet stays until its notice is gone, even when other updates arrive first.
+                val pendingAlert = old?.alertId?.takeIf { id -> merged.any { it.id == id } } ?: 0
+                val alert = maxOf(pendingAlert, newAlert)
                 if (update.totalCount == 0 || merged.isEmpty()) groups.remove(update.notificationGroupId)
                 else groups[update.notificationGroupId] = metadata(TelegramNoticeGroup(update.notificationGroupId, update.chatId, totalCount = update.totalCount,
                     notices = merged, alertId = alert, isSecret = update.type is TdApi.NotificationGroupTypeSecretChat))
             }
             is TdApi.UpdateNotification -> groups[update.notificationGroupId]?.let { group ->
                 val changed = notice(update.notification)
-                groups[group.id] = group.copy(alertId = 0, notices = group.notices.mapNotNull { if (it.id == update.notification.id) changed else it })
+                groups[group.id] = group.copy(notices = group.notices.mapNotNull { if (it.id == update.notification.id) changed else it })
             }
             is TdApi.UpdateHavePendingNotifications -> _state.value = _state.value.copy(hasPending = update.haveDelayedNotifications || update.haveUnreceivedNotifications)
             is TdApi.UpdateChatTitle -> chats[update.chatId]?.let { it.title = update.title; groups.replaceAll { _, group -> if (group.chatId == it.id) metadata(group) else group } }
@@ -67,7 +86,7 @@ internal class TdNotifications(client: () -> Client, private val senderName: (Td
         }
         publish()
         if (com.beykus.beygram.BuildConfig.DEBUG && (update is TdApi.UpdateActiveNotifications || update is TdApi.UpdateNotificationGroup)) {
-            android.util.Log.i("BeyGramNotify", "${update.javaClass.simpleName}: active groups=${groups.size}")
+            debugLog("${update.javaClass.simpleName}: active groups=${groups.size}")
         }
         groups.values.map { it.chatId }.distinct().filter { it !in chats && resolving.add(it) }.forEach { id -> scope.launch {
             try { chat(request(TdApi.GetChat(id))) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }

@@ -66,11 +66,17 @@ class NotificationRuntime private constructor(private val context: Context) {
         preferences.pendingDismissals().forEach { (group, max) -> if (flushing.add(group)) scope.launch {
             var accepted = false
             try {
-                accepted = source.dismissNotifications(group, max).isSuccess
+                // Bounded retry with backoff: a transient TDLib failure must not wait for an unrelated event.
+                repeat(DISMISS_ATTEMPTS) { attempt ->
+                    if (accepted) return@repeat
+                    if (attempt > 0) delay(DISMISS_RETRY_MILLIS shl (attempt - 1))
+                    accepted = source.dismissNotifications(group, max).isSuccess
+                }
                 if (accepted) preferences.acknowledge(group, max)
             } finally {
                 flushing.remove(group)
-                if (accepted && (preferences.pendingDismissals()[group] ?: 0) > max) flushDismissals()
+                // A newer dismissal that arrived during the retries goes out next, even if this round failed.
+                if ((preferences.pendingDismissals()[group] ?: 0) > max) flushDismissals()
             }
         } }
     }
@@ -79,6 +85,8 @@ class NotificationRuntime private constructor(private val context: Context) {
         return TdLibTelegramRepository.getInstance(context).also(::attach)
     }
     companion object {
+        private const val DISMISS_ATTEMPTS = 4
+        private const val DISMISS_RETRY_MILLIS = 2_000L
         @Volatile private var instance: NotificationRuntime? = null
         fun get(context: Context): NotificationRuntime = instance ?: synchronized(this) {
             instance ?: NotificationRuntime(context.applicationContext).also { instance = it }

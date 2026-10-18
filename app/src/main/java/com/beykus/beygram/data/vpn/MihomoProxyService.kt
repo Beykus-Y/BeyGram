@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
@@ -65,9 +66,9 @@ class MihomoProxyService : Service() {
     }
 
     private fun startProxy() {
-        // Every start intent gets startForeground, including one that finds the listener already on its way.
-        startForeground(NOTIFICATION_ID, buildNotification())
         val status = _runtimeState.value.status
+        // Every start intent gets startForeground, including one that finds the listener already on its way.
+        startForeground(NOTIFICATION_ID, buildNotification(textFor(status)))
         if (status == ProxyRuntimeStatus.RUNNING || status == ProxyRuntimeStatus.STARTING) return
         _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STARTING)
         MihomoRuntimeDiagnostics.event("service", "start requested; profileExists=${MihomoCoreBridge(applicationContext).profileExists()}")
@@ -90,6 +91,8 @@ class MihomoProxyService : Service() {
                 if (ticket == latestTicket) {
                     _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.RUNNING)
                     MihomoRuntimeDiagnostics.event("service", "state=RUNNING")
+                    // "Working" is shown only after the local listener has been checked; it says nothing about upstream reachability.
+                    getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(textFor(ProxyRuntimeStatus.RUNNING)))
                 }
             }
         } catch (error: CancellationException) {
@@ -155,14 +158,18 @@ class MihomoProxyService : Service() {
         }.also { lastRequest = it }
     }
 
-    private fun buildNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildNotification(@StringRes text: Int): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(getString(R.string.proxy_notification_title))
-        .setContentText(getString(R.string.proxy_notification_text))
+        .setContentText(getString(text))
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .build()
+
+    @StringRes
+    private fun textFor(status: ProxyRuntimeStatus): Int =
+        if (status == ProxyRuntimeStatus.RUNNING) R.string.proxy_notification_text else R.string.proxy_notification_starting
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

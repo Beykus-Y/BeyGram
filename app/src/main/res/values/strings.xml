@@ -361,9 +361,12 @@
     <string name="notif_channel_connection_description">Получение сообщений без Google-сервисов</string>
     <string name="notif_channel_messages">Сообщения</string>
     <string name="notif_channel_messages_description">Новые сообщения, упоминания и ответы</string>
+    <string name="notif_channel_settings_connection">Настройки канала «Фоновое подключение»</string>
+    <string name="notif_channel_settings_messages">Настройки канала «Сообщения»</string>
     <string name="notif_connection_status">Связь с Telegram: %1$s</string>
     <string name="notif_diagnostics_note">Соберёт модель устройства, состояние соединения, тип сети и недавние события подключения. Номера, коды, пароли и токены в файл не попадают. Файл никуда не отправляется: вы сами выбираете, куда поделиться.</string>
     <string name="notif_diagnostics_title">Диагностика подключения</string>
+    <string name="notif_messages_channel_blocked">Канал «Сообщения» выключен в настройках Android. Сообщения не будут показываться, пока он не включён.</string>
     <string name="notif_new_message">Новое сообщение</string>
     <string name="notif_new_secret_chat">Новый секретный чат</string>
     <string name="notif_no_google_body">BeyGram получает сообщения напрямую от Telegram. Google Play Services и Firebase не используются.</string>
@@ -516,6 +519,7 @@
     <string name="proxy_list_switch_failed">Не удалось переключить прокси</string>
     <string name="proxy_list_title">Прокси</string>
     <string name="proxy_no_connection">нет связи</string>
+    <string name="proxy_notification_starting">Запуск прокси…</string>
     <string name="proxy_notification_text">Прокси работает</string>
     <string name="proxy_notification_title">Прокси BeyGram</string>
     <string name="proxy_restore_failed_question">Telegram не смог подключиться через Proxy, повторить ещё раз?</string>
