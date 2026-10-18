@@ -414,13 +414,23 @@ private fun MediaViewerPage(
                 modifier = Modifier.padding(16.dp).clickable(onClick = onReveal))
             concealed -> Unit
             tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (path != null) TgsSticker(path, Modifier.size(240.dp), playing = active)
-                else {
+                val preview: @Composable () -> Unit = {
                     if (previewId != null) {
-                        val preview by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
-                        preview.localPath?.let { LocalMediaImage(it, Modifier.size(240.dp), fit = true) }
+                        val previewFile by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
+                        previewFile.localPath?.let { LocalMediaImage(it, Modifier.size(240.dp), fit = true) }
                     }
-                    Text(stringResource(R.string.media_animated_sticker_preview), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                }
+                if (path != null) {
+                    // Если TGS не открылся, показываем превью и подпись, а не пустое место.
+                    TgsSticker(path, Modifier.size(240.dp), playing = active) {
+                        preview()
+                        Text(stringResource(R.string.media_animated_sticker_failed), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                    }
+                } else {
+                    preview()
+                    if (file.isDownloading) CircularProgressIndicator()
+                    Text(file.error?.resolve() ?: stringResource(R.string.media_animated_sticker_preview), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                    if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
                 }
             }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {

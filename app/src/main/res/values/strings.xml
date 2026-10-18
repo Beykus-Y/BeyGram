@@ -307,6 +307,7 @@
     <string name="forward_title">Переслать в чат</string>
     <string name="media_action_forward">Переслать</string>
     <string name="media_animated_sticker_preview">Анимированный стикер: доступно превью</string>
+    <string name="media_animated_sticker_failed">Анимацию не удалось открыть</string>
     <string name="media_audio_play_failed">Не удалось воспроизвести аудио</string>
     <string name="media_download_progress">Загрузка %1$s / %2$s</string>
     <string name="media_image_description">Изображение</string>

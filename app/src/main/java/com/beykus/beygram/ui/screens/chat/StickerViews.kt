@@ -60,30 +60,44 @@ internal fun StickerPreview(
     ) {
         val path = file.localPath
         val thumbnailPath = thumbnail.localPath
+        val label: @Composable () -> Unit = { Text(description, color = beyGramPalette().textSecondary, fontSize = 13.sp) }
+        // Если TGS не открылся, остаётся миниатюра, а без неё подпись: пустое место не годится.
+        val tgsFallback: @Composable () -> Unit = {
+            if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true) else label()
+        }
         when {
-            path != null && media.mimeType == TGS_MIME -> TgsSticker(path, Modifier.fillMaxSize())
+            path != null && media.mimeType == TGS_MIME -> TgsSticker(path, Modifier.fillMaxSize(), fallback = tgsFallback)
             path != null && !webm -> LocalMediaImage(path, Modifier.fillMaxSize(), fit = true)
             thumbnailPath != null -> LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true)
             file.isDownloading || thumbnail.isDownloading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-            // WebM без миниатюры показать нечем: подписываем стикер, чтобы место не выглядело пустым.
-            webm && media.thumbnailFileId == null -> Text(description, color = beyGramPalette().textSecondary, fontSize = 13.sp)
+            // WebM без миниатюры показать нечем, а после ошибки загрузки ждать больше нечего: подписываем стикер, чтобы место не выглядело пустым.
+            (webm && media.thumbnailFileId == null) || file.error != null || thumbnail.error != null -> label()
         }
     }
 }
 
-/** Анимация TGS из локального файла. Пока файл не прочитан, ничего не рисуется; вне экрана композиция уходит и анимация останавливается. */
+/**
+ * Анимация TGS из локального файла. Пока файл читается, ничего не рисуется. Если TGS не открылся (битый архив или JSON,
+ * который Lottie не разобрал), вместо анимации показывается [fallback]. Вне экрана композиция уходит и анимация останавливается.
+ */
 @Composable
-internal fun TgsSticker(path: String, modifier: Modifier = Modifier, playing: Boolean = true) {
-    val json by produceState<String?>(null, path) {
-        value = withContext(Dispatchers.IO) { runCatching { readTgsJson(File(path)) }.getOrNull() }
+internal fun TgsSticker(path: String, modifier: Modifier = Modifier, playing: Boolean = true, fallback: @Composable () -> Unit) {
+    val decoded by produceState<Result<String>?>(null, path) {
+        value = withContext(Dispatchers.IO) { runCatching { readTgsJson(File(path)) } }
     }
-    json?.let { LottieSticker(it, modifier, playing) }
+    val result = decoded ?: return
+    val json = result.getOrNull()
+    if (json != null) LottieSticker(json, modifier, playing, fallback) else fallback()
 }
 
 @Composable
-private fun LottieSticker(json: String, modifier: Modifier, playing: Boolean) {
+private fun LottieSticker(json: String, modifier: Modifier, playing: Boolean, fallback: @Composable () -> Unit) {
     val spec = remember(json) { LottieCompositionSpec.JsonString(json) }
-    val composition by rememberLottieComposition(spec)
-    val progress by animateLottieCompositionAsState(composition, isPlaying = playing, iterations = LottieConstants.IterateForever)
-    LottieAnimation(composition = composition, progress = { progress }, modifier = modifier)
+    val result = rememberLottieComposition(spec)
+    if (result.isFailure) {
+        fallback()
+        return
+    }
+    val progress by animateLottieCompositionAsState(result.value, isPlaying = playing, iterations = LottieConstants.IterateForever)
+    LottieAnimation(composition = result.value, progress = { progress }, modifier = modifier)
 }
