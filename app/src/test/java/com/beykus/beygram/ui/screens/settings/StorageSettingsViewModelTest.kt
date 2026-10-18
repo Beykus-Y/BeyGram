@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -46,10 +47,10 @@ class StorageSettingsViewModelTest {
         assertTrue(model.busy)
         assertEquals(2, repository.applied.size)
         // Первая смена освободила 100 байт, вторая уже ничего не освобождает: сумма не должна пропасть.
-        repository.gates[0].complete(100L)
+        repository.gates[0].complete(Result.success(100L))
         assertTrue(model.busy)
         assertEquals(0, repository.usageLoads)
-        repository.gates[1].complete(0L)
+        repository.gates[1].complete(Result.success(0L))
         assertFalse(model.busy)
         assertEquals(1, repository.usageLoads)
         assertEquals(100L, model.freedBytes)
@@ -63,7 +64,7 @@ class StorageSettingsViewModelTest {
         model.clear(setOf(StorageCategory.Photos))
 
         assertEquals(0, repository.clears)
-        repository.gates.single().complete(0L)
+        repository.gates.single().complete(Result.success(0L))
         assertFalse(model.busy)
     }
 
@@ -80,6 +81,19 @@ class StorageSettingsViewModelTest {
         assertFalse(model.busy)
     }
 
+    @Test fun laterSuccessClearsTheErrorOfAnEarlierFailure() {
+        val repository = FakeRepository()
+        val model = StorageSettingsViewModel(repository, FakeStore())
+
+        model.changeSettings { it.copy(sizeLimit = StorageSizeLimit.OneGigabyte) }
+        model.changeSettings { it.copy(retention = StorageRetention.Week) }
+        repository.gates[0].complete(Result.failure(IllegalStateException("disk")))
+        assertEquals(UiText.Res(R.string.storage_clear_failed), model.error)
+
+        repository.gates[1].complete(Result.success(0L))
+        assertNull(model.error)
+    }
+
     private class FakeStore(private val saveFails: Boolean = false) : StorageSettingsSource {
         private val state = MutableStateFlow(StorageSettings())
         override val settings: StateFlow<StorageSettings> = state
@@ -94,7 +108,7 @@ class StorageSettingsViewModelTest {
     /** Каждое применение ждёт свой сигнал из [gates], поэтому тест завершает их по одному. */
     private class FakeRepository : StorageRepository {
         val applied = mutableListOf<CachePolicy>()
-        val gates = mutableListOf<CompletableDeferred<Long>>()
+        val gates = mutableListOf<CompletableDeferred<Result<Long>>>()
         var usageLoads = 0
         var clears = 0
 
@@ -110,9 +124,9 @@ class StorageSettingsViewModelTest {
 
         override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> {
             applied += policy
-            val gate = CompletableDeferred<Long>()
+            val gate = CompletableDeferred<Result<Long>>()
             gates += gate
-            return Result.success(gate.await())
+            return gate.await()
         }
     }
 }

@@ -91,7 +91,11 @@ class StorageSettingsViewModel(
         viewModelScope.launch {
             try {
                 repository.applyCachePolicy(store.settings.value.policy())
-                    .onSuccess { bytes -> if (bytes > 0L) freedBytes = (freedBytes ?: 0L) + bytes }
+                    .onSuccess { bytes ->
+                        // Успех последнего применения снимает ошибку более раннего: она уже не относится к текущей настройке.
+                        error = null
+                        if (bytes > 0L) freedBytes = (freedBytes ?: 0L) + bytes
+                    }
                     .onFailure { error = it.toUiText(R.string.storage_clear_failed) }
             } finally {
                 pendingChanges--
