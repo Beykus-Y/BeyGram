@@ -321,12 +321,30 @@ fun ChatScreen(
         val id = reactionOwner?.id ?: return@LaunchedEffect
         reactionOptions = conversation.availableReactions(chat.id, id).getOrNull().orEmpty()
     }
+    // Фото и видео листаются по всему чату: окно грузится вокруг открытого вложения, а не только по загруженной истории.
+    val mediaWindow = remember(chat.id) {
+        SharedMediaWindow(
+            load = { from, newer -> conversation.sharedMessages(chat.id, SharedMediaKind.Media, from, newer) },
+            failure = { it.userMessage(context, R.string.err_chat_history_load_failed) }
+        )
+    }
+    LaunchedEffect(selectedMediaId) {
+        val id = selectedMediaId ?: return@LaunchedEffect
+        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind
+        // Вложение, которое уже в окне, не перезагружаем: так просмотрщик возвращается к нему на том же месте.
+        if (kind != null && kind in viewerSwipeKinds && mediaWindow.messages.none { it.id == id }) {
+            mediaWindow.restart(id)
+            mediaWindow.loadOlder()
+        }
+        // Новее догружаем от края: открытое вложение обычно стоит у правого края окна, а прерванная загрузка не оставляет дыр.
+        mediaWindow.loadNear(id)
+    }
     LaunchedEffect(selectedMediaId) {
         // Счётчик при свайпе держит прежнее значение до ответа, чтобы не мигал. Права так не держим: см. MediaViewerPolicy.rightsFor.
         if (selectedMediaId == null) { viewerRights = null; viewerPosition = null }
         val id = selectedMediaId ?: return@LaunchedEffect
         viewerRights = conversation.messageCapabilities(chat.id, id).getOrNull()?.let { MessageRights(id, it) }
-        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind
+        val kind = (currentMessages.firstOrNull { it.id == id } ?: mediaWindow.messages.firstOrNull { it.id == id })?.media?.kind
         viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
     BackHandler(enabled = searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active) {
@@ -383,10 +401,6 @@ fun ChatScreen(
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = reply.messageId }
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
-    }
-    fun showInChat(messageId: Long) {
-        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
-        if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = messageId }
     }
     // The reply is checked on the server first: a channel, or a chat without reply rights, must not enter reply mode.
     // Only the latest swipe may apply its answer, so a slower check cannot reopen the composer for an older message.
@@ -627,8 +641,6 @@ fun ChatScreen(
         if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation)
         }
     }
-    // Фото и видео листаются вместе; остальные вложения открываются по одному.
-    val viewerItems = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it) } } }
     // Each unacknowledged video draft remains in the app center. Only the oldest is shown;
     // later previews are retained, not overwritten by a second showPreview() call.
     videoPreview?.let { video ->
@@ -659,19 +671,27 @@ fun ChatScreen(
         onSend = { sendRecordedMedia(mediaList) }
     ) }
     val viewedRights = selectedMediaId?.let { MediaViewerPolicy.rightsFor(it, viewerRights) }
-    messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(
-        pages = if (media.kind in viewerSwipeKinds) viewerItems else listOf(MediaViewerItem(viewed.id, media)), selectedId = viewed.id, onSelect = { selectedMediaId = it },
+    // Фото и видео листаются вместе; остальные вложения открываются по одному.
+    // Действия над сообщением есть только у сообщений из загруженной истории: редактирование ищет их в ленте.
+    val viewedInChat = messages.firstOrNull { it.id == selectedMediaId }
+    val viewed = viewedInChat ?: mediaWindow.messages.firstOrNull { it.id == selectedMediaId }
+    val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it) } }
+    // Пока окно не пришло или не загрузилось, показываем открытое вложение одно.
+    val viewerPages = windowPages.takeIf { pages -> pages.any { it.messageId == selectedMediaId } }
+        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it) } })
+    if (viewed != null && viewed.media != null) MediaViewer(
+        pages = viewerPages, selectedId = viewed.id, onSelect = { id -> selectedMediaId = id; scope.launch { mediaWindow.loadNear(id) } },
         observeFile = observeFile, downloadFile = onDownloadFile, onViewed = { id -> conversation.openMessageContent(chat.id, id) }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
         canExport = viewedRights?.canSave == true, confirmExport = { id -> conversation.messageCapabilities(chat.id, id).getOrNull()?.canSave == true },
-        actions = MediaViewerActions(
+        actions = viewedInChat?.let { MediaViewerActions(
             canForward = viewedRights?.canForward == true,
             canEdit = viewedRights?.canEdit == true,
             canDelete = viewedRights?.let { it.canDeleteForSelf || it.canDeleteForAll } == true,
             onForward = { forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
             onDelete = { deleteEveryone = viewedRights?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
-        ), onShowInChat = { id -> selectedMediaId = null; showInChat(id) }) } }
+        ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) })
     forwardId?.let { id ->
         ForwardChatDialog(chats, forwardBusy, forwardError,
             onPick = { target -> scope.launch {
