@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.theme
 
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.ThemePreset
@@ -30,6 +32,35 @@ class ThemePresetsTest {
             assertEquals(Color.Black, tokens.bg)
             assertTrue(tokens.text.relativeLuminance() > tokens.bg.relativeLuminance())
         }
+    }
+
+    @Test fun systemColorsWithoutASchemeFallBackToWarm() {
+        assertEquals(LightTokens, tokensFor(ThemePreset.MaterialYou, ThemeMode.Light, systemDark = true))
+        assertEquals(DarkTokens, tokensFor(ThemePreset.MaterialYou, ThemeMode.FollowSystem, systemDark = true))
+    }
+
+    @Test fun systemSchemeMapsToReadableTokens() {
+        val seeds = listOf(
+            lightColorScheme() to false, darkColorScheme() to true,
+            lightColorScheme(primary = Color(0xFF006C4C), primaryContainer = Color(0xFF89F8C7), onPrimaryContainer = Color(0xFF002114)) to false,
+            darkColorScheme(primary = Color(0xFF6DDBAC), primaryContainer = Color(0xFF005138), onPrimaryContainer = Color(0xFF89F8C7)) to true
+        )
+        seeds.forEach { (scheme, dark) ->
+            val tokens = tokensFromScheme(scheme, dark)
+            assertEquals(scheme.primary, tokens.accent)
+            assertEquals(scheme.primaryContainer, tokens.bubbleOut)
+            listOf(tokens.bg, tokens.surface, tokens.surface2, tokens.bubbleOut).forEach { fill ->
+                assertTrue("text, dark = $dark", contrast(tokens.text, fill) >= 4.5)
+                assertTrue("muted text, dark = $dark", contrast(tokens.muted, fill) >= 4.5)
+            }
+            assertTrue("label on accent, dark = $dark", contrast(tokens.onAccent, tokens.accent) >= 4.5)
+        }
+    }
+
+    @Test fun statusColoursDoNotFollowTheWallpaper() {
+        val tokens = tokensFromScheme(lightColorScheme(primary = Color(0xFFCC0000)), dark = false)
+        assertEquals(LightTokens.ok, tokens.ok)
+        assertEquals(LightTokens.warn, tokens.warn)
     }
 
     @Test fun everyChoiceKeepsItsTextReadable() {
