@@ -98,21 +98,33 @@ internal class TdStorage(
         }
         // TDLib forgets the local copy of each file it knows, so its state and the media store never point at a deleted file.
         // The sent mark lists the files of copies that no loaded chat shows, so their paths are forgotten as well.
+        // A folder whose copy TDLib still marks as downloaded stays until the next pass.
         return removed.sumOf { upload ->
             val prefix = upload.folder.canonicalPath + File.separator
-            (referenced.filterKeys { it.startsWith(prefix) }.values + upload.fileIds).toSet().forEach { fileId -> forgetFile(fileId) }
-            if (upload.folder.deleteRecursively()) upload.bytes else 0L
+            val forgotten = (referenced.filterKeys { it.startsWith(prefix) }.values + upload.fileIds).toSet().all { fileId -> forgetFile(fileId) }
+            if (forgotten && upload.folder.deleteRecursively()) upload.bytes else 0L
         }
     }
 
-    /** Ошибка значит, что TDLib уже не знает файл, поэтому очистку она не останавливает. */
-    private suspend fun forgetFile(fileId: Int) {
+    /**
+     * Просит TDLib забыть локальную копию файла. Возвращает true, если TDLib больше не считает её скачанной.
+     * Ошибка удаления здесь не решает: решает состояние TDLib, а неизвестный файл уже забыт.
+     */
+    private suspend fun forgetFile(fileId: Int): Boolean {
         try {
             requests(TdApi.DeleteFile(fileId))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
+            // The state check below decides whether TDLib still holds the copy.
+        }
+        return try {
+            requests(TdApi.GetFile(fileId)).local?.isDownloadingCompleted != true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
             // TDLib no longer knows this file, so there is nothing left to forget.
+            true
         }
     }
 
