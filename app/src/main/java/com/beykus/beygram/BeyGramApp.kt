@@ -151,7 +151,12 @@ private fun BeyGramAppContent(
     val lastSeenStyle by lastSeenSettings.style.collectAsStateWithLifecycle()
     LifecycleResumeEffect(repository) {
         repository.setAppForeground(true)
-        onPauseOrDispose { repository.setAppForeground(false) }
+        // После репозитория: отметка «прослушано» уходит через него, и ему нужен уже действующий передний план.
+        PlaybackEngine.setForeground(true)
+        onPauseOrDispose {
+            repository.setAppForeground(false)
+            PlaybackEngine.setForeground(false)
+        }
     }
 
     // ---- Локальный UI-state --------------------------------------------------

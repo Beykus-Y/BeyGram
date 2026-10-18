@@ -114,6 +114,10 @@ object PlaybackEngine {
     private var videoView: TextureView? = null
     /** Музыка, которая ждёт, пока голосовое или кружок доиграет. Очищается при остановке и при новом запуске музыки. */
     private var interruptedMusic: InterruptedMusic? = null
+    /** Отметка «прослушано», которую плеер вызовет, когда файл начнёт играть. Работает, даже если пузырь уже ушёл с экрана. */
+    private var startedCallback: Pair<String, () -> Unit>? = null
+    /** Приложение на переднем плане. Отметку репозиторий принимает только отсюда, поэтому файл, начавший играть в фоне, ждёт возврата. */
+    private var foreground = false
 
     /**
      * Общий плеер для системного управления: уведомление, экран блокировки и гарнитура. «Играть» после конца файла начинает
@@ -144,9 +148,19 @@ object PlaybackEngine {
         }
     }
 
-    /** Тот же файл ставит на паузу или продолжает, другой файл начинает играть сначала. */
-    fun toggle(context: Context, item: PlaybackItem) {
+    /**
+     * Тот же файл ставит на паузу или продолжает, другой файл начинает играть сначала. [onStarted] вызывается один раз, когда
+     * файл начнёт играть, даже если пузырь, который его запустил, уже ушёл с экрана. Если это случилось в фоне, вызов ждёт [setForeground].
+     */
+    fun toggle(context: Context, item: PlaybackItem, onStarted: (() -> Unit)? = null) {
+        if (onStarted != null) startedCallback = item.key to onStarted
         if (exo != null && _state.value.item?.key == item.key) togglePlayPause() else play(context, item)
+    }
+
+    /** Приложение ушло в фон или вернулось на передний план. Отметка, которую файл начал в фоне, уходит на возврате. */
+    fun setForeground(active: Boolean) {
+        foreground = active
+        if (active) fireStartedCallback()
     }
 
     /**
@@ -156,6 +170,8 @@ object PlaybackEngine {
     fun play(context: Context, item: PlaybackItem, startFraction: Float = 0f) {
         val target = player(context)
         syncPosition()
+        // Отметка ждёт только свой файл: запуск другого файла её сбрасывает.
+        startedCallback = startedCallback?.takeIf { it.first == item.key }
         val waiting = interruptedMusic
         val resumeMs = waiting?.takeIf { it.item.key == item.key }?.positionMs ?: 0L
         interruptedMusic = interruptedAfterStart(_state.value, waiting, item)
@@ -239,6 +255,7 @@ object PlaybackEngine {
         progress = null
         pendingStartFraction = 0f
         interruptedMusic = null
+        startedCallback = null
         exo?.let {
             it.stop()
             it.clearMediaItems()
@@ -257,6 +274,7 @@ object PlaybackEngine {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.update { it.copy(playing = isPlaying, durationMs = durationNow(), started = it.started || isPlaying) }
             if (isPlaying) startProgress() else syncPosition()
+            if (isPlaying) fireStartedCallback()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -294,6 +312,14 @@ object PlaybackEngine {
         if (!_state.value.ended) return
         val context = appContext ?: return
         play(context, music.item)
+    }
+
+    /** Отдаёт отметку текущему файлу один раз, когда он уже играет и приложение на переднем плане. Если файл сменился, отметка уже сброшена в [play]. */
+    private fun fireStartedCallback() {
+        val pending = startedCallback ?: return
+        if (!foreground || !_state.value.started || pending.first != _state.value.item?.key) return
+        startedCallback = null
+        pending.second()
     }
 
     private fun syncPosition() {
