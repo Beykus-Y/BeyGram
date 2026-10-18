@@ -10,13 +10,12 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.content.ClipData
 import android.content.ContentValues
+import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.LruCache
 import android.webkit.MimeTypeMap
 import android.widget.ImageView
-import android.widget.MediaController
-import android.widget.VideoView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,7 +38,9 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.*
@@ -70,6 +71,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
@@ -486,40 +495,148 @@ private fun ZoomableImage(path: String) {
     }
 }
 
+private const val VIDEO_PROGRESS_INTERVAL_MS = 250L
+
 @Composable
 private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: () -> Unit) {
     val context = LocalContext.current
-    var error by remember(path) { mutableStateOf(false) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentActive by rememberUpdatedState(active)
-    val video = remember(path) { object : VideoView(context) {
-        override fun start() { super.start(); if (runCatching { isPlaying }.getOrDefault(false)) currentOnStarted() }
-    } }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(video, lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) video.pause() }
+    val player = remember(path, loop) {
+        ExoPlayer.Builder(context.applicationContext)
+            // Звук видео забирает фокус у внешних плееров. У анимации звука нет, поэтому фокус ей не нужен.
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), /* handleAudioFocus = */ !loop)
+            .setHandleAudioBecomingNoisy(true)
+            .build()
+    }
+    var video by remember(path, loop) { mutableStateOf(VideoPlayerState()) }
+    // Просмотр отмечается, когда файл начинает играть после нажатия или открытия. Возврат из буферизации отметку не повторяет.
+    var startRequested by remember(path, loop) { mutableStateOf(false) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                video = video.copy(playing = isPlaying)
+                if (isPlaying && startRequested) {
+                    startRequested = false
+                    currentOnStarted()
+                }
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) { video = video.afterPlaybackState(playbackState) }
+            override fun onPlayerError(error: PlaybackException) { video = video.afterFailure() }
+        }
+        player.addListener(listener)
+        player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        player.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
+        player.prepare()
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+        }
+    }
+    fun play() {
+        if (video.ended) player.seekToDefaultPosition()
+        // Пока файл уже играет, отметку не ставим: иначе следующий возврат из буферизации снова её отправит.
+        if (!player.isPlaying) startRequested = true
+        player.play()
+    }
+    DisposableEffect(player, lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) player.pause()
+            // Анимация без панели управления играет сама, пока страница на экране: после возврата в приложение она продолжает.
+            // Возврат не ставит отметку снова: первый запуск её уже поставил.
+            if (event == Lifecycle.Event.ON_START && loop && currentActive) player.play()
+        }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    DisposableEffect(video) {
-        video.setMediaController(MediaController(context).apply { setAnchorView(video) })
-        video.setOnPreparedListener { it.isLooping = loop; if (currentActive && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) video.start() }
-        video.setOnErrorListener { _, _, _ -> error = true; true }
-        video.setVideoPath(path)
-        onDispose { video.stopPlayback() }
+    fun seek(fraction: Float) {
+        val target = seekPositionMs(fraction, video.durationMs) ?: return
+        player.seekTo(target)
+        video = video.copy(positionMs = target)
     }
     // Играет только текущая страница; соседнее видео, которое увели свайпом, ставим на паузу.
     // Звук видео не идёт поверх музыки из общего плеера: когда видео становится активным, музыка на паузе.
-    LaunchedEffect(active) {
+    LaunchedEffect(active, player) {
         if (active) {
             PlaybackEngine.pause()
-            video.start()
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) play()
         } else {
-            video.pause()
+            player.pause()
         }
     }
-    if (error) Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray, modifier = Modifier.padding(24.dp))
-    else AndroidView(factory = { video }, modifier = Modifier.fillMaxSize())
+    // Пока видео играет, ползунок и время обновляются. На паузе хватает одного обновления. Анимации ползунка не нужны.
+    if (!loop) LaunchedEffect(player, video.playing, video.buffering) {
+        do {
+            video = video.copy(positionMs = player.currentPosition, durationMs = player.duration.coerceAtLeast(0L))
+            if (video.playing) delay(VIDEO_PROGRESS_INTERVAL_MS)
+        } while (video.playing)
+    }
+    if (video.failed) Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray, modifier = Modifier.padding(24.dp))
+    else Box(Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { viewContext ->
+                PlayerView(viewContext).apply {
+                    setUseController(false)
+                    setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT)
+                }
+            },
+            update = { it.player = player },
+            onRelease = { it.player = null },
+            modifier = Modifier.fillMaxSize()
+        )
+        if (video.buffering) CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
+        // Анимация играет по кругу без панели управления; обычное видео получает кнопку и ползунок.
+        if (!loop) VideoControls(
+            state = video,
+            onAction = { action -> if (action == VideoAction.Pause) player.pause() else play() },
+            onSeek = ::seek,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
+}
+
+/** Кнопка и ползунок поверх видео. Ползунок работает, только когда известна длина: перематывать без неё некуда. */
+@Composable
+private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Unit, onSeek: (Float) -> Unit, modifier: Modifier) {
+    val action = state.primaryAction()
+    // Позиция во время перетаскивания живёт в ползунке, а перемотка уходит один раз, когда палец отпущен.
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    Row(
+        modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.5f)).navigationBarsPadding().padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = { onAction(action) }) {
+            Icon(
+                imageVector = when (action) {
+                    VideoAction.Play -> Icons.Rounded.PlayArrow
+                    VideoAction.Pause -> Icons.Rounded.Pause
+                    VideoAction.Replay -> Icons.Rounded.Replay
+                },
+                contentDescription = stringResource(if (action == VideoAction.Pause) R.string.common_pause else R.string.common_play),
+                tint = Color.White
+            )
+        }
+        Slider(
+            value = dragFraction ?: state.fraction(),
+            onValueChange = { dragFraction = it },
+            onValueChangeFinished = {
+                dragFraction?.let(onSeek)
+                dragFraction = null
+            },
+            enabled = state.durationMs > 0L,
+            modifier = Modifier.weight(1f),
+            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White)
+        )
+        // Пока палец двигает ползунок, время показывает ту же позицию, что и ползунок.
+        val shownMs = dragFraction?.let { seekPositionMs(it, state.durationMs) } ?: state.positionMs
+        Text(
+            "${duration((shownMs / 1000).toInt())} / ${duration((state.durationMs / 1000).toInt())}",
+            color = Color.White,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(start = 8.dp)
+        )
+    }
 }
 
 /** Звук в просмотрщике идёт через общий плеер. Открытие ничего не запускает, поэтому текущий трек не прерывается. */
