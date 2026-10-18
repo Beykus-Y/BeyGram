@@ -72,7 +72,7 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
     // Once a picture is applied, the copies of the pictures that were only tried are no longer needed.
     val context = LocalContext.current
     LaunchedEffect(saved.wallpaper) {
-        if (saved.wallpaper is ChatWallpaper.Photo) WallpaperFiles.deleteAllExcept(context, saved.wallpaper.fileName)
+        WallpaperFiles.deleteAllExcept(context, (saved.wallpaper as? ChatWallpaper.Photo)?.fileName)
     }
     BackHandler(onBack = onBack)
 
