@@ -173,8 +173,11 @@ internal class TdConversationActions(
             try {
                 request(TdApi.AddMessageReaction(chatId, messageId, TdApi.ReactionTypeEmoji(emoji), false, addToRecent))
             } catch (failure: Throwable) {
-                // The restored reactions were chosen before, so they do not go into recent reactions again.
-                displaced.forEach { type -> runCatching { request(TdApi.AddMessageReaction(chatId, messageId, type, false, false)) } }
+                // The restored reactions were chosen before, so they do not go into recent reactions again. The restore runs
+                // even if this coroutine was cancelled, because the removal above already reached the server.
+                withContext(NonCancellable) {
+                    displaced.forEach { type -> runCatching { request(TdApi.AddMessageReaction(chatId, messageId, type, false, false)) } }
+                }
                 throw failure
             }
         }
