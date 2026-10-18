@@ -25,7 +25,7 @@ data class BeyGramTokens(
     val danger: Color
 )
 
-/** Warm, light: the BeyGram paper look. */
+/** The light set of the Warm preset. */
 val LightTokens = BeyGramTokens(
     bg = Color(0xFFFAF8F5), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFF3EFEA), line = Color(0xFFECE7E0),
     text = Color(0xFF1E1B18), muted = Color(0xFF67625B),
@@ -35,7 +35,7 @@ val LightTokens = BeyGramTokens(
     danger = Color(0xFFB42318)
 )
 
-/** Warm, dark: the BeyGram graphite look. */
+/** The dark set of the Warm preset. */
 val DarkTokens = BeyGramTokens(
     bg = Color(0xFF161417), surface = Color(0xFF1F1C21), surface2 = Color(0xFF2A262C), line = Color(0xFF2E2A30),
     text = Color(0xFFF3EFEA), muted = Color(0xFFA39C95),
