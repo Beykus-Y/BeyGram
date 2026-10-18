@@ -555,8 +555,9 @@ fun ChatScreen(
         val recordingCanceling = if (recordingMode == ComposerRecordingMode.Voice) audioNote.canceling else videoNote.canceling
         val showRecord = recordingActive || (!editing && !attachments.active && fieldText.isBlank())
         if (!deleting && !searching && typingNames.isNotEmpty()) TypingRow(typingNames)
-        if (!deleting && !searching) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        // Мини-плеер стоит над полем ввода и остаётся на месте при поиске и при выборе сообщений, когда поля ввода нет.
         NowPlayingBar()
+        if (!deleting && !searching) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) AttachmentButton(attachments, enabled = !sending)

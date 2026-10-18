@@ -458,7 +458,15 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
         onDispose { video.stopPlayback() }
     }
     // Играет только текущая страница; соседнее видео, которое увели свайпом, ставим на паузу.
-    LaunchedEffect(active) { if (active) video.start() else video.pause() }
+    // Звук видео не идёт поверх музыки из общего плеера: когда видео становится активным, музыка на паузе.
+    LaunchedEffect(active) {
+        if (active) {
+            PlaybackEngine.pause()
+            video.start()
+        } else {
+            video.pause()
+        }
+    }
     if (error) Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray, modifier = Modifier.padding(24.dp))
     else AndroidView(factory = { video }, modifier = Modifier.fillMaxSize())
 }
@@ -476,10 +484,14 @@ private fun AudioInPlayer(media: MessageMedia, path: String, active: Boolean, on
             currentOnStarted()
         }
     }
+    // Пока файл не играет в общем плеере, его перемотка и скорость относятся к другому файлу, поэтому выключены.
+    val current = state.item?.key == item.key
     NowPlayingControls(
-        state = if (state.item?.key == item.key) state else PlaybackState(item = item),
+        state = if (current) state else PlaybackState(item = item),
         item = item,
-        colors = ViewerNowPlayingColors
+        colors = ViewerNowPlayingColors,
+        enabled = current,
+        onPlayPause = { startAudio(context, item) }
     )
 }
 

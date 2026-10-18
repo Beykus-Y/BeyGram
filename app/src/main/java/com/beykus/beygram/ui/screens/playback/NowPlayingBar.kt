@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +35,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -75,12 +77,13 @@ internal val ViewerNowPlayingColors = NowPlayingColors(
  * Тап по полоске открывает полный плеер.
  */
 @Composable
-fun NowPlayingBar() {
+fun NowPlayingBar(bottomInset: Boolean = false) {
     val state by PlaybackEngine.state.collectAsStateWithLifecycle()
     val item = state.item ?: return
     val palette = beyGramPalette()
     var sheetOpen by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    // На экранах без своего нижнего меню полоска стоит у самого края, поэтому отступает от системной навигации.
+    Column(Modifier.fillMaxWidth().background(palette.surface).then(if (bottomInset) Modifier.navigationBarsPadding() else Modifier)) {
         LinearProgressIndicator(
             progress = { state.fraction },
             modifier = Modifier.fillMaxWidth().height(2.dp),
@@ -135,14 +138,26 @@ private fun NowPlayingSheet(onDismiss: () -> Unit) {
         NowPlayingControls(
             state = state,
             item = item,
-            colors = NowPlayingColors(palette.textPrimary, palette.textSecondary, palette.accent, palette.accentSoft, palette.accentInk)
+            colors = NowPlayingColors(palette.textPrimary, palette.textSecondary, palette.accent, palette.accentSoft, palette.accentInk),
+            enabled = true,
+            onPlayPause = { PlaybackEngine.togglePlayPause() }
         )
     }
 }
 
-/** Управление файлом: название, перемотка, пауза и скорость. Используется и в полном плеере, и в просмотрщике. */
+/**
+ * Управление файлом: название, перемотка, пауза и скорость. Используется и в полном плеере, и в просмотрщике.
+ * [enabled] = false, когда файл не играет в общем плеере: перемотка и скорость относятся к другому файлу, поэтому выключены.
+ */
 @Composable
-internal fun NowPlayingControls(state: PlaybackState, item: PlaybackItem, colors: NowPlayingColors, modifier: Modifier = Modifier) {
+internal fun NowPlayingControls(
+    state: PlaybackState,
+    item: PlaybackItem,
+    colors: NowPlayingColors,
+    enabled: Boolean,
+    onPlayPause: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Column(modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(
             Icons.Rounded.MusicNote, contentDescription = null, tint = colors.accent,
@@ -154,7 +169,7 @@ internal fun NowPlayingControls(state: PlaybackState, item: PlaybackItem, colors
         Slider(
             value = state.fraction,
             onValueChange = { PlaybackEngine.seekTo(it) },
-            enabled = state.durationMs > 0,
+            enabled = enabled && state.durationMs > 0,
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -163,7 +178,7 @@ internal fun NowPlayingControls(state: PlaybackState, item: PlaybackItem, colors
         }
         Box(
             Modifier.padding(top = 12.dp).size(64.dp).clip(CircleShape).background(colors.accent)
-                .clickable { PlaybackEngine.togglePlayPause() },
+                .clickable(onClick = onPlayPause),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -174,14 +189,14 @@ internal fun NowPlayingControls(state: PlaybackState, item: PlaybackItem, colors
             )
         }
         Text(stringResource(R.string.player_speed), color = colors.secondary, fontSize = 12.sp, modifier = Modifier.padding(top = 16.dp))
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SPEEDS.forEach { speed -> SpeedChip(speed = speed, selected = state.speed == speed, colors = colors) }
+        Row(Modifier.padding(top = 8.dp).alpha(if (enabled) 1f else 0.4f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SPEEDS.forEach { speed -> SpeedChip(speed = speed, selected = state.speed == speed, enabled = enabled, colors = colors) }
         }
     }
 }
 
 @Composable
-private fun SpeedChip(speed: Float, selected: Boolean, colors: NowPlayingColors) {
+private fun SpeedChip(speed: Float, selected: Boolean, enabled: Boolean, colors: NowPlayingColors) {
     Text(
         stringResource(R.string.player_speed_option, speedLabel(speed)),
         color = if (selected) colors.accentInk else colors.primary,
@@ -189,7 +204,7 @@ private fun SpeedChip(speed: Float, selected: Boolean, colors: NowPlayingColors)
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.clip(RoundedCornerShape(16.dp))
             .background(if (selected) colors.accent else colors.accentSoft)
-            .clickable { PlaybackEngine.setSpeed(speed) }
+            .clickable(enabled = enabled) { PlaybackEngine.setSpeed(speed) }
             .padding(horizontal = 12.dp, vertical = 6.dp)
     )
 }

@@ -578,7 +578,7 @@ private fun BeyGramAppContent(
                 )
             }
         }
-        if (route !in playerBarHostRoutes) NowPlayingBar()
+        if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
     }
     noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
         text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }

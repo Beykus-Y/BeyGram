@@ -70,6 +70,7 @@ object PlaybackEngine {
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
     private var exo: ExoPlayer? = null
+    private var appContext: Context? = null
     private var progress: Job? = null
 
     /** Единственный ExoPlayer процесса. Создаётся на главном потоке при первом обращении. */
@@ -83,6 +84,7 @@ object PlaybackEngine {
         .also { created ->
             created.addListener(listener)
             exo = created
+            appContext = context.applicationContext
         }
 
     /** Тот же файл ставит на паузу или продолжает, другой файл начинает играть сначала. */
@@ -108,9 +110,19 @@ object PlaybackEngine {
         startProgress()
     }
 
+    /** Пауза или продолжение. После конца файл начинается сначала, после ошибки загружается заново. */
     fun togglePlayPause() {
         val target = exo ?: return
-        if (target.isPlaying) target.pause() else target.play()
+        if (target.isPlaying) {
+            target.pause()
+            return
+        }
+        when (target.playbackState) {
+            Player.STATE_IDLE -> target.prepare()
+            Player.STATE_ENDED -> target.seekToDefaultPosition()
+        }
+        _state.update { it.copy(failed = false) }
+        target.play()
     }
 
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. */
@@ -133,7 +145,7 @@ object PlaybackEngine {
         _state.update { it.copy(speed = speed) }
     }
 
-    /** Останавливает звук и убирает файл из мини-плеера. */
+    /** Останавливает звук, убирает файл из мини-плеера и снимает уведомление, которое держал сервис. */
     fun stop() {
         progress?.cancel()
         progress = null
@@ -142,6 +154,7 @@ object PlaybackEngine {
             it.clearMediaItems()
         }
         _state.value = PlaybackState(speed = _state.value.speed)
+        appContext?.let { it.stopService(Intent(it, PlaybackService::class.java)) }
     }
 
     private val listener = object : Player.Listener {
