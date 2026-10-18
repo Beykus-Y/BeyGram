@@ -7,6 +7,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
@@ -312,6 +313,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long) = conversationActions.shared(chatId, kind, fromMessageId)
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
+    override fun startChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.startActivity(chatId, activity)
+    override fun endChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.endActivity(chatId, activity)
     override fun setAppForeground(foreground: Boolean) {
         conversationEffects.setForeground(foreground)
         _notificationPresentation.update { it.copy(foreground = foreground) }
@@ -551,6 +554,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
         leaveJumpWindow(chatId)
+        conversationEffects.endActivity(chatId, ChatActivity.Typing)
         return conversationActions.sendText(chatId, text, replyToMessageId, entities)
     }
 
@@ -607,6 +611,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateNewMessage         -> {
                 reportBotChannel.onNewMessage(update.message)
                 handleNewMessage(update.message)
+                conversationEffects.uploadStarted(update.message)
             }
             is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
             is TdApi.UpdateMessageSendSucceeded -> {
@@ -614,6 +619,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 cleanupSentRecording(update.message)
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
                 conversationActions.hydrateReply(update.message)
+                conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateMessageSendFailed -> {
                 reportBotChannel.onSendFailed(update)
@@ -627,8 +633,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     attrs = mapOf("content" to update.message.content.javaClass.simpleName, "error_code" to (sendError?.code ?: 0).toString())
                 )
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+                conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
-            is TdApi.UpdateDeleteMessages -> if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())
+            is TdApi.UpdateDeleteMessages -> {
+                update.messageIds.forEach { conversationEffects.uploadFinished(update.chatId, it) }
+                if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())
+            }
             is TdApi.UpdateConnectionState    -> {
                 ConnectionEventLog.shared.record("Соединение с Telegram: ${update.state.logLabel()}")
                 StructuredEventLog.shared.record(

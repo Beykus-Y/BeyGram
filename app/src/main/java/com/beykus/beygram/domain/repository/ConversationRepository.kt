@@ -41,4 +41,12 @@ interface ConversationRepository {
     fun openMessageContent(chatId: Long, messageId: Long)
     /** Names of the people typing in the chat right now; empty when nobody is. A blank name means the sender's name is unknown. */
     fun observeTyping(chatId: Long): StateFlow<List<String>>
+    /**
+     * Shows [activity] to the chat's other members until [endChatActivity] or another activity replaces it.
+     * Telegram drops an activity after a few seconds, so it is sent again while it lasts. Typing also stops on its own
+     * a few seconds after the last call, so typing calls come from each keystroke.
+     */
+    fun startChatActivity(chatId: Long, activity: ChatActivity)
+    /** Ends [activity] if it is the one being shown. */
+    fun endChatActivity(chatId: Long, activity: ChatActivity)
 }

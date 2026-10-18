@@ -176,6 +176,12 @@ fun ChatScreen(
         pendingRecordingSends.addLast(mediaList)
         startRecordingSendWorker()
     }
+    /** Typing is shown from each keystroke; clearing the field ends it. */
+    fun typedDraft(text: String) {
+        draft = text
+        if (text.isBlank()) conversation.endChatActivity(chat.id, ChatActivity.Typing)
+        else conversation.startChatActivity(chat.id, ChatActivity.Typing)
+    }
     fun retryFailedMessages(messageIds: List<Long>) {
         scope.launch {
             val result = conversation.retryMessages(chat.id, messageIds)
@@ -213,6 +219,19 @@ fun ChatScreen(
         }
     }
     val audioNote = rememberAudioNoteRecorder(::capturedRecording) { error = it }
+    // The other members see a recording while it runs; the recorder's own state ends it.
+    DisposableEffect(chat.id, audioNote.active) {
+        val chatId = chat.id
+        val recording = audioNote.active
+        if (recording) conversation.startChatActivity(chatId, ChatActivity.RecordingVoice)
+        onDispose { if (recording) conversation.endChatActivity(chatId, ChatActivity.RecordingVoice) }
+    }
+    DisposableEffect(chat.id, videoNote.active) {
+        val chatId = chat.id
+        val recording = videoNote.active
+        if (recording) conversation.startChatActivity(chatId, ChatActivity.RecordingVideoNote)
+        onDispose { if (recording) conversation.endChatActivity(chatId, ChatActivity.RecordingVideoNote) }
+    }
     val videoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (!granted.values.all { it }) error = context.getString(R.string.chat_video_note_permission_denied)
     }
@@ -495,7 +514,7 @@ fun ChatScreen(
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
             else if (videoNote.active) VideoNoteRecordingDock(videoNote, Modifier.weight(1f), onCancel = videoNote::discardLocked)
             else FormattingTextField(fieldText, if (editing) editEntities else draftEntities,
-                onChange = { if (editing) editText = it else draft = it },
+                onChange = { if (editing) editText = it else typedDraft(it) },
                 onEntitiesChange = { if (editing) editEntities = it else draftEntities = ArrayList(it) },
                 placeholder = if (attachments.active) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
                 locked = busy, isError = overLimit, modifier = Modifier.weight(1f))
