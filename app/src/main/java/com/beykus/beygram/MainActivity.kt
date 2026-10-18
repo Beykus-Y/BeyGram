@@ -12,7 +12,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
             val systemDark = isSystemInDarkTheme()
             val isDarkTheme = config.mode.isDark(systemDark)
             // The status and navigation bar icons follow the theme in use. The bars stay transparent, so the app's own colours show through.
-            LaunchedEffect(isDarkTheme) {
+            SideEffect {
                 enableEdgeToEdge(
                     statusBarStyle = if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
                     navigationBarStyle = if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)

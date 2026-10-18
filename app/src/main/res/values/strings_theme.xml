@@ -17,4 +17,6 @@
     <string name="theme_preview_incoming">Привет! Как тебе новая тема?</string>
     <string name="theme_preview_outgoing">Пока смотрю, выглядит спокойно</string>
     <string name="theme_preview_today">Сегодня</string>
+    <string name="theme_preview_time">12:40</string>
+    <string name="theme_preview_time_reply">12:41</string>
 </resources>

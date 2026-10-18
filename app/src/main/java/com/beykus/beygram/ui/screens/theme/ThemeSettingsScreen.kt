@@ -128,10 +128,10 @@ private fun ThemePreview() {
                 Text(stringResource(R.string.theme_preview_contact), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Text(stringResource(R.string.theme_preview_last_message), color = palette.textSecondary, fontSize = 13.sp)
             }
-            Text("12:40", color = palette.textSecondary, fontSize = 12.sp)
+            Text(stringResource(R.string.theme_preview_time), color = palette.textSecondary, fontSize = 12.sp)
         }
-        PreviewBubble(text = stringResource(R.string.theme_preview_incoming), time = "12:40", outgoing = false)
-        PreviewBubble(text = stringResource(R.string.theme_preview_outgoing), time = "12:41", outgoing = true)
+        PreviewBubble(text = stringResource(R.string.theme_preview_incoming), time = stringResource(R.string.theme_preview_time), outgoing = false)
+        PreviewBubble(text = stringResource(R.string.theme_preview_outgoing), time = stringResource(R.string.theme_preview_time_reply), outgoing = true)
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
                 stringResource(R.string.theme_preview_today),
