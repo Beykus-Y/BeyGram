@@ -304,13 +304,18 @@ class NotificationRuntime private constructor(private val context: Context) {
         if (!dismissRetryScheduled.add(group)) return
         scope.launch {
             try {
-                delay(backoff)
+                while (true) {
+                    val due = dismissNotBefore[group] ?: break
+                    if (due == Long.MAX_VALUE) break
+                    delay((due - System.currentTimeMillis()).coerceAtLeast(0L))
+                    // A newer dismissal can extend the cooldown while this job sleeps.
+                    if (!dismissNotBefore.remove(group, due)) continue
+                    dismissRetryScheduled.remove(group)
+                    flushDismissals()
+                    return@launch
+                }
             } finally {
                 dismissRetryScheduled.remove(group)
-            }
-            if (System.currentTimeMillis() >= (dismissNotBefore[group] ?: 0L)) {
-                dismissNotBefore.remove(group)
-                flushDismissals()
             }
         }
     }
