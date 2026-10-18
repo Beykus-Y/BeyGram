@@ -199,6 +199,7 @@ class MihomoProxyService : Service() {
     @StringRes
     private fun textFor(state: ProxyRuntimeState): Int = when {
         state.status != ProxyRuntimeStatus.RUNNING -> R.string.proxy_notification_starting
+        state.telegramConnected == true && state.upstreamReachable == false -> R.string.proxy_notification_telegram_only
         state.upstreamReachable == false -> R.string.proxy_notification_upstream_unreachable
         state.upstreamReachable == true && state.telegramConnected == true -> R.string.proxy_notification_connected
         state.upstreamReachable == true -> R.string.proxy_notification_telegram_connecting
