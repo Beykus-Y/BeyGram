@@ -1,15 +1,18 @@
 package com.beykus.beygram
 
+import android.graphics.Color
 import android.os.Bundle
 import android.content.Intent
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
@@ -22,7 +25,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.ui.theme.AppearanceViewModel
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.tokensFor
-import com.beykus.beygram.data.appearance.ThemeMode
 
 class MainActivity : ComponentActivity() {
     private var notificationRequest by mutableStateOf<NotificationOpenRequest?>(null)
@@ -40,6 +42,13 @@ class MainActivity : ComponentActivity() {
             val config = appearance.config.collectAsState().value ?: return@setContent
             val systemDark = isSystemInDarkTheme()
             val isDarkTheme = config.mode.isDark(systemDark)
+            // The status and navigation bar icons follow the theme in use. The bars stay transparent, so the app's own colours show through.
+            LaunchedEffect(isDarkTheme) {
+                enableEdgeToEdge(
+                    statusBarStyle = if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+                    navigationBarStyle = if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                )
+            }
 
             BeyGramTheme(darkTheme = isDarkTheme, tokens = tokensFor(config.preset, config.mode, systemDark)) {
                 Surface(
@@ -49,8 +58,8 @@ class MainActivity : ComponentActivity() {
                     BeyGramApp(
                         notificationRequest = notificationRequest,
                         onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
-                        isDarkTheme = isDarkTheme,
-                        onThemeChange = { dark -> appearance.save(config.copy(mode = if (dark) ThemeMode.Dark else ThemeMode.Light)) }
+                        appearance = config,
+                        onAppearanceChange = appearance::save
                     )
                 }
             }

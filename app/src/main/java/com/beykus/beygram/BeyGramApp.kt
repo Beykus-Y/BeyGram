@@ -59,12 +59,14 @@ import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
+import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
 import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
@@ -80,8 +82,8 @@ private val playerBarHostRoutes = setOf(AppRoute.Chats, AppRoute.Calls, AppRoute
 
 @Composable
 fun BeyGramApp(
-    isDarkTheme: Boolean,
-    onThemeChange: (Boolean) -> Unit,
+    appearance: AppearanceConfig,
+    onAppearanceChange: (AppearanceConfig) -> Unit,
     notificationRequest: NotificationOpenRequest? = null,
     onNotificationHandled: (Long) -> Unit = {}
 ) {
@@ -116,8 +118,8 @@ fun BeyGramApp(
     BeyGramAppContent(
         repository = repository,
         tdLibReadiness = tdLibReadiness,
-        isDarkTheme = isDarkTheme,
-        onThemeChange = onThemeChange,
+        appearance = appearance,
+        onAppearanceChange = onAppearanceChange,
         notificationRuntime = notificationRuntime,
         vpnBackend = vpnBackend,
         recordingSettings = videoMessageSettings,
@@ -131,8 +133,8 @@ fun BeyGramApp(
 private fun BeyGramAppContent(
     repository: TelegramRepository,
     tdLibReadiness: TdLibReadiness,
-    isDarkTheme: Boolean,
-    onThemeChange: (Boolean) -> Unit,
+    appearance: AppearanceConfig,
+    onAppearanceChange: (AppearanceConfig) -> Unit,
     notificationRuntime: NotificationRuntime,
     vpnBackend: VpnBackend,
     recordingSettings: VideoMessageSettingsStore,
@@ -412,7 +414,7 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
-            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle,
+            lastSeenStyle = lastSeenStyle,
             sharedMessages = { kind, fromMessageId, newer -> repository.sharedMessages(selectedChatId, kind, fromMessageId, newer) },
             onOpenMessage = { messageId -> chatFocusMessageId = messageId; routeName = AppRoute.Chat.name })
     }
@@ -432,7 +434,7 @@ private fun BeyGramAppContent(
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = memberReturnRouteName }, onRefresh = { repository.refreshChatInfo(memberChatId) },
             onEdit = {}, setPhoto = repository::setMyProfilePhoto,
-            isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle)
+            lastSeenStyle = lastSeenStyle)
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -514,8 +516,13 @@ private fun BeyGramAppContent(
                         onNotifications = { openNotifications(AppRoute.MyProfile) },
                         hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
-                        isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle)
+                        onOpenAppearance = { routeName = AppRoute.Appearance.name }, lastSeenStyle = lastSeenStyle)
                 }
+                AppRoute.Appearance -> ThemeSettingsScreen(
+                    saved = appearance,
+                    onSave = onAppearanceChange,
+                    onBack = { routeName = AppRoute.MyProfile.name }
+                )
                 AppRoute.EditProfile -> {
                     myProfile.info?.let { info ->
                         EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)

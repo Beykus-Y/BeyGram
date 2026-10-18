@@ -26,5 +26,6 @@ enum class AppRoute {
     Diagnostics,
     ReportProblem,
     Proxy,
-    ProxyConnect
+    ProxyConnect,
+    Appearance
 }
