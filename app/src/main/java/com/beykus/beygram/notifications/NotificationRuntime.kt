@@ -1,6 +1,7 @@
 package com.beykus.beygram.notifications
 
 import android.content.Context
+import com.beykus.beygram.R
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.vpn.VpnBackend
@@ -8,6 +9,7 @@ import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.*
@@ -144,8 +146,10 @@ class NotificationRuntime private constructor(private val context: Context) {
             recordAppEvent(EventKind.NOTIFICATION, "reply_failed", "Ответ из уведомления не отправлен", Severity.WARNING, mapOf("cause" to failure.javaClass.simpleName))
             refresh()
             if (!pending.stored) return true
+            // A reply that is too long for Telegram fails the same way every time, so it is dropped at once.
+            val attemptLimit = if (failure.isPermanentReplyFailure()) entry.attempts + 1 else MAX_REPLY_ATTEMPTS
             // If the outbox cannot record the failure, the reply keeps its count and is tried again.
-            val dropped = try { outbox { recordFailure(entry, MAX_REPLY_ATTEMPTS) } } catch (error: IOException) { false }
+            val dropped = try { outbox { recordFailure(entry, attemptLimit) } } catch (error: IOException) { false }
             if (dropped) recordAppEvent(EventKind.NOTIFICATION, "reply_dropped", "Ответ из уведомления отброшен после повторных попыток", Severity.WARNING)
             return dropped
         } finally {
@@ -211,12 +215,25 @@ class NotificationRuntime private constructor(private val context: Context) {
         // A sign-out while the reply waited ends it.
         if (!stillOwned(pending)) throw AccountChangedException()
         // Replying to the notified message puts the answer in its forum topic, too.
-        source.sendMessage(entry.chatId, entry.text, entry.replyToMessageId.takeIf { it > 0L })
+        val replyId = entry.replyToMessageId.takeIf { it > 0L }
+        val sent = source.sendMessage(entry.chatId, entry.text, replyId)
+        // The notified message can be deleted or no longer take replies since the notice. Then the text goes out as a plain message.
+        if (replyId != null && sent.exceptionOrNull().isReplyRejected()) source.sendMessage(entry.chatId, entry.text, null) else sent
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
         Result.failure(error)
     }
+
+    /** Telegram refused the message this reply points at, not the reply itself. */
+    private fun Throwable?.isReplyRejected(): Boolean {
+        val id = (((this as? UserMessageException)?.text) as? UiText.Res)?.id ?: return false
+        return id == R.string.err_message_cannot_reply || id == R.string.err_tdlib_message_unavailable
+    }
+
+    /** Telegram refuses this text every time it is sent, so retrying cannot help. */
+    private fun Throwable.isPermanentReplyFailure(): Boolean =
+        ((this as? UserMessageException)?.text as? UiText.Res)?.id == R.string.err_message_too_long
     private fun flushDismissals() {
         val source = repository ?: return
         if (source.authState.value != AuthState.Ready) return

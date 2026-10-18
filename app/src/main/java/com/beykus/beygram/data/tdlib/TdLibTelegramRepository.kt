@@ -695,9 +695,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }
     }
 
-    /** Files stay on disk until TDLib reports the message sent. Then their copies under uploads go; unsent files stay. */
+    /**
+     * Files stay on disk until TDLib reports the message sent. Then their copies under uploads go; unsent files stay.
+     * Only voice notes and video notes are cleaned: TDLib keeps the local path of a sent photo, video, audio or document
+     * and reads it for the feed and the viewer, so removing it would show an empty message.
+     */
     private fun cleanupSentUploads(message: TdApi.Message) {
         val content = message.content
+        if (content !is TdApi.MessageVoiceNote && content !is TdApi.MessageVideoNote) return
         content.localFiles().mapNotNull { it?.local?.path }.filter { it.isNotBlank() }.forEach { localPath ->
             runCatching {
                 val uploads = File(appContext.filesDir, "uploads").canonicalFile
@@ -709,7 +714,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     file.delete()
                     file.parentFile?.takeIf { it.listFiles().isNullOrEmpty() }?.delete()
                 } else {
-                    // Every other upload has a folder of its own. Removing it also removes files TDLib does not report, such as a photo's thumbnail.
+                    // A voice note has a folder of its own. Removing it also removes files TDLib does not report.
                     generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }.deleteRecursively()
                 }
                 android.util.Log.i("BeyGramNet", "Sent upload cleaned kind=${content.javaClass.simpleName} path=$localPath")

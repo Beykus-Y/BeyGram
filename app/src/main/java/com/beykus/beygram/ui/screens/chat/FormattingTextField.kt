@@ -49,9 +49,12 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
         TextField(current, { next ->
             // Sending locks the text, not the field: a disabled field loses focus and hides the keyboard.
             if (locked) return@TextField
-            onEntitiesChange(adjustTextEntities(value, next.text, entities))
+            // Moving the cursor or the selection also fires this callback; only a real text change is a change.
+            if (next.text != current.text) {
+                onEntitiesChange(adjustTextEntities(value, next.text, entities))
+                onChange(next.text)
+            }
             field = next
-            onChange(next.text)
         }, modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 40.dp).focusRequester(focusRequester).appendTextContextMenuComponents {
                 if (!current.selection.collapsed) item(FormatSelectionKey, formatLabel) {
                     range = current.selection
