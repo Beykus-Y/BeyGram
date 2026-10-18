@@ -16,11 +16,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.airbnb.android.lottie.compose.LottieAnimation
-import com.airbnb.android.lottie.compose.LottieCompositionSpec
-import com.airbnb.android.lottie.compose.LottieConstants
-import com.airbnb.android.lottie.compose.animateLottieCompositionAsState
-import com.airbnb.android.lottie.compose.rememberLottieComposition
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.LottieConstants
+import com.airbnb.lottie.compose.animateLottieCompositionAsState
+import com.airbnb.lottie.compose.rememberLottieComposition
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.readTgsJson
 import com.beykus.beygram.domain.model.MediaFileState
