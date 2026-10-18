@@ -72,6 +72,8 @@ fun NotificationSettingsScreen(
     val error by runtime.serviceError.collectAsStateWithLifecycle()
     var allowed by remember { mutableStateOf(AndroidNotificationRenderer.canNotify(context)) }
     var messagesBlocked by remember { mutableStateOf(AndroidNotificationRenderer.messagesChannelBlocked(context)) }
+    var connectionBlocked by remember { mutableStateOf(AndroidNotificationRenderer.channelBlocked(context, AndroidNotificationRenderer.CONNECTION)) }
+    var proxyBlocked by remember { mutableStateOf(AndroidNotificationRenderer.channelBlocked(context, AndroidNotificationRenderer.PROXY)) }
     val power = context.getSystemService(PowerManager::class.java)
     var unrestricted by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(context.packageName)) }
     var permissionRevision by remember { mutableIntStateOf(0) }
@@ -79,6 +81,8 @@ fun NotificationSettingsScreen(
     LifecycleResumeEffect(runtime, permissionRevision) {
         allowed = AndroidNotificationRenderer.canNotify(context)
         messagesBlocked = AndroidNotificationRenderer.messagesChannelBlocked(context)
+        connectionBlocked = AndroidNotificationRenderer.channelBlocked(context, AndroidNotificationRenderer.CONNECTION)
+        proxyBlocked = AndroidNotificationRenderer.channelBlocked(context, AndroidNotificationRenderer.PROXY)
         unrestricted = power.isIgnoringBatteryOptimizations(context.packageName)
         runtime.refresh()
         TelegramNotificationService.reconcileFromAllowedContext(context, "ui")
@@ -103,8 +107,11 @@ fun NotificationSettingsScreen(
                 else open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
             }) { Text(stringResource(R.string.notif_allow_notifications)) }
             TextButton(onClick = { open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text(stringResource(R.string.notif_sound_settings)) }
+            ChannelStatus(stringResource(R.string.notif_channel_messages), messagesBlocked)
             TextButton(onClick = { open(channelSettings(context, AndroidNotificationRenderer.MESSAGES)) }) { Text(stringResource(R.string.notif_channel_settings_messages)) }
+            ChannelStatus(stringResource(R.string.notif_channel_connection), connectionBlocked)
             TextButton(onClick = { open(channelSettings(context, AndroidNotificationRenderer.CONNECTION)) }) { Text(stringResource(R.string.notif_channel_settings_connection)) }
+            ChannelStatus(stringResource(R.string.proxy_notification_title), proxyBlocked)
             TextButton(onClick = { open(channelSettings(context, AndroidNotificationRenderer.PROXY)) }) { Text(stringResource(R.string.notif_channel_settings_proxy)) }
             HorizontalDivider(color = palette.divider)
             Text(if (unrestricted) stringResource(R.string.notif_battery_unrestricted) else stringResource(R.string.notif_battery_restricted), color = palette.textSecondary)
@@ -129,6 +136,15 @@ fun NotificationSettingsScreen(
 private fun channelSettings(context: Context, channelId: String): Intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
     .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
     .putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
+
+@Composable
+private fun ChannelStatus(name: String, blocked: Boolean) {
+    val palette = beyGramPalette()
+    Text(
+        if (blocked) stringResource(R.string.notif_channel_status_off, name) else stringResource(R.string.notif_channel_status_on, name),
+        color = if (blocked) palette.warningText else palette.textSecondary
+    )
+}
 
 @Composable
 private fun SettingToggle(title: String, description: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
