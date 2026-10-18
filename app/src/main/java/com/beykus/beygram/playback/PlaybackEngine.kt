@@ -186,10 +186,12 @@ object PlaybackEngine {
         if (onStarted != null) startedCallback = item.key to onStarted
         if (exo != null && _state.value.item?.key == item.key) {
             // Файл, который играет без очереди, например из ленты чата, берёт очередь вкладки: после паузы и продолжения она пойдёт дальше.
-            if (queue.isEmpty() && items.isNotEmpty()) {
+            if (items.isNotEmpty()) {
                 queue = items
                 queueIndex = index
             }
+            // Тот же файл из другого сообщения или чата: «Показать в чате» ведёт к сообщению, с которого его запустили последним.
+            _state.update { it.copy(item = item) }
             togglePlayPause()
         } else {
             // Голосовое или кружок поверх музыки очередь не сбрасывают: музыка продолжится и дальше пойдёт по очереди.
@@ -211,8 +213,9 @@ object PlaybackEngine {
      * Запускает файл с начала или с доли [startFraction]. Скорость сохраняется между файлами. Если запустили музыку, которую
      * прервало голосовое или кружок, она продолжается с того же места.
      */
-    fun play(context: Context, item: PlaybackItem, startFraction: Float = 0f) {
+    fun play(context: Context, item: PlaybackItem, startFraction: Float = 0f, onStarted: (() -> Unit)? = null) {
         val target = player(context)
+        if (onStarted != null) startedCallback = item.key to onStarted
         syncPosition()
         // Отметка ждёт только свой файл: запуск другого файла её сбрасывает.
         startedCallback = startedCallback?.takeIf { it.first == item.key }
@@ -234,6 +237,12 @@ object PlaybackEngine {
         _state.value = PlaybackState(item = item, playing = true, positionMs = resumeMs, speed = _state.value.speed)
         startPlaybackService()
         startProgress()
+    }
+
+    /** Отметка для файла, который продолжают после паузы: вызывается, когда он начнёт играть, даже если пузырь уже ушёл с экрана. */
+    fun resume(key: String, onStarted: () -> Unit) {
+        startedCallback = key to onStarted
+        togglePlayPause()
     }
 
     /** Пауза или продолжение. Конец файла и ошибку обрабатывает обёртка плеера, поэтому системные кнопки ведут себя так же. */
@@ -348,6 +357,11 @@ object PlaybackEngine {
         override fun onPlayerError(error: PlaybackException) {
             progress?.cancel()
             _state.update { it.copy(playing = false, failed = true) }
+            // Голосовое или кружок, которые не открылись, не должны оставить прерванную музыку навсегда на паузе.
+            val music = interruptedMusic ?: return
+            val context = appContext ?: return
+            if (_state.value.item?.key == music.item.key) return
+            scope.launch { play(context, music.item) }
         }
     }
 
