@@ -150,6 +150,41 @@ internal class TdConversationActions(
         if (!forwarded.messages.orEmpty().any { it != null }) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
     }
 
+    /** Emoji from the message's top, recent and popular reactions; premium-only ones are left out for users without Premium. */
+    suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<String>> = conversationResult<List<String>> {
+        val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_REACTION_COUNT))
+        if (available.unavailabilityReason != null) emptyList() else pickerEmojis(available, premium = request(TdApi.GetMe()).isPremium)
+    }
+
+    /**
+     * Removes [emoji] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
+     * chosen reaction in the server's order makes room. Returns the message's reactions after the change.
+     */
+    suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
+        val chosen = request(TdApi.GetMessage(chatId, messageId)).interactionInfo?.reactions?.reactions.orEmpty()
+            .filter { it.isChosen && it.type !is TdApi.ReactionTypePaid }
+        val own = chosen.firstOrNull { (it.type as? TdApi.ReactionTypeEmoji)?.emoji == emoji }
+        if (own != null) {
+            request(TdApi.RemoveMessageReaction(chatId, messageId, own.type))
+        } else {
+            overflowReactions(chosen.map { it.type }, maxReactionCount(chatId)).forEach { request(TdApi.RemoveMessageReaction(chatId, messageId, it)) }
+            request(TdApi.AddMessageReaction(chatId, messageId, TdApi.ReactionTypeEmoji(emoji), false, true))
+        }
+        val reactions = messageReactions(request(TdApi.GetMessage(chatId, messageId)).interactionInfo)
+        history.update(chatId, messageId) { it.copy(reactions = reactions) }
+        reactions
+    }
+
+    private suspend fun maxReactionCount(chatId: Long): Int {
+        val available = request(TdApi.GetChat(chatId)).availableReactions
+        val limit = when (available) {
+            is TdApi.ChatAvailableReactionsAll -> available.maxReactionCount
+            is TdApi.ChatAvailableReactionsSome -> available.maxReactionCount
+            else -> 1
+        }
+        return limit.coerceAtLeast(1)
+    }
+
     /** Messages around [messageId], newest last. TDLib may return fewer messages, so the target is fetched separately. */
     suspend fun window(chatId: Long, messageId: Long): Result<List<TdApi.Message>> = conversationResult {
         if (chatId == 0L || messageId <= 0) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))

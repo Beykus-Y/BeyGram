@@ -24,6 +24,12 @@ data class ChatMessage(
 /** An emoji reaction under a message. [isChosen] marks the reaction the current user added. */
 data class MessageReaction(val emoji: String, val count: Int, val isChosen: Boolean = false)
 
+/** The message that carries an album's reactions: the first one that has any, otherwise the latest. A single message is its own. */
+fun reactionMessage(album: List<ChatMessage>): ChatMessage {
+    val chronological = album.sortedWith(compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.id })
+    return chronological.firstOrNull { it.reactions.isNotEmpty() } ?: chronological.last()
+}
+
 enum class MessageSendState { Sending, Sent, Failed }
 
 data class ChatHistory(
