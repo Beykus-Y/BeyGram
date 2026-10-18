@@ -7,10 +7,9 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.ThemePreset
 
@@ -35,6 +34,12 @@ fun resolveTokens(preset: ThemePreset, mode: ThemeMode, systemDark: Boolean): Be
     }
 }
 
+/** The tokens for a saved choice: the preset (system colours where chosen), then the colours the user changed in the editor. */
+@Composable
+fun resolveTokens(config: AppearanceConfig, systemDark: Boolean): BeyGramTokens =
+    resolveTokens(config.preset, config.mode, systemDark)
+        .withOverrides(config.accentColor, config.outgoingBubbleColor, config.mode.isDark(systemDark))
+
 /**
  * Maps a Material colour scheme onto the BeyGram roles. Backgrounds and the accent come from the scheme;
  * the status colours (ok, warning, danger) keep the Warm values for the same brightness, because their meaning must not drift with the wallpaper.
@@ -43,8 +48,8 @@ fun resolveTokens(preset: ThemePreset, mode: ThemeMode, systemDark: Boolean): Be
 fun tokensFromScheme(scheme: ColorScheme, dark: Boolean): BeyGramTokens {
     val status = if (dark) DarkTokens else LightTokens
     val bubbleOut = scheme.primaryContainer
-    val readableOnBubble = scheme.onSurface.contrastWith(bubbleOut) >= MinTextContrast &&
-        scheme.onSurfaceVariant.contrastWith(bubbleOut) >= MinTextContrast
+    val readableOnBubble = contrastRatio(scheme.onSurface, bubbleOut) >= MinTextContrast &&
+        contrastRatio(scheme.onSurfaceVariant, bubbleOut) >= MinTextContrast
     return BeyGramTokens(
         bg = scheme.background,
         surface = if (dark) scheme.surfaceContainer else scheme.surfaceContainerLowest,
@@ -62,10 +67,3 @@ fun tokensFromScheme(scheme: ColorScheme, dark: Boolean): BeyGramTokens {
     )
 }
 
-private const val MinTextContrast = 4.5
-
-private fun Color.contrastWith(other: Color): Double {
-    val a = luminance().toDouble()
-    val b = other.luminance().toDouble()
-    return (maxOf(a, b) + 0.05) / (minOf(a, b) + 0.05)
-}
