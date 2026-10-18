@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.ui.theme.AppearanceViewModel
 import com.beykus.beygram.ui.theme.BeyGramTheme
+import com.beykus.beygram.ui.theme.tokensFor
 import com.beykus.beygram.data.appearance.ThemeMode
 
 class MainActivity : ComponentActivity() {
@@ -35,11 +36,12 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val appearance: AppearanceViewModel = viewModel()
-            // The stored choice is read asynchronously. Nothing is drawn until it is known, so the theme never flips.
-            val themeMode = appearance.themeMode.collectAsState().value ?: return@setContent
-            val isDarkTheme = themeMode.isDark(isSystemInDarkTheme())
+            // The saved choice is read asynchronously. Nothing is drawn until it is known, so the theme never flips.
+            val config = appearance.config.collectAsState().value ?: return@setContent
+            val systemDark = isSystemInDarkTheme()
+            val isDarkTheme = config.mode.isDark(systemDark)
 
-            BeyGramTheme(darkTheme = isDarkTheme) {
+            BeyGramTheme(darkTheme = isDarkTheme, tokens = tokensFor(config.preset, config.mode, systemDark)) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -48,7 +50,7 @@ class MainActivity : ComponentActivity() {
                         notificationRequest = notificationRequest,
                         onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
                         isDarkTheme = isDarkTheme,
-                        onThemeChange = { appearance.setThemeMode(if (it) ThemeMode.Dark else ThemeMode.Light) }
+                        onThemeChange = { dark -> appearance.save(config.copy(mode = if (dark) ThemeMode.Dark else ThemeMode.Light)) }
                     )
                 }
             }

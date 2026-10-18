@@ -18,6 +18,7 @@ private const val LEGACY_PREFERENCES = "appearance"
 private const val LEGACY_DARK_THEME = "dark_theme"
 
 private val ThemeModeKey = stringPreferencesKey("theme_mode")
+private val ThemePresetKey = stringPreferencesKey("theme_preset")
 
 private val Context.appearanceDataStore by preferencesDataStore(
     name = "appearance",
@@ -25,16 +26,24 @@ private val Context.appearanceDataStore by preferencesDataStore(
     produceMigrations = { context -> listOf(LegacyDarkThemeMigration(context)) }
 )
 
-/** Keeps the theme choice in DataStore. Missing or damaged data reads as [ThemeMode.FollowSystem]. */
+/** Keeps the appearance choice in DataStore. Missing or damaged data reads as the default choice. */
 class AppearanceSettingsStore(context: Context) {
     private val dataStore = context.applicationContext.appearanceDataStore
 
-    val themeMode: Flow<ThemeMode> = dataStore.data
+    val config: Flow<AppearanceConfig> = dataStore.data
         .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
-        .map { preferences -> themeModeFromStored(preferences[ThemeModeKey]) }
+        .map { preferences ->
+            AppearanceConfig(
+                preset = themePresetFromStored(preferences[ThemePresetKey]),
+                mode = themeModeFromStored(preferences[ThemeModeKey])
+            )
+        }
 
-    suspend fun setThemeMode(mode: ThemeMode) {
-        dataStore.edit { preferences -> preferences[ThemeModeKey] = mode.name }
+    suspend fun save(config: AppearanceConfig) {
+        dataStore.edit { preferences ->
+            preferences[ThemePresetKey] = config.preset.name
+            preferences[ThemeModeKey] = config.mode.name
+        }
     }
 }
 
