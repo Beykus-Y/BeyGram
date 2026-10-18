@@ -173,6 +173,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.lottie.compose)
     implementation(libs.snakeyaml)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

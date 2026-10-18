@@ -213,7 +213,7 @@ internal fun MediaPreview(
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val palette = beyGramPalette()
     val context = LocalContext.current
-    val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation, MediaKind.Sticker)
+    val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
     // Секретное вложение в ленте не грузим и не показываем до открытия: превью иначе видно раньше просмотрщика.
     val imageFile = if (media.isSecret) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
     LaunchedEffect(thumbId, revealed) {
@@ -246,10 +246,14 @@ internal fun MediaPreview(
         VideoNoteBubble(media, observeFile, downloadFile, onPlayed, onLongPress, origin = origin)
         return
     }
+    if (media.kind == MediaKind.Sticker) {
+        StickerPreview(media, file, thumb, downloadFile, onOpen, onLongPress)
+        return
+    }
     if (isVisual) {
         val ratio = if (media.width > 0 && media.height > 0) media.width.toFloat() / media.height else 1.5f
         // Полного файла ещё нет: вместо растянутой миниатюры показываем размытую заглушку и кнопку загрузки.
-        val awaitingFile = revealed && !media.isSecret && file.localPath == null && media.kind != MediaKind.Sticker
+        val awaitingFile = revealed && !media.isSecret && file.localPath == null
         Box(
             Modifier.width(244.dp).height((244 / ratio).coerceIn(120f, 280f).dp)
                 .background(palette.disabled)
@@ -257,7 +261,7 @@ internal fun MediaPreview(
             contentAlignment = Alignment.Center
         ) {
             if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
-            else if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize(), fit = media.kind == MediaKind.Sticker)
+            else if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize())
             if (!revealed) Text(stringResource(R.string.media_spoiler_hint), color = palette.textPrimary, modifier = Modifier.padding(16.dp))
             else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, onClick = { downloadFile(media.fileId) })
             else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
@@ -402,7 +406,8 @@ private fun MediaViewerPage(
     }
     LaunchedEffect(media.fileId, concealed) {
         if (concealed) return@LaunchedEffect
-        if (!tgs) downloadFile(media.fileId) else previewId?.let(downloadFile)
+        if (tgs) previewId?.let(downloadFile)
+        downloadFile(media.fileId)
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
@@ -411,11 +416,24 @@ private fun MediaViewerPage(
                 modifier = Modifier.padding(16.dp).clickable(onClick = onReveal))
             concealed -> Unit
             tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (previewId != null) {
-                    val preview by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
-                    preview.localPath?.let { LocalMediaImage(it, Modifier.size(240.dp), fit = true) }
+                val preview: @Composable () -> Unit = {
+                    if (previewId != null) {
+                        val previewFile by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
+                        previewFile.localPath?.let { LocalMediaImage(it, Modifier.size(240.dp), fit = true) }
+                    }
                 }
-                Text(stringResource(R.string.media_animated_sticker_preview), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                if (path != null) {
+                    // Если TGS не открылся, показываем превью и подпись, а не пустое место.
+                    TgsSticker(path, Modifier.size(240.dp), playing = active) {
+                        preview()
+                        Text(stringResource(R.string.media_animated_sticker_failed), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                    }
+                } else {
+                    preview()
+                    if (file.isDownloading) CircularProgressIndicator()
+                    Text(file.error?.resolve() ?: stringResource(R.string.media_animated_sticker_preview), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                    if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
+                }
             }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                 if (file.isDownloading) CircularProgressIndicator()
