@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -52,6 +53,7 @@ import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.TextStyleKind
 import com.beykus.beygram.domain.model.validTextEntities
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
@@ -76,6 +78,8 @@ private const val PREFETCH_CELLS = 12
 internal const val PREFETCH_ROWS = 6
 private const val PAGER_SCREEN_FRACTION = 0.7f
 private val PAGER_MIN_HEIGHT = 360.dp
+/** Вкладки профиля чата. «Музыка» пока только в профиле группы: пять вкладок в ряд обрезают подписи. */
+private val chatSharedKinds = SharedMediaKind.entries.filter { it != SharedMediaKind.Music }
 
 /**
  * Вкладки «Медиа», «Файлы», «Ссылки» и «Голосовые» под разделами профиля чата. Каждая листается свайпом и грузит страницы по мере прокрутки.
@@ -90,7 +94,7 @@ internal fun SharedMediaSection(
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     val tabs = rememberSharedMediaWindows(chatId, load)
-    val pagerState = rememberPagerState { SharedMediaKind.entries.size }
+    val pagerState = rememberPagerState { chatSharedKinds.size }
     val pagerHeight = (LocalConfiguration.current.screenHeightDp * PAGER_SCREEN_FRACTION).dp.coerceAtLeast(PAGER_MIN_HEIGHT)
     var viewing by remember(chatId) { mutableStateOf<Long?>(null) }
     fun loadMore(kind: SharedMediaKind) {
@@ -100,14 +104,14 @@ internal fun SharedMediaSection(
     Text(stringResource(R.string.profile_shared_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
     SharedMediaTabBar(
-        titles = SharedMediaKind.entries.map { stringResource(it.titleRes()) },
-        counts = SharedMediaKind.entries.map { counts?.countOf(it)?.toString() },
+        titles = chatSharedKinds.map { stringResource(it.titleRes()) },
+        counts = chatSharedKinds.map { counts?.countOf(it)?.toString() },
         selected = pagerState.currentPage,
         onSelect = { index -> scope.launch { pagerState.animateScrollToPage(index) } }
     )
     Spacer(Modifier.height(12.dp))
     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(pagerHeight)) { page ->
-        val kind = SharedMediaKind.entries[page]
+        val kind = chatSharedKinds[page]
         SharedMediaPageContent(kind, chatId, tabs.getValue(kind), onMore = { loadMore(kind) }, observeFile = observeFile, downloadFile = downloadFile,
             confirmExport = confirmExport, onContentOpened = onContentOpened,
             onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = onOpenMessage)
@@ -275,6 +279,8 @@ internal fun SharedMediaRowItem(
         SharedMediaKind.Links -> SharedLinkRow(message, meta, onOpenMessage)
         SharedMediaKind.Voice -> message.media?.let { SharedVoiceRow(chatId, message, it, meta, observeFile, downloadFile, onContentOpened, onOpenMessage) }
         SharedMediaKind.Media -> Unit
+        // Музыку собирает профиль группы: очередь нужна вся вкладка, а не одна строка.
+        SharedMediaKind.Music -> Unit
     }
 }
 
@@ -332,6 +338,47 @@ private fun SharedVoiceRow(
         },
         onShowInChat = { onOpenMessage(message.id) }
     )
+}
+
+/**
+ * Трек вкладки «Музыка». Нажатие ставит в общий плеер всю вкладку по порядку показа, поэтому следующий трек играет сам.
+ * Треки, которых ещё нет на устройстве, в очередь не попадают: их скачивают отдельным нажатием.
+ */
+@Composable
+internal fun SharedMusicRow(
+    chatId: Long, tracks: List<ChatMessage>, message: ChatMessage, media: MessageMedia,
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit
+) {
+    val context = LocalContext.current
+    val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
+    val label = stringResource(R.string.media_kind_audio)
+    val you = stringResource(R.string.search_you)
+    val meta = listOf(if (message.isOutgoing) you else message.senderName, formatSearchDate(message.dateSeconds)).filter { it.isNotBlank() }.joinToString(" · ")
+    val title = media.title.ifBlank { media.fileName.ifBlank { label } }
+    val details = listOf(media.performer, if (media.durationSeconds > 0) duration(media.durationSeconds) else "", meta).filter { it.isNotBlank() }.joinToString(" · ")
+    SharedRow(
+        Icons.Rounded.MusicNote, title, details,
+        onClick = {
+            when (val action = sharedRowAction(media, file.localPath)) {
+                SharedRowAction.ShowInChat -> onOpenMessage(message.id)
+                SharedRowAction.Download -> downloadFile(media.fileId)
+                is SharedRowAction.Open -> {
+                    // Текущий трек берём с путём из нажатия: его файл мог только что скачаться, а состояние ещё не дошло.
+                    val current = media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id))
+                    val queue = tracks.map { track -> if (track.id == message.id) current else musicTrack(track, chatId, observeFile, label) }.filterNotNull()
+                    PlaybackEngine.playQueue(context, queue, queue.indexOfFirst { it.origin?.messageId == message.id })
+                }
+            }
+        },
+        onShowInChat = { onOpenMessage(message.id) }
+    )
+}
+
+/** Трек очереди, если файл уже скачан. Путь берём из состояния файла, которое TDLib обновляет сам. */
+private fun musicTrack(message: ChatMessage, chatId: Long, observeFile: (Int) -> StateFlow<MediaFileState>, label: String): PlaybackItem? {
+    val media = message.media?.takeUnless { it.isSecret } ?: return null
+    val path = observeFile(media.fileId).value.localPath ?: return null
+    return media.playbackItem(path, label, PlaybackOrigin(chatId, message.id))
 }
 
 /** Ссылка открывается с той же проверкой адреса, что и в тексте сообщения. */
@@ -436,6 +483,7 @@ private fun SharedMediaKind.titleRes(): Int = when (this) {
     SharedMediaKind.Files -> R.string.profile_shared_files
     SharedMediaKind.Links -> R.string.profile_shared_links
     SharedMediaKind.Voice -> R.string.profile_shared_voice
+    SharedMediaKind.Music -> R.string.profile_shared_music
 }
 
 private fun SharedMediaKind.emptyRes(): Int = when (this) {
@@ -443,6 +491,7 @@ private fun SharedMediaKind.emptyRes(): Int = when (this) {
     SharedMediaKind.Files -> R.string.profile_shared_empty_files
     SharedMediaKind.Links -> R.string.profile_shared_empty_links
     SharedMediaKind.Voice -> R.string.profile_shared_empty_voice
+    SharedMediaKind.Music -> R.string.profile_shared_empty_music
 }
 
 internal fun SharedCounts.countOf(kind: SharedMediaKind): Int? = when (kind) {
@@ -450,4 +499,5 @@ internal fun SharedCounts.countOf(kind: SharedMediaKind): Int? = when (kind) {
     SharedMediaKind.Files -> files
     SharedMediaKind.Links -> links
     SharedMediaKind.Voice -> voice
+    SharedMediaKind.Music -> music
 }

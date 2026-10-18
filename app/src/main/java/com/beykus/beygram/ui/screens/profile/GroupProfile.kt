@@ -47,7 +47,8 @@ import kotlinx.coroutines.launch
 
 /** Вкладки профиля группы. «Участники» показываются списком из профиля, остальные берут окна вложений. */
 internal enum class GroupTab(val kind: SharedMediaKind?) {
-    Members(null), Media(SharedMediaKind.Media), Files(SharedMediaKind.Files), Links(SharedMediaKind.Links), Voice(SharedMediaKind.Voice)
+    Members(null), Media(SharedMediaKind.Media), Files(SharedMediaKind.Files), Links(SharedMediaKind.Links), Voice(SharedMediaKind.Voice),
+    Music(SharedMediaKind.Music)
 }
 
 /** Во сколько раз уменьшается аватар, когда шапка свёрнута. */
@@ -225,7 +226,11 @@ private fun LazyListScope.sharedItems(
         }
     } else {
         items(shown, key = { it.id }) { message ->
-            SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
+            if (kind == SharedMediaKind.Music) {
+                message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage) }
+            } else {
+                SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
+            }
         }
     }
     item(key = "footer") { SharedMediaFooter(window, onRetry) }
@@ -253,4 +258,5 @@ private fun GroupTab.titleRes(): Int = when (this) {
     GroupTab.Files -> R.string.profile_shared_files
     GroupTab.Links -> R.string.profile_shared_links
     GroupTab.Voice -> R.string.profile_shared_voice
+    GroupTab.Music -> R.string.profile_shared_music
 }

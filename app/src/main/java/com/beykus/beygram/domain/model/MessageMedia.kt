@@ -24,7 +24,10 @@ data class MessageMedia(
     /** Кружок ещё не открывали; для остальных типов всегда true. */
     val isViewed: Boolean = true,
     /** Минипревью TDLib: крошечный JPEG, который показывают размытым, пока не загружены миниатюра и файл. */
-    val minithumbnail: ByteArray? = null
+    val minithumbnail: ByteArray? = null,
+    /** Название и исполнитель из тегов аудиофайла; пусто, если тегов нет или это не музыка. */
+    val title: String = "",
+    val performer: String = ""
 )
 
 data class MediaFileState(
