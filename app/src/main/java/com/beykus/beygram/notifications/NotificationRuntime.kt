@@ -87,9 +87,10 @@ class NotificationRuntime private constructor(private val context: Context) {
     fun reply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String, session: String, finished: () -> Unit) {
         scope.launch {
             try {
+                // A blank reply sends nothing; re-posting the notification still clears the inline field.
+                // The reply is written before the broadcast ends, so a process that stops after that still sends it later.
+                val pending = if (text.isBlank()) null else storeReply(chatId, groupId, maxId, replyToMessageId, text, session)
                 val work = launch {
-                    // A blank reply sends nothing; re-posting the notification still clears the inline field.
-                    val pending = if (text.isBlank()) null else storeReply(chatId, groupId, maxId, replyToMessageId, text, session)
                     // The submitted action is spent, so the notification is re-posted; re-posting needs an attached repository.
                     if (repository == null) runCatching { attachRealClient() }
                     if (pending == null) refresh() else if (!deliverReply(pending)) scheduleReplyRetry()
@@ -135,6 +136,7 @@ class NotificationRuntime private constructor(private val context: Context) {
             }
             if (failure == null) {
                 // A reply that stays in the outbox after it was sent would be sent again at the next start.
+                // Delivery is at least once: TDLib accepted the send, but a stop before this removal sends it again.
                 if (pending.stored && !outbox { remove(entry.id) }) recordAppEvent(EventKind.NOTIFICATION, "reply_remove_failed", "Отправленный ответ не удалось убрать из очереди", Severity.WARNING)
                 recordAppEvent(EventKind.NOTIFICATION, "reply_sent", "Ответ из уведомления отправлен")
                 dismiss(entry.groupId, entry.maxId)
@@ -263,12 +265,16 @@ class NotificationRuntime private constructor(private val context: Context) {
         tries > 1 -> recordAppEvent(EventKind.NOTIFICATION, "dismiss_retried", "Смахивание отправлено с попытки $tries", attrs = mapOf("tries" to tries.toString()))
         else -> Unit
     }
-    fun attachRealClient(): TelegramRepository? {
+    /**
+     * [startProxy] is false when a dismissal from the background attaches: starting the proxy there can be refused by Android 12+,
+     * and the dismissal is flushed when the app or a reply attaches with the proxy.
+     */
+    fun attachRealClient(startProxy: Boolean = true): TelegramRepository? {
         if (!TdLibBootstrap(context).readiness().canCreateClient) return null
         val repository = TdLibTelegramRepository.getInstance(context)
         // TDLib keeps the saved proxy, and only the backend restarts its local listener. A cold reply skips the application's
         // start-up path when background notifications are off, so the backend is created here before the client is used.
-        VpnBackend.getInstance(context, repository.connectionState, scope, repository::setMihomoProxyEnabled, repository::isMihomoProxyEnabled)
+        if (startProxy) VpnBackend.getInstance(context, repository.connectionState, scope, repository::setMihomoProxyEnabled, repository::isMihomoProxyEnabled)
         return repository.also(::attach)
     }
     companion object {
