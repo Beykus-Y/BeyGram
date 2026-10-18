@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.profile
 
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.MessageSearchPage
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.TextStyleKind
@@ -29,6 +31,18 @@ class SharedMediaSectionTest {
 
     @Test fun linkTitleIgnoresEntityOutsideText() {
         assertEquals("ок", sharedLinkTitle(message(1, "ок", MessageTextEntity(5, 3, TextStyleKind.Url))))
+    }
+
+    @Test fun sharedPreviewLoadsOnlyAfterSpoilerIsRevealed() {
+        val spoiler = MessageMedia(MediaKind.Photo, fileId = 1, hasSpoiler = true)
+        assertFalse(shouldLoadSharedPreview(spoiler, revealed = false))
+        assertTrue(shouldLoadSharedPreview(spoiler, revealed = true))
+    }
+
+    @Test fun sharedPreviewSkipsSecretAndVideoWithoutThumbnail() {
+        assertFalse(shouldLoadSharedPreview(MessageMedia(MediaKind.Photo, fileId = 1, isSecret = true), revealed = true))
+        assertFalse(shouldLoadSharedPreview(MessageMedia(MediaKind.Video, fileId = 2), revealed = true))
+        assertTrue(shouldLoadSharedPreview(MessageMedia(MediaKind.Video, fileId = 2, thumbnailFileId = 3), revealed = true))
     }
 
     @Test fun pagingStopsOnZeroCursorAndKeepsIdsUnique() = runBlocking {
