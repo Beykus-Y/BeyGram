@@ -25,7 +25,7 @@ class NotificationDismissReceiver : BroadcastReceiver() {
 
 class NotificationReplyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != NotificationIntents.REPLY || !NotificationIntents.valid(context, intent)) return
+        if (intent.action != NotificationIntents.REPLY || !NotificationIntents.validReply(context, intent)) return
         val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(NotificationIntents.REPLY_TEXT)?.toString() ?: ""
         // The send may outlive this broadcast; the runtime finishes it within the receiver's time limit.
         val pending = goAsync()

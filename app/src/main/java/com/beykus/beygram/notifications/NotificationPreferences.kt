@@ -11,8 +11,9 @@ class NotificationPreferencesStore(context: Context) {
     private val _state = MutableStateFlow(read())
     val state = _state.asStateFlow()
     @Synchronized internal fun intentToken(): String = preferences.getString("intent_token", null) ?: java.util.UUID.randomUUID().toString().also { preferences.edit().putString("intent_token", it).apply() }
-    /** Retires the actions that listeners may still hold from an earlier session; the next render posts actions with the new token. */
-    @Synchronized private fun rotateIntentToken() { preferences.edit().putString("intent_token", java.util.UUID.randomUUID().toString()).apply() }
+    @Synchronized internal fun replyToken(): String = preferences.getString("reply_token", null) ?: java.util.UUID.randomUUID().toString().also { preferences.edit().putString("reply_token", it).apply() }
+    /** Retires reply actions that listeners may still hold from an earlier session; the next render posts them with the new token. */
+    @Synchronized private fun rotateReplyToken() { preferences.edit().putString("reply_token", java.util.UUID.randomUUID().toString()).apply() }
     private fun read() = NotificationPreferences(preferences.getBoolean("enabled", true), preferences.getBoolean("background", true), preferences.getBoolean("previews", true))
     fun update(value: NotificationPreferences) {
         preferences.edit().putBoolean("enabled", value.enabled).putBoolean("background", value.background).putBoolean("previews", value.previews).apply()
@@ -25,7 +26,7 @@ class NotificationPreferencesStore(context: Context) {
         get() = preferences.getBoolean("authorized", false)
         set(value) {
             // Sign-out retires outstanding reply actions, so a listener cannot send from them into the next account.
-            if (!value && authorized) rotateIntentToken()
+            if (!value && authorized) rotateReplyToken()
             preferences.edit().putBoolean("authorized", value).apply()
         }
     fun handled(groupId: Int) = preferences.getInt("handled_$groupId", 0)
@@ -44,7 +45,7 @@ class NotificationPreferencesStore(context: Context) {
             val editor = preferences.edit()
             preferences.all.keys.filter { it.startsWith("handled_") || it.startsWith("dismissed_") || it.startsWith("pending_") }.forEach(editor::remove)
             editor.apply()
-            rotateIntentToken()
+            rotateReplyToken()
         }
         preferences.edit().putLong("account", id).apply()
     }

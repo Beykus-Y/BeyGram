@@ -88,7 +88,11 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             shown.add(tag)
         }
         // Stale entries are cancelled only once TDLib's state has arrived (startup snapshot or a group update), so a cold start keeps the tray.
-        if (state.snapshot) manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
+        if (state.snapshot) {
+            manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
+            // A failure note belongs to its group; once the group is gone, a reused group ID must not inherit the note.
+            failedReplies.keys.filter { id -> state.groups.none { it.id == id } }.forEach { failedReplies.remove(it) }
+        }
     }
     fun cancelGroup(id: Int) { manager.cancel(tag(id), 0); failedReplies.remove(id) }
     fun markReplyFailed(id: Int, maxId: Int) { failedReplies[id] = maxId }
