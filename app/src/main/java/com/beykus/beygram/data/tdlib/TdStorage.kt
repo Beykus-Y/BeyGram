@@ -12,6 +12,8 @@ import org.drinkless.tdlib.TdApi
 /** Занятое место и очистка файлов TDLib. TDLib удаляет только файлы: база сообщений здесь не затрагивается. */
 internal class TdStorage(private val client: () -> Client, private val uploadDirectories: List<File>) {
     private val requests = TdRequests(client)
+    /** Очистка и применение лимита идут по одному, включая фоновую проверку: TDLib не должен удалять файлы параллельно. */
+    private val lane = MaintenanceLane()
 
     suspend fun usage(): StorageUsage {
         val files = statistics()
@@ -27,7 +29,7 @@ internal class TdStorage(private val client: () -> Client, private val uploadDir
     }
 
     /** Очищает категории по одной, чтобы прогресс отражал реальный ход работы. Возвращает освобождённые байты. */
-    suspend fun clear(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Long {
+    suspend fun clear(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Long = lane.exclusive {
         val typesByCategory = statistics().fileTypeEntries()
             .map { it.fileType }
             .distinctBy { it.javaClass }
@@ -40,13 +42,17 @@ internal class TdStorage(private val client: () -> Client, private val uploadDir
             freed += requests(clearFileTypesRequest(typesByCategory.getValue(category)), STORAGE_TIMEOUT_MS).size
         }
         onProgress(targets.size, targets.size)
-        return freed
+        freed
     }
 
-    suspend fun applyPolicy(policy: CachePolicy): Long {
+    /**
+     * Приводит файлы к политике. Если пока она ждала очереди, пришла более новая, эта пропускается:
+     * последнюю политику применит её собственный вызов.
+     */
+    suspend fun applyPolicy(policy: CachePolicy): Long = lane.latestOnly(skipped = 0L) {
         val fileTypes = statistics().fileTypeEntries().map { it.fileType }.distinctBy { it.javaClass }.toTypedArray()
-        val request = policy.optimizeRequest(fileTypes) ?: return 0L
-        return requests(request, STORAGE_TIMEOUT_MS).size
+        val request = policy.optimizeRequest(fileTypes) ?: return@latestOnly 0L
+        requests(request, STORAGE_TIMEOUT_MS).size
     }
 
     private suspend fun statistics(): TdApi.StorageStatistics =

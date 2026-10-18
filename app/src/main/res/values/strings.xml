@@ -647,6 +647,7 @@
     <string name="storage_footnote">Лимит и срок проверяются при входе, каждые 6 часов и сразу после изменения. Переписка не удаляется.</string>
     <string name="storage_load_failed">Не удалось посчитать место. Попробуйте позже.</string>
     <string name="storage_clear_failed">Не удалось очистить кэш. Попробуйте ещё раз.</string>
+    <string name="storage_settings_save_failed">Не удалось сохранить настройку. Прежнее значение оставлено.</string>
     <string name="voice_recorder_start_failed">Не удалось начать запись голосового сообщения</string>
     <string name="voice_recorder_save_failed">Не удалось сохранить голосовое сообщение</string>
     <string name="voice_recorder_too_short">Запись слишком короткая</string>
