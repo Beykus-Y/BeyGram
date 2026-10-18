@@ -414,6 +414,7 @@ private fun BeyGramAppContent(
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
             isDarkTheme = isDarkTheme, onThemeChange = onThemeChange, lastSeenStyle = lastSeenStyle,
             sharedMessages = { kind, fromMessageId, newer -> repository.sharedMessages(selectedChatId, kind, fromMessageId, newer) },
+            confirmExport = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull()?.canSave == true },
             onOpenMessage = { messageId -> chatFocusMessageId = messageId; routeName = AppRoute.Chat.name })
     }
 

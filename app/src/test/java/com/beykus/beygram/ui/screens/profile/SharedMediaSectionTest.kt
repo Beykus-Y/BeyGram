@@ -41,4 +41,16 @@ class SharedMediaSectionTest {
         assertFalse(shouldLoadSharedPreview(MessageMedia(MediaKind.Video, fileId = 2), revealed = true))
         assertTrue(shouldLoadSharedPreview(MessageMedia(MediaKind.Video, fileId = 2, thumbnailFileId = 3), revealed = true))
     }
+
+    @Test fun secretAttachmentOpensInChatEvenWhenDownloaded() {
+        assertEquals(SharedRowAction.ShowInChat, sharedRowAction(MessageMedia(MediaKind.Document, fileId = 1, isSecret = true), "/files/a.pdf"))
+    }
+
+    @Test fun notDownloadedAttachmentIsDownloadedFirst() {
+        assertEquals(SharedRowAction.Download, sharedRowAction(MessageMedia(MediaKind.Document, fileId = 2), null))
+    }
+
+    @Test fun downloadedAttachmentOpensFromItsPath() {
+        assertEquals(SharedRowAction.Open("/files/a.pdf"), sharedRowAction(MessageMedia(MediaKind.Document, fileId = 3), "/files/a.pdf"))
+    }
 }

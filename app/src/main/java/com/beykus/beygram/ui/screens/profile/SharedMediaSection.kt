@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.profile
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -49,6 +51,9 @@ import com.beykus.beygram.domain.model.SharedCounts
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.TextStyleKind
 import com.beykus.beygram.domain.model.validTextEntities
+import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackOrigin
+import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
@@ -57,6 +62,8 @@ import com.beykus.beygram.ui.screens.chat.SharedMediaWindow
 import com.beykus.beygram.ui.screens.chat.duration
 import com.beykus.beygram.ui.screens.chat.formatMediaSize
 import com.beykus.beygram.ui.screens.chat.formatSearchDate
+import com.beykus.beygram.ui.screens.chat.openExternalMedia
+import com.beykus.beygram.ui.screens.chat.safeMessageUrl
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -76,7 +83,8 @@ private val PAGER_MIN_HEIGHT = 360.dp
 @Composable
 internal fun SharedMediaSection(
     chatId: Long, counts: SharedCounts?, load: suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>,
-    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
+    onOpenMessage: (Long) -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -108,7 +116,8 @@ internal fun SharedMediaSection(
     Spacer(Modifier.height(12.dp))
     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(pagerHeight)) { page ->
         val kind = SharedMediaKind.entries[page]
-        SharedMediaPageContent(kind, tabs.getValue(kind), onMore = { loadMore(kind) }, observeFile = observeFile, downloadFile = downloadFile,
+        SharedMediaPageContent(kind, chatId, tabs.getValue(kind), onMore = { loadMore(kind) }, observeFile = observeFile, downloadFile = downloadFile,
+            confirmExport = confirmExport,
             onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = onOpenMessage)
     }
 
@@ -152,8 +161,8 @@ private fun SharedMediaTabBar(titles: List<String>, counts: List<String?>, selec
 
 @Composable
 private fun SharedMediaPageContent(
-    kind: SharedMediaKind, tab: SharedMediaWindow, onMore: () -> Unit,
-    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
+    kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
     onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     // Первую страницу грузим, как только вкладку показали; неудачную попытку повторяем при следующем показе.
@@ -161,7 +170,7 @@ private fun SharedMediaPageContent(
     when {
         tab.messages.isEmpty() -> SharedMediaStatus(kind, tab, onRetry = onMore)
         kind == SharedMediaKind.Media -> SharedMediaGrid(tab, onMore, observeFile, downloadFile, onOpenMedia, onOpenMessage)
-        else -> SharedMediaList(kind, tab, onMore, observeFile, onOpenMessage)
+        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onOpenMessage)
     }
 }
 
@@ -217,15 +226,16 @@ private fun SharedMediaGrid(
 
 @Composable
 private fun SharedMediaList(
-    kind: SharedMediaKind, tab: SharedMediaWindow, onMore: () -> Unit,
-    observeFile: (Int) -> StateFlow<MediaFileState>, onOpenMessage: (Long) -> Unit
+    kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
+    onOpenMessage: (Long) -> Unit
 ) {
     val listState = rememberLazyListState()
     val nearEnd by remember(tab) { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= tab.messages.size - PREFETCH_ROWS } ?: true } }
     LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
         items(tab.messages.asReversed(), key = { it.id }) { message ->
-            SharedMediaRowItem(kind, message, observeFile, onClick = { onOpenMessage(message.id) })
+            SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onOpenMessage)
         }
         item(key = "footer") { SharedMediaFooter(tab, onRetry = onMore) }
     }
@@ -233,28 +243,86 @@ private fun SharedMediaList(
 
 /** Строка списка. Ссылка может быть обычным текстом, поэтому для вкладки «Ссылки» вложение не нужно. */
 @Composable
-private fun SharedMediaRowItem(kind: SharedMediaKind, message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onClick: () -> Unit) {
+private fun SharedMediaRowItem(
+    kind: SharedMediaKind, chatId: Long, message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean, onOpenMessage: (Long) -> Unit
+) {
     val you = stringResource(R.string.search_you)
     val meta = listOf(if (message.isOutgoing) you else message.senderName, formatSearchDate(message.dateSeconds)).filter { it.isNotBlank() }.joinToString(" · ")
     when (kind) {
-        SharedMediaKind.Files -> message.media?.let { SharedFileRow(it, meta, observeFile, onClick) }
-        SharedMediaKind.Links -> SharedRow(Icons.Rounded.Link, sharedLinkTitle(message), meta, onClick)
-        SharedMediaKind.Voice -> message.media?.let { media ->
-            SharedRow(Icons.Rounded.Mic, stringResource(R.string.media_kind_voice) + " · " + duration(media.durationSeconds), meta, onClick)
-        }
+        SharedMediaKind.Files -> message.media?.let { SharedFileRow(message, it, meta, observeFile, downloadFile, confirmExport, onOpenMessage) }
+        SharedMediaKind.Links -> SharedLinkRow(message, meta, onOpenMessage)
+        SharedMediaKind.Voice -> message.media?.let { SharedVoiceRow(chatId, message, it, meta, observeFile, downloadFile, onOpenMessage) }
         SharedMediaKind.Media -> Unit
     }
 }
 
 @Composable
-private fun SharedFileRow(media: MessageMedia, meta: String, observeFile: (Int) -> StateFlow<MediaFileState>, onClick: () -> Unit) {
+private fun SharedFileRow(
+    message: ChatMessage, media: MessageMedia, meta: String, observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean, onOpenMessage: (Long) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val title = media.fileName.ifBlank { stringResource(R.string.media_kind_file) }
-    SharedRow(Icons.Rounded.InsertDriveFile, title, listOf(formatMediaSize(file.size), meta).filter { it.isNotBlank() }.joinToString(" · "), onClick)
+    SharedRow(
+        Icons.Rounded.InsertDriveFile, title, listOf(formatMediaSize(file.size), meta).filter { it.isNotBlank() }.joinToString(" · "),
+        onClick = {
+            when (val action = sharedRowAction(media, file.localPath)) {
+                SharedRowAction.ShowInChat -> onOpenMessage(message.id)
+                SharedRowAction.Download -> downloadFile(media.fileId)
+                // Открыть в другом приложении значит передать файл наружу, поэтому право на сообщение проверяем при каждом открытии.
+                is SharedRowAction.Open -> scope.launch {
+                    val error = if (confirmExport(message.id)) openExternalMedia(context, action.path, media.mimeType) else context.getString(R.string.media_export_denied)
+                    error?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                }
+            }
+        },
+        onShowInChat = { onOpenMessage(message.id) }
+    )
+}
+
+/** Голосовое играет на месте в общем плеере; сообщение передаём, чтобы мини-плеер мог открыть его в чате. */
+@Composable
+private fun SharedVoiceRow(
+    chatId: Long, message: ChatMessage, media: MessageMedia, meta: String, observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit
+) {
+    val context = LocalContext.current
+    val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
+    val label = stringResource(R.string.media_kind_voice)
+    SharedRow(
+        Icons.Rounded.Mic, label + " · " + duration(media.durationSeconds), meta,
+        onClick = {
+            when (val action = sharedRowAction(media, file.localPath)) {
+                SharedRowAction.ShowInChat -> onOpenMessage(message.id)
+                SharedRowAction.Download -> downloadFile(media.fileId)
+                is SharedRowAction.Open -> PlaybackEngine.toggle(context, media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id)))
+            }
+        },
+        onShowInChat = { onOpenMessage(message.id) }
+    )
+}
+
+/** Ссылка открывается с той же проверкой адреса, что и в тексте сообщения. */
+@Composable
+private fun SharedLinkRow(message: ChatMessage, meta: String, onOpenMessage: (Long) -> Unit) {
+    val uri = LocalUriHandler.current
+    val context = LocalContext.current
+    val link = sharedLinkTitle(message)
+    SharedRow(
+        Icons.Rounded.Link, link, meta,
+        onClick = {
+            val safe = safeMessageUrl(link)
+            if (safe == null || runCatching { uri.openUri(safe) }.isFailure) Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
+        },
+        onShowInChat = { onOpenMessage(message.id) }
+    )
 }
 
 @Composable
-private fun SharedRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+private fun SharedRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, onShowInChat: () -> Unit) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(11.dp))
@@ -262,6 +330,7 @@ private fun SharedRow(icon: ImageVector, title: String, subtitle: String, onClic
             Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle.isNotBlank()) Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        TextButton(onClick = onShowInChat) { Text(stringResource(R.string.media_show_in_chat), fontSize = 13.sp, maxLines = 1) }
     }
 }
 
@@ -271,6 +340,19 @@ private fun SharedRow(icon: ImageVector, title: String, subtitle: String, onClic
  */
 internal fun shouldLoadSharedPreview(media: MessageMedia, revealed: Boolean): Boolean =
     revealed && !media.isSecret && (media.thumbnailFileId != null || media.kind == MediaKind.Photo)
+
+/** Что делает нажатие на вложение в списке: секретное открываем в чате, ещё не скачанное сначала скачиваем, скачанное открываем. */
+internal sealed class SharedRowAction {
+    object ShowInChat : SharedRowAction()
+    object Download : SharedRowAction()
+    data class Open(val path: String) : SharedRowAction()
+}
+
+internal fun sharedRowAction(media: MessageMedia, localPath: String?): SharedRowAction = when {
+    media.isSecret -> SharedRowAction.ShowInChat
+    localPath == null -> SharedRowAction.Download
+    else -> SharedRowAction.Open(localPath)
+}
 
 /**
  * Превью в сетке. Спойлер: первое нажатие открывает превью, второе открывает вложение, как в ленте чата.
