@@ -76,6 +76,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
+import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -203,7 +204,8 @@ internal fun MediaPreview(
     downloadFile: (Int) -> Unit,
     onOpen: () -> Unit,
     onLongPress: (() -> Unit)? = null,
-    onPlayed: () -> Unit = {}
+    onPlayed: () -> Unit = {},
+    origin: PlaybackOrigin? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -224,24 +226,24 @@ internal fun MediaPreview(
     val row = remember(media.fileId) { Any() }
     val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
     fun playAudio() {
-        if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle))
+        if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle, origin))
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
         if (waitingForAudio && audioPath != null) {
             pendingPlaybackRow.value = null
-            startAudio(context, media.playbackItem(audioPath, audioTitle))
+            startAudio(context, media.playbackItem(audioPath, audioTitle, origin))
         }
     }
     DisposableEffect(row) {
         onDispose { if (pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
     }
     if (media.kind == MediaKind.Voice) {
-        VoiceBubble(media, file, downloadFile, onPlayed, onLongPress)
+        VoiceBubble(media, file, downloadFile, onPlayed, onLongPress, origin)
         return
     }
     if (media.kind == MediaKind.VideoNote) {
-        VideoNoteBubble(media, observeFile, downloadFile, onPlayed, onLongPress)
+        VideoNoteBubble(media, observeFile, downloadFile, onPlayed, onLongPress, origin = origin)
         return
     }
     if (isVisual) {

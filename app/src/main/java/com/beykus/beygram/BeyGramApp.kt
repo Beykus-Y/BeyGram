@@ -37,6 +37,7 @@ import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
 import com.beykus.beygram.navigation.TabVisibility
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
@@ -165,6 +166,20 @@ private fun BeyGramAppContent(
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var noticeError by remember { mutableStateOf<UiText?>(null) }
+    // «Показать в чате» из мини-плеера открывает сообщение, из которого запущен файл. Назад из чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
+    LaunchedEffect(Unit) {
+        PlaybackEngine.showInChat.collect { origin ->
+            if (routeName != AppRoute.Chat.name) {
+                chatBackRouteName = when (routeName) {
+                    AppRoute.Archive.name, AppRoute.Contacts.name -> routeName
+                    else -> AppRoute.Chats.name
+                }
+            }
+            selectedChatId = origin.chatId
+            chatFocusMessageId = origin.messageId
+            routeName = AppRoute.Chat.name
+        }
+    }
     // Скрытый архив остаётся скрытым после перезапуска: флаг лежит в настройках приложения.
     val context = LocalContext.current
     val chatPreferences = remember(context) { context.applicationContext.getSharedPreferences("chats", Context.MODE_PRIVATE) }

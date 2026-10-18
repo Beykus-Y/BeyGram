@@ -20,19 +20,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Файл для общего плеера. [key] отличает файлы друг от друга: повторный тап по тому же файлу ставит его на паузу. */
+/** Место файла в чате: по нему мини-плеер открывает сообщение, из которого файл запущен. */
+data class PlaybackOrigin(val chatId: Long, val messageId: Long)
+
+/** Файл для общего плеера. [key] отличает файлы друг от друга: повторный тап по тому же файлу ставит его на паузу. [origin] пустой, если файл запущен не из ленты чата. */
 data class PlaybackItem(
     val key: String,
     val kind: MediaKind,
     val path: String,
     val title: String,
-    val durationSeconds: Int
+    val durationSeconds: Int,
+    val origin: PlaybackOrigin? = null
 )
 
 /** Состояние общего плеера для интерфейса. Без [item] плеер пуст, и мини-плеер не показывается. */
@@ -72,13 +79,14 @@ internal fun interruptedAfterStart(current: PlaybackState, waiting: InterruptedM
 /** Ключ файла в общем плеере: один на весь файл, поэтому повторный запуск не начинает его сначала. */
 internal fun MessageMedia.playbackKey(): String = "$kind:$fileId"
 
-/** Файл из сообщения как элемент общего плеера. */
-fun MessageMedia.playbackItem(path: String, fallbackTitle: String): PlaybackItem = PlaybackItem(
+/** Файл из сообщения как элемент общего плеера. [origin] указывает сообщение, в котором лежит файл. */
+fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: PlaybackOrigin? = null): PlaybackItem = PlaybackItem(
     key = playbackKey(),
     kind = kind,
     path = path,
     title = fileName.ifBlank { fallbackTitle },
-    durationSeconds = durationSeconds
+    durationSeconds = durationSeconds,
+    origin = origin
 )
 
 /** Скорость без лишнего нуля: «1» и «2», но «0.5» и «1.5». */
@@ -94,6 +102,9 @@ object PlaybackEngine {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
+    private val _showInChat = MutableSharedFlow<PlaybackOrigin>(extraBufferCapacity = 1)
+    /** Запросы открыть чат с сообщением текущего файла. Их разбирает корневой экран приложения. */
+    val showInChat: SharedFlow<PlaybackOrigin> = _showInChat.asSharedFlow()
     private var exo: ExoPlayer? = null
     private var controls: Player? = null
     private var appContext: Context? = null
@@ -197,6 +208,11 @@ object PlaybackEngine {
     fun setSpeed(speed: Float) {
         exo?.setPlaybackSpeed(speed)
         _state.update { it.copy(speed = speed) }
+    }
+
+    /** Просит открыть чат с сообщением, из которого запущен файл. Экран приложения переходит к этому сообщению. */
+    fun requestShowInChat(origin: PlaybackOrigin) {
+        _showInChat.tryEmit(origin)
     }
 
     /** Выводит видео текущего файла на [view]. Пузырь кружка вызывает это, пока кружок показан: без экрана звук продолжает играть. */

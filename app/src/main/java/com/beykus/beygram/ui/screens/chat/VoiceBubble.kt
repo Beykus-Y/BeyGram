@@ -29,6 +29,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -37,7 +38,7 @@ private const val BAR_COUNT = 40
 
 /** Пузырь голосового: кнопка, волна с перемоткой по нажатию и время. Звук идёт через общий плеер. */
 @Composable
-internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile: (Int) -> Unit, onPlayed: () -> Unit, onLongPress: (() -> Unit)?) {
+internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile: (Int) -> Unit, onPlayed: () -> Unit, onLongPress: (() -> Unit)?, origin: PlaybackOrigin? = null) {
     val context = LocalContext.current
     val palette = beyGramPalette()
     val path = file.localPath
@@ -69,7 +70,7 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
     fun startVoice(localPath: String) {
         val state = PlaybackEngine.state.value
         requested = !(state.item?.key == key && state.playing)
-        PlaybackEngine.toggle(context, media.playbackItem(localPath, label))
+        PlaybackEngine.toggle(context, media.playbackItem(localPath, label, origin))
     }
     // Перемотка по волне: в текущем файле двигает позицию, другой файл начинает с этой точки.
     fun seekVoice(localPath: String, target: Float) {
@@ -82,7 +83,7 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
             }
         } else {
             requested = true
-            PlaybackEngine.play(context, media.playbackItem(localPath, label), target)
+            PlaybackEngine.play(context, media.playbackItem(localPath, label, origin), target)
         }
     }
     fun togglePlay() {
