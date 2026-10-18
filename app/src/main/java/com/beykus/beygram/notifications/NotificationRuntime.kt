@@ -3,6 +3,9 @@ package com.beykus.beygram.notifications
 import android.content.Context
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
@@ -65,11 +68,13 @@ class NotificationRuntime private constructor(private val context: Context) {
         if (source.authState.value != AuthState.Ready) return
         preferences.pendingDismissals().forEach { (group, max) -> if (flushing.add(group)) scope.launch {
             var accepted = false
+            var tries = 0
             try {
                 // Bounded retry with backoff: a transient TDLib failure must not wait for an unrelated event.
                 repeat(DISMISS_ATTEMPTS) { attempt ->
                     if (accepted) return@repeat
                     if (attempt > 0) delay(DISMISS_RETRY_MILLIS shl (attempt - 1))
+                    tries++
                     accepted = source.dismissNotifications(group, max).isSuccess
                 }
                 if (accepted) preferences.acknowledge(group, max)
@@ -78,7 +83,13 @@ class NotificationRuntime private constructor(private val context: Context) {
                 // A newer dismissal that arrived during the retries goes out next, even if this round failed.
                 if ((preferences.pendingDismissals()[group] ?: 0) > max) flushDismissals()
             }
+            recordDismiss(accepted, tries)
         } }
+    }
+    private fun recordDismiss(accepted: Boolean, tries: Int) = when {
+        !accepted -> recordAppEvent(EventKind.NOTIFICATION, "dismiss_failed", "Смахивание не отправлено, попыток: $tries", Severity.WARNING, mapOf("tries" to tries.toString()))
+        tries > 1 -> recordAppEvent(EventKind.NOTIFICATION, "dismiss_retried", "Смахивание отправлено с попытки $tries", attrs = mapOf("tries" to tries.toString()))
+        else -> Unit
     }
     fun attachRealClient(): TelegramRepository? {
         if (!TdLibBootstrap(context).readiness().canCreateClient) return null

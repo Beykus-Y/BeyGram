@@ -1,6 +1,8 @@
 package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.*
 import kotlinx.coroutines.*
@@ -60,6 +62,7 @@ internal class TdNotifications(
                         notices = notices, alertId = alert, isSecret = group.type is TdApi.NotificationGroupTypeSecretChat))
                 }
                 _state.value = _state.value.copy(initialized = true, snapshot = true)
+                recordAppEvent(EventKind.NOTIFICATION, "snapshot", "Снимок уведомлений: групп ${groups.size}", attrs = mapOf("groups" to groups.size.toString()))
             }
             is TdApi.UpdateNotificationGroup -> {
                 _state.value = _state.value.copy(initialized = true, snapshot = true)
