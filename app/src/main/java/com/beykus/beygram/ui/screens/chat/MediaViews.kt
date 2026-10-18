@@ -304,7 +304,9 @@ internal fun MediaViewer(
     var externalError by remember { mutableStateOf<String?>(null) }
     var fileNotice by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
-    val exportPath = if (canExport && !shown.media.isSecret) shownFile.localPath else null
+    // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
+    val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
+    val exportPath = if (canExport && !shown.media.isSecret && !shownHidden) shownFile.localPath else null
     fun openExternal(item: MediaViewerItem, path: String) {
         externalError = openExternalMedia(context, path, item.media.mimeType)
         if (externalError == null) onViewed(item.messageId)
@@ -362,8 +364,9 @@ private fun MediaViewerPage(
     // Соседняя секретная страница при свайпе не грузится и ничего не показывает, даже если файл уже на диске.
     val concealed = MediaViewerPolicy.concealed(media, active) || spoilerHidden
     val currentOnViewed by rememberUpdatedState(onViewed)
-    LaunchedEffect(media.fileId, file.localPath, active) {
-        if (active && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
+    // A spoiler page counts as opened only once the user reveals it, even when its file is already on disk.
+    LaunchedEffect(media.fileId, file.localPath, active, spoilerHidden) {
+        if (active && !spoilerHidden && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
     }
     LaunchedEffect(media.fileId, concealed) {
         if (concealed) return@LaunchedEffect

@@ -220,7 +220,11 @@ class NotificationRuntime private constructor(private val context: Context) {
         val replyId = entry.replyToMessageId.takeIf { it > 0L }
         val sent = source.sendMessage(entry.chatId, entry.text, replyId)
         // The notified message can be deleted or no longer take replies since the notice. Then the text goes out as a plain message.
-        if (replyId != null && sent.exceptionOrNull().isReplyRejected()) source.sendMessage(entry.chatId, entry.text, null) else sent
+        if (replyId == null || !sent.exceptionOrNull().isReplyRejected()) sent else {
+            // The session can change while the first send waits, so the fallback needs the same ownership check.
+            if (!stillOwned(pending)) throw AccountChangedException()
+            source.sendMessage(entry.chatId, entry.text, null)
+        }
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
