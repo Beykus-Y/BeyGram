@@ -302,7 +302,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     // ---- Память и кэш --------------------------------------------------------
 
-    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")), File(appContext.filesDir, "uploads")) { messageHistory.mediaFileIds() }
+    // Copies listed in the profile's shared media stay protected from the cache policy while that listing is recent.
+    private val listedMediaFiles = ListedMediaFiles()
+    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")), File(appContext.filesDir, "uploads")) { messageHistory.mediaFileIds() + listedMediaFiles.current() }
     private val storageSettings = StorageSettingsStore.getInstance(context)
     private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
     override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
@@ -339,6 +341,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long) = conversationActions.shared(chatId, kind, fromMessageId)
+        .onSuccess { page -> listedMediaFiles.remember(page.messages.flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }) }
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
     override fun startChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.startActivity(chatId, activity)
     override fun endChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.endActivity(chatId, activity)
@@ -708,7 +711,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
      */
     private fun cleanupSentUploads(message: TdApi.Message) {
         val content = message.content
-        content.localFiles().mapNotNull { it?.local?.path }.filter { it.isNotBlank() }.forEach { localPath ->
+        content.localFiles().filterNotNull().filter { !it.local.path.isNullOrBlank() }.forEach { tdFile ->
+            val localPath = tdFile.local.path
             runCatching {
                 val uploads = File(appContext.filesDir, "uploads").canonicalFile
                 val file = File(localPath).canonicalFile
@@ -716,7 +720,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 if (!file.path.startsWith(uploads.path + File.separator)) return@runCatching
                 if (content !is TdApi.MessageVoiceNote && content !is TdApi.MessageVideoNote) {
                     val folder = generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }
-                    File(folder, SENT_UPLOAD_MARKER).createNewFile()
+                    // The mark keeps the file id, so the cache policy can tell TDLib that this copy is gone.
+                    markSentUpload(folder, tdFile.id)
                     return@runCatching
                 }
                 if (content is TdApi.MessageVideoNote) {
