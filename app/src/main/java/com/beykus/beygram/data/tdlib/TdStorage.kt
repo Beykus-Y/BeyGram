@@ -80,7 +80,7 @@ internal class TdStorage(
                 val lastUsed = files.maxOfOrNull { it.lastModified() } ?: folder.lastModified()
                 val inUse = now - lastUsed < IN_USE_GRACE_MILLIS || files.any { it.canonicalPath in referenced.keys }
                 val sent = File(folder, SENT_UPLOAD_MARKER).exists()
-                SentUpload(folder, bytes = files.sumOf { it.length() }, lastUsedMillis = lastUsed, inUse = inUse || !sent)
+                SentUpload(folder, bytes = files.sumOf { it.length() }, lastUsedMillis = lastUsed, inUse = inUse || !sent, fileIds = sentUploadFileIds(folder))
             }
             val candidates = folders.filter { !it.inUse }.sortedBy { it.lastUsedMillis }
             val expired = candidates.filter { maxAgeSeconds != null && now - it.lastUsedMillis > maxAgeSeconds * 1000L }
@@ -97,10 +97,34 @@ internal class TdStorage(
             removed
         }
         // TDLib forgets the local copy of each file it knows, so its state and the media store never point at a deleted file.
+        // The sent mark lists the files of copies that no loaded chat shows, so their paths are forgotten as well.
+        // A folder whose copy TDLib still marks as downloaded stays until the next pass.
         return removed.sumOf { upload ->
             val prefix = upload.folder.canonicalPath + File.separator
-            referenced.filterKeys { it.startsWith(prefix) }.values.forEach { fileId -> requests(TdApi.DeleteFile(fileId)) }
-            if (upload.folder.deleteRecursively()) upload.bytes else 0L
+            val forgotten = (referenced.filterKeys { it.startsWith(prefix) }.values + upload.fileIds).toSet().all { fileId -> forgetFile(fileId) }
+            if (forgotten && upload.folder.deleteRecursively()) upload.bytes else 0L
+        }
+    }
+
+    /**
+     * Просит TDLib забыть локальную копию файла. Возвращает true, если TDLib больше не считает её скачанной.
+     * Ошибка удаления здесь не решает: решает состояние TDLib, а неизвестный файл уже забыт.
+     */
+    private suspend fun forgetFile(fileId: Int): Boolean {
+        try {
+            requests(TdApi.DeleteFile(fileId))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // The state check below decides whether TDLib still holds the copy.
+        }
+        return try {
+            requests(TdApi.GetFile(fileId)).local?.isDownloadingCompleted != true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // TDLib no longer knows this file, so there is nothing left to forget.
+            true
         }
     }
 
@@ -142,14 +166,26 @@ internal class TdStorage(
     }
 }
 
-/** Папка копий отправленных файлов: [bytes] — её размер, [lastUsedMillis] — последнее изменение файлов. */
-private class SentUpload(val folder: File, val bytes: Long, val lastUsedMillis: Long, val inUse: Boolean)
+/** Папка копий отправленных файлов: [bytes] — её размер, [lastUsedMillis] — последнее изменение файлов, [fileIds] — id из метки. */
+private class SentUpload(val folder: File, val bytes: Long, val lastUsedMillis: Long, val inUse: Boolean, val fileIds: Set<Int>)
 
 /**
  * Метка в папке копий: её ставит отправка, которую TDLib подтвердила. Без метки папка — черновик или отправка, которая
  * ещё не прошла, и очистка её не трогает.
  */
 internal const val SENT_UPLOAD_MARKER = ".sent"
+
+/** Дописывает id файла копии в метку отправки. Метка уже может хранить другие id, поэтому список дополняется. */
+internal fun markSentUpload(folder: File, fileId: Int) {
+    val known = sentUploadFileIds(folder)
+    if (fileId !in known) File(folder, SENT_UPLOAD_MARKER).writeText((known + fileId).joinToString(separator = "\n"))
+}
+
+/** Id файлов, записанные в метку отправки. Метка без строк, как у прежних версий, даёт пустой набор. */
+internal fun sentUploadFileIds(folder: File): Set<Int> {
+    val marker = File(folder, SENT_UPLOAD_MARKER)
+    return if (marker.isFile) marker.readLines().mapNotNullTo(mutableSetOf()) { it.trim().toIntOrNull() } else emptySet()
+}
 
 /** Размер всех файлов в папках, включая вложенные. Папки, которых нет, занимают 0 байт. */
 internal fun filesBytesIn(directories: List<File>): Long =
