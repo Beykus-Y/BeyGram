@@ -261,7 +261,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override val notificationPresentation = _notificationPresentation.asStateFlow()
     override suspend fun dismissNotifications(groupId: Int, maxNotificationId: Int) = notificationFeed.dismiss(groupId, maxNotificationId)
     private val chatStates = ConcurrentHashMap<Long, MutableStateFlow<ChatPreview?>>()
-    override fun observeChat(chatId: Long): StateFlow<ChatPreview?> = chatStates.computeIfAbsent(chatId) { MutableStateFlow(chatCache[it]) }.asStateFlow()
+    override fun observeChat(chatId: Long): StateFlow<ChatPreview?> = chatStates.computeIfAbsent(chatId) { MutableStateFlow(chatCache[it]?.withMute()) }.asStateFlow()
     override suspend fun loadChat(chatId: Long): Result<Unit> = requestResult {
         handleNewChat(TdRequests { client }(TdApi.GetChat(chatId))); Unit
     }
@@ -377,8 +377,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val chatListScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val chatListPublisher = CoalescedPublisher(chatListScope, CHAT_LIST_PUBLISH_DELAY_MS) {
         // Main-list ordering comes from Telegram, including pins and draft activity.
-        _chats.value = orderedMainChats(chatCache.values)
-        _archivedChats.value = orderedArchivedChats(chatCache.values)
+        val previews = chatCache.values.map { it.withMute() }
+        _chats.value = orderedMainChats(previews)
+        _archivedChats.value = orderedArchivedChats(previews)
     }
 
     /** Номер телефона, введённый пользователем — нужен для [WaitingForCode]. */
@@ -636,7 +637,6 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             }
             is TdApi.UpdateChatNotificationSettings -> {
                 muteState.updateChat(update.chatId, update.notificationSettings)
-                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(isMuted = muteState.isMuted(update.chatId)) }
                 publishChat(update.chatId)
             }
             is TdApi.UpdateScopeNotificationSettings -> handleScopeNotificationSettings(NotificationScope.ofScope(update.scope), update.notificationSettings)
@@ -804,17 +804,18 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     /**
-     * Чаты грузим только после общих настроек звука: иначе новое сообщение в заглушённом архивном чате
-     * может вернуть его в основной список, пока настройки области ещё неизвестны.
+     * Чаты грузим сразу, а общие настройки звука читаем параллельно. Пока настройка области не пришла, новое сообщение
+     * не возвращает её архивный чат в основной список: чат может быть заглушён (см. [ChatMuteState.isKnown]).
      */
     private fun loadChatsWithNotificationScopes() {
-        chatListScope.launch {
-            loadNotificationScopes()
-            loadChats()
-        }
+        loadChats()
+        chatListScope.launch { loadNotificationScopes() }
     }
 
-    /** Ошибка чтения одной области оставляет её без общего значения, чат тогда смотрит на свою настройку. */
+    /**
+     * Ошибка чтения одной области оставляет её без общего значения: чаты на общей настройке этой области не возвращаются
+     * из архива, пока TDLib не пришлёт её значение.
+     */
     private suspend fun loadNotificationScopes() = coroutineScope {
         NotificationScope.entries.map { scope ->
             async {
@@ -824,11 +825,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }.awaitAll()
     }
 
+    /** Общая настройка меняет только звук: списки пересобираются с ним при публикации, а наблюдатели одного чата звук не показывают. */
     private fun handleScopeNotificationSettings(scope: NotificationScope, settings: TdApi.ScopeNotificationSettings) {
-        muteState.updateScope(scope, settings).forEach { chatId ->
-            chatCache[chatId]?.let { chatCache[chatId] = it.copy(isMuted = muteState.isMuted(chatId)) }
-            publishChat(chatId)
-        }
+        if (muteState.updateScope(scope, settings).isNotEmpty()) chatListPublisher.request()
     }
 
     /** Переключатель возврата из архива показывает настройку аккаунта, поэтому читаем её при входе. */
@@ -913,8 +912,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         messageHistory.put(message.toChatMessage())
         conversationActions.hydrateReply(message)
         val chat = chatCache[message.chatId]
-        // Muted archived chats stay in the archive, as they do in Telegram.
-        if (!message.isOutgoing && chat != null && chat.archiveOrder > 0L && !chat.isMuted && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage) {
+        // Muted archived chats stay in the archive, as they do in Telegram. Until the chat's notification settings are
+        // known, it stays in the archive too: it may be muted.
+        if (!message.isOutgoing && chat != null && chat.archiveOrder > 0L && muteState.isKnown(message.chatId) &&
+            !muteState.isMuted(message.chatId) && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage
+        ) {
             returningFromArchive += message.chatId
             chatListScope.launch {
                 setChatArchived(message.chatId, false).onFailure { ConnectionEventLog.shared.record("Возврат чата из архива: ошибка") }
@@ -949,9 +951,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     /** Updates observers of this chat right away and queues the shared lists; other chats are not touched. */
     private fun publishChat(chatId: Long) {
-        chatStates[chatId]?.value = chatCache[chatId]
+        chatStates[chatId]?.value = chatCache[chatId]?.withMute()
         chatListPublisher.request()
     }
+
+    /** Заглушённость берём из состояния звука в момент публикации, поэтому общие настройки не пишутся в каждый чат. */
+    private fun ChatPreview.withMute(): ChatPreview = copy(isMuted = muteState.isMuted(id))
 
     // =========================================================================
     // Конвертеры TdApi → domain models
@@ -971,7 +976,6 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isPinned = mainPosition?.isPinned == true,
-            isMuted = muteState.isMuted(id),
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,
             lastMessageId = lastMessage?.id ?: 0L,
