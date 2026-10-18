@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -70,22 +71,36 @@ object PlaybackEngine {
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
     private var exo: ExoPlayer? = null
+    private var controls: Player? = null
     private var appContext: Context? = null
     private var progress: Job? = null
 
+    /**
+     * Общий плеер для системного управления: уведомление, экран блокировки и гарнитура. «Играть» после конца файла начинает
+     * его сначала, а после ошибки загружает заново, как кнопка в приложении.
+     */
+    fun player(context: Context): Player = controls ?: createPlayer(context).also { controls = it }
+
     /** Единственный ExoPlayer процесса. Создаётся на главном потоке при первом обращении. */
-    fun player(context: Context): ExoPlayer = exo ?: ExoPlayer.Builder(context.applicationContext)
-        .setAudioAttributes(
-            AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
-            /* handleAudioFocus = */ true
-        )
-        .setHandleAudioBecomingNoisy(true)
-        .build()
-        .also { created ->
-            created.addListener(listener)
-            exo = created
-            appContext = context.applicationContext
+    private fun createPlayer(context: Context): Player {
+        val created = ExoPlayer.Builder(context.applicationContext)
+            .setAudioAttributes(
+                AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
+                /* handleAudioFocus = */ true
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .build()
+            .also { it.addListener(listener) }
+        exo = created
+        appContext = context.applicationContext
+        return object : ForwardingPlayer(created) {
+            override fun play() {
+                if (playbackState == Player.STATE_IDLE) prepare()
+                if (playbackState == Player.STATE_ENDED) seekToDefaultPosition()
+                super.play()
+            }
         }
+    }
 
     /** Тот же файл ставит на паузу или продолжает, другой файл начинает играть сначала. */
     fun toggle(context: Context, item: PlaybackItem) {
@@ -105,23 +120,19 @@ object PlaybackEngine {
         target.prepare()
         target.play()
         _state.value = PlaybackState(item = item, playing = true, speed = _state.value.speed)
-        // Сервис нужен для уведомления и экрана блокировки. Фоновый запуск может не пройти, тогда звук всё равно играет.
-        runCatching { context.applicationContext.startService(Intent(context.applicationContext, PlaybackService::class.java)) }
+        startPlaybackService()
         startProgress()
     }
 
-    /** Пауза или продолжение. После конца файл начинается сначала, после ошибки загружается заново. */
+    /** Пауза или продолжение. Конец файла и ошибку обрабатывает обёртка плеера, поэтому системные кнопки ведут себя так же. */
     fun togglePlayPause() {
-        val target = exo ?: return
+        val target = controls ?: return
         if (target.isPlaying) {
             target.pause()
             return
         }
-        when (target.playbackState) {
-            Player.STATE_IDLE -> target.prepare()
-            Player.STATE_ENDED -> target.seekToDefaultPosition()
-        }
         _state.update { it.copy(failed = false) }
+        startPlaybackService()
         target.play()
     }
 
@@ -157,6 +168,12 @@ object PlaybackEngine {
         appContext?.let { it.stopService(Intent(it, PlaybackService::class.java)) }
     }
 
+    /** Сервис нужен для уведомления и экрана блокировки. Фоновый запуск может не пройти, тогда звук всё равно играет. */
+    private fun startPlaybackService() {
+        val context = appContext ?: return
+        runCatching { context.startService(Intent(context, PlaybackService::class.java)) }
+    }
+
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.update { it.copy(playing = isPlaying, durationMs = durationNow()) }
@@ -165,6 +182,11 @@ object PlaybackEngine {
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             _state.update { it.copy(durationMs = durationNow()) }
+        }
+
+        // Перемотку с уведомления или экрана блокировки делает сам плеер, минуя PlaybackEngine: позицию обновляем и на паузе.
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            syncPosition()
         }
 
         override fun onPlayerError(error: PlaybackException) {

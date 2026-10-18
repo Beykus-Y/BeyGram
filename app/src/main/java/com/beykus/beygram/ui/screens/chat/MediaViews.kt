@@ -193,6 +193,9 @@ private fun DownloadBadge(downloading: Boolean, onClick: () -> Unit) {
 
 private const val BLUR_PREVIEW_DIMENSION = 24
 
+/** Вложение, которое ждёт загрузки после нажатия на музыку. Ждёт только последнее нажатое, иначе более ранняя загрузка перебьёт его. */
+private val pendingAudioFileId = mutableStateOf<Int?>(null)
+
 @Composable
 internal fun MediaPreview(
     media: MessageMedia,
@@ -217,16 +220,19 @@ internal fun MediaPreview(
     // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
     val audioTitle = media.kind.label(context)
     val audioPath = file.localPath
-    var wantAudio by remember(media.fileId) { mutableStateOf(false) }
+    val waitingForAudio = pendingAudioFileId.value == media.fileId
     fun playAudio() {
-        if (audioPath == null) { wantAudio = true; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle))
+        if (audioPath == null) { pendingAudioFileId.value = media.fileId; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle))
     }
-    // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть.
-    LaunchedEffect(audioPath, wantAudio) {
-        if (wantAudio && audioPath != null) {
-            wantAudio = false
+    // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
+    LaunchedEffect(audioPath, waitingForAudio) {
+        if (waitingForAudio && audioPath != null) {
+            pendingAudioFileId.value = null
             startAudio(context, media.playbackItem(audioPath, audioTitle))
         }
+    }
+    DisposableEffect(media.fileId) {
+        onDispose { if (pendingAudioFileId.value == media.fileId) pendingAudioFileId.value = null }
     }
     if (media.kind == MediaKind.Voice) {
         VoiceBubble(media, file, downloadFile, onPlayed, onLongPress)
@@ -274,6 +280,10 @@ internal fun MediaPreview(
                 Text(if (media.kind == MediaKind.Audio) media.fileName.ifBlank { stringResource(R.string.media_kind_audio) } else media.fileName.ifBlank { stringResource(R.string.media_kind_file) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "", color = palette.textSecondary, fontSize = 13.sp)
                 if (file.isDownloading || file.isUploading) LinearProgressIndicator(progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+            }
+            // Тап по музыке запускает её в общем плеере, а действия с вложением (поделиться, сохранить, переслать) открываются отсюда.
+            if (media.kind == MediaKind.Audio) IconButton(onClick = onOpen) {
+                Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = palette.textSecondary)
             }
         }
     }
