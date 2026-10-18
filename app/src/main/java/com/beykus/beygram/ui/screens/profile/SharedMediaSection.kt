@@ -278,7 +278,8 @@ private fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow
     val palette = beyGramPalette()
     val thumbId = media.thumbnailFileId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
-    var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
+    // У секретного вложения превью не показываем, поэтому спойлер ему не нужен: сразу открываем.
+    var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler || media.isSecret) }
     val loadPreview = shouldLoadSharedPreview(media, revealed)
     LaunchedEffect(thumbId, loadPreview) { if (loadPreview) downloadFile(thumbId) }
     Box(
@@ -291,7 +292,7 @@ private fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow
         if (!revealed) Text(stringResource(R.string.profile_shared_spoiler), color = palette.textSecondary, fontSize = 11.sp,
             textAlign = TextAlign.Center, modifier = Modifier.padding(4.dp))
         if (media.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
-        if (media.kind == MediaKind.Video && media.durationSeconds > 0) Text(
+        if (revealed && media.kind == MediaKind.Video && media.durationSeconds > 0) Text(
             duration(media.durationSeconds), color = Color.White, fontSize = 11.sp,
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp)
         )
