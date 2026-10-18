@@ -53,6 +53,9 @@ class NotificationRuntime private constructor(private val context: Context) {
                 if (config.background || presentation.foreground) {
                     runCatching { renderer.render(notices, config, presentation, auth == AuthState.Ready) }
                         .onFailure { android.util.Log.w("BeyGramNotify", "Notification rendering failed: ${it.javaClass.simpleName}") }
+                } else if (auth == AuthState.Ready) {
+                    // Consume alerts without posting, so reopening the UI does not ring for messages received while delivery was off.
+                    notices.groups.forEach { group -> preferences.handled(group.id, group.notices.maxOfOrNull { it.id } ?: 0) }
                 }
             }.collect()
         }

@@ -348,6 +348,9 @@ internal class VpnBackend private constructor(
                     mihomo.selectConnection(groupName, loaded.first().name)
                     loaded = mihomo.listConnections(groupName)
                 }
+                // The imported profile replaced the selected route; drop the old result and verify the new one.
+                routeProbeGeneration.incrementAndGet()
+                if (proxyWasRunning) checkSelectedRoute()
                 _connections.value = loaded
                 _probes.value = emptyMap()
                 VpnSubscriptionDiagnostics.event("fetch", "completed connectionCount=${loaded.size}")
@@ -390,6 +393,8 @@ internal class VpnBackend private constructor(
 
     suspend fun probeAllConnections(): Result<List<MihomoProbeResult>> = withContext(Dispatchers.IO) {
         try {
+            // Busy before waiting for the gate, so the button is disabled while an auto sweep owns it.
+            _probeProgress.value = ProbeProgress(0, _connections.value.size)
             MihomoProbeCoordinator.sweep {
             val current = mihomo.listConnections(settings.value.connectionGroup)
             val results = mutableListOf<MihomoProbeResult>()
