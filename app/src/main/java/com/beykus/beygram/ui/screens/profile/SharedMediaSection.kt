@@ -43,8 +43,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.MessageSearchPage
 import com.beykus.beygram.domain.model.SharedCounts
@@ -56,9 +58,13 @@ import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
+import com.beykus.beygram.ui.screens.chat.MediaViewerActions
 import com.beykus.beygram.ui.screens.chat.MediaViewerItem
+import com.beykus.beygram.ui.screens.chat.MediaViewerPolicy
+import com.beykus.beygram.ui.screens.chat.MessageRights
 import com.beykus.beygram.ui.screens.chat.SharedMediaWindow
 import com.beykus.beygram.ui.screens.chat.duration
 import com.beykus.beygram.ui.screens.chat.formatMediaSize
@@ -85,6 +91,7 @@ private val PAGER_MIN_HEIGHT = 360.dp
 internal fun SharedMediaSection(
     chatId: Long, counts: SharedCounts?, load: suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
+    messageRights: suspend (Long) -> MessageCapabilities?, forwardMessage: suspend (Long, Long) -> Result<Unit>, chats: List<ChatPreview>,
     onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val palette = beyGramPalette()
@@ -114,7 +121,9 @@ internal fun SharedMediaSection(
     }
 
     SharedMediaViewer(media = tabs.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
-        observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = onOpenMessage)
+        observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = onOpenMessage,
+        confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
+        onContentOpened = onContentOpened)
 }
 
 /** Окна вкладок по видам вложений. Новые создаются только при смене чата и переживают пересборку экрана. */
@@ -138,23 +147,54 @@ internal fun rememberSharedMediaWindows(
 @Composable
 internal fun SharedMediaViewer(
     media: SharedMediaWindow, viewing: Long?, onViewing: (Long?) -> Unit,
-    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit,
+    confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
+    forwardMessage: suspend (Long, Long) -> Result<Unit> = { _, _ -> Result.failure(IllegalStateException()) }, chats: List<ChatPreview> = emptyList(),
+    onContentOpened: (Long) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val currentRights by rememberUpdatedState(messageRights)
+    var viewerRights by remember(media) { mutableStateOf<MessageRights?>(null) }
+    var forwardId by remember(media) { mutableStateOf<Long?>(null) }
+    var forwardBusy by remember(media) { mutableStateOf(false) }
+    var forwardError by remember(media) { mutableStateOf<String?>(null) }
     val selected = viewing
     val pages = media.messages.mapNotNull { message ->
         message.media?.takeUnless { it.isSecret }?.let { MediaViewerItem(message.id, it) }
     }
+    // Права на сообщение нужны кнопкам просмотрщика: сохранение и пересылка показываются, только если Telegram их разрешает.
+    LaunchedEffect(selected) {
+        viewerRights = if (selected == null) null else currentRights(selected)?.let { MessageRights(selected, it) }
+    }
+    val viewedRights = selected?.let { MediaViewerPolicy.rightsFor(it, viewerRights) }
     if (selected != null && pages.any { it.messageId == selected }) MediaViewer(
         pages = pages, selectedId = selected,
         onSelect = { id ->
             onViewing(id)
             scope.launch { media.loadNear(id) { it.media?.isSecret == false } }
         },
-        observeFile = observeFile, downloadFile = downloadFile, onViewed = {}, onClose = { onViewing(null) },
-        // Сохранение и отправка идут через чат: там проверяется, разрешено ли сообщение переслать или сохранить.
-        canExport = false, onShowInChat = { messageId -> onViewing(null); onOpenMessage(messageId) }
+        observeFile = observeFile, downloadFile = downloadFile, onViewed = onContentOpened, onClose = { onViewing(null) },
+        // Сохранение заново проверяет право на сообщение перед каждым действием, как строки списка.
+        canExport = viewedRights?.canSave == true, confirmExport = confirmExport,
+        actions = if (viewedRights?.canForward == true) MediaViewerActions(
+            canForward = true, canEdit = false, canDelete = false,
+            onForward = { forwardId = selected; onViewing(null) }, onEdit = {}, onDelete = {}
+        ) else null,
+        onShowInChat = { messageId -> onViewing(null); onOpenMessage(messageId) }
     )
+    forwardId?.let { id ->
+        ForwardChatDialog(chats, forwardBusy, forwardError,
+            onPick = { target -> scope.launch {
+                forwardBusy = true; forwardError = null
+                try {
+                    val result = forwardMessage(id, target.id)
+                    if (result.isSuccess) { forwardId = null; Toast.makeText(context, context.getString(R.string.chat_message_forwarded), Toast.LENGTH_SHORT).show() }
+                    else forwardError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                } finally { forwardBusy = false }
+            } },
+            onClose = { forwardId = null; forwardError = null })
+    }
 }
 
 @Composable
@@ -341,8 +381,11 @@ private fun SharedLinkRow(message: ChatMessage, meta: String, onOpenMessage: (Lo
     val context = LocalContext.current
     val link = sharedLinkTitle(message)
     val underSpoiler = sharedLinkUnderSpoiler(message)
+    // Адрес под спойлером прячем, как в тексте сообщения: нажатие на заголовок его раскрывает.
+    var revealed by remember(message.id) { mutableStateOf(false) }
+    val hidden = underSpoiler && !revealed
     SharedRow(
-        Icons.Rounded.Link, link, meta,
+        Icons.Rounded.Link, if (hidden) stringResource(R.string.profile_shared_spoiler) else link, meta,
         onClick = {
             // Ссылку под спойлером открываем только в чате: там она появляется после нажатия, как в тексте сообщения.
             if (underSpoiler) onOpenMessage(message.id) else {
@@ -350,17 +393,20 @@ private fun SharedLinkRow(message: ChatMessage, meta: String, onOpenMessage: (Lo
                 if (safe == null || runCatching { uri.openUri(safe) }.isFailure) Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
             }
         },
-        onShowInChat = { onOpenMessage(message.id) }
+        onShowInChat = { onOpenMessage(message.id) },
+        onTitleClick = if (hidden) ({ revealed = true }) else null
     )
 }
 
 @Composable
-private fun SharedRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, onShowInChat: () -> Unit) {
+private fun SharedRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, onShowInChat: () -> Unit, onTitleClick: (() -> Unit)? = null) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(11.dp))
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
-            Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Заголовок со спойлером раскрывается нажатием на сам заголовок, остальная строка по-прежнему ведёт в чат.
+            val titleModifier = if (onTitleClick != null) Modifier.clickable(onClick = onTitleClick) else Modifier
+            Text(title, modifier = titleModifier, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle.isNotBlank()) Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         TextButton(onClick = onShowInChat) { Text(stringResource(R.string.media_show_in_chat), fontSize = 13.sp, maxLines = 1) }
