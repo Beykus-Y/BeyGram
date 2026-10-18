@@ -9,6 +9,8 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
@@ -22,6 +24,8 @@ internal class TdConversationActions(
     private val request = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val replyRequests = ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
+    // Taps on one message start separate coroutines. Each toggle reads the reactions it changes, so toggles run one at a time.
+    private val reactionLock = Mutex()
     private val _limits = MutableStateFlow(MessageLimits())
     val limits = _limits.asStateFlow()
     fun option(name: String, value: TdApi.OptionValue) {
@@ -162,28 +166,30 @@ internal class TdConversationActions(
      * [addToRecent] is set only for a reaction picked from the extended menu. Returns the message's reactions after the change.
      */
     suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
-        val chosen = request(TdApi.GetMessage(chatId, messageId)).interactionInfo?.reactions?.reactions.orEmpty()
-            .filter { it.isChosen && it.type !is TdApi.ReactionTypePaid }
-        val own = chosen.firstOrNull { (it.type as? TdApi.ReactionTypeEmoji)?.emoji == emoji }
-        if (own != null) {
-            request(TdApi.RemoveMessageReaction(chatId, messageId, own.type))
-        } else {
-            val displaced = overflowReactions(chosen.map { it.type }, maxReactionCount(chatId))
-            displaced.forEach { request(TdApi.RemoveMessageReaction(chatId, messageId, it)) }
-            try {
-                request(TdApi.AddMessageReaction(chatId, messageId, TdApi.ReactionTypeEmoji(emoji), false, addToRecent))
-            } catch (failure: Throwable) {
-                // The restored reactions were chosen before, so they do not go into recent reactions again. The restore runs
-                // even if this coroutine was cancelled, because the removal above already reached the server.
-                withContext(NonCancellable) {
-                    displaced.forEach { type -> runCatching { request(TdApi.AddMessageReaction(chatId, messageId, type, false, false)) } }
+        reactionLock.withLock {
+            val chosen = request(TdApi.GetMessage(chatId, messageId)).interactionInfo?.reactions?.reactions.orEmpty()
+                .filter { it.isChosen && it.type !is TdApi.ReactionTypePaid }
+            val own = chosen.firstOrNull { (it.type as? TdApi.ReactionTypeEmoji)?.emoji == emoji }
+            if (own != null) {
+                request(TdApi.RemoveMessageReaction(chatId, messageId, own.type))
+            } else {
+                val displaced = overflowReactions(chosen.map { it.type }, maxReactionCount(chatId))
+                displaced.forEach { request(TdApi.RemoveMessageReaction(chatId, messageId, it)) }
+                try {
+                    request(TdApi.AddMessageReaction(chatId, messageId, TdApi.ReactionTypeEmoji(emoji), false, addToRecent))
+                } catch (failure: Throwable) {
+                    // The restored reactions were chosen before, so they do not go into recent reactions again. The restore runs
+                    // even if this coroutine was cancelled, because the removal above already reached the server.
+                    withContext(NonCancellable) {
+                        displaced.forEach { type -> runCatching { request(TdApi.AddMessageReaction(chatId, messageId, type, false, false)) } }
+                    }
+                    throw failure
                 }
-                throw failure
             }
+            val reactions = messageReactions(request(TdApi.GetMessage(chatId, messageId)).interactionInfo)
+            history.update(chatId, messageId) { it.copy(reactions = reactions) }
+            reactions
         }
-        val reactions = messageReactions(request(TdApi.GetMessage(chatId, messageId)).interactionInfo)
-        history.update(chatId, messageId) { it.copy(reactions = reactions) }
-        reactions
     }
 
     private suspend fun maxReactionCount(chatId: Long): Int {

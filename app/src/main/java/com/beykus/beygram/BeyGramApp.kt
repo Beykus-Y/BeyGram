@@ -214,15 +214,22 @@ private fun BeyGramAppContent(
     }
     // Профиль участника: открываем его личный чат и показываем сведения; назад возвращаемся туда, откуда открыли.
     val memberScope = rememberCoroutineScope()
+    // Ответ на прежнее нажатие может прийти позже нового: тогда он не должен заменить выбранного участника.
+    var latestMemberUserId by rememberSaveable { mutableStateOf(0L) }
     val openUserProfile: (Long, AppRoute) -> Unit = { userId, returnTo ->
+        latestMemberUserId = userId
         memberScope.launch {
             repository.openPrivateChat(userId)
                 .onSuccess { chatId ->
-                    memberChatId = chatId
-                    memberReturnRouteName = returnTo.name
-                    routeName = AppRoute.MemberProfile.name
+                    if (latestMemberUserId == userId) {
+                        memberChatId = chatId
+                        memberReturnRouteName = returnTo.name
+                        routeName = AppRoute.MemberProfile.name
+                    }
                 }
-                .onFailure { error -> noticeError = (error as? UserMessageException)?.text ?: UiText.Res(R.string.profile_member_open_failed) }
+                .onFailure { error ->
+                    if (latestMemberUserId == userId) noticeError = (error as? UserMessageException)?.text ?: UiText.Res(R.string.profile_member_open_failed)
+                }
         }
     }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)

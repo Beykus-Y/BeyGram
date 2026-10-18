@@ -98,7 +98,11 @@ internal class TdConversationEffects(private val client: () -> Client, private v
             if (pending.isEmpty()) {
                 uploads.remove(chatId)
                 endActivity(chatId, activity)
-            } else startLocked(chatId, pending.values.last())
+            } else {
+                // Typing or a recording that started meanwhile keeps the chat's activity until it ends. The upload shows after that.
+                val current = activities[chatId]?.activity
+                if (current == null || current.isUpload()) startLocked(chatId, pending.values.last())
+            }
         }
     }
 
@@ -173,6 +177,12 @@ internal fun uploadActivityOf(content: TdApi.MessageContent): ChatActivity? = wh
 
 /** Typing is shown only while the last keystroke is recent enough. */
 internal fun typingExpired(touchedAtNs: Long, nowNs: Long): Boolean = nowNs - touchedAtNs >= TYPING_LIFETIME_NS
+
+/** Typing and recordings come from the user; the upload activities come from messages being sent. */
+private fun ChatActivity.isUpload(): Boolean = when (this) {
+    ChatActivity.Typing, ChatActivity.RecordingVoice, ChatActivity.RecordingVideoNote -> false
+    else -> true
+}
 
 private fun ChatActivity.toTdAction(): TdApi.ChatAction = when (this) {
     ChatActivity.Typing -> TdApi.ChatActionTyping()

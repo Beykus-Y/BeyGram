@@ -20,7 +20,8 @@ internal object NotificationIntents {
     const val REPLY_TO = "notification_reply_to"
     private const val TOKEN = "notification_intent_token"
     fun valid(context: Context, intent: Intent): Boolean = intent.getStringExtra(TOKEN) == NotificationRuntime.get(context).preferences.intentToken()
-    fun validReply(context: Context, intent: Intent): Boolean = intent.getStringExtra(TOKEN) == NotificationRuntime.get(context).preferences.replyToken()
+    fun validReply(context: Context, intent: Intent): Boolean = intent.getStringExtra(TOKEN) == replyRoutingToken(NotificationRuntime.get(context).preferences.replyToken(),
+        intent.getLongExtra(CHAT_ID, 0L), intent.getIntExtra(GROUP_ID, 0), intent.getIntExtra(MAX_ID, 0), intent.getLongExtra(REPLY_TO, 0L))
     fun chat(context: Context, chatId: Long, groupId: Int, maxId: Int): PendingIntent = PendingIntent.getActivity(context, 0,
         Intent(context, MainActivity::class.java).setAction(OPEN_CHAT).setData(Uri.parse("beygram://${context.packageName}/chat/$chatId/$groupId/$maxId"))
             .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -36,11 +37,11 @@ internal object NotificationIntents {
             .putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     /**
      * Mutable because Android attaches the typed text to the intent, and one-shot so a listener that kept it can send only once.
-     * One identity per group: a re-post updates the live action instead of leaving older ones behind. The receiver is not exported and still checks the token.
+     * One identity per group: a re-post updates the live action instead of leaving older ones behind. The receiver is not exported and still checks the token, which covers the routing extras.
      */
     fun reply(context: Context, chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long): PendingIntent = PendingIntent.getBroadcast(context, 0,
         Intent(context, NotificationReplyReceiver::class.java).setAction(REPLY).setData(Uri.parse("beygram://${context.packageName}/reply/$groupId"))
-            .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(REPLY_TO, replyToMessageId).putExtra(TOKEN, NotificationRuntime.get(context).preferences.replyToken()),
+            .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(REPLY_TO, replyToMessageId).putExtra(TOKEN, replyRoutingToken(NotificationRuntime.get(context).preferences.replyToken(), chatId, groupId, maxId, replyToMessageId)),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_ONE_SHOT or mutability())
     // FLAG_MUTABLE exists only from Android 12; older systems create mutable PendingIntents by default.
     private fun mutability(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
