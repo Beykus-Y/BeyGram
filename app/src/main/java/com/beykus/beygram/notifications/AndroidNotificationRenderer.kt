@@ -28,6 +28,8 @@ internal class AndroidNotificationRenderer(private val context: Context, private
     private var blockedReason: String? = null
     // Groups whose direct reply was rejected, with the newest notice id at that time. The note stays until a newer notice arrives or the group is cancelled.
     private val failedReplies = ConcurrentHashMap<Int, Int>()
+    // Tags posted by this process: lets stale entries be cancelled even before TDLib's startup snapshot arrives.
+    private val postedTags = ConcurrentHashMap.newKeySet<String>()
     init { channels(context) }
     fun render(state: TelegramNotifications, config: NotificationPreferences, presentation: NotificationPresentation, authorized: Boolean) {
         if (!state.initialized && authorized) return // Wait for TDLib's startup snapshot before reconciling old tray entries.
@@ -80,6 +82,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             val notification = builder.build()
             try {
                 compat.notify(tag, 0, notification)
+                postedTags.add(tag)
                 // Advanced only after the system accepted the post, so a failed alert is retried on the next render.
                 preferences.handled(group.id, maxId)
             } catch (error: RuntimeException) {
@@ -89,7 +92,11 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             shown.add(tag)
         }
         // Stale entries are cancelled only once TDLib's state has arrived (startup snapshot or a group update), so a cold start keeps the tray.
+        if (!state.snapshot) {
+            postedTags.filter { it !in shown }.forEach { manager.cancel(it, 0); postedTags.remove(it) }
+        }
         if (state.snapshot) {
+            postedTags.retainAll(shown)
             manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
             // A failure note belongs to its group; once the group is gone, a reused group ID must not inherit the note.
             failedReplies.keys.filter { id -> state.groups.none { it.id == id } }.forEach { failedReplies.remove(it) }
