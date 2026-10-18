@@ -12,7 +12,7 @@ class ThemeModeTest {
 
     @Test fun missingOrUnknownStoredValueFollowsSystem() {
         assertEquals(ThemeMode.FollowSystem, themeModeFromStored(null))
-        assertEquals(ThemeMode.FollowSystem, themeModeFromStored("AMOLED"))
+        assertEquals(ThemeMode.FollowSystem, themeModeFromStored("Neon"))
     }
 
     @Test fun followSystemMirrorsTheSystemSetting() {
@@ -23,5 +23,10 @@ class ThemeModeTest {
     @Test fun explicitChoiceIgnoresTheSystemSetting() {
         assertFalse(ThemeMode.Light.isDark(systemDark = true))
         assertTrue(ThemeMode.Dark.isDark(systemDark = false))
+    }
+
+    @Test fun amoledIsDarkWhateverTheSystemSays() {
+        assertTrue(ThemeMode.Amoled.isDark(systemDark = false))
+        assertTrue(ThemeMode.Amoled.isDark(systemDark = true))
     }
 }

@@ -233,9 +233,14 @@ internal class TdConversationActions(
         MessageSearchPage(found.messages.orEmpty().map(map), found.nextFromMessageId)
     }
 
-    /** Вкладка профиля: пустой запрос с фильтром вида вложения, новые сообщения первыми. */
-    suspend fun shared(chatId: Long, kind: SharedMediaKind, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
-        val found = request(TdApi.SearchChatMessages(chatId, null, "", null, fromMessageId, 0, SEARCH_PAGE_SIZE, sharedFilter(kind)))
+    /**
+     * Вкладка профиля и окно просмотрщика: пустой запрос с фильтром вида вложения, новые сообщения первыми. С [newer]
+     * страница идёт от [fromMessageId] к более новым: TDLib отдаёт их при отрицательном смещении.
+     */
+    suspend fun shared(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean): Result<MessageSearchPage> = requestResult {
+        // На одно меньше лимита: повтор [fromMessageId] в ответе окно отсекает по id.
+        val offset = if (newer) -(SEARCH_PAGE_SIZE - 1) else 0
+        val found = request(TdApi.SearchChatMessages(chatId, null, "", null, fromMessageId, offset, SEARCH_PAGE_SIZE, sharedFilter(kind)))
         MessageSearchPage(found.messages.orEmpty().filterNotNull().map(map), found.nextFromMessageId)
     }
     private fun sharedFilter(kind: SharedMediaKind): TdApi.SearchMessagesFilter = when (kind) {
@@ -243,6 +248,7 @@ internal class TdConversationActions(
         SharedMediaKind.Files -> TdApi.SearchMessagesFilterDocument()
         SharedMediaKind.Links -> TdApi.SearchMessagesFilterUrl()
         SharedMediaKind.Voice -> TdApi.SearchMessagesFilterVoiceNote()
+        SharedMediaKind.Music -> TdApi.SearchMessagesFilterAudio()
     }
 
     fun hydrateReply(message: TdApi.Message) {

@@ -10,10 +10,12 @@ class BeyGramTokensTest {
     @Test fun lightTokensAreLightAndDarkTokensAreDark() {
         assertTrue(LightTokens.bg.luminance() > 0.5f)
         assertTrue(DarkTokens.bg.luminance() < 0.5f)
+        assertTrue(GraphiteLightTokens.bg.luminance() > 0.5f)
+        assertTrue(GraphiteDarkTokens.bg.luminance() < 0.5f)
     }
 
     @Test fun paletteTakesEachRoleFromItsTokens() {
-        listOf(LightTokens, DarkTokens).forEach { tokens ->
+        listOf(LightTokens, DarkTokens, GraphiteLightTokens, GraphiteDarkTokens).forEach { tokens ->
             val palette = tokens.toPalette()
             assertEquals(tokens.accent, palette.accent)
             assertEquals(tokens.bg, palette.screen)
@@ -30,11 +32,14 @@ class BeyGramTokensTest {
     }
 
     @Test fun materialSchemeTakesItsRolesFromTheSameTokens() {
-        assertEquals(LightTokens.bg, LightColorScheme.background)
-        assertEquals(LightTokens.accent, LightColorScheme.primary)
-        assertEquals(LightTokens.text, LightColorScheme.onSurface)
-        assertEquals(DarkTokens.bg, DarkColorScheme.background)
-        assertEquals(DarkTokens.accent, DarkColorScheme.primary)
-        assertEquals(DarkTokens.muted, DarkColorScheme.onSurfaceVariant)
+        val light = LightTokens.toColorScheme(dark = false)
+        assertEquals(LightTokens.bg, light.background)
+        assertEquals(LightTokens.accent, light.primary)
+        assertEquals(LightTokens.text, light.onSurface)
+
+        val dark = DarkTokens.toColorScheme(dark = true)
+        assertEquals(DarkTokens.bg, dark.background)
+        assertEquals(DarkTokens.accent, dark.primary)
+        assertEquals(DarkTokens.muted, dark.onSurfaceVariant)
     }
 }

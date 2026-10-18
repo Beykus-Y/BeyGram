@@ -325,7 +325,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         media = sharedCount(chatId, TdApi.SearchMessagesFilterPhotoAndVideo()),
         files = sharedCount(chatId, TdApi.SearchMessagesFilterDocument()),
         links = sharedCount(chatId, TdApi.SearchMessagesFilterUrl()),
-        voice = sharedCount(chatId, TdApi.SearchMessagesFilterVoiceNote())
+        voice = sharedCount(chatId, TdApi.SearchMessagesFilterVoiceNote()),
+        music = sharedCount(chatId, TdApi.SearchMessagesFilterAudio())
     )
     private suspend fun sharedCount(chatId: Long, filter: TdApi.SearchMessagesFilter): Int? = try {
         request(TdApi.GetChatMessageCount(chatId, null, filter, false)).count

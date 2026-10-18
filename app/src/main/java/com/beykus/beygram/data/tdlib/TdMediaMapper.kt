@@ -55,7 +55,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             MessageMedia(MediaKind.Document, register(it.document), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "application/octet-stream" })
         }
         is TdApi.MessageAudio -> content.audio.let {
-            MessageMedia(MediaKind.Audio, register(it.audio), thumbnail(it.albumCoverThumbnail), it.fileName.orEmpty().ifBlank { it.title.orEmpty() }, it.mimeType.orEmpty().ifBlank { "audio/mpeg" }, durationSeconds = it.duration)
+            MessageMedia(MediaKind.Audio, register(it.audio), thumbnail(it.albumCoverThumbnail), it.fileName.orEmpty().ifBlank { it.title.orEmpty() }, it.mimeType.orEmpty().ifBlank { "audio/mpeg" }, durationSeconds = it.duration, title = it.title.orEmpty(), performer = it.performer.orEmpty())
         }
         is TdApi.MessageVoiceNote -> content.voiceNote.let {
             MessageMedia(MediaKind.Voice, register(it.voice), fileName = "", mimeType = it.mimeType.orEmpty().ifBlank { "audio/ogg" }, durationSeconds = it.duration, waveform = decodeVoiceWaveform(it.waveform ?: ByteArray(0)))

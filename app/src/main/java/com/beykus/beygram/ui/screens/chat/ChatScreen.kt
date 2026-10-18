@@ -321,12 +321,30 @@ fun ChatScreen(
         val id = reactionOwner?.id ?: return@LaunchedEffect
         reactionOptions = conversation.availableReactions(chat.id, id).getOrNull().orEmpty()
     }
+    // Фото и видео листаются по всему чату: окно грузится вокруг открытого вложения, а не только по загруженной истории.
+    val mediaWindow = remember(chat.id) {
+        SharedMediaWindow(
+            load = { from, newer -> conversation.sharedMessages(chat.id, SharedMediaKind.Media, from, newer) },
+            failure = { it.userMessage(context, R.string.err_chat_history_load_failed) }
+        )
+    }
+    LaunchedEffect(selectedMediaId) {
+        val id = selectedMediaId ?: return@LaunchedEffect
+        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind
+        // Вложение, которое уже в окне, не перезагружаем: так просмотрщик возвращается к нему на том же месте.
+        if (kind != null && kind in viewerSwipeKinds && mediaWindow.messages.none { it.id == id }) {
+            mediaWindow.restart(id)
+            mediaWindow.loadOlder()
+        }
+        // Новее догружаем от края: открытое вложение обычно стоит у правого края окна, а прерванная загрузка не оставляет дыр.
+        mediaWindow.loadNear(id)
+    }
     LaunchedEffect(selectedMediaId) {
         // Счётчик при свайпе держит прежнее значение до ответа, чтобы не мигал. Права так не держим: см. MediaViewerPolicy.rightsFor.
         if (selectedMediaId == null) { viewerRights = null; viewerPosition = null }
         val id = selectedMediaId ?: return@LaunchedEffect
         viewerRights = conversation.messageCapabilities(chat.id, id).getOrNull()?.let { MessageRights(id, it) }
-        val kind = currentMessages.firstOrNull { it.id == id }?.media?.kind
+        val kind = (currentMessages.firstOrNull { it.id == id } ?: mediaWindow.messages.firstOrNull { it.id == id })?.media?.kind
         viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
     BackHandler(enabled = searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active) {
@@ -383,10 +401,6 @@ fun ChatScreen(
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = reply.messageId }
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
-    }
-    fun showInChat(messageId: Long) {
-        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
-        if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = messageId }
     }
     // The reply is checked on the server first: a channel, or a chat without reply rights, must not enter reply mode.
     // Only the latest swipe may apply its answer, so a slower check cannot reopen the composer for an older message.
@@ -478,8 +492,9 @@ fun ChatScreen(
             Text(stringResource(R.string.chat_network_waiting), color = palette.warningText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
+        val metrics = LocalBubbleMetrics.current
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            contentPadding = PaddingValues(vertical = metrics.listPadding), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }) { listItem ->
                 if (listItem.pendingVideoNote != null) {
                     PendingVideoNoteBubble(listItem.pendingVideoNote)
@@ -627,8 +642,6 @@ fun ChatScreen(
         if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation)
         }
     }
-    // Фото и видео листаются вместе; остальные вложения открываются по одному.
-    val viewerItems = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it) } } }
     // Each unacknowledged video draft remains in the app center. Only the oldest is shown;
     // later previews are retained, not overwritten by a second showPreview() call.
     videoPreview?.let { video ->
@@ -659,19 +672,28 @@ fun ChatScreen(
         onSend = { sendRecordedMedia(mediaList) }
     ) }
     val viewedRights = selectedMediaId?.let { MediaViewerPolicy.rightsFor(it, viewerRights) }
-    messages.firstOrNull { it.id == selectedMediaId }?.let { viewed -> viewed.media?.let { media -> MediaViewer(
-        pages = if (media.kind in viewerSwipeKinds) viewerItems else listOf(MediaViewerItem(viewed.id, media)), selectedId = viewed.id, onSelect = { selectedMediaId = it },
+    // Фото и видео листаются вместе; остальные вложения открываются по одному.
+    // Действия над сообщением есть только у сообщений из загруженной истории: редактирование ищет их в ленте.
+    val viewedInChat = messages.firstOrNull { it.id == selectedMediaId }
+    val viewed = viewedInChat ?: mediaWindow.messages.firstOrNull { it.id == selectedMediaId }
+    val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it) } }
+    val historyPages = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it) } } }
+    // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
+    val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
+        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it) } })
+    if (viewed != null && viewed.media != null) MediaViewer(
+        pages = viewerPages, selectedId = viewed.id, onSelect = { selectedMediaId = it },
         observeFile = observeFile, downloadFile = onDownloadFile, onViewed = { id -> conversation.openMessageContent(chat.id, id) }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
         canExport = viewedRights?.canSave == true, confirmExport = { id -> conversation.messageCapabilities(chat.id, id).getOrNull()?.canSave == true },
-        actions = MediaViewerActions(
+        actions = viewedInChat?.let { MediaViewerActions(
             canForward = viewedRights?.canForward == true,
             canEdit = viewedRights?.canEdit == true,
             canDelete = viewedRights?.let { it.canDeleteForSelf || it.canDeleteForAll } == true,
             onForward = { forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
             onDelete = { deleteEveryone = viewedRights?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
-        ), onShowInChat = { id -> selectedMediaId = null; showInChat(id) }) } }
+        ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) })
     forwardId?.let { id ->
         ForwardChatDialog(chats, forwardBusy, forwardError,
             onPick = { target -> scope.launch {
@@ -711,7 +733,8 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {}) {
     val palette = beyGramPalette()
-    val shape = if (message.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+    val metrics = LocalBubbleMetrics.current
+    val shape = bubbleShape(message.isOutgoing, metrics)
     val hasText = message.text.isNotBlank()
     val circle = message.media?.kind == MediaKind.VideoNote
     // Стикер лежит без пузыря: ни цвета, ни ширины фото.
@@ -729,7 +752,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
-    Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = 14.dp)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
+    Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
             onReply = { onReply?.invoke(message.id) }) { swipe ->
             // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
@@ -756,10 +779,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed, origin = playbackOrigin)
                         }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
-                        if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = 12.dp, end = 12.dp, top = if (circle) 4.dp else 8.dp)) {
+                        if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
-                                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp))
-                                    .border(1.dp, palette.accent, RoundedCornerShape(12.dp))
+                                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(metrics.replyRadius))
+                                    .border(1.dp, palette.accent, RoundedCornerShape(metrics.replyRadius))
                                     .clickable { onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                     Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                     Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)

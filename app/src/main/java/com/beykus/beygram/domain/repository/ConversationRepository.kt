@@ -46,8 +46,11 @@ interface ConversationRepository {
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
     /** Messages in one chat whose text matches [query]. Pass 0 for the first page, then the previous page's nextFromMessageId. */
     suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
-    /** Messages with an attachment of [kind] for the chat profile tabs, newest first. Same paging as [searchMessages]. */
-    suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long): Result<MessageSearchPage>
+    /**
+     * Messages with an attachment of [kind] for the chat profile tabs and the chat media viewer, newest first. Same paging as
+     * [searchMessages]. With [newer], the page holds messages newer than [fromMessageId] instead.
+     */
+    suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean = false): Result<MessageSearchPage>
     fun messagesVisible(chatId: Long, messageIds: List<Long>)
     fun setAppForeground(foreground: Boolean)
     fun refreshInteractionPolicy()
