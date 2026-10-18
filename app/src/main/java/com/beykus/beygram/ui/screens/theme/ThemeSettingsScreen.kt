@@ -56,7 +56,7 @@ import com.beykus.beygram.ui.theme.tokensFor
  * The choice reaches the rest of the app only after «Применить». Leaving the screen drops it.
  */
 @Composable
-fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> Unit, onOpenEditor: () -> Unit, onBack: () -> Unit) {
+fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> Unit, onOpenEditor: (AppearanceConfig) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()
     val systemDark = isSystemInDarkTheme()
     var preset by rememberSaveable { mutableStateOf(saved.preset) }
@@ -72,7 +72,7 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SectionTitle(stringResource(R.string.theme_preview_title))
-            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = tokensFor(preset, mode, systemDark)) {
+            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = tokensFor(draft, systemDark)) {
                 ThemePreview()
             }
 
@@ -98,7 +98,7 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
                 BrightnessRow(stringResource(R.string.theme_brightness_amoled), ThemeMode.Amoled, mode) { mode = ThemeMode.Amoled }
             }
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).clickable(onClick = onOpenEditor).padding(horizontal = 18.dp, vertical = 16.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).clickable { onOpenEditor(draft) }.padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(stringResource(R.string.theme_editor_open), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))

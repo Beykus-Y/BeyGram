@@ -36,4 +36,5 @@
     <string name="theme_editor_cancel">Отмена</string>
     <string name="theme_editor_warning_bubble">Текст плохо читается на этом цвете сообщений. Выберите другой.</string>
     <string name="theme_editor_warning_accent">Акцентный цвет почти сливается с фоном. Выберите другой.</string>
+    <string name="theme_editor_swatch">Цвет %1$d</string>
 </resources>

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,6 +36,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,7 +62,7 @@ private val BubbleChoices = listOf(0xFFE6DEFD, 0xFFDCE4F8, 0xFFD3EFFA, 0xFFD5F2E
  * The preview follows every change. The choice reaches the rest of the app only after «Применить»; leaving the screen drops it.
  */
 @Composable
-fun ThemeEditorScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> Unit, onBack: () -> Unit) {
+fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave: (AppearanceConfig) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()
     val systemDark = isSystemInDarkTheme()
     var accent by rememberSaveable { mutableStateOf(saved.accentColor) }
@@ -68,7 +72,7 @@ fun ThemeEditorScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> Uni
     // Keeps the palette and brightness that the editor does not change.
     val draft = saved.copy(accentColor = accent, outgoingBubbleColor = bubbleColor, bubbleStyle = style, density = density)
     val tokens = tokensFor(draft, systemDark)
-    val issues = contrastIssues(tokens)
+    val issues = contrastIssues(tokens, bubbleColor)
     val metrics = bubbleMetricsFor(style, density)
     BackHandler(onBack = onBack)
 
@@ -124,7 +128,7 @@ fun ThemeEditorScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> Uni
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.theme_editor_cancel)) }
-            Button(onClick = { onSave(draft); onBack() }, enabled = draft != saved, modifier = Modifier.weight(1f)) {
+            Button(onClick = { onSave(draft); onBack() }, enabled = draft != current, modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.theme_apply))
             }
         }
@@ -136,10 +140,10 @@ private fun ColorChoices(colors: List<Int>, selected: Int?, defaultLabel: String
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            colors.take(4).forEach { color -> Swatch(color, selected == color) { onPick(color) } }
+            colors.take(4).forEachIndexed { index, color -> Swatch(color, index, selected == color) { onPick(color) } }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            colors.drop(4).forEach { color -> Swatch(color, selected == color) { onPick(color) } }
+            colors.drop(4).forEachIndexed { index, color -> Swatch(color, index + 4, selected == color) { onPick(color) } }
         }
         Text(
             defaultLabel,
@@ -152,12 +156,14 @@ private fun ColorChoices(colors: List<Int>, selected: Int?, defaultLabel: String
 }
 
 @Composable
-private fun Swatch(color: Int, selected: Boolean, onClick: () -> Unit) {
+private fun Swatch(color: Int, index: Int, selected: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
+    val description = stringResource(R.string.theme_editor_swatch, index + 1)
     Box(
         Modifier.size(40.dp).clip(CircleShape).background(Color(color))
             .border(if (selected) 3.dp else 1.dp, if (selected) palette.accent else palette.textSecondary.copy(alpha = 0.3f), CircleShape)
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .semantics { contentDescription = description }
     )
 }
 

@@ -463,7 +463,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                     // Чат без звука получает серый счётчик, как в Telegram.
                     val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
                     Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(11.dp)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
-                        Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

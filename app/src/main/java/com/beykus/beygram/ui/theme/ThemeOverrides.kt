@@ -25,15 +25,20 @@ fun BeyGramTokens.withOverrides(accentColor: Int?, outgoingBubbleColor: Int?, da
     var result = this
     if (accentColor != null) {
         val picked = Color(accentColor).copy(alpha = 1f)
+        val soft = lerp(bg, picked, if (dark) 0.22f else 0.14f)
         result = result.copy(
             accent = picked,
             onAccent = if (contrastRatio(Color.White, picked) >= contrastRatio(Color.Black, picked)) Color.White else Color.Black,
-            accentSoft = lerp(bg, picked, if (dark) 0.22f else 0.14f),
-            accentInk = readableInk(picked, surface, text),
+            accentSoft = soft,
+            accentInk = readableInk(picked, soft, text),
             bubbleOut = lerp(bg, picked, if (dark) 0.28f else 0.2f)
         )
     }
-    if (outgoingBubbleColor != null) result = result.copy(bubbleOut = Color(outgoingBubbleColor).copy(alpha = 1f))
+    // A picked bubble colour is kept only while the text reads on it, so a colour chosen in the light theme
+    // cannot make messages unreadable once the system switches to the dark one.
+    if (outgoingBubbleColor != null && isReadableBubble(text, outgoingBubbleColor)) {
+        result = result.copy(bubbleOut = Color(outgoingBubbleColor).copy(alpha = 1f))
+    }
     return result
 }
 
@@ -48,12 +53,16 @@ private fun readableInk(color: Color, background: Color, toward: Color): Color {
     return ink
 }
 
+/** Whether text of this colour reads on a bubble of the given ARGB colour. */
+internal fun isReadableBubble(text: Color, bubbleColor: Int): Boolean =
+    contrastRatio(text, Color(bubbleColor).copy(alpha = 1f)) >= MinTextContrast
+
 /** What the editor warns about for a set of tokens. */
 internal data class ThemeContrastIssues(val bubbleText: Boolean, val accent: Boolean) {
     val any get() = bubbleText || accent
 }
 
-internal fun contrastIssues(tokens: BeyGramTokens): ThemeContrastIssues = ThemeContrastIssues(
-    bubbleText = contrastRatio(tokens.text, tokens.bubbleOut) < MinTextContrast,
+internal fun contrastIssues(tokens: BeyGramTokens, pickedBubbleColor: Int?): ThemeContrastIssues = ThemeContrastIssues(
+    bubbleText = pickedBubbleColor != null && !isReadableBubble(tokens.text, pickedBubbleColor),
     accent = contrastRatio(tokens.accent, tokens.bg) < MinAccentContrast
 )

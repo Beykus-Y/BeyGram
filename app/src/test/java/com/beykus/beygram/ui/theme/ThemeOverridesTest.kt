@@ -35,12 +35,22 @@ class ThemeOverridesTest {
     }
 
     @Test fun presetsRaiseNoWarning() {
-        assertFalse(contrastIssues(LightTokens).any)
-        assertFalse(contrastIssues(DarkTokens).any)
+        assertFalse(contrastIssues(LightTokens, null).any)
+        assertFalse(contrastIssues(DarkTokens, null).any)
     }
 
     @Test fun darkBubbleUnderDarkTextIsFlagged() {
+        val dark = 0xFF2E2952.toInt()
+        assertTrue(contrastIssues(LightTokens, dark).bubbleText)
+    }
+
+    @Test fun unreadableBubbleColorFallsBackToThePresetOne() {
         val result = LightTokens.withOverrides(null, 0xFF2E2952.toInt(), dark = false)
-        assertTrue(contrastIssues(result).bubbleText)
+        assertEquals(LightTokens.bubbleOut, result.bubbleOut)
+    }
+
+    @Test fun accentInkReadsOnTheSoftFill() {
+        val result = LightTokens.withOverrides(0xFFD6336C.toInt(), null, dark = false)
+        assertTrue(contrastRatio(result.accentInk, result.accentSoft) >= MinTextContrast)
     }
 }
