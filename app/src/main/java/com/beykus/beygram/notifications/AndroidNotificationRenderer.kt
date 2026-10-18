@@ -71,7 +71,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
                 compat.notify(tag, 0, notification)
                 // Advanced only after the system accepted the post, so a failed alert is retried on the next render.
                 preferences.handled(group.id, maxId)
-            } catch (error: SecurityException) {
+            } catch (error: RuntimeException) {
                 recordAppEvent(EventKind.NOTIFICATION, "notify_failed", "Уведомление не опубликовано: ${error.javaClass.simpleName}", Severity.WARNING)
             }
             // A failed post keeps the earlier entry instead of cancelling it as stale.

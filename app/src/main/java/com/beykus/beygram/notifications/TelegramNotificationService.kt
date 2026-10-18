@@ -27,6 +27,8 @@ class TelegramNotificationService : Service() {
     // Held only while TDLib reports pending deliveries; it also expires by itself.
     private var deliveryWakeLock: PowerManager.WakeLock? = null
     private var createdAt = 0L
+    // A Connected state can arrive before onStartCommand records the start; its report waits for that start event.
+    private var connectionReady = false
     private var connectedReported = false
     private var startReported = false
     // Reason recorded when the service stops; stays "system" when the platform stops it.
@@ -50,7 +52,7 @@ class TelegramNotificationService : Service() {
         if (repository == null) { runtime.serviceState(false, UiText.Res(R.string.err_notif_telegram_start_failed)); stopSelf(); return }
         scope.launch {
             combine(repository.connectionState, repository.authState, runtime.preferences.state) { connection, auth, config ->
-                if (connection == TelegramConnectionState.Connected) { startupWakeLock.releaseIfHeld(); reportConnectedOnce() }
+                if (connection == TelegramConnectionState.Connected) { connectionReady = true; startupWakeLock.releaseIfHeld(); reportConnectedOnce() }
                 if (!config.enabled || !config.background || auth == AuthState.WaitingForPhone) {
                     stopReason = if (!config.enabled || !config.background) "disabled" else "logged_out"
                     stopSelf(); return@combine
@@ -71,7 +73,10 @@ class TelegramNotificationService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!startReported) {
             startReported = true
-            recordAppEvent(EventKind.NOTIFICATION, "service_started", "Фоновая служба запущена", attrs = mapOf("source" to (intent?.getStringExtra(EXTRA_SOURCE) ?: "system")))
+            val source = intent?.getStringExtra(EXTRA_SOURCE) ?: "system"
+            recordAppEvent(EventKind.NOTIFICATION, "service_started", "Фоновая служба запущена: ${startSourceText(source)}", attrs = mapOf("source" to source))
+            // The connection may already be ready; its readiness is journaled only after this start event.
+            reportConnectedOnce()
         }
         if (intent?.action == STOP) {
             stopReason = "user"
@@ -85,17 +90,19 @@ class TelegramNotificationService : Service() {
         scope.cancel()
         startupWakeLock.releaseIfHeld()
         deliveryWakeLock.releaseIfHeld()
-        if (startReported) recordAppEvent(EventKind.NOTIFICATION, "service_stopped", "Фоновая служба остановлена", attrs = mapOf("reason" to stopReason))
+        externalStopReason?.let { stopReason = it; externalStopReason = null }
+        if (startReported) recordAppEvent(EventKind.NOTIFICATION, "service_stopped", "Фоновая служба остановлена: ${stopReasonText(stopReason)}", attrs = mapOf("reason" to stopReason))
         if (::runtime.isInitialized) runtime.serviceState(false)
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
     override fun onTimeout(startId: Int, fgsType: Int) { stopReason = "timeout"; stopSelf() }
+    // Journaled only after the start event, so readiness never precedes the start whose latency it measures.
     private fun reportConnectedOnce() {
-        if (connectedReported) return
+        if (connectedReported || !connectionReady || !startReported) return
         connectedReported = true
         val elapsed = SystemClock.elapsedRealtime() - createdAt
-        recordAppEvent(EventKind.NOTIFICATION, "startup_connected", "Фоновое соединение готово", attrs = mapOf("elapsed_ms" to elapsed.toString()))
+        recordAppEvent(EventKind.NOTIFICATION, "startup_connected", "Фоновое соединение готово за $elapsed мс", attrs = mapOf("elapsed_ms" to elapsed.toString()))
     }
     private fun newWakeLock(): PowerManager.WakeLock = getSystemService(PowerManager::class.java)
         .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:notification_delivery").apply { setReferenceCounted(false) }
@@ -113,12 +120,39 @@ class TelegramNotificationService : Service() {
         private const val EXTRA_SOURCE = "source"
         private const val STARTUP_WAKE_LOCK_MILLIS = 15_000L
         private const val DELIVERY_WAKE_LOCK_MILLIS = 60_000L
+        // Set when reconciliation stops a running service, so its onDestroy records that cause instead of a platform stop.
+        @Volatile private var externalStopReason: String? = null
         fun shouldRun(context: Context): Boolean = NotificationRuntime.get(context).preferences.let { it.authorized && it.state.value.enabled && it.state.value.background && AndroidNotificationRenderer.canNotify(context) }
         /** Call only from a resumed UI or an allowed system boot/package replacement receiver; [source] goes to diagnostics. */
         fun reconcileFromAllowedContext(context: Context, source: String) {
-            if (!shouldRun(context)) { context.stopService(Intent(context, TelegramNotificationService::class.java)); return }
+            if (!shouldRun(context)) {
+                if (NotificationRuntime.get(context).serviceRunning.value) externalStopReason = blockReason(context)
+                context.stopService(Intent(context, TelegramNotificationService::class.java))
+                return
+            }
             try { ContextCompat.startForegroundService(context, Intent(context, TelegramNotificationService::class.java).putExtra(EXTRA_SOURCE, source)) }
             catch (_: RuntimeException) { NotificationRuntime.get(context).serviceState(false, UiText.Res(R.string.err_notif_background_start_failed)) }
+        }
+        private fun blockReason(context: Context): String = when {
+            !NotificationRuntime.get(context).preferences.authorized -> "logged_out"
+            !AndroidNotificationRenderer.canNotify(context) -> "permission"
+            else -> "disabled"
+        }
+        private fun startSourceText(source: String): String = when (source) {
+            "ui" -> "из приложения"
+            "boot" -> "после перезагрузки телефона"
+            "package_replaced" -> "после обновления приложения"
+            else -> "перезапуск системой"
+        }
+        private fun stopReasonText(reason: String): String = when (reason) {
+            "user" -> "кнопка «Остановить»"
+            "disabled" -> "выключено в настройках"
+            "logged_out" -> "аккаунт не авторизован"
+            "permission" -> "нет разрешения на уведомления"
+            "foreground_denied" -> "система не разрешила фоновую работу"
+            "timeout" -> "лимит времени системы"
+            "not_allowed" -> "условия работы не выполнены"
+            else -> "остановлена системой"
         }
     }
 }
