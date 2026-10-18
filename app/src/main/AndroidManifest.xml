@@ -44,6 +44,7 @@
             </intent-filter>
         </receiver>
         <receiver android:name=".notifications.NotificationDismissReceiver" android:exported="false" />
+        <receiver android:name=".notifications.NotificationReplyReceiver" android:exported="false" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"
