@@ -12,7 +12,12 @@ import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import java.io.File
+import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Process-level presenter; the service and UI share the same TDLib instance and subscriptions. */
 class NotificationRuntime private constructor(private val context: Context) {
@@ -21,6 +26,12 @@ class NotificationRuntime private constructor(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var repository: TelegramRepository? = null
     private val flushing = ConcurrentHashMap.newKeySet<Int>()
+    private val replyOutbox by lazy { ReplyOutbox(File(context.noBackupFilesDir, REPLY_OUTBOX_DIRECTORY)) }
+    private val replyInFlight = ConcurrentHashMap.newKeySet<String>()
+    private val replyFlushing = AtomicBoolean(false)
+    private val replyRetryScheduled = AtomicBoolean(false)
+    // Counts sign-outs. A reply that waits for authorization must not be sent once the account it was made for has changed.
+    private val accountGeneration = AtomicInteger()
     private val invalidations = MutableStateFlow(0L)
     private val _service = MutableStateFlow(false)
     val serviceRunning = _service.asStateFlow()
@@ -41,8 +52,13 @@ class NotificationRuntime private constructor(private val context: Context) {
         }
         scope.launch { source.authState.collect { auth ->
             when (auth) {
-                AuthState.Ready -> { preferences.authorized = true; flushDismissals() }
-                AuthState.WaitingForPhone -> preferences.authorized = false
+                AuthState.Ready -> { preferences.authorized = true; flushDismissals(); flushReplies() }
+                AuthState.WaitingForPhone -> {
+                    preferences.authorized = false
+                    // Pending replies were made for the signed-in account, so a sign-out ends them.
+                    accountGeneration.incrementAndGet()
+                    outbox { clear() }
+                }
                 else -> Unit
             }
             _authorized.value = auth == AuthState.Ready
@@ -64,42 +80,111 @@ class NotificationRuntime private constructor(private val context: Context) {
         refresh(); flushDismissals()
     }
     /**
-     * Sends a reply typed in a notification. An accepted send dismisses the group; a rejected one keeps the notification
-     * and marks it. [finished] ends the broadcast in time, while a slower send keeps running.
+     * Sends a reply typed in a notification. The reply is written to the outbox before the broadcast ends, so a process that
+     * stops before the send finishes sends it at the next start. An accepted send dismisses the group; a rejected one keeps
+     * the notification and marks it. [finished] ends the broadcast in time, while a slower send keeps running.
      */
     fun reply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String, finished: () -> Unit) {
-        // A blank reply sends nothing; re-posting the notification still clears the inline field.
-        val send = scope.launch {
-            // The submitted action is spent, so the notification is re-posted; re-posting needs an attached repository.
-            if (repository == null) runCatching { attachRealClient() }
-            if (text.isBlank()) refresh() else deliverReply(chatId, groupId, maxId, replyToMessageId, text)
-        }
         scope.launch {
-            withTimeoutOrNull(REPLY_BROADCAST_MILLIS) { send.join() }
-            finished()
+            try {
+                // A blank reply sends nothing; re-posting the notification still clears the inline field.
+                val pending = if (text.isBlank()) null else storeReply(chatId, groupId, maxId, replyToMessageId, text)
+                val send = launch {
+                    // The submitted action is spent, so the notification is re-posted; re-posting needs an attached repository.
+                    if (repository == null) runCatching { attachRealClient() }
+                    if (pending == null) refresh() else if (!deliverReply(pending)) scheduleReplyRetry()
+                }
+                withTimeoutOrNull(REPLY_BROADCAST_MILLIS) { send.join() }
+            } finally {
+                finished()
+            }
         }
     }
-    private suspend fun deliverReply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String) {
-        val failure = sendReply(chatId, replyToMessageId, text).exceptionOrNull()
-        if (failure == null) {
-            recordAppEvent(EventKind.NOTIFICATION, "reply_sent", "Ответ из уведомления отправлен")
-            dismiss(groupId, maxId)
-        } else {
+    /** Keeps the reply on disk. A reply made while signed out, or one the disk refuses, is sent once and not kept. */
+    private suspend fun storeReply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, text: String): PendingReply {
+        val now = System.currentTimeMillis()
+        val stored: ReplyOutbox.Entry? = if (repository?.authState?.value == AuthState.WaitingForPhone) null else try {
+            outbox { add(chatId, groupId, maxId, replyToMessageId, text, now) }
+        } catch (error: IOException) {
+            recordAppEvent(EventKind.NOTIFICATION, "reply_not_stored", "Ответ из уведомления не удалось сохранить", Severity.WARNING, mapOf("cause" to error.javaClass.simpleName))
+            null
+        }
+        val entry = stored ?: ReplyOutbox.Entry(UUID.randomUUID().toString(), chatId, groupId, maxId, replyToMessageId, text, now, attempts = 0)
+        return PendingReply(entry, stored = stored != null)
+    }
+    /** Sends one reply. Returns false when the send failed and the reply stays stored for another attempt. */
+    private suspend fun deliverReply(pending: PendingReply): Boolean {
+        val entry = pending.entry
+        // One attempt at a time: a flush does not send a reply that the broadcast is still sending.
+        if (!replyInFlight.add(entry.id)) return true
+        try {
+            // A stored reply that is no longer in the outbox was sent already, or cleared by a sign-out.
+            if (pending.stored && !outbox { isStored(entry.id) }) return true
+            val failure = sendReply(entry, pending.stored).exceptionOrNull()
+            if (failure == null) {
+                // A reply that stays in the outbox after it was sent would be sent again at the next start.
+                if (pending.stored && !outbox { remove(entry.id) }) recordAppEvent(EventKind.NOTIFICATION, "reply_remove_failed", "Отправленный ответ не удалось убрать из очереди", Severity.WARNING)
+                recordAppEvent(EventKind.NOTIFICATION, "reply_sent", "Ответ из уведомления отправлен")
+                dismiss(entry.groupId, entry.maxId)
+                return true
+            }
             // The note belongs to the newest notice at this moment, so a notice that arrives later clears it.
-            val newest = repository?.notifications?.value?.groups?.firstOrNull { it.id == groupId }?.notices?.maxOfOrNull { it.id } ?: maxId
-            renderer.markReplyFailed(groupId, newest)
+            val newest = repository?.notifications?.value?.groups?.firstOrNull { it.id == entry.groupId }?.notices?.maxOfOrNull { it.id } ?: entry.maxId
+            renderer.markReplyFailed(entry.groupId, newest)
             recordAppEvent(EventKind.NOTIFICATION, "reply_failed", "Ответ из уведомления не отправлен", Severity.WARNING, mapOf("cause" to failure.javaClass.simpleName))
             refresh()
+            if (!pending.stored) return true
+            // If the outbox cannot record the failure, the reply keeps its count and is tried again.
+            val dropped = try { outbox { recordFailure(entry, MAX_REPLY_ATTEMPTS) } } catch (error: IOException) { false }
+            if (dropped) recordAppEvent(EventKind.NOTIFICATION, "reply_dropped", "Ответ из уведомления отброшен после повторных попыток", Severity.WARNING)
+            return dropped
+        } finally {
+            replyInFlight.remove(entry.id)
         }
     }
-    private suspend fun sendReply(chatId: Long, replyToMessageId: Long, text: String): Result<Unit> = try {
+    /** Sends the stored replies while the account is signed in. A reply that fails stays stored for a later attempt. */
+    private fun flushReplies() {
+        if (repository?.authState?.value != AuthState.Ready || !replyFlushing.compareAndSet(false, true)) return
+        scope.launch {
+            var retry = false
+            try {
+                val expired = outbox { discardExpired(System.currentTimeMillis(), REPLY_TTL_MILLIS) }
+                if (expired > 0) recordAppEvent(EventKind.NOTIFICATION, "reply_expired", "Устаревшие ответы из уведомлений удалены", Severity.WARNING, mapOf("count" to expired.toString()))
+                for (entry in outbox { entries() }) {
+                    if (!deliverReply(PendingReply(entry, stored = true))) retry = true
+                }
+            } finally {
+                replyFlushing.set(false)
+            }
+            if (retry) scheduleReplyRetry()
+        }
+    }
+    /** One retry at a time, so failures in a row do not multiply the scheduled attempts. */
+    private fun scheduleReplyRetry() {
+        if (!replyRetryScheduled.compareAndSet(false, true)) return
+        scope.launch {
+            delay(REPLY_RETRY_MILLIS)
+            replyRetryScheduled.set(false)
+            flushReplies()
+        }
+    }
+    /** Outbox files are read and written off the main thread. */
+    private suspend fun <T> outbox(block: ReplyOutbox.() -> T): T = withContext(Dispatchers.IO) { replyOutbox.block() }
+    /** A reply on its way to Telegram. Only a [stored] reply is kept on disk until it is sent. */
+    private class PendingReply(val entry: ReplyOutbox.Entry, val stored: Boolean)
+    private suspend fun sendReply(entry: ReplyOutbox.Entry, stored: Boolean): Result<Unit> = try {
         val source = repository ?: attachRealClient() ?: throw IllegalStateException("Telegram client is unavailable")
+        // A signed-out account cannot send, and a reply does not wait for another account to sign in.
+        if (source.authState.value == AuthState.WaitingForPhone) throw IllegalStateException("Telegram client is not authorized")
+        val account = accountGeneration.get()
         // A reply that starts the process can arrive before TDLib has authorized, and TDLib rejects requests until then.
         // Without authorization in time the reply is not sent, and the notification is marked as failed.
         withTimeoutOrNull(REPLY_READY_MILLIS) { source.authState.first { it == AuthState.Ready } }
             ?: throw IllegalStateException("Telegram client is not authorized")
+        // A sign-out while the reply waited ends it, because the reply was made for the account that signed out.
+        if (accountGeneration.get() != account || (stored && !outbox { isStored(entry.id) })) throw IllegalStateException("Account changed")
         // Replying to the notified message puts the answer in its forum topic, too.
-        source.sendMessage(chatId, text, replyToMessageId.takeIf { it > 0L })
+        source.sendMessage(entry.chatId, entry.text, entry.replyToMessageId.takeIf { it > 0L })
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
@@ -148,6 +233,12 @@ class NotificationRuntime private constructor(private val context: Context) {
         private const val REPLY_BROADCAST_MILLIS = 8_000L
         // Longest wait for TDLib's authorization after the broadcast has ended; the send itself is not bound to the broadcast.
         private const val REPLY_READY_MILLIS = 30_000L
+        // A failed reply is tried again after REPLY_RETRY_MILLIS. A stored reply is dropped after MAX_REPLY_ATTEMPTS failures,
+        // or once it is older than REPLY_TTL_MILLIS.
+        private const val REPLY_RETRY_MILLIS = 60_000L
+        private const val MAX_REPLY_ATTEMPTS = 5
+        private const val REPLY_TTL_MILLIS = 24 * 60 * 60 * 1000L
+        private const val REPLY_OUTBOX_DIRECTORY = "reply-outbox"
         @Volatile private var instance: NotificationRuntime? = null
         fun get(context: Context): NotificationRuntime = instance ?: synchronized(this) {
             instance ?: NotificationRuntime(context.applicationContext).also { instance = it }
