@@ -12,13 +12,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationIntents
 import com.beykus.beygram.notifications.NotificationRuntime
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.beykus.beygram.ui.theme.AppearanceViewModel
 import com.beykus.beygram.ui.theme.BeyGramTheme
+import com.beykus.beygram.data.appearance.ThemeMode
 
 class MainActivity : ComponentActivity() {
     private var notificationRequest by mutableStateOf<NotificationOpenRequest?>(null)
@@ -29,11 +32,12 @@ class MainActivity : ComponentActivity() {
                 savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"))
         } else acceptNotificationIntent(intent)
         enableEdgeToEdge()
-        val preferences = getSharedPreferences("appearance", MODE_PRIVATE)
 
         setContent {
-            val systemDarkTheme = isSystemInDarkTheme()
-            var isDarkTheme by rememberSaveable { mutableStateOf(preferences.getBoolean("dark_theme", systemDarkTheme)) }
+            val appearance: AppearanceViewModel = viewModel()
+            // The stored choice is read asynchronously. Nothing is drawn until it is known, so the theme never flips.
+            val themeMode = appearance.themeMode.collectAsState().value ?: return@setContent
+            val isDarkTheme = themeMode.isDark(isSystemInDarkTheme())
 
             BeyGramTheme(darkTheme = isDarkTheme) {
                 Surface(
@@ -44,7 +48,7 @@ class MainActivity : ComponentActivity() {
                         notificationRequest = notificationRequest,
                         onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
                         isDarkTheme = isDarkTheme,
-                        onThemeChange = { isDarkTheme = it; preferences.edit().putBoolean("dark_theme", it).apply() }
+                        onThemeChange = { appearance.setThemeMode(if (it) ThemeMode.Dark else ThemeMode.Light) }
                     )
                 }
             }
