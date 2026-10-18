@@ -25,21 +25,22 @@ class StorageCleanupRulesTest {
     }
 
     @Test fun policyWithoutLimitsAsksTdlibForNothing() {
-        assertNull(CachePolicy(maxBytes = null, maxAgeSeconds = null).optimizeRequest())
+        assertNull(CachePolicy(maxBytes = null, maxAgeSeconds = null).optimizeRequest(arrayOf<TdApi.FileType>(TdApi.FileTypePhoto())))
     }
 
-    @Test fun sizeLimitLeavesAgeAndCountUnlimitedAndFileTypesToTdlibDefaults() {
-        val request = CachePolicy(maxBytes = 5 * GIGABYTE, maxAgeSeconds = null).optimizeRequest()!!
+    @Test fun sizeLimitLeavesAgeAndCountUnlimitedAndCountsEveryGivenType() {
+        val types = arrayOf<TdApi.FileType>(TdApi.FileTypePhoto(), TdApi.FileTypeSticker())
+        val request = CachePolicy(maxBytes = 5 * GIGABYTE, maxAgeSeconds = null).optimizeRequest(types)!!
         assertEquals(5 * GIGABYTE, request.size)
         assertEquals(Int.MAX_VALUE, request.ttl)
         assertEquals(Int.MAX_VALUE, request.count)
         assertEquals(-1, request.immunityDelay)
-        assertEquals(0, request.fileTypes.size)
+        assertArrayEquals(types, request.fileTypes)
         assertTrue(request.returnDeletedFileStatistics)
     }
 
     @Test fun ageLimitDoesNotCutBySize() {
-        val request = CachePolicy(maxBytes = null, maxAgeSeconds = 7 * 24 * 60 * 60).optimizeRequest()!!
+        val request = CachePolicy(maxBytes = null, maxAgeSeconds = 7 * 24 * 60 * 60).optimizeRequest(arrayOf<TdApi.FileType>(TdApi.FileTypePhoto()))!!
         assertEquals((1L shl 53) - 1, request.size)
         assertEquals(604_800, request.ttl)
     }

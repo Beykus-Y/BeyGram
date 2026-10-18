@@ -16,7 +16,8 @@ internal class TdStorage(private val client: () -> Client) {
         return StorageUsage(
             bytesByCategory = files.fileTypeEntries().groupingBy { storageCategoryOf(it.fileType) }
                 .fold(0L) { total, entry -> total + entry.size },
-            databaseBytes = database.databaseSize
+            // База, языковые пакеты и журнал TDLib: очистка их не трогает, но в «занято приложением» они входят.
+            databaseBytes = database.databaseSize + database.languagePackDatabaseSize + database.logSize
         )
     }
 
@@ -38,7 +39,8 @@ internal class TdStorage(private val client: () -> Client) {
     }
 
     suspend fun applyPolicy(policy: CachePolicy): Long {
-        val request = policy.optimizeRequest() ?: return 0L
+        val fileTypes = statistics().fileTypeEntries().map { it.fileType }.distinctBy { it.javaClass }.toTypedArray()
+        val request = policy.optimizeRequest(fileTypes) ?: return 0L
         return requests(request, STORAGE_TIMEOUT_MS).size
     }
 

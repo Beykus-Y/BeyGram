@@ -305,10 +305,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val storage = TdStorage { client }
     private val storageSettings = StorageSettingsStore.getInstance(context)
     private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
-    override suspend fun storageUsage(): Result<StorageUsage> = requestResult { storage.usage() }
+    override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
     override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> =
-        requestResult { storage.clear(categories, onProgress) }
-    override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> = requestResult { storage.applyPolicy(policy) }
+        storageResult { storage.clear(categories, onProgress) }
+    override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> = storageResult { storage.applyPolicy(policy) }
 
     // ---- Канал подтверждения диагностических отчётов --------------------------
     // Pinning id бота задан публичной конфигурацией сборки; 0 — пиннинг выключен.

@@ -41,6 +41,7 @@ class StorageSettingsViewModel(
 
     fun refresh() {
         if (cleaningProgress != null) return
+        error = null
         viewModelScope.launch { loadUsage() }
     }
 

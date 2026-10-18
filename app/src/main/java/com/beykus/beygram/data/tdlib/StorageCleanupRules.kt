@@ -33,16 +33,17 @@ internal fun storageCategoryOf(fileType: TdApi.FileType): StorageCategory = when
 
 /**
  * Запрос, который приводит файлы к лимитам. Без лимитов запроса нет, и TDLib ничего не удаляет.
- * Типы файлов не передаются: TDLib удаляет как обычно и не трогает миниатюры, аватарки, стикеры и обои.
+ * Типы передаются явно: лимит считается по всему, что видно на экране, включая стикеры и миниатюры.
+ * Пустой список TDLib понимает как «по умолчанию», а по умолчанию миниатюры и стикеры не трогаются.
  */
-internal fun CachePolicy.optimizeRequest(): TdApi.OptimizeStorage? {
+internal fun CachePolicy.optimizeRequest(fileTypes: Array<TdApi.FileType>): TdApi.OptimizeStorage? {
     if (maxBytes == null && maxAgeSeconds == null) return null
     return TdApi.OptimizeStorage(
         maxBytes ?: NO_SIZE_LIMIT,
         maxAgeSeconds ?: NO_AGE_OR_COUNT_LIMIT,
         NO_AGE_OR_COUNT_LIMIT,
         DEFAULT_IMMUNITY_SECONDS,
-        emptyArray(),
+        fileTypes,
         longArrayOf(),
         longArrayOf(),
         true,

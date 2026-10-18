@@ -48,6 +48,12 @@ internal suspend fun <T> conversationResult(timeoutMessage: UiText = MESSAGE_TIM
 /** Контакты, звонки и чаты: сообщений здесь нет, поэтому 404 не значит удалённое сообщение. */
 internal suspend fun <T> requestResult(block: suspend () -> T): Result<T> = telegramResult(REQUEST_TIMEOUT, block, ::requestErrorText)
 
+/** Локальные операции с файлами: таймаут значит медленный диск, а не сеть, поэтому в диагностику соединения он не попадает. */
+internal suspend fun <T> storageResult(block: suspend () -> T): Result<T> = try { Result.success(block()) }
+catch (timeout: TimeoutCancellationException) { Result.failure(timeout) }
+catch (cancelled: CancellationException) { throw cancelled }
+catch (error: Exception) { Result.failure(error) }
+
 private suspend fun <T> telegramResult(timeoutMessage: UiText, block: suspend () -> T, errorText: (Exception) -> UiText): Result<T> = try { Result.success(block()) }
 catch (timeout: TimeoutCancellationException) {
     recordConnectionFailure(ConnectionFailure.Timeout)

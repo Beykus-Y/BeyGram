@@ -612,8 +612,8 @@
     <string name="storage_category_voice_notes">Голосовые и кружки</string>
     <string name="storage_category_music">Музыка</string>
     <string name="storage_category_other">Стикеры и прочее</string>
-    <string name="storage_database">Переписка</string>
-    <string name="storage_database_detail">Сообщения и чаты. Очистка их не трогает.</string>
+    <string name="storage_database">База и служебные данные</string>
+    <string name="storage_database_detail">Сообщения, чаты и журнал. Очистка их не трогает.</string>
     <string name="storage_selected_size">Выбрано для очистки: %1$s</string>
     <string name="storage_clear_selected">Очистить выбранное</string>
     <string name="storage_clear_all">Очистить весь кэш</string>
