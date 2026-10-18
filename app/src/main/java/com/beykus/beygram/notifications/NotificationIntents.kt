@@ -20,8 +20,12 @@ internal object NotificationIntents {
     const val REPLY_TO = "notification_reply_to"
     private const val TOKEN = "notification_intent_token"
     fun valid(context: Context, intent: Intent): Boolean = intent.getStringExtra(TOKEN) == NotificationRuntime.get(context).preferences.intentToken()
-    fun validReply(context: Context, intent: Intent): Boolean = intent.getStringExtra(TOKEN) == replyRoutingToken(NotificationRuntime.get(context).preferences.replyToken(),
-        intent.getLongExtra(CHAT_ID, 0L), intent.getIntExtra(GROUP_ID, 0), intent.getIntExtra(MAX_ID, 0), intent.getLongExtra(REPLY_TO, 0L))
+    /** The session token that made the reply action, or null when the action is not from the signed-in session. */
+    fun replySession(context: Context, intent: Intent): String? {
+        val session = NotificationRuntime.get(context).preferences.replyToken()
+        val routing = replyRoutingToken(session, intent.getLongExtra(CHAT_ID, 0L), intent.getIntExtra(GROUP_ID, 0), intent.getIntExtra(MAX_ID, 0), intent.getLongExtra(REPLY_TO, 0L))
+        return session.takeIf { intent.getStringExtra(TOKEN) == routing }
+    }
     fun chat(context: Context, chatId: Long, groupId: Int, maxId: Int): PendingIntent = PendingIntent.getActivity(context, 0,
         Intent(context, MainActivity::class.java).setAction(OPEN_CHAT).setData(Uri.parse("beygram://${context.packageName}/chat/$chatId/$groupId/$maxId"))
             .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),

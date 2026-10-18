@@ -11,6 +11,7 @@ class NotificationPreferencesStore(context: Context) {
     private val _state = MutableStateFlow(read())
     val state = _state.asStateFlow()
     @Synchronized internal fun intentToken(): String = preferences.getString("intent_token", null) ?: java.util.UUID.randomUUID().toString().also { preferences.edit().putString("intent_token", it).apply() }
+    /** The token of the signed-in session. Reply actions and queued replies carry it; a sign-out replaces it, which retires them. */
     @Synchronized internal fun replyToken(): String = preferences.getString("reply_token", null) ?: java.util.UUID.randomUUID().toString().also { preferences.edit().putString("reply_token", it).apply() }
     /** Retires reply actions that listeners may still hold from an earlier session; the next render posts them with the new token. */
     @Synchronized private fun rotateReplyToken() { preferences.edit().putString("reply_token", java.util.UUID.randomUUID().toString()).apply() }

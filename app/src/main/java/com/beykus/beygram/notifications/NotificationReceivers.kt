@@ -25,7 +25,9 @@ class NotificationDismissReceiver : BroadcastReceiver() {
 
 class NotificationReplyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != NotificationIntents.REPLY || !NotificationIntents.validReply(context, intent)) return
+        if (intent.action != NotificationIntents.REPLY) return
+        // The session that made the action. An action from a session that has signed out since is ignored.
+        val session = NotificationIntents.replySession(context, intent) ?: return
         val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(NotificationIntents.REPLY_TEXT)?.toString() ?: ""
         // The send may outlive this broadcast; the runtime finishes it within the receiver's time limit.
         val pending = goAsync()
@@ -35,6 +37,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             maxId = intent.getIntExtra(NotificationIntents.MAX_ID, 0),
             replyToMessageId = intent.getLongExtra(NotificationIntents.REPLY_TO, 0L),
             text = text,
+            session = session,
             finished = { pending.finish() }
         )
     }
