@@ -502,9 +502,11 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentOnStarted by rememberUpdatedState(onStarted)
+    val currentActive by rememberUpdatedState(active)
     val player = remember(path, loop) {
         ExoPlayer.Builder(context.applicationContext)
-            .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), /* handleAudioFocus = */ true)
+            // Звук видео забирает фокус у внешних плееров. У анимации звука нет, поэтому фокус ей не нужен.
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), /* handleAudioFocus = */ !loop)
             .setHandleAudioBecomingNoisy(true)
             .build()
     }
@@ -532,15 +534,20 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
             player.release()
         }
     }
-    DisposableEffect(player, lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) player.pause() }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
     fun play() {
         if (video.ended) player.seekToDefaultPosition()
-        startRequested = true
+        // Отметка не ставится снова, пока файл уже играет: иначе она осталась бы до следующей буферизации.
+        if (!player.isPlaying) startRequested = true
         player.play()
+    }
+    DisposableEffect(player, lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) player.pause()
+            // Анимация без панели управления играет сама, пока страница на экране: после возврата в приложение она продолжает.
+            if (event == Lifecycle.Event.ON_START && loop && currentActive) play()
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
     }
     fun seek(fraction: Float) {
         val target = seekPositionMs(fraction, video.durationMs) ?: return
@@ -557,8 +564,8 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
             player.pause()
         }
     }
-    // Пока видео играет, ползунок и время обновляются. На паузе хватает одного обновления.
-    LaunchedEffect(player, video.playing, video.buffering) {
+    // Пока видео играет, ползунок и время обновляются. На паузе хватает одного обновления. Анимации ползунка не нужны.
+    if (!loop) LaunchedEffect(player, video.playing, video.buffering) {
         do {
             video = video.copy(positionMs = player.currentPosition, durationMs = player.duration.coerceAtLeast(0L))
             if (video.playing) delay(VIDEO_PROGRESS_INTERVAL_MS)
@@ -592,6 +599,8 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
 @Composable
 private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Unit, onSeek: (Float) -> Unit, modifier: Modifier) {
     val action = state.primaryAction()
+    // Позиция во время перетаскивания живёт в ползунке, а перемотка уходит один раз, когда палец отпущен.
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
     Row(
         modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.5f)).navigationBarsPadding().padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -608,8 +617,12 @@ private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Un
             )
         }
         Slider(
-            value = state.fraction(),
-            onValueChange = onSeek,
+            value = dragFraction ?: state.fraction(),
+            onValueChange = { dragFraction = it },
+            onValueChangeFinished = {
+                dragFraction?.let(onSeek)
+                dragFraction = null
+            },
             enabled = state.durationMs > 0L,
             modifier = Modifier.weight(1f),
             colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White)
