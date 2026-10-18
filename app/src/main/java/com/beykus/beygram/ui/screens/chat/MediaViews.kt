@@ -488,8 +488,10 @@ private fun AudioInPlayer(media: MessageMedia, path: String, active: Boolean, on
     val item = media.playbackItem(path, media.kind.label(context))
     val state by PlaybackEngine.state.collectAsStateWithLifecycle()
     val currentOnViewed by rememberUpdatedState(onViewed)
-    LaunchedEffect(item.key, active) {
-        if (active) currentOnViewed()
+    // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.
+    val playingHere = state.item?.key == item.key && state.playing
+    LaunchedEffect(playingHere, active) {
+        if (active && playingHere) currentOnViewed()
     }
     // Пока файл не играет в общем плеере, его перемотка и скорость относятся к другому файлу, поэтому выключены.
     val current = state.item?.key == item.key
