@@ -9,6 +9,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
 import androidx.compose.foundation.text.contextmenu.builder.item
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.input.*
@@ -21,7 +24,8 @@ import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 
 @Composable
 internal fun FormattingTextField(value: String, entities: List<MessageTextEntity>, onChange: (String) -> Unit,
-    onEntitiesChange: (List<MessageTextEntity>) -> Unit, placeholder: String, locked: Boolean, isError: Boolean, modifier: Modifier) {
+    onEntitiesChange: (List<MessageTextEntity>) -> Unit, placeholder: String, locked: Boolean, isError: Boolean, modifier: Modifier,
+    focusRequest: Int = 0) {
     var field by remember { mutableStateOf(TextFieldValue(value)) }
     val current = if (field.text == value) field else TextFieldValue(value, TextRange(value.length))
     var format by remember { mutableStateOf(false) }
@@ -30,6 +34,17 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
     var range by remember { mutableStateOf(TextRange.Zero) }
     val palette = beyGramPalette()
     val formatLabel = stringResource(R.string.chat_format)
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    // Each reply start bumps [focusRequest]. The value seen on entry is not a request, so a field that comes back
+    // after a recording does not take focus on its own.
+    var handledFocus by remember { mutableIntStateOf(focusRequest) }
+    LaunchedEffect(focusRequest) {
+        if (focusRequest == handledFocus) return@LaunchedEffect
+        handledFocus = focusRequest
+        focusRequester.requestFocus()
+        keyboard?.show()
+    }
     SelectionMenuProvider(modifier) {
         TextField(current, { next ->
             // Sending locks the text, not the field: a disabled field loses focus and hides the keyboard.
@@ -37,7 +52,7 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
             onEntitiesChange(adjustTextEntities(value, next.text, entities))
             field = next
             onChange(next.text)
-        }, modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 40.dp).appendTextContextMenuComponents {
+        }, modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 40.dp).focusRequester(focusRequester).appendTextContextMenuComponents {
                 if (!current.selection.collapsed) item(FormatSelectionKey, formatLabel) {
                     range = current.selection
                     close()

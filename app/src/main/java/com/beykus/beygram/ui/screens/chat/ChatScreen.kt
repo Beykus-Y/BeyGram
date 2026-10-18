@@ -80,6 +80,10 @@ fun ChatScreen(
     var editEntities by remember(chat.id) { mutableStateOf<List<MessageTextEntity>>(emptyList()) }
     val botKeyboard by remember(conversation, chat.id) { conversation.observeBotKeyboard(chat.id) }.collectAsStateWithLifecycle()
     var replyId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    // Bumped whenever a reply starts, so the composer takes focus and the keyboard opens.
+    var replyFocusRequest by remember(chat.id) { mutableIntStateOf(0) }
+    // The message of the latest swipe; a slower capability check for an older swipe is ignored.
+    var swipedReplyId by remember(chat.id) { mutableLongStateOf(0L) }
     var actionsId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var editId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var editText by rememberSaveable(chat.id) { mutableStateOf("") }
@@ -276,6 +280,10 @@ fun ChatScreen(
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }
     val actionMessage = messages.firstOrNull { it.id == actionsId }
     val editMessage = messages.firstOrNull { it.id == editId }
+    // A swipe reply needs an idle composer on screen: no search, deletion, edit, recording or open action menu, and no
+    // send in flight, because a finished send clears the reply target it used.
+    val swipeReplyAllowed = !searching && !deleting && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
+        !sending && !attachments.sending && !recordingQueueSending && pendingVideoNotes.isEmpty()
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) replyId = botKeyboard?.messageId }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
@@ -358,6 +366,25 @@ fun ChatScreen(
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
         if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = messageId }
     }
+    // The reply is checked on the server first: a channel, or a chat without reply rights, must not enter reply mode.
+    // Only the latest swipe may apply its answer, so a slower check cannot reopen the composer for an older message.
+    fun swipeReply(messageId: Long) {
+        swipedReplyId = messageId
+        scope.launch {
+            val result = conversation.messageCapabilities(chat.id, messageId)
+            if (swipedReplyId != messageId) return@launch
+            result
+                .onSuccess {
+                    if (it.canReply) {
+                        replyId = messageId
+                        replyFocusRequest++
+                    } else {
+                        error = context.getString(R.string.err_message_cannot_reply)
+                    }
+                }
+                .onFailure { error = it.userMessage(context, R.string.err_chat_actions_load_failed) }
+        }
+    }
     // Results refresh after a short pause in typing; a new query replaces the pending request.
     LaunchedEffect(searching, searchQuery) {
         searchResults = emptyList(); searchNextId = 0L; searchError = null
@@ -407,7 +434,7 @@ fun ChatScreen(
         if (actionMessage != null) MessageActionsBar(
             capabilities = capabilities, error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
             onClose = ::closeActions, onRetry = { capabilitiesAttempt++ },
-            onReply = { replyId = actionMessage.id; closeActions() },
+            onReply = { replyId = actionMessage.id; replyFocusRequest++; closeActions() },
             onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
@@ -433,12 +460,12 @@ fun ChatScreen(
                     MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
                         isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                         highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
-                        onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump,
+                        onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                         onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
                 } else {
                     val message = listItem.messages.single()
                     MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
-                        highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump,
+                        highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                         onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                         onRetry = { retryFailedMessages(listOf(message.id)) }, inlineContent = { InlineBotButtons(message, conversation) })
                 }
@@ -518,7 +545,7 @@ fun ChatScreen(
                 onChange = { if (editing) editText = it else typedDraft(it) },
                 onEntitiesChange = { if (editing) editEntities = it else draftEntities = ArrayList(it) },
                 placeholder = if (attachments.active) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
-                locked = busy, isError = overLimit, modifier = Modifier.weight(1f))
+                locked = busy, isError = overLimit, modifier = Modifier.weight(1f), focusRequest = replyFocusRequest)
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
@@ -651,7 +678,7 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
 
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, inlineContent: @Composable () -> Unit = {}) {
+    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, inlineContent: @Composable () -> Unit = {}) {
     val palette = beyGramPalette()
     val shape = if (message.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     val hasText = message.text.isNotBlank()
@@ -668,49 +695,52 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = 14.dp)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
-        // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
-        BubbleLayout(
-            Modifier.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
-                .then(if (message.media != null && !circle) Modifier.width(244.dp) else Modifier).clip(shape)
-                .background(if (circle) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
-                .then(if (highlighted && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-                .combinedClickable(onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() }, onLongClick = onActions),
-            overlayMeta = overlayMeta,
-            body = {
-                Column {
-                    if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
-                    // Media sits flush against the bubble's top and side edges; text keeps its own padding.
-                    message.media?.let { media ->
-                        if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile, onPlayed, onActions,
-                            time = if (inCircle) message.time else "", statusIcon = if (inCircle) statusIcon else null,
-                            statusDescription = when {
-                                !message.isOutgoing -> null
-                                message.sendState == MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
-                                isRead -> stringResource(R.string.chat_read_description)
-                                else -> stringResource(R.string.chat_sent_description)
-                            }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted)
-                        else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed)
-                    }
-                    // Без текста и ответа под фото нет строки: время уже стоит поверх него.
-                    if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = 12.dp, end = 12.dp, top = if (circle) 4.dp else 8.dp)) {
-                        message.reply?.let { reply ->
-                            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, palette.accent, RoundedCornerShape(12.dp))
-                                .clickable { onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                                Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            }
+        SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
+            onReply = { onReply?.invoke(message.id) }) { swipe ->
+            // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
+            BubbleLayout(
+                swipe.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
+                    .then(if (message.media != null && !circle) Modifier.width(244.dp) else Modifier).clip(shape)
+                    .background(if (circle) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
+                    .then(if (highlighted && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
+                    .combinedClickable(onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() }, onLongClick = onActions),
+                overlayMeta = overlayMeta,
+                body = {
+                    Column {
+                        if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                        // Media sits flush against the bubble's top and side edges; text keeps its own padding.
+                        message.media?.let { media ->
+                            if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile, onPlayed, onActions,
+                                time = if (inCircle) message.time else "", statusIcon = if (inCircle) statusIcon else null,
+                                statusDescription = when {
+                                    !message.isOutgoing -> null
+                                    message.sendState == MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
+                                    isRead -> stringResource(R.string.chat_read_description)
+                                    else -> stringResource(R.string.chat_sent_description)
+                                }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted)
+                            else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed)
                         }
-                        if (hasText) FormattedMessageText(message)
+                        // Без текста и ответа под фото нет строки: время уже стоит поверх него.
+                        if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = 12.dp, end = 12.dp, top = if (circle) 4.dp else 8.dp)) {
+                            message.reply?.let { reply ->
+                                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp))
+                                    .border(1.dp, palette.accent, RoundedCornerShape(12.dp))
+                                    .clickable { onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                    Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                            if (hasText) FormattedMessageText(message)
+                        }
                     }
-                }
-            },
-            meta = {
-                if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
-                    overlay = overlayMeta, onRetry = onRetry)
-            },
-            footer = inlineContent
-        )
+                },
+                meta = {
+                    if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
+                        overlay = overlayMeta, onRetry = onRetry)
+                },
+                footer = inlineContent
+            )
+        }
         MessageReactionChips(message.reactions, Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }
