@@ -5,8 +5,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class StorageSettingsTest {
-    @Test fun defaultsKeepFiveGigabytesAndNeverExpire() {
-        assertEquals(CachePolicy(maxBytes = 5L * 1024 * 1024 * 1024, maxAgeSeconds = null), StorageSettings().policy())
+    @Test fun defaultsKeepTenGigabytesAndNeverExpire() {
+        assertEquals(CachePolicy(maxBytes = 10L * 1024 * 1024 * 1024, maxAgeSeconds = null), StorageSettings().policy())
     }
 
     @Test fun retentionDaysBecomeSeconds() {

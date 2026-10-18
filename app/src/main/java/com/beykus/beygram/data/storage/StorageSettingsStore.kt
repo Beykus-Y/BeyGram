@@ -24,10 +24,13 @@ class StorageSettingsStore private constructor(context: Context) {
         _settings.value = next
     }
 
-    private fun readSettings() = StorageSettings(
-        sizeLimit = preferences.getString(KEY_SIZE_LIMIT, null).enumOr(StorageSizeLimit.FiveGigabytes),
-        retention = preferences.getString(KEY_RETENTION, null).enumOr(StorageRetention.Forever)
-    )
+    private fun readSettings(): StorageSettings {
+        val defaults = StorageSettings()
+        return StorageSettings(
+            sizeLimit = preferences.getString(KEY_SIZE_LIMIT, null).enumOr(defaults.sizeLimit),
+            retention = preferences.getString(KEY_RETENTION, null).enumOr(defaults.retention)
+        )
+    }
 
     private inline fun <reified T : Enum<T>> String?.enumOr(fallback: T): T =
         this?.let { value -> enumValues<T>().firstOrNull { it.name == value } } ?: fallback

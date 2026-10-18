@@ -15,9 +15,9 @@ enum class StorageRetention(val days: Int?) {
     ThreeDays(3), Week(7), Month(30), Forever(null)
 }
 
-/** По умолчанию кэш держим в пределах 5 ГБ, а по сроку ничего не удаляем. */
+/** По умолчанию кэш держим в пределах 10 ГБ, а по сроку ничего не удаляем. */
 data class StorageSettings(
-    val sizeLimit: StorageSizeLimit = StorageSizeLimit.FiveGigabytes,
+    val sizeLimit: StorageSizeLimit = StorageSizeLimit.TenGigabytes,
     val retention: StorageRetention = StorageRetention.Forever
 ) {
     fun policy(): CachePolicy = CachePolicy(
