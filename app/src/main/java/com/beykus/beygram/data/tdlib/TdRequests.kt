@@ -15,8 +15,10 @@ import kotlin.coroutines.resume
 
 internal class TdRequestError(val code: Int, message: String) : IllegalStateException(message)
 
+private const val DEFAULT_REQUEST_TIMEOUT_MS = 30_000L
+
 internal class TdRequests(private val client: () -> Client) {
-    suspend operator fun <T : TdApi.Object> invoke(function: TdApi.Function<T>): T = withTimeout(30_000) {
+    suspend operator fun <T : TdApi.Object> invoke(function: TdApi.Function<T>, timeoutMillis: Long = DEFAULT_REQUEST_TIMEOUT_MS): T = withTimeout(timeoutMillis) {
         suspendCancellableCoroutine { continuation ->
             client().send(function, Client.ResultHandler { result ->
                 if (continuation.isActive) {

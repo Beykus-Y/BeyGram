@@ -46,6 +46,7 @@ import com.beykus.beygram.ui.screens.diagnostics.DiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
+import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
@@ -275,6 +276,7 @@ private fun BeyGramAppContent(
     }
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Diagnostics || route == AppRoute.ReportProblem) { routeName = AppRoute.Settings.name }
 
     // Потоки собирает сам раздел, которому они нужны: обновление списка чатов перерисовывает только открытый раздел, а не всё приложение.
@@ -514,6 +516,7 @@ private fun BeyGramAppContent(
                 onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
                 onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
                 onNotifications = { openNotifications(AppRoute.Settings) },
+                onStorage = { routeName = AppRoute.StorageSettings.name },
                 onProxy = { openProxy(AppRoute.Settings) },
                 onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
                 onDiagnostics = { routeName = AppRoute.Diagnostics.name },
@@ -532,6 +535,7 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Diagnostics.name }
         )
         AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings) { routeName = AppRoute.Settings.name }
+        AppRoute.StorageSettings -> StorageSettingsScreen(repository = repository, onBack = { routeName = AppRoute.Settings.name })
         AppRoute.NavigationSettings -> NavigationSettingsScreen(
             visibility = tabVisibility,
             onVisibilityChange = onTabVisibilityChange,

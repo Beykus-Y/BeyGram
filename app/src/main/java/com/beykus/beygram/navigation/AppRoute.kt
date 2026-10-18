@@ -22,6 +22,7 @@ enum class AppRoute {
     LastSeenSettings,
     Updates,
     VideoMessageSettings,
+    StorageSettings,
     Diagnostics,
     ReportProblem,
     Proxy,

@@ -27,7 +27,10 @@ import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
+import com.beykus.beygram.domain.model.CachePolicy
 import com.beykus.beygram.domain.model.SavedTelegramProxy
+import com.beykus.beygram.domain.model.StorageCategory
+import com.beykus.beygram.domain.model.StorageUsage
 import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramNotifications
@@ -74,6 +77,9 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> = unavailable()
     override suspend fun openPrivateChat(userId: Long): Result<Long> = unavailable()
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = Result.success(CallHistoryPage(emptyList(), ""))
+    override suspend fun storageUsage(): Result<StorageUsage> = unavailable()
+    override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> = unavailable()
+    override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> = unavailable()
 
     override fun startAuthorization() {}
     override fun submitPhoneNumber(phone: String) {}
