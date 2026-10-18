@@ -8,10 +8,21 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.After
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class VideoNoteExportGateTest {
+    // The gate is one object for the whole test JVM. Each case starts and ends with it idle, so no case depends on another's count.
+    @Before fun gateStartsIdle() = resetGate()
+
+    @After fun gateEndsIdle() = resetGate()
+
+    private fun resetGate() {
+        while (VideoNoteExportGate.busy) VideoNoteExportGate.end()
+    }
+
     @Test fun gateIsBusyUntilEveryExportFinishes() {
         assertFalse(VideoNoteExportGate.busy)
         VideoNoteExportGate.begin()

@@ -19,6 +19,7 @@ interface ConversationRepository {
     suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean>
     fun loadLatestMessages(chatId: Long)
     suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
+    suspend fun isForumChat(chatId: Long): Result<Boolean>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
     /** Retries failed outgoing messages regardless of their content type. */

@@ -371,6 +371,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
      * пересобираются не чаще раза в [CHAT_LIST_PUBLISH_DELAY_MS].
      */
     private val chatCache = ConcurrentHashMap<Long, ChatPreview>()
+    /** The user who sent each chat's last message. Their name can load after the preview, and then the preview shows it. */
+    private val lastSenderUsers = ConcurrentHashMap<Long, Long>()
     private val muteState = ChatMuteState()
     // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
     private val historyRequests = ConcurrentHashMap<Long, Long>()
@@ -581,6 +583,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         })
     }
 
+    override suspend fun isForumChat(chatId: Long): Result<Boolean> = conversationActions.isForum(chatId)
+
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
         leaveJumpWindow(chatId)
         conversationEffects.endActivity(chatId, ChatActivity.Typing)
@@ -600,6 +604,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         profiles.handle(update)
         notificationFeed.handle(update)
         when (update) {
+            is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
             is TdApi.UpdateChatLastMessage    -> handleChatLastMessage(update.chatId, update.lastMessage, update.positions)
@@ -695,9 +700,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }
     }
 
-    /** Files stay on disk until TDLib reports the message sent. Then their copies under uploads go; unsent files stay. */
+    /**
+     * Files stay on disk until TDLib reports the message sent. Then their copies under uploads go; unsent files stay.
+     * Only voice notes and video notes are cleaned: TDLib keeps the local path of a sent photo, video, audio or document
+     * and reads it for the feed and the viewer, so removing it would show an empty message.
+     */
     private fun cleanupSentUploads(message: TdApi.Message) {
         val content = message.content
+        if (content !is TdApi.MessageVoiceNote && content !is TdApi.MessageVideoNote) return
         content.localFiles().mapNotNull { it?.local?.path }.filter { it.isNotBlank() }.forEach { localPath ->
             runCatching {
                 val uploads = File(appContext.filesDir, "uploads").canonicalFile
@@ -709,7 +719,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     file.delete()
                     file.parentFile?.takeIf { it.listFiles().isNullOrEmpty() }?.delete()
                 } else {
-                    // Every other upload has a folder of its own. Removing it also removes files TDLib does not report, such as a photo's thumbnail.
+                    // A voice note has a folder of its own. Removing it also removes files TDLib does not report.
                     generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }.deleteRecursively()
                 }
                 android.util.Log.i("BeyGramNet", "Sent upload cleaned kind=${content.javaClass.simpleName} path=$localPath")
@@ -854,6 +864,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleNewChat(chat: TdApi.Chat) {
         profiles.putChat(chat)
+        rememberLastSender(chat.id, chat.lastMessage)
         messageHistory.readInbox(chat.id, chat.lastReadInboxMessageId)
         messageHistory.readOutbox(chat.id, chat.lastReadOutboxMessageId)
         muteState.putChat(chat.id, NotificationScope.ofChat(chat.type), chat.notificationSettings)
@@ -865,10 +876,28 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     private fun handleChatLastMessage(chatId: Long, lastMessage: TdApi.Message?, positions: Array<TdApi.ChatPosition>) {
+        rememberLastSender(chatId, lastMessage)
         val existing = chatCache[chatId] ?: return
         chatCache[chatId] = existing.withLastMessage(lastMessage).withPositions(positions)
         notificationFeed.chatPositionChanged(chatId)
         publishChat(chatId)
+    }
+
+    private fun rememberLastSender(chatId: Long, message: TdApi.Message?) {
+        val userId = (message?.senderId as? TdApi.MessageSenderUser)?.userId
+        if (userId == null) lastSenderUsers.remove(chatId) else lastSenderUsers[chatId] = userId
+    }
+
+    /** A user loaded after a chat's preview was built: the preview shows the sender's name from now on. */
+    private fun refreshLastSenders(userId: Long) {
+        lastSenderUsers.forEach { (chatId, senderId) ->
+            if (senderId != userId) return@forEach
+            val existing = chatCache[chatId] ?: return@forEach
+            val name = profiles.senderName(TdApi.MessageSenderUser(userId))
+            if (existing.lastMessageSender == name) return@forEach
+            chatCache[chatId] = existing.copy(lastMessageSender = name)
+            publishChat(chatId)
+        }
     }
 
     /** Поля строки чата, которые зависят от последнего сообщения: текст, время, отправитель и статус своего сообщения. */

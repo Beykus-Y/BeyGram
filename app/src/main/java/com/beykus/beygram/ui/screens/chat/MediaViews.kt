@@ -287,6 +287,8 @@ internal fun MediaViewer(
 ) {
     val selectedIndex = pages.indexOfFirst { it.messageId == selectedId }.coerceAtLeast(0)
     val shown = pages[selectedIndex]
+    // A spoiler page stays hidden until the user reveals that page; swiping to a neighbour does not reveal it.
+    var revealedSpoilers by remember { mutableStateOf(emptySet<Long>()) }
     val pagerState = rememberPagerState(initialPage = selectedIndex) { pages.size }
     // Лента может измениться (пришло или удалено сообщение), поэтому выбранное вложение держим по id, а не по индексу.
     LaunchedEffect(selectedIndex) { if (pagerState.settledPage != selectedIndex) pagerState.scrollToPage(selectedIndex) }
@@ -302,7 +304,9 @@ internal fun MediaViewer(
     var externalError by remember { mutableStateOf<String?>(null) }
     var fileNotice by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
-    val exportPath = if (canExport && !shown.media.isSecret) shownFile.localPath else null
+    // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
+    val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
+    val exportPath = if (canExport && !shown.media.isSecret && !shownHidden) shownFile.localPath else null
     fun openExternal(item: MediaViewerItem, path: String) {
         externalError = openExternalMedia(context, path, item.media.mimeType)
         if (externalError == null) onViewed(item.messageId)
@@ -327,6 +331,7 @@ internal fun MediaViewer(
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().weight(1f), key = { pages[it].messageId }) { page ->
                 val item = pages[page]
                 MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
+                    revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                     onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed)
             }
             if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -347,18 +352,21 @@ internal fun MediaViewer(
 @Composable
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    canExport: Boolean, active: Boolean, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit
+    canExport: Boolean, active: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit
 ) {
     val media = item.media
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val tgs = media.mimeType == "application/x-tgsticker"
     val previewId = media.thumbnailFileId
     val exportable = canExport && !media.isSecret
+    // Спойлер не грузится и не показывается, пока пользователь не раскроет именно эту страницу.
+    val spoilerHidden = media.hasSpoiler && !media.isSecret && !revealed
     // Соседняя секретная страница при свайпе не грузится и ничего не показывает, даже если файл уже на диске.
-    val concealed = MediaViewerPolicy.concealed(media, active)
+    val concealed = MediaViewerPolicy.concealed(media, active) || spoilerHidden
     val currentOnViewed by rememberUpdatedState(onViewed)
-    LaunchedEffect(media.fileId, file.localPath, active) {
-        if (active && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
+    // A spoiler page counts as opened only once the user reveals it, even when its file is already on disk.
+    LaunchedEffect(media.fileId, file.localPath, active, spoilerHidden) {
+        if (active && !spoilerHidden && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
     }
     LaunchedEffect(media.fileId, concealed) {
         if (concealed) return@LaunchedEffect
@@ -367,6 +375,8 @@ private fun MediaViewerPage(
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
         when {
+            spoilerHidden -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 16.sp,
+                modifier = Modifier.padding(16.dp).clickable(onClick = onReveal))
             concealed -> Unit
             tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (previewId != null) {
