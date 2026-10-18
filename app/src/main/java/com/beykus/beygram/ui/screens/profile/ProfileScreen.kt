@@ -92,6 +92,7 @@ fun ProfileScreen(
         info = groupInfo, state = state, lastSeenStyle = lastSeenStyle, observeFile = observeFile, downloadFile = downloadFile,
         onBack = { if (!saving && !preparing) onBack() }, onRefresh = onRefresh, onAvatarClick = { showPhoto = true },
         onMembers = onMembers, onOpenUser = onOpenUser, sharedMessages = sharedMessages, confirmExport = confirmExport,
+        messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened, onOpenMessage = onOpenMessage
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {

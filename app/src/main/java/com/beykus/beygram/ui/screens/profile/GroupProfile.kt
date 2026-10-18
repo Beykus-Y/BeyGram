@@ -74,6 +74,7 @@ internal fun GroupProfileScreen(
     onBack: () -> Unit, onRefresh: () -> Unit, onAvatarClick: () -> Unit,
     onMembers: () -> Unit, onOpenUser: (Long) -> Unit,
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)?, confirmExport: suspend (Long) -> Boolean,
+    messageRights: suspend (Long) -> MessageCapabilities?, forwardMessage: suspend (Long, Long) -> Result<Unit>, chats: List<ChatPreview>,
     onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val palette = beyGramPalette()
@@ -140,7 +141,9 @@ internal fun GroupProfileScreen(
         }
     }
     SharedMediaViewer(media = windows.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
-        observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = onOpenMessage)
+        observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = onOpenMessage,
+        confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
+        onContentOpened = onContentOpened)
 }
 
 /** Панель профиля группы. Название появляется здесь, когда шапка уходит за экран; читается из [collapse] при рисовании. */
