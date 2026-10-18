@@ -5,5 +5,6 @@ data class AppearanceConfig(
     val preset: ThemePreset = ThemePreset.Warm,
     val mode: ThemeMode = ThemeMode.FollowSystem,
     val bubbleStyle: BubbleStyle = BubbleStyle.Rounded,
-    val density: ListDensity = ListDensity.Comfortable
+    val density: ListDensity = ListDensity.Comfortable,
+    val wallpaper: ChatWallpaper = ChatWallpaper.None
 )

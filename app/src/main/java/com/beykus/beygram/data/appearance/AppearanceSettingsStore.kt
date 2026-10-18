@@ -21,6 +21,7 @@ private val ThemeModeKey = stringPreferencesKey("theme_mode")
 private val ThemePresetKey = stringPreferencesKey("theme_preset")
 private val BubbleStyleKey = stringPreferencesKey("bubble_style")
 private val ListDensityKey = stringPreferencesKey("list_density")
+private val WallpaperKey = stringPreferencesKey("chat_wallpaper")
 
 private val Context.appearanceDataStore by preferencesDataStore(
     name = "appearance",
@@ -39,7 +40,8 @@ class AppearanceSettingsStore(context: Context) {
                 preset = themePresetFromStored(preferences[ThemePresetKey]),
                 mode = themeModeFromStored(preferences[ThemeModeKey]),
                 bubbleStyle = bubbleStyleFromStored(preferences[BubbleStyleKey]),
-                density = listDensityFromStored(preferences[ListDensityKey])
+                density = listDensityFromStored(preferences[ListDensityKey]),
+                wallpaper = chatWallpaperFromStored(preferences[WallpaperKey])
             )
         }
 
@@ -49,6 +51,7 @@ class AppearanceSettingsStore(context: Context) {
             preferences[ThemeModeKey] = config.mode.name
             preferences[BubbleStyleKey] = config.bubbleStyle.name
             preferences[ListDensityKey] = config.density.name
+            preferences[WallpaperKey] = config.wallpaper.encode()
         }
     }
 }
