@@ -96,6 +96,8 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
             startVoice(path)
         }
     }
+    // Ошибка загрузки снимает ожидание: пузырь предлагает повтор, а не крутит спиннер. Повторное нажатие начинает загрузку заново.
+    LaunchedEffect(file.error) { pendingPlaybackRow.value = voicePendingAfterError(pendingPlaybackRow.value, row, file.error != null) }
     DisposableEffect(row) {
         onDispose { if (pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
     }
@@ -134,8 +136,10 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
                     )
                 }
             }
+            val failed = voiceDownloadFailed(path, file.error != null, waitingForVoice)
             Text(
-                duration(shownSeconds), color = palette.textSecondary, fontSize = 12.sp,
+                if (failed) stringResource(R.string.voice_download_failed) else duration(shownSeconds),
+                color = if (failed) palette.danger else palette.textSecondary, fontSize = 12.sp,
                 modifier = Modifier.padding(top = 2.dp).combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress)
             )
         }
@@ -151,3 +155,9 @@ internal fun resampleWaveform(samples: List<Int>, count: Int): List<Int> {
         samples.subList(from, until).maxOrNull() ?: 0
     }
 }
+
+/** Файла нет, загрузка не идёт и никто её не ждёт: пузырь предлагает повторить. */
+internal fun voiceDownloadFailed(path: String?, hasError: Boolean, waiting: Boolean): Boolean = path == null && hasError && !waiting
+
+/** Ошибка загрузки снимает ожидание только у пузыря, который нажал: чужое ожидание остаётся. */
+internal fun voicePendingAfterError(pending: Any?, row: Any, hasError: Boolean): Any? = if (hasError && pending === row) null else pending
