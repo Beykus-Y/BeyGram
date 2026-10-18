@@ -132,7 +132,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit> = unavailable()
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit> = unavailable()
     override suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<String>> = unavailable()
-    override suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String): Result<List<MessageReaction>> = unavailable()
+    override suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean): Result<List<MessageReaction>> = unavailable()
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> = unavailable()
     override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()

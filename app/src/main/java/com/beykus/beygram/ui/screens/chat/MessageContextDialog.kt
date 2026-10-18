@@ -57,7 +57,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     // The dialog keeps its own copy of the messages, so the reactions TDLib returns are written back into that copy.
     fun react(messageId: Long, emoji: String) {
         reactionScope.launch {
-            conversation.toggleReaction(chatId, messageId, emoji)
+            conversation.toggleReaction(chatId, messageId, emoji, addToRecent = false)
                 .onSuccess { reactions -> context = context?.let { current -> current.copy(messages = current.messages.map { if (it.id == messageId) it.copy(reactions = reactions) else it }) } }
                 .onFailure { failure -> Toast.makeText(androidContext, failure.userMessage(androidContext, R.string.chat_reaction_failed), Toast.LENGTH_SHORT).show() }
         }

@@ -188,11 +188,13 @@ fun ChatScreen(
         if (text.isBlank()) conversation.endChatActivity(chat.id, ChatActivity.Typing)
         else conversation.startChatActivity(chat.id, ChatActivity.Typing)
     }
-    fun react(messageId: Long, emoji: String) {
+    fun setReaction(messageId: Long, emoji: String, addToRecent: Boolean) {
         scope.launch {
-            conversation.toggleReaction(chat.id, messageId, emoji).onFailure { error = it.userMessage(context, R.string.chat_reaction_failed) }
+            conversation.toggleReaction(chat.id, messageId, emoji, addToRecent).onFailure { error = it.userMessage(context, R.string.chat_reaction_failed) }
         }
     }
+    // Chip taps leave the user's recent reactions alone; only a reaction picked from the extended menu is added there.
+    fun react(messageId: Long, emoji: String) = setReaction(messageId, emoji, addToRecent = false)
     fun retryFailedMessages(messageIds: List<Long>) {
         scope.launch {
             val result = conversation.retryMessages(chat.id, messageIds)
@@ -455,7 +457,7 @@ fun ChatScreen(
         else ChatTopBar(chat, info, lastSeenStyle, onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
         reactionOwner?.takeIf { !deleting }?.let { owner ->
             MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.emoji }) { emoji ->
-                react(owner.id, emoji)
+                setReaction(owner.id, emoji, addToRecent = true)
                 closeActions()
             }
         }

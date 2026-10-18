@@ -158,17 +158,25 @@ internal class TdConversationActions(
 
     /**
      * Removes [emoji] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
-     * chosen reaction in the server's order makes room. Returns the message's reactions after the change.
+     * chosen reaction in the server's order makes room, and it comes back if the new reaction can't be added.
+     * [addToRecent] is set only for a reaction picked from the extended menu. Returns the message's reactions after the change.
      */
-    suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
+    suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
         val chosen = request(TdApi.GetMessage(chatId, messageId)).interactionInfo?.reactions?.reactions.orEmpty()
             .filter { it.isChosen && it.type !is TdApi.ReactionTypePaid }
         val own = chosen.firstOrNull { (it.type as? TdApi.ReactionTypeEmoji)?.emoji == emoji }
         if (own != null) {
             request(TdApi.RemoveMessageReaction(chatId, messageId, own.type))
         } else {
-            overflowReactions(chosen.map { it.type }, maxReactionCount(chatId)).forEach { request(TdApi.RemoveMessageReaction(chatId, messageId, it)) }
-            request(TdApi.AddMessageReaction(chatId, messageId, TdApi.ReactionTypeEmoji(emoji), false, true))
+            val displaced = overflowReactions(chosen.map { it.type }, maxReactionCount(chatId))
+            displaced.forEach { request(TdApi.RemoveMessageReaction(chatId, messageId, it)) }
+            try {
+                request(TdApi.AddMessageReaction(chatId, messageId, TdApi.ReactionTypeEmoji(emoji), false, addToRecent))
+            } catch (failure: Throwable) {
+                // The restored reactions were chosen before, so they do not go into recent reactions again.
+                displaced.forEach { type -> runCatching { request(TdApi.AddMessageReaction(chatId, messageId, type, false, false)) } }
+                throw failure
+            }
         }
         val reactions = messageReactions(request(TdApi.GetMessage(chatId, messageId)).interactionInfo)
         history.update(chatId, messageId) { it.copy(reactions = reactions) }
