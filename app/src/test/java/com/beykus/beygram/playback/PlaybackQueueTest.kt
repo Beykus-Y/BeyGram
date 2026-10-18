@@ -14,29 +14,47 @@ class PlaybackQueueTest {
 
     @Test
     fun nextTrackFollowsTheQueueOrder() {
-        assertEquals(second, nextInQueue(queue, first.key))
-        assertEquals(third, nextInQueue(queue, second.key))
+        assertEquals(second, nextInQueue(queue, 0, first.key))
+        assertEquals(third, nextInQueue(queue, 1, second.key))
     }
 
     @Test
     fun lastTrackHasNoNext() {
-        assertNull(nextInQueue(queue, third.key))
+        assertNull(nextInQueue(queue, 2, third.key))
     }
 
     @Test
     fun trackOutsideTheQueueHasNoNext() {
-        assertNull(nextInQueue(queue, "Voice:9"))
+        assertNull(nextInQueue(queue, 0, "Voice:9"))
+    }
+
+    @Test
+    fun placeWithAnotherTrackHasNoNext() {
+        assertNull(nextInQueue(queue, 1, first.key))
     }
 
     @Test
     fun emptyQueueHasNoNext() {
-        assertNull(nextInQueue(emptyList(), first.key))
+        assertNull(nextInQueue(emptyList(), -1, first.key))
+    }
+
+    @Test
+    fun repeatedTrackAdvancesFromItsOwnPlace() {
+        val repeated = listOf(first, second, first, third)
+        assertEquals(third, nextInQueue(repeated, 2, first.key))
+        assertEquals(second, nextInQueue(repeated, 0, first.key))
     }
 
     @Test
     fun musicIsTitledByPerformerAndTrackTitle() {
         val media = MessageMedia(MediaKind.Audio, fileId = 1, fileName = "file.mp3", title = "Song", performer = "Artist")
         assertEquals("Artist — Song", media.playbackItem("/file.mp3", "Аудио").title)
+    }
+
+    @Test
+    fun musicWithoutTitleIsTitledByPerformerAndFileName() {
+        val media = MessageMedia(MediaKind.Audio, fileId = 1, fileName = "file.mp3", performer = "Artist")
+        assertEquals("Artist — file.mp3", media.playbackItem("/file.mp3", "Аудио").title)
     }
 
     @Test
