@@ -66,7 +66,8 @@ internal class TdConversationActions(
 
     /** True for a forum supergroup: its replies belong to a topic, which a plain send cannot pick. */
     suspend fun isForum(chatId: Long): Result<Boolean> = conversationResult {
-        (request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup)?.isForum == true
+        val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup ?: return@conversationResult false
+        request(TdApi.GetSupergroup(type.supergroupId)).isForum
     }
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
