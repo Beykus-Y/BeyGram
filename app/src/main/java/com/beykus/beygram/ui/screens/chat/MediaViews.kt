@@ -308,14 +308,16 @@ internal val viewerSwipeKinds = setOf(MediaKind.Photo, MediaKind.Video)
 /**
  * [pages] листаются слева направо, от самого раннего; [selectedId] — вложение, которое показано сейчас.
  * [canExport] разрешает сохранить файл и передать его наружу; Telegram запрещает это в защищённых чатах.
+ * [confirmExport] заново проверяет право на сообщение перед каждым действием с файлом: кнопки могут показывать прошлый ответ.
+ * Без него проверки нет, так открывается фото профиля, которое не относится к сообщению.
  * [onShowInChat] не передаётся, если просмотр открыт не из чата.
  */
 @Composable
 internal fun MediaViewer(
     pages: List<MediaViewerItem>, selectedId: Long, onSelect: (Long) -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onViewed: (Long) -> Unit, onClose: () -> Unit,
-    title: String? = null, subtitle: String? = null, canExport: Boolean = true, actions: MediaViewerActions? = null,
-    onShowInChat: ((Long) -> Unit)? = null
+    title: String? = null, subtitle: String? = null, canExport: Boolean = true, confirmExport: suspend (Long) -> Boolean = { true },
+    actions: MediaViewerActions? = null, onShowInChat: ((Long) -> Unit)? = null
 ) {
     val selectedIndex = pages.indexOfFirst { it.messageId == selectedId }.coerceAtLeast(0)
     val shown = pages[selectedIndex]
@@ -339,9 +341,16 @@ internal fun MediaViewer(
     // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
     val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
     val exportPath = if (canExport && !shown.media.isSecret && !shownHidden) shownFile.localPath else null
+    // Кнопки могут показывать право, пришедшее для соседнего вложения, поэтому каждое действие сверяет право заново.
+    fun exportIfAllowed(messageId: Long, action: suspend () -> String?) {
+        scope.launch { fileNotice = if (confirmExport(messageId)) action() else context.getString(R.string.media_export_denied) }
+    }
     fun openExternal(item: MediaViewerItem, path: String) {
-        externalError = openExternalMedia(context, path, item.media.mimeType)
-        if (externalError == null) onViewed(item.messageId)
+        scope.launch {
+            if (!confirmExport(item.messageId)) { externalError = context.getString(R.string.media_export_denied); return@launch }
+            externalError = openExternalMedia(context, path, item.media.mimeType)
+            if (externalError == null) onViewed(item.messageId)
+        }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -351,7 +360,7 @@ internal fun MediaViewer(
                     Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
-                if (exportPath != null) IconButton(onClick = { fileNotice = shareMedia(context, exportPath, shown.media.mimeType) }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
+                if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
                 if (exportPath != null || onShowInChat != null) Box {
                     IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -369,7 +378,7 @@ internal fun MediaViewer(
             if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
                 if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
-                    scope.launch { fileNotice = withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
+                    exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
                 }
                 if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
                 if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
