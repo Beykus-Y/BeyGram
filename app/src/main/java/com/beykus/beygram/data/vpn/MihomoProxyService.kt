@@ -5,9 +5,11 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.notifications.AndroidNotificationRenderer
@@ -40,6 +42,8 @@ data class ProxyRuntimeState(val status: ProxyRuntimeStatus, val message: UiText
 class MihomoProxyService : Service() {
     // Newest start id received, so a failed start can stop the service once every command so far is answered.
     private var lastStartId = 0
+    // When the newest start request arrived, so the problem report can say how long the listener took to become ready.
+    private var startRequestedAt = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -70,6 +74,7 @@ class MihomoProxyService : Service() {
         // Every start intent gets startForeground, including one that finds the listener already on its way.
         startForeground(NOTIFICATION_ID, buildNotification(textFor(status)))
         if (status == ProxyRuntimeStatus.RUNNING || status == ProxyRuntimeStatus.STARTING) return
+        startRequestedAt = SystemClock.elapsedRealtime()
         _runtimeState.value = ProxyRuntimeState(ProxyRuntimeStatus.STARTING)
         MihomoRuntimeDiagnostics.event("service", "start requested; profileExists=${MihomoCoreBridge(applicationContext).profileExists()}")
         startJob = enqueue { ticket -> runStart(ticket) }
@@ -93,6 +98,7 @@ class MihomoProxyService : Service() {
                     MihomoRuntimeDiagnostics.event("service", "state=RUNNING")
                     // "Working" is shown only after the local listener has been checked; it says nothing about upstream reachability.
                     getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(textFor(ProxyRuntimeStatus.RUNNING)))
+                    MihomoRuntimeDiagnostics.outcome("proxy_ready", "Прокси: локальный слушатель готов", attrs = mapOf("elapsed_ms" to (SystemClock.elapsedRealtime() - startRequestedAt).toString()))
                 }
             }
         } catch (error: CancellationException) {
@@ -108,6 +114,8 @@ class MihomoProxyService : Service() {
                         ProxyRuntimeStatus.FAILED,
                         (error as? UserMessageException)?.text ?: UiText.Res(R.string.err_vpn_start_failed)
                     )
+                    val cause = (error as? UserMessageException)?.cause ?: error
+                    MihomoRuntimeDiagnostics.outcome("proxy_failed", "Прокси: запуск не удался", Severity.WARNING, mapOf("cause" to cause.javaClass.simpleName))
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     // A start that arrived meanwhile got this failure as its answer too, so stop once every command so far is answered.
                     stopSelf(lastStartId)
