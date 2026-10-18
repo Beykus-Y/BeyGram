@@ -295,7 +295,12 @@ object PlaybackEngine {
 
     /** Останавливает секретный файл, когда пользователь ушёл из чата или свернул приложение. Остальные файлы играют дальше. */
     fun stopSecret() {
-        if (_state.value.item?.secret == true) stop()
+        if (_state.value.item?.secret != true) return
+        // Музыка, которую секретный файл прервал, продолжается, как после его конца.
+        val music = interruptedMusic
+        stop()
+        val context = appContext ?: return
+        if (music != null) play(context, music.item)
     }
 
     /** Останавливает звук, убирает файл из мини-плеера и снимает уведомление, которое держал сервис. */
@@ -367,7 +372,10 @@ object PlaybackEngine {
 
     /** Файл доиграл: сначала возвращаем музыку, которую прервало голосовое или кружок, иначе запускаем следующий файл очереди. */
     private fun advanceAfterEnd() {
-        if (interruptedMusic != null) resumeInterruptedMusic() else playNextInQueue()
+        if (interruptedMusic != null) resumeInterruptedMusic()
+        // Секретный файл доиграл: его нельзя перемотать и запустить снова, поэтому он уходит из плеера.
+        else if (_state.value.item?.secret == true) stop()
+        else playNextInQueue()
     }
 
     /** Следующий файл очереди. Если текущий файл не из очереди или отметка конца уже снята, ничего не делает. */
