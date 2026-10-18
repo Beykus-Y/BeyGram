@@ -88,11 +88,20 @@ internal class VpnBackend private constructor(
         networkMonitor.start()
         selector.start()
         // TDLib connectivity belongs to its own metric, not to listener or testDelay health.
-        scope.launch { connectionState.collect { state ->
-            MihomoProxyService.reportTelegramConnection(state == TelegramConnectionState.Connected)
-            // Enum only; never log endpoints, subscription keys or messages.
-            MihomoRuntimeDiagnostics.event("tdlib", "connection_state=${state.name}")
-        } }
+        scope.launch {
+            var previouslyConnected = false
+            connectionState.collect { state ->
+                val connected = state == TelegramConnectionState.Connected
+                MihomoProxyService.reportTelegramConnection(connected)
+                // Only the enum is logged; never include endpoints, subscription keys or messages.
+                MihomoRuntimeDiagnostics.event("tdlib", "connection_state=${state.name}")
+                // Re-check only on a meaningful connectivity loss, never with periodic polling.
+                if (previouslyConnected && !connected && runtimeState.value.status == ProxyRuntimeStatus.RUNNING) {
+                    checkSelectedRoute()
+                }
+                previouslyConnected = connected
+            }
+        }
         scope.launch(Dispatchers.IO) { restore() }
     }
 
@@ -243,7 +252,7 @@ internal class VpnBackend private constructor(
             MihomoProxyService.reportUpstream(result.reachable)
             MihomoRuntimeDiagnostics.outcome(
                 "proxy_upstream",
-                if (result.reachable) "Прокси: выбранный маршрут доступен" else "Прокси: выбранный маршрут недоступен",
+                if (result.reachable) "Прокси: HTTPS-маршрут доступен" else "Прокси: HTTPS-проверка маршрута не прошла",
                 if (result.reachable) com.beykus.beygram.diagnostics.report.Severity.INFO else com.beykus.beygram.diagnostics.report.Severity.WARNING,
                 mapOf("result" to if (result.reachable) "reachable" else "unreachable",
                     "http_code" to (result.httpCode?.toString() ?: "none"),
