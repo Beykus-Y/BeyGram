@@ -284,12 +284,16 @@ fun ChatScreen(
     DisposableEffect(lifecycle) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
+                PlaybackEngine.stopSecret()
                 videoNote.stopForRecovery()
                 audioNote.stopForRecovery()
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycle.removeObserver(observer)
+            PlaybackEngine.stopSecret()
+        }
     }
     val window = LocalWindowInfo.current
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }

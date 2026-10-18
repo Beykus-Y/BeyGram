@@ -39,7 +39,9 @@ data class PlaybackItem(
     val path: String,
     val title: String,
     val durationSeconds: Int,
-    val origin: PlaybackOrigin? = null
+    val origin: PlaybackOrigin? = null,
+    /** Секретное вложение: играет только пока открыт его чат и не повторяется после конца. */
+    val secret: Boolean = false
 )
 
 /** Состояние общего плеера для интерфейса. Без [item] плеер пуст, и мини-плеер не показывается. */
@@ -96,7 +98,8 @@ fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: Playb
     // У музыки в плеере показываем теги: «Исполнитель — Название», а не имя файла.
     title = if (kind == MediaKind.Audio && (title.isNotBlank() || performer.isNotBlank())) listOf(performer, title.ifBlank { fileName }).filter { it.isNotBlank() }.joinToString(" — ") else fileName.ifBlank { fallbackTitle },
     durationSeconds = durationSeconds,
-    origin = origin
+    origin = origin,
+    secret = isSecret
 )
 
 /** Скорость без лишнего нуля: «1» и «2», но «0.5» и «1.5». */
@@ -154,7 +157,11 @@ object PlaybackEngine {
         return object : ForwardingPlayer(created) {
             override fun play() {
                 if (playbackState == Player.STATE_IDLE) prepare()
-                if (playbackState == Player.STATE_ENDED) seekToDefaultPosition()
+                if (playbackState == Player.STATE_ENDED) {
+                    // Секретный файл после конца не повторяется ни кнопкой уведомления, ни мини-плеером.
+                    if (_state.value.item?.secret == true) return
+                    seekToDefaultPosition()
+                }
                 // Повтор доигравшего файла снимает отметку конца сразу, чтобы возврат музыки не сработал до первого события плеера.
                 _state.update { it.copy(ended = false) }
                 super.play()
@@ -284,6 +291,11 @@ object PlaybackEngine {
         videoView?.let { exo?.clearVideoTextureView(it) }
         videoOwner = null
         videoView = null
+    }
+
+    /** Останавливает секретный файл, когда пользователь ушёл из чата или свернул приложение. Остальные файлы играют дальше. */
+    fun stopSecret() {
+        if (_state.value.item?.secret == true) stop()
     }
 
     /** Останавливает звук, убирает файл из мини-плеера и снимает уведомление, которое держал сервис. */

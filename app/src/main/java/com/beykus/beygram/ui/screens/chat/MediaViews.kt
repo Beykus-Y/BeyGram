@@ -559,7 +559,8 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
     // Звук видео не идёт поверх музыки из общего плеера: когда видео становится активным, музыка на паузе.
     LaunchedEffect(active, player) {
         if (active) {
-            PlaybackEngine.pause()
+            // Анимация без звука музыку не прерывает.
+            if (!loop) PlaybackEngine.pause()
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) play()
         } else {
             player.pause()

@@ -14,6 +14,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -177,8 +178,12 @@ private fun BeyGramAppContent(
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var noticeError by remember { mutableStateOf<UiText?>(null) }
     // «Показать в чате» из мини-плеера открывает сообщение, из которого запущен файл. Назад из чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
+    val currentAuthState by rememberUpdatedState(authState)
+    // Выход из аккаунта останавливает общий плеер: его файл и «Показать в чате» относятся к прошлой сессии.
+    LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
     LaunchedEffect(Unit) {
         PlaybackEngine.showInChat.collect { origin ->
+            if (currentAuthState != AuthState.Ready) return@collect
             if (routeName != AppRoute.Chat.name) {
                 chatBackRouteName = when (routeName) {
                     AppRoute.Archive.name, AppRoute.Contacts.name -> routeName
