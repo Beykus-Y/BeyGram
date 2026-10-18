@@ -46,7 +46,10 @@ class NotificationRuntime private constructor(private val context: Context) {
             }
             _authorized.value = auth == AuthState.Ready
         } }
-        scope.launch { source.myProfile.collect { profile -> profile.info?.id?.let(preferences::account) } }
+        scope.launch { source.myProfile.collect { profile ->
+            // A switched account retires the reply token; re-rendering re-posts the live reply actions with the new one.
+            if (profile.info?.id?.let(preferences::account) == true) refresh()
+        } }
         scope.launch { source.connectionState.collect { flushDismissals() } }
     }
     fun refresh() {

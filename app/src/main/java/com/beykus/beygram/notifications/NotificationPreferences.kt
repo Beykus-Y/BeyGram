@@ -39,14 +39,17 @@ class NotificationPreferencesStore(context: Context) {
         key.removePrefix("pending_").toIntOrNull()?.takeIf { key.startsWith("pending_") }?.let { it to (value as? Int ?: 0) }
     }.toMap()
     fun acknowledge(groupId: Int, maxId: Int) { if (preferences.getInt("pending_$groupId", 0) <= maxId) preferences.edit().remove("pending_$groupId").apply() }
-    fun account(id: Long) {
+    /** Returns true when another account was stored before; its live reply actions then carry a retired token until they are re-posted. */
+    fun account(id: Long): Boolean {
         val old = preferences.getLong("account", 0)
-        if (old != 0L && old != id) {
+        val switched = old != 0L && old != id
+        if (switched) {
             val editor = preferences.edit()
             preferences.all.keys.filter { it.startsWith("handled_") || it.startsWith("dismissed_") || it.startsWith("pending_") }.forEach(editor::remove)
             editor.apply()
             rotateReplyToken()
         }
         preferences.edit().putLong("account", id).apply()
+        return switched
     }
 }
