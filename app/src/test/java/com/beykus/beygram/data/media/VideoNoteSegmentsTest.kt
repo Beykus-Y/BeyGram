@@ -22,6 +22,17 @@ class VideoNoteSegmentsTest {
         )
     }
 
+    @Test fun tailShorterThanHalfSecondIsDropped() {
+        assertEquals(
+            listOf(0L to 59_500L, 59_500L to 119_000L),
+            videoNoteSegments(119_300L, longRecording = true)
+        )
+    }
+
+    @Test fun tailOfHalfSecondOrMoreIsKept() {
+        assertEquals(119_000L to 119_500L, videoNoteSegments(119_500L, longRecording = true).last())
+    }
+
     @Test fun segmentsAreContiguousAndCoverTheRecording() {
         val segments = videoNoteSegments(125_000L, longRecording = true)
         assertEquals(0L, segments.first().first)

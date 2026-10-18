@@ -202,16 +202,22 @@ private const val THUMBNAIL_TIME_US = 200_000L
  */
 internal const val VIDEO_NOTE_SEGMENT_MS = 59_500L
 
+/** Хвост длиннее этого становится отдельным кружком; более короткий отбрасывается. */
+internal const val MIN_SEGMENT_TAIL_MS = 500L
+
 /**
  * Границы сегментов [startMs, endMs) в миллисекундах. Обычная запись останавливается таймером на минуте,
  * а CameraX дописывает хвост задержки: он отбрасывается, и получается один кружок. Длинная запись режется подряд.
  */
 internal fun videoNoteSegments(sourceMs: Long, longRecording: Boolean): List<Pair<Long, Long>> {
     val totalMs = if (longRecording) sourceMs else minOf(sourceMs, VIDEO_NOTE_SEGMENT_MS)
-    return generateSequence(0L) { it + VIDEO_NOTE_SEGMENT_MS }
+    val segments = generateSequence(0L) { it + VIDEO_NOTE_SEGMENT_MS }
         .takeWhile { it < totalMs }
         .map { startMs -> startMs to minOf(startMs + VIDEO_NOTE_SEGMENT_MS, totalMs) }
         .toList()
+    // A tail this short is too little for a clip of its own, and its failure would drop the finished segments of the recording.
+    val (tailStart, tailEnd) = segments.last()
+    return if (segments.size > 1 && tailEnd - tailStart < MIN_SEGMENT_TAIL_MS) segments.dropLast(1) else segments
 }
 
 /** Готовый сегмент принимается, только если его длительность укладывается в предел Telegram. */

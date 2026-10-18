@@ -371,6 +371,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
      * пересобираются не чаще раза в [CHAT_LIST_PUBLISH_DELAY_MS].
      */
     private val chatCache = ConcurrentHashMap<Long, ChatPreview>()
+    /** The user who sent each chat's last message. Their name can load after the preview, and then the preview shows it. */
+    private val lastSenderUsers = ConcurrentHashMap<Long, Long>()
     private val muteState = ChatMuteState()
     // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
     private val historyRequests = ConcurrentHashMap<Long, Long>()
@@ -600,6 +602,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         profiles.handle(update)
         notificationFeed.handle(update)
         when (update) {
+            is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
             is TdApi.UpdateChatLastMessage    -> handleChatLastMessage(update.chatId, update.lastMessage, update.positions)
@@ -859,6 +862,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleNewChat(chat: TdApi.Chat) {
         profiles.putChat(chat)
+        rememberLastSender(chat.id, chat.lastMessage)
         messageHistory.readInbox(chat.id, chat.lastReadInboxMessageId)
         messageHistory.readOutbox(chat.id, chat.lastReadOutboxMessageId)
         muteState.putChat(chat.id, NotificationScope.ofChat(chat.type), chat.notificationSettings)
@@ -870,10 +874,28 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     private fun handleChatLastMessage(chatId: Long, lastMessage: TdApi.Message?, positions: Array<TdApi.ChatPosition>) {
+        rememberLastSender(chatId, lastMessage)
         val existing = chatCache[chatId] ?: return
         chatCache[chatId] = existing.withLastMessage(lastMessage).withPositions(positions)
         notificationFeed.chatPositionChanged(chatId)
         publishChat(chatId)
+    }
+
+    private fun rememberLastSender(chatId: Long, message: TdApi.Message?) {
+        val userId = (message?.senderId as? TdApi.MessageSenderUser)?.userId
+        if (userId == null) lastSenderUsers.remove(chatId) else lastSenderUsers[chatId] = userId
+    }
+
+    /** A user loaded after a chat's preview was built: the preview shows the sender's name from now on. */
+    private fun refreshLastSenders(userId: Long) {
+        lastSenderUsers.forEach { (chatId, senderId) ->
+            if (senderId != userId) return@forEach
+            val existing = chatCache[chatId] ?: return@forEach
+            val name = profiles.senderName(TdApi.MessageSenderUser(userId))
+            if (existing.lastMessageSender == name) return@forEach
+            chatCache[chatId] = existing.copy(lastMessageSender = name)
+            publishChat(chatId)
+        }
     }
 
     /** Поля строки чата, которые зависят от последнего сообщения: текст, время, отправитель и статус своего сообщения. */

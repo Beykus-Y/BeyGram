@@ -99,6 +99,18 @@ jobs:
         # and a failed main build cannot be published.
         run: ./gradlew --no-daemon :app:testDevDebugUnitTest
 
+      - name: Upload unit test reports
+        # A failed run keeps the report, so the exact failing assertion can be read after the job ends.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports-${{ github.sha }}
+          path: |
+            app/build/reports/tests/testDevDebugUnitTest/
+            app/build/test-results/testDevDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Build debug, release and instrumented-test APKs (no device tests)
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease :app:assembleDevDebugAndroidTest
 
