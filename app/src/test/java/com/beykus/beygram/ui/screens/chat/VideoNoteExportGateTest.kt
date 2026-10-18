@@ -92,4 +92,18 @@ class VideoNoteExportGateTest {
         assertFalse(VideoNoteExportGate.busy)
         scope.cancel()
     }
+
+    @Test fun concurrentBeginAndEndNeverLeaveTheGateBusy() {
+        val threads = List(8) {
+            Thread {
+                repeat(2_000) {
+                    VideoNoteExportGate.begin()
+                    VideoNoteExportGate.end()
+                }
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        assertFalse(VideoNoteExportGate.busy)
+    }
 }
