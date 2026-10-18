@@ -690,23 +690,26 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     /** Recorded files must stay on disk until TDLib reports upload completion. */
     private fun cleanupSentRecording(message: TdApi.Message) {
-        val localPath = when (val content = message.content) {
-            is TdApi.MessageVideoNote -> content.videoNote.video.local.path
-            is TdApi.MessageVoiceNote -> content.voiceNote.voice.local.path
+        // The video note's thumbnail is a second file in the same session directory, so it is removed with the video.
+        val localPaths = when (val content = message.content) {
+            is TdApi.MessageVideoNote -> listOfNotNull(content.videoNote.video.local.path, content.videoNote.thumbnail?.file?.local?.path)
+            is TdApi.MessageVoiceNote -> listOf(content.voiceNote.voice.local.path)
             else -> return
-        }.takeIf { it.isNotBlank() } ?: return
-        runCatching {
-            val uploads = File(appContext.filesDir, "uploads").canonicalFile
-            val file = File(localPath).canonicalFile
-            val sessionDirectory = file.parentFile ?: return
-            require(sessionDirectory.parentFile?.canonicalFile == uploads) { "Recording path is outside uploads" }
-            require(file.path.startsWith(uploads.path + File.separator)) { "Recording path is outside uploads" }
-            val deleted = file.delete()
-            if (sessionDirectory.listFiles().isNullOrEmpty()) sessionDirectory.delete()
-            if (deleted) {
-                android.util.Log.i("BeyGramNet", "Uploaded recording cleaned kind=${message.content.javaClass.simpleName} path=$localPath")
-            }
-        }.onFailure { android.util.Log.w("BeyGramNet", "Could not clean uploaded recording: ${it.message}") }
+        }
+        localPaths.filter { it.isNotBlank() }.forEach { localPath ->
+            runCatching {
+                val uploads = File(appContext.filesDir, "uploads").canonicalFile
+                val file = File(localPath).canonicalFile
+                val sessionDirectory = file.parentFile ?: return@runCatching
+                require(sessionDirectory.parentFile?.canonicalFile == uploads) { "Recording path is outside uploads" }
+                require(file.path.startsWith(uploads.path + File.separator)) { "Recording path is outside uploads" }
+                val deleted = file.delete()
+                if (sessionDirectory.listFiles().isNullOrEmpty()) sessionDirectory.delete()
+                if (deleted) {
+                    android.util.Log.i("BeyGramNet", "Uploaded recording cleaned kind=${message.content.javaClass.simpleName} path=$localPath")
+                }
+            }.onFailure { android.util.Log.w("BeyGramNet", "Could not clean uploaded recording: ${it.message}") }
+        }
     }
 
     // ---- Авторизация ---------------------------------------------------------
