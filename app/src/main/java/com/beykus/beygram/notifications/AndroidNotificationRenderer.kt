@@ -75,7 +75,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
                 .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH)
             // A reply needs a visible chat title and a chat the user can write to, so other groups get no reply action.
             if (!hideContent && group.replyable) builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId))
-            if (group.id in failedReplies) builder.setSubText(context.getString(R.string.notif_reply_failed))
+            if (failedReplies.containsKey(group.id)) builder.setSubText(context.getString(R.string.notif_reply_failed))
             val notification = builder.build()
             try {
                 compat.notify(tag, 0, notification)
