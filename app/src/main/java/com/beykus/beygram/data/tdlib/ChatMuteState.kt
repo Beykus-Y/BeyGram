@@ -47,6 +47,9 @@ internal class ChatMuteState {
 
     fun isMuted(chatId: Long): Boolean = chats[chatId]?.isMuted(scopeMuted) == true
 
+    /** Известна ли заглушённость чата: своя настройка известна сразу, настройка по умолчанию — когда прочитана её область. */
+    fun isKnown(chatId: Long): Boolean = chats[chatId]?.let { !it.useDefault || scopeMuted.containsKey(it.scope) } == true
+
     /** Запоминает общую настройку области и возвращает чаты этой области, которые её используют. */
     fun updateScope(scope: NotificationScope, settings: TdApi.ScopeNotificationSettings): List<Long> {
         scopeMuted[scope] = settings.muteFor > 0

@@ -51,6 +51,28 @@ class ChatMuteStateTest {
         assertFalse(state.isMuted(9L))
     }
 
+    @Test fun defaultChatIsKnownOnlyAfterItsScopeIsRead() {
+        state.putChat(1L, NotificationScope.Group, chatSettings(useDefault = true, muteFor = 0))
+        state.putChat(2L, NotificationScope.Group, chatSettings(useDefault = false, muteFor = 0))
+        assertFalse(state.isKnown(1L))
+        assertTrue(state.isKnown(2L))
+        state.updateScope(NotificationScope.Private, scopeSettings(muteFor = 0))
+        assertFalse(state.isKnown(1L))
+        state.updateScope(NotificationScope.Group, scopeSettings(muteFor = 0))
+        assertTrue(state.isKnown(1L))
+    }
+
+    @Test fun chatLoadedAfterItsScopeTakesTheScopeSetting() {
+        state.updateScope(NotificationScope.Private, scopeSettings(muteFor = 3600))
+        state.putChat(1L, NotificationScope.Private, chatSettings(useDefault = true, muteFor = 0))
+        assertTrue(state.isKnown(1L))
+        assertTrue(state.isMuted(1L))
+    }
+
+    @Test fun unknownChatIsNotKnown() {
+        assertFalse(state.isKnown(9L))
+    }
+
     @Test fun chatTypesMapToScopes() {
         assertEquals(NotificationScope.Group, NotificationScope.ofChat(TdApi.ChatTypeBasicGroup(1L)))
         assertEquals(NotificationScope.Private, NotificationScope.ofChat(TdApi.ChatTypePrivate(1L)))
