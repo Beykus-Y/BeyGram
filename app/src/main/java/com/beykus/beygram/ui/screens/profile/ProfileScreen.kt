@@ -17,7 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -60,10 +60,11 @@ fun ProfileScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onBack: () -> Unit, onRefresh: () -> Unit, onEdit: () -> Unit,
     setPhoto: suspend (OutgoingMedia) -> Result<Unit>,
-    isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit, lastSeenStyle: LastSeenStyle,
+    onOpenAppearance: () -> Unit = {}, lastSeenStyle: LastSeenStyle,
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
     hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
-    sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)? = null, onOpenMessage: (Long) -> Unit = {}
+    sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)? = null,
+    confirmExport: suspend (Long) -> Boolean = { false }, onContentOpened: (Long) -> Unit = {}, onOpenMessage: (Long) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -88,7 +89,8 @@ fun ProfileScreen(
     if (pendingPhoto == null && groupInfo != null) GroupProfileScreen(
         info = groupInfo, state = state, lastSeenStyle = lastSeenStyle, observeFile = observeFile, downloadFile = downloadFile,
         onBack = { if (!saving && !preparing) onBack() }, onRefresh = onRefresh, onAvatarClick = { showPhoto = true },
-        onMembers = onMembers, onOpenUser = onOpenUser, sharedMessages = sharedMessages, onOpenMessage = onOpenMessage
+        onMembers = onMembers, onOpenUser = onOpenUser, sharedMessages = sharedMessages, confirmExport = confirmExport,
+        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
             IconButton(onClick = onRefresh, enabled = !state.isLoading && !saving) { Icon(Icons.Rounded.Refresh, stringResource(R.string.common_refresh), tint = palette.textSecondary) }
@@ -114,13 +116,13 @@ fun ProfileScreen(
                 ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null))
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
-                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, onOpenMessage)
+                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                if (isOwnProfile) Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.DarkMode, null, tint = palette.accent, modifier = Modifier.size(22.dp))
-                    Text(stringResource(R.string.profile_dark_theme), color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
-                    Switch(checked = isDarkTheme, onCheckedChange = onThemeChange)
+                if (isOwnProfile) Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).clickable(onClick = onOpenAppearance).padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Palette, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+                    Text(stringResource(R.string.theme_title), color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
+                    Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
                 }
             }
             if (state.info == null && !state.isLoading && state.error == null) Text(stringResource(R.string.profile_info_not_loaded), color = palette.textSecondary, modifier = Modifier.padding(24.dp))

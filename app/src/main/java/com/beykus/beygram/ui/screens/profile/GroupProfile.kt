@@ -72,7 +72,8 @@ internal fun GroupProfileScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onBack: () -> Unit, onRefresh: () -> Unit, onAvatarClick: () -> Unit,
     onMembers: () -> Unit, onOpenUser: (Long) -> Unit,
-    sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)?, onOpenMessage: (Long) -> Unit
+    sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)?, confirmExport: suspend (Long) -> Boolean,
+    onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -132,7 +133,7 @@ internal fun GroupProfileScreen(
             }
             val kind = activeTab.kind
             if (kind == null || window == null) item(key = "members") { GroupMembers(info, state.isLoading, observeFile, downloadFile, onMembers, onOpenUser) }
-            else sharedItems(kind, window, observeFile, downloadFile, onOpenMedia = { viewing = it }, onOpenMessage = onOpenMessage, onRetry = { scope.launch { window.loadOlder() } })
+            else sharedItems(kind, info.id, window, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMedia = { viewing = it }, onOpenMessage = onOpenMessage, onRetry = { scope.launch { window.loadOlder() } })
             state.error?.let { error -> item(key = "error") { Text(error.resolve(), color = palette.danger, modifier = Modifier.padding(20.dp)) } }
         }
     }
@@ -205,9 +206,9 @@ private fun GroupMembers(info: ProfileInfo, isLoading: Boolean, observeFile: (In
 
 /** Вкладка вложений: сетка для «Медиа», строки для остальных. Пустая вкладка показывает загрузку, пустоту или ошибку. */
 private fun LazyListScope.sharedItems(
-    kind: SharedMediaKind, window: SharedMediaWindow,
-    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit, onRetry: () -> Unit
+    kind: SharedMediaKind, chatId: Long, window: SharedMediaWindow,
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
+    onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit, onRetry: () -> Unit
 ) {
     // «Ссылки» бывают и в тексте, поэтому им вложение не нужно; остальные вкладки показывают только сообщения с вложением.
     val shown = window.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null }
@@ -223,7 +224,7 @@ private fun LazyListScope.sharedItems(
         }
     } else {
         items(shown, key = { it.id }) { message ->
-            SharedMediaRowItem(kind, message, observeFile, onClick = { onOpenMessage(message.id) })
+            SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
         }
     }
     item(key = "footer") { SharedMediaFooter(window, onRetry) }

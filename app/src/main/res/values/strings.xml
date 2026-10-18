@@ -448,7 +448,6 @@
     <string name="profile_badge_verified">Подтверждённый аккаунт</string>
     <string name="profile_bio_counter">%1$d / %2$d</string>
     <string name="profile_channel_subscribers_count">Подписчиков: %1$d</string>
-    <string name="profile_dark_theme">Тёмная тема</string>
     <string name="profile_discard_changes">Отменить</string>
     <string name="profile_first_name">Имя</string>
     <string name="profile_group_members_count">Участников: %1$d</string>
