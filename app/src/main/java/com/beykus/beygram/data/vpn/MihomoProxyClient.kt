@@ -64,21 +64,23 @@ internal object MihomoProxyClient {
      */
     fun probeUpstream(): UpstreamProbeResult {
         val started = System.nanoTime()
-        val connection = openConnection(URL(VpnSettings.TELEGRAM_HEALTH_CHECK_URL), socksProxy)
         return try {
-            connection.connectTimeout = 5_000
-            connection.readTimeout = 5_000
-            connection.requestMethod = "HEAD"
-            connection.instanceFollowRedirects = false
-            val code = connection.responseCode
-            UpstreamProbeResult(code in 100..599, code.takeIf { it in 100..599 },
-                (System.nanoTime() - started) / 1_000_000L)
+            val connection = openConnection(URL(VpnSettings.TELEGRAM_HEALTH_CHECK_URL), socksProxy)
+            try {
+                connection.connectTimeout = 5_000
+                connection.readTimeout = 5_000
+                connection.requestMethod = "HEAD"
+                connection.instanceFollowRedirects = false
+                val code = connection.responseCode
+                UpstreamProbeResult(code in 100..599, code.takeIf { it in 100..599 },
+                    (System.nanoTime() - started) / 1_000_000L)
+            } finally {
+                connection.disconnect()
+            }
         } catch (error: Exception) {
             // Never include URL, credentials or response bodies in the shareable report.
             UpstreamProbeResult(false, null, (System.nanoTime() - started) / 1_000_000L,
                 error.javaClass.simpleName)
-        } finally {
-            connection.disconnect()
         }
     }
 
