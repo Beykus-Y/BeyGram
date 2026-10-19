@@ -240,6 +240,15 @@ internal class TdConversationActions(
         MessageContext(chatId, chat.title, messageId, (page?.messages.orEmpty().toList() + target).distinctBy { it.id }.sortedBy { it.id }.map(map))
     }
 
+    /**
+     * Поиск по всем чатам аккаунта, без фильтра по папке: chatList = null. TDLib отдаёт страницы
+     * через nextOffset, который передаётся обратно как есть.
+     */
+    suspend fun searchGlobal(query: String, offset: String): Result<GlobalMessagePage> = requestResult {
+        val found = request(TdApi.SearchMessages(null, query, offset, SEARCH_PAGE_SIZE, null, null, 0, 0))
+        GlobalMessagePage(found.messages.orEmpty().filterNotNull().map(map), found.nextOffset.orEmpty())
+    }
+
     /** Поиск по тексту внутри одного чата: TDLib отдаёт новые сообщения первыми, дальше страницы идут через nextFromMessageId. */
     suspend fun search(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
         val found = request(TdApi.SearchChatMessages(chatId, null, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
