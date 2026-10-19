@@ -47,6 +47,7 @@ import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
+import com.beykus.beygram.ui.screens.chats.GlobalSearchScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ConnectionDiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.DiagnosticsScreen
@@ -176,6 +177,7 @@ private fun BeyGramAppContent(
 
     // ---- Локальный UI-state --------------------------------------------------
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
+    var globalSearchQuery by rememberSaveable { mutableStateOf("") }
     // The choice made on the theme screen but not applied yet, so the editor starts from it.
     var editorSeed by remember { mutableStateOf<AppearanceConfig?>(null) }
     var phone by rememberSaveable { mutableStateOf("") }
@@ -394,6 +396,10 @@ private fun BeyGramAppContent(
                 onArchive = archiveChat,
                 archiveHidden = archiveHidden,
                 onArchiveHiddenChange = onArchiveHiddenChange,
+                onGlobalSearch = { typed ->
+                    globalSearchQuery = typed
+                    routeName = AppRoute.GlobalSearch.name
+                },
                 onChatClick = { chat ->
                     selectedChatId = chat.id
                     chatBackRouteName = AppRoute.Chats.name
@@ -648,6 +654,13 @@ private fun BeyGramAppContent(
                     onResources = { routeName = AppRoute.Resources.name }
                 )
                 AppRoute.Resources -> ResourcesScreen(onBack = { routeName = AppRoute.Diagnostics.name })
+                AppRoute.GlobalSearch -> GlobalSearchScreen(
+                    initialQuery = globalSearchQuery,
+                    conversation = repository,
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile,
+                    onBack = { routeName = AppRoute.Chats.name }
+                )
                 AppRoute.ReportProblem -> ReportProblemScreen(
                     repository = repository,
                     connectionState = connectionState,

@@ -25,6 +25,7 @@ enum class AppRoute {
     StorageSettings,
     Diagnostics,
     Resources,
+    GlobalSearch,
     ReportProblem,
     Proxy,
     ProxyConnect,
