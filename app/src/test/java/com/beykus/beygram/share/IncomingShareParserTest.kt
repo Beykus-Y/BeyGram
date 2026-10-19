@@ -2,23 +2,28 @@ package com.beykus.beygram.share
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IncomingShareParserTest {
     private val send = "android.intent.action.SEND"
 
     @Test fun plainTextIsKeptWithInnerLineBreaks() {
-        assertEquals("first\nsecond", IncomingShareParser.textOf(send, "text/plain", "  first\nsecond  "))
+        assertEquals(IncomingShare(1L, "first\nsecond"), IncomingShareParser.from(send, "text/plain", "  first\nsecond  ", false, 1L))
     }
 
     @Test fun blankOrMissingTextIsIgnored() {
-        assertNull(IncomingShareParser.textOf(send, "text/plain", "   "))
-        assertNull(IncomingShareParser.textOf(send, "text/plain", null))
+        assertNull(IncomingShareParser.from(send, "text/plain", "   ", false, 1L))
+        assertNull(IncomingShareParser.from(send, "text/plain", null, false, 1L))
+    }
+
+    @Test fun streamIsMarkedUnsupportedInsteadOfDropped() {
+        assertTrue(IncomingShareParser.from(send, "text/plain", null, true, 1L)!!.fileUnsupported)
     }
 
     @Test fun otherActionsAndTypesAreIgnored() {
-        assertNull(IncomingShareParser.textOf("android.intent.action.VIEW", "text/plain", "x"))
-        assertNull(IncomingShareParser.textOf(send, "image/png", "x"))
-        assertNull(IncomingShareParser.textOf(send, null, "x"))
+        assertNull(IncomingShareParser.from("android.intent.action.VIEW", "text/plain", "x", false, 1L))
+        assertNull(IncomingShareParser.from(send, "image/png", "x", false, 1L))
+        assertNull(IncomingShareParser.from(send, null, "x", false, 1L))
     }
 }

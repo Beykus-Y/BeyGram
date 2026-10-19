@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState != null) {
             if (savedInstanceState.getBoolean("notification_pending")) notificationRequest = NotificationOpenRequest(savedInstanceState.getLong("notification_token"),
                 savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"))
-            if (savedInstanceState.containsKey("share_text")) incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), savedInstanceState.getString("share_text").orEmpty())
+            if (savedInstanceState.containsKey("share_text")) incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), savedInstanceState.getString("share_text").orEmpty(), savedInstanceState.getBoolean("share_file"))
         } else {
             acceptNotificationIntent(intent)
             acceptShareIntent(intent)
@@ -91,13 +91,13 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
         notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy) }
-        incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text) }
+        incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text); outState.putBoolean("share_file", it.fileUnsupported) }
         super.onSaveInstanceState(outState)
     }
     /** Текст из другого приложения: сохраняем его до выбора чата; отправка начнётся только после подтверждения на экране. */
     private fun acceptShareIntent(intent: Intent?) {
-        val text = IncomingShareParser.textOf(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)) ?: return
-        incomingShare = IncomingShare(SystemClock.elapsedRealtimeNanos(), text)
+        val requestId = SystemClock.elapsedRealtimeNanos()
+        incomingShare = IncomingShareParser.from(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT), intent?.hasExtra(Intent.EXTRA_STREAM) == true, requestId)
     }
     private fun acceptNotificationIntent(intent: Intent?) {
         if (intent == null || intent.action !in listOf(NotificationIntents.OPEN_CHAT, NotificationIntents.OPEN_SETTINGS, NotificationIntents.OPEN_PROXY) || !NotificationIntents.valid(this, intent)) return

@@ -1,18 +1,26 @@
 package com.beykus.beygram.share
 
-/** Текст, который другое приложение передало через «Поделиться». Пока он не отправлен, живёт только в памяти активности. */
-data class IncomingShare(val requestId: Long, val text: String)
+/**
+ * Содержимое, которое другое приложение передало через «Поделиться». Пока оно не отправлено, живёт только в памяти активности.
+ * [fileUnsupported] означает, что пришёл файл: его пока не импортируем, поэтому текст не отправляем.
+ */
+data class IncomingShare(val requestId: Long, val text: String, val fileUnsupported: Boolean = false)
 
 object IncomingShareParser {
-    /** Предел текста одного сообщения Telegram. Длиннее не отправляем, а предлагаем сократить. */
+    /** Предел текста одного сообщения Telegram в символах Unicode (кодовых точках). */
     const val MAX_TEXT_LENGTH = 4096
 
     private const val ACTION_SEND = "android.intent.action.SEND"
     private const val MIME_TEXT_PLAIN = "text/plain"
 
-    /** Текст из входящего `ACTION_SEND` или null, если это не непустой текст. Пробелы по краям убираем, переносы внутри сохраняем. */
-    fun textOf(action: String?, mimeType: String?, text: CharSequence?): String? {
+    /**
+     * Разбирает входящий `ACTION_SEND` с типом text/plain. Файл в `EXTRA_STREAM` даёт [IncomingShare.fileUnsupported];
+     * пустой запрос без текста и файла возвращает null. Пробелы по краям убираем, переносы внутри сохраняем.
+     */
+    fun from(action: String?, mimeType: String?, text: CharSequence?, hasStream: Boolean, requestId: Long): IncomingShare? {
         if (action != ACTION_SEND || mimeType?.startsWith(MIME_TEXT_PLAIN) != true) return null
-        return text?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        if (hasStream) return IncomingShare(requestId, text = "", fileUnsupported = true)
+        val value = text?.toString()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return IncomingShare(requestId, value)
     }
 }

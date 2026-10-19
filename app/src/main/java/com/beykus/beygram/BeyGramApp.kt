@@ -296,29 +296,34 @@ private fun BeyGramAppContent(
     }
     // Текст из другого приложения выбирает чат и подтверждает отправку на отдельном экране поверх приложения.
     if (incomingShare != null && authState == AuthState.Ready) {
+        // Архивные чаты тоже можно выбрать: отправка в них не требует вынимать их из архива.
         val shareChats by repository.chats.collectAsStateWithLifecycle()
+        val shareArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
         Dialog(
             onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
         ) {
-            ShareTargetScreen(
-                text = incomingShare.text,
-                chats = shareChats,
-                sendText = { chatId, text ->
-                    if (repository.isForumChat(chatId).getOrDefault(false)) {
-                        Result.failure(UserMessageException(UiText.Res(R.string.share_forum_unsupported)))
-                    } else {
-                        repository.sendMessage(chatId, text)
-                    }
-                },
-                onSent = { chatId ->
-                    onIncomingShareHandled(incomingShare.requestId)
-                    selectedChatId = chatId
-                    chatBackRouteName = AppRoute.Chats.name
-                    routeName = AppRoute.Chat.name
-                },
-                onCancel = { onIncomingShareHandled(incomingShare.requestId) }
-            )
+            // Новый запрос из «Поделиться» получает свежее состояние выбора, даже если диалог уже открыт.
+            key(incomingShare.requestId) {
+                ShareTargetScreen(
+                    text = incomingShare.text,
+                    fileUnsupported = incomingShare.fileUnsupported,
+                    chats = shareChats + shareArchivedChats,
+                    sendText = { chatId, text ->
+                        // Если не удалось узнать, форум ли чат, не отправляем: иначе текст уйдёт в General.
+                        val forum = repository.isForumChat(chatId).getOrElse { return@ShareTargetScreen Result.failure(it) }
+                        if (forum) Result.failure(UserMessageException(UiText.Res(R.string.share_forum_unsupported)))
+                        else repository.sendMessage(chatId, text)
+                    },
+                    onSent = { chatId ->
+                        onIncomingShareHandled(incomingShare.requestId)
+                        selectedChatId = chatId
+                        chatBackRouteName = AppRoute.Chats.name
+                        routeName = AppRoute.Chat.name
+                    },
+                    onCancel = { onIncomingShareHandled(incomingShare.requestId) }
+                )
+            }
         }
     }
 
