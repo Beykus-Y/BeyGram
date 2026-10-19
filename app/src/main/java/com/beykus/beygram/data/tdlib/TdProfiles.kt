@@ -84,6 +84,9 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         publish()
     }
 
+    /** Личный чат с самим собой, «Избранное», имеет id аккаунта; до загрузки GetMe ни один чат не считается своим. */
+    fun isSelf(userId: Long): Boolean = userId != 0L && userId == myId
+
     fun refreshMe() {
         synchronized(lock) { if (_me.value.isLoading) return; _me.value = _me.value.copy(isLoading = true, error = null) }
         scope.launch {

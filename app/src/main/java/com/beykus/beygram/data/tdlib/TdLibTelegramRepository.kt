@@ -962,7 +962,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleChatTitleChange(chatId: Long, title: String) {
         val existing = chatCache[chatId] ?: return
-        chatCache[chatId] = existing.copy(title = title)
+        // Название «Избранного» задаёт приложение на языке интерфейса, поэтому присланное TDLib не перезаписывает его.
+        chatCache[chatId] = existing.copy(title = if (existing.isSavedMessages) existing.title else title)
         publishChat(chatId)
     }
 
@@ -1021,7 +1022,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // =========================================================================
 
     private fun TdApi.Chat.toChatPreview(): ChatPreview? {
-        val chatTitle = title.ifBlank { return null }
+        val saved = type.let { it is TdApi.ChatTypePrivate && profiles.isSelf(it.userId) }
+        val chatTitle = if (saved) appContext.getString(R.string.saved_messages_title) else title.ifBlank { return null }
         val mainPosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListMain }
         val archivePosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListArchive }
         return ChatPreview(
@@ -1033,6 +1035,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             unreadCount = unreadCount,
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
+            isSavedMessages = saved,
             isPinned = mainPosition?.isPinned == true,
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,

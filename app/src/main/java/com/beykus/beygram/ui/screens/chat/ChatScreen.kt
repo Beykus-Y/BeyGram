@@ -57,7 +57,7 @@ import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackOrigin
-import com.beykus.beygram.ui.components.TelegramAvatar
+import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
@@ -794,7 +794,7 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
-            TelegramAvatar(chat.initials, Color(chat.avatarColorArgb), 40.dp, chat.photo, observeFile, downloadFile, Modifier.clickable(onClick = onInfo))
+            ChatAvatar(chat, 40.dp, observeFile, downloadFile, Modifier.clickable(onClick = onInfo))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f).clickable(onClick = onInfo)) {
                 Text(chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
