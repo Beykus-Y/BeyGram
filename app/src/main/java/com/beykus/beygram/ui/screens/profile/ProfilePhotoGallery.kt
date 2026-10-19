@@ -102,6 +102,7 @@ internal fun ProfilePhotoGallery(
         onClose = onClose,
         title = title,
         subtitle = subtitle,
+        fullFileOnlyWhenActive = true,
         actions = if (own && selectedId > 0L) MediaViewerActions(
             canForward = false, canEdit = false, canDelete = true,
             onForward = {}, onEdit = {}, onDelete = { deleteTarget = selectedId }
