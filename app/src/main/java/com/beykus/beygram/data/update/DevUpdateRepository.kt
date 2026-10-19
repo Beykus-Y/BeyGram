@@ -91,6 +91,8 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
                 throw IOException("Эта версия уже установлена или устарела.")
             }
             if (!updateDir.exists() && !updateDir.mkdirs()) throw IOException("Нет места для загрузки.")
+            // A new download replaces older DEV APKs, so the cache holds at most one of them.
+            updateDir.listFiles()?.forEach { if (it.name.startsWith("dev-")) it.delete() }
             // Every user-initiated download gets its own path, so an APK already handed to the installer is never rewritten.
             val downloadId = UUID.randomUUID().toString()
             val temp = File(updateDir, "dev-$downloadId.part")
