@@ -30,13 +30,71 @@ class ReleaseNotesParserTest {
     }
 
     @Test
-    fun supportsPlainParagraphsAndReadableLinks() {
+    fun dropsMultiLineCommentsAndEverythingAfterTechnicalMarker() {
         val result = parseReleaseNotes(
-            "## Улучшения\n- Открыть [подробности](https://github.com/example/repo)\nТекст с `кодом`."
+            """
+            ## Что нового
+            - Готово.
+            <!-- Release notes generated using configuration
+            in .github/release.yml at 2e783d9 -->
+            <!-- TECHNICAL_CHANGELOG -->
+            ## What's Changed
+            """.trimIndent()
+        )
+        assertEquals(
+            listOf(
+                ReleaseNotesLine(ReleaseNotesKind.Section, "Что нового"),
+                ReleaseNotesLine(ReleaseNotesKind.Bullet, "Готово.")
+            ),
+            result
+        )
+    }
+
+    @Test
+    fun acceptsOrderedMarkersUpToNineDigits() {
+        val result = parseReleaseNotes("100. Шаг\nпродолжение")
+        assertEquals(
+            listOf(ReleaseNotesLine(ReleaseNotesKind.Numbered, "Шаг продолжение", marker = "100.")),
+            result
+        )
+    }
+
+    @Test
+    fun h1HeadingEndsTheOpenItem() {
+        val result = parseReleaseNotes("- first\n# New release\nstandalone")
+        assertEquals(
+            listOf(
+                ReleaseNotesLine(ReleaseNotesKind.Bullet, "first"),
+                ReleaseNotesLine(ReleaseNotesKind.Paragraph, "standalone")
+            ),
+            result
+        )
+    }
+
+    @Test
+    fun supportsReadableLinksAndMarkupWithoutRawSyntax() {
+        val result = parseReleaseNotes(
+            "## Улучшения\n- Открыть [подробности](https://github.com/example/repo)\n\nТекст с `кодом` и *курсивом*."
         )
         assertEquals(3, result.size)
         assertEquals("Открыть подробности", result[1].text)
-        assertEquals("Текст с кодом.", result[2].text)
+        assertEquals("Текст с кодом и курсивом.", result[2].text)
+    }
+
+    @Test
+    fun keepsNumberedItemsAndJoinsWrappedLinesIntoTheItem() {
+        val result = parseReleaseNotes(
+            "#### Подробности\n1. Первый пункт\nпродолжение пункта\n2) Второй пункт\n* Маркер звёздочкой"
+        )
+        assertEquals(
+            listOf(
+                ReleaseNotesLine(ReleaseNotesKind.Section, "Подробности"),
+                ReleaseNotesLine(ReleaseNotesKind.Numbered, "Первый пункт продолжение пункта", marker = "1."),
+                ReleaseNotesLine(ReleaseNotesKind.Numbered, "Второй пункт", marker = "2."),
+                ReleaseNotesLine(ReleaseNotesKind.Bullet, "Маркер звёздочкой")
+            ),
+            result
+        )
     }
 
     @Test
