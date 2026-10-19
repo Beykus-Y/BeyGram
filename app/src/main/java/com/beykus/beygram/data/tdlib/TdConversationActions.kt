@@ -244,10 +244,27 @@ internal class TdConversationActions(
      * Поиск по всем чатам аккаунта, без фильтра по папке: chatList = null. TDLib отдаёт страницы
      * через nextOffset, который передаётся обратно как есть.
      */
-    suspend fun searchGlobal(query: String, offset: String): Result<GlobalMessagePage> = requestResult {
+    suspend fun searchGlobal(query: String, offset: String, filter: GlobalSearchFilter): Result<GlobalMessagePage> = requestResult {
         if (query.isBlank()) return@requestResult GlobalMessagePage(emptyList(), "")
-        val found = request(TdApi.SearchMessages(null, query, offset, SEARCH_PAGE_SIZE, null, null, 0, 0))
+        val minDate = filter.period.minDate(System.currentTimeMillis() / 1000) ?: 0
+        val found = request(
+            TdApi.SearchMessages(
+                null,
+                query,
+                offset,
+                SEARCH_PAGE_SIZE,
+                filter.kind?.let { sharedFilter(it) },
+                filter.chatType?.let { chatTypeFilter(it) },
+                minDate,
+                0
+            )
+        )
         GlobalMessagePage(found.messages.orEmpty().filterNotNull().map(map), found.nextOffset.orEmpty())
+    }
+    private fun chatTypeFilter(type: GlobalChatType): TdApi.SearchMessagesChatTypeFilter = when (type) {
+        GlobalChatType.Private -> TdApi.SearchMessagesChatTypeFilterPrivate()
+        GlobalChatType.Group -> TdApi.SearchMessagesChatTypeFilterGroup()
+        GlobalChatType.Channel -> TdApi.SearchMessagesChatTypeFilterChannel()
     }
 
     /** Поиск по тексту внутри одного чата: TDLib отдаёт новые сообщения первыми, дальше страницы идут через nextFromMessageId. */

@@ -49,8 +49,11 @@ interface ConversationRepository {
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
     /** Messages in one chat whose text matches [query]. Pass 0 for the first page, then the previous page's nextFromMessageId. */
     suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
-    /** Messages matching [query] in all chats of the account. Pass "" for the first page, then the previous page's nextOffset. */
-    suspend fun searchGlobalMessages(query: String, offset: String): Result<GlobalMessagePage>
+    /**
+     * Messages matching [query] in all chats of the account, limited by [filter]. Pass "" for the first page, then the
+     * previous page's nextOffset. The offset is only valid with the same filter it came from.
+     */
+    suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter): Result<GlobalMessagePage>
     /**
      * Messages with an attachment of [kind] for the chat profile tabs and the chat media viewer, newest first. Same paging as
      * [searchMessages]. With [newer], the page holds messages newer than [fromMessageId] instead.

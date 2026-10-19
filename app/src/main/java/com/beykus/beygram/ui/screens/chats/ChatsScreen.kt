@@ -373,7 +373,7 @@ private fun ArchivePullHint(heightDp: Dp) {
 }
 
 @Composable
-private fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
+internal fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
         modifier = Modifier.height(34.dp).clip(RoundedCornerShape(50)).background(if (selected) palette.accent else palette.surface2)

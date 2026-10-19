@@ -3,7 +3,9 @@ package com.beykus.beygram.ui.screens.chats
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,7 +33,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.GlobalChatType
+import com.beykus.beygram.domain.model.GlobalSearchFilter
+import com.beykus.beygram.domain.model.GlobalSearchPeriod
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.domain.search.appendDistinctBy
 import com.beykus.beygram.ui.components.SearchField
@@ -59,6 +66,8 @@ fun GlobalSearchScreen(
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     var query by rememberSaveable { mutableStateOf(initialQuery) }
+    // Фильтры сбрасываются при повороте экрана вместе с выдачей: они не сохраняются через rememberSaveable.
+    var filter by remember { mutableStateOf(GlobalSearchFilter()) }
     var hits by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var nextOffset by remember { mutableStateOf("") }
     var loadingMore by remember { mutableStateOf(false) }
@@ -69,8 +78,8 @@ fun GlobalSearchScreen(
     var opened by remember { mutableStateOf<ChatMessage?>(null) }
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(query) {
-        // Догрузка прошлого запроса не должна дописаться к выдаче нового.
+    LaunchedEffect(query, filter) {
+        // Догрузка прошлого запроса или фильтра не должна дописаться к выдаче нового.
         pagingJob?.cancel()
         pagingJob = null
         loadingMore = false
@@ -81,7 +90,7 @@ fun GlobalSearchScreen(
         if (query.isBlank()) return@LaunchedEffect
         delay(SEARCH_DEBOUNCE_MILLIS)
         searching = true
-        conversation.searchGlobalMessages(query, "")
+        conversation.searchGlobalMessages(query, "", filter)
             .onSuccess { page ->
                 hits = page.messages
                 nextOffset = page.nextOffset
@@ -96,6 +105,25 @@ fun GlobalSearchScreen(
     ) {
         ProfileToolbar(stringResource(R.string.global_search_title), onBack)
         SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
+        SearchChips(
+            options = SharedMediaKind.entries.map { it to stringResource(kindLabel(it)) },
+            selected = filter.kind,
+            all = stringResource(R.string.global_search_filter_all_types),
+            onSelect = { filter = filter.copy(kind = it) }
+        )
+        SearchChips(
+            options = GlobalChatType.entries.map { it to stringResource(chatTypeLabel(it)) },
+            selected = filter.chatType,
+            all = stringResource(R.string.global_search_filter_all_chats),
+            onSelect = { filter = filter.copy(chatType = it) }
+        )
+        SearchChips(
+            options = GlobalSearchPeriod.entries.filter { it != GlobalSearchPeriod.Any }
+                .map { it to stringResource(periodLabel(it)) },
+            selected = filter.period.takeIf { it != GlobalSearchPeriod.Any },
+            all = stringResource(R.string.global_search_filter_any_period),
+            onSelect = { filter = filter.copy(period = it ?: GlobalSearchPeriod.Any) }
+        )
         val empty = when {
             query.isBlank() -> stringResource(R.string.global_search_idle)
             searching -> stringResource(R.string.global_search_loading)
@@ -124,8 +152,9 @@ fun GlobalSearchScreen(
                             loadingMore = true
                             moreFailed = false
                             val requestedQuery = query
+                            val requestedFilter = filter
                             pagingJob = scope.launch {
-                                conversation.searchGlobalMessages(requestedQuery, nextOffset)
+                                conversation.searchGlobalMessages(requestedQuery, nextOffset, requestedFilter)
                                     .onSuccess { page ->
                                         hits = appendDistinctBy(hits, page.messages) { it.chatId to it.id }
                                         nextOffset = page.nextOffset
@@ -154,4 +183,38 @@ fun GlobalSearchScreen(
             onClose = { opened = null }
         )
     }
+}
+
+@Composable
+private fun <T> SearchChips(options: List<Pair<T, String>>, selected: T?, all: String, onSelect: (T?) -> Unit) {
+    LazyRow(
+        Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item { FilterChip(title = all, selected = selected == null, count = null, onClick = { onSelect(null) }) }
+        items(options) { (option, label) ->
+            FilterChip(title = label, selected = selected == option, count = null, onClick = { onSelect(option) })
+        }
+    }
+}
+
+private fun kindLabel(kind: SharedMediaKind): Int = when (kind) {
+    SharedMediaKind.Media -> R.string.global_search_filter_media
+    SharedMediaKind.Files -> R.string.global_search_filter_files
+    SharedMediaKind.Links -> R.string.global_search_filter_links
+    SharedMediaKind.Voice -> R.string.global_search_filter_voice
+    SharedMediaKind.Music -> R.string.global_search_filter_music
+}
+
+private fun chatTypeLabel(type: GlobalChatType): Int = when (type) {
+    GlobalChatType.Private -> R.string.global_search_filter_private
+    GlobalChatType.Group -> R.string.global_search_filter_group
+    GlobalChatType.Channel -> R.string.global_search_filter_channel
+}
+
+private fun periodLabel(period: GlobalSearchPeriod): Int = when (period) {
+    GlobalSearchPeriod.Any -> R.string.global_search_filter_any_period
+    GlobalSearchPeriod.Week -> R.string.global_search_filter_week
+    GlobalSearchPeriod.Month -> R.string.global_search_filter_month
 }
