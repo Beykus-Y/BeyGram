@@ -473,6 +473,7 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
+            loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
             lastSeenStyle = lastSeenStyle,
             sharedMessages = { kind, fromMessageId, newer -> repository.sharedMessages(selectedChatId, kind, fromMessageId, newer) },
             confirmExport = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull()?.canSave == true },
@@ -497,6 +498,7 @@ private fun BeyGramAppContent(
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = memberReturnRouteName }, onRefresh = { repository.refreshChatInfo(memberChatId) },
             onEdit = {}, setPhoto = repository::setMyProfilePhoto,
+            loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
             lastSeenStyle = lastSeenStyle)
     }
 
@@ -576,6 +578,7 @@ private fun BeyGramAppContent(
                     ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile,
                         onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
                         onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
+                        loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
                         onNotifications = { openNotifications(AppRoute.MyProfile) },
                         hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },

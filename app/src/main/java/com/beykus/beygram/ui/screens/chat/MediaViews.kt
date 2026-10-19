@@ -337,7 +337,8 @@ internal fun MediaViewer(
     pages: List<MediaViewerItem>, selectedId: Long, onSelect: (Long) -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onViewed: (Long) -> Unit, onClose: () -> Unit,
     title: String? = null, subtitle: String? = null, canExport: Boolean = true, confirmExport: suspend (Long) -> Boolean = { true },
-    actions: MediaViewerActions? = null, onShowInChat: ((Long) -> Unit)? = null
+    actions: MediaViewerActions? = null, onShowInChat: ((Long) -> Unit)? = null,
+    extraFooter: (@Composable () -> Unit)? = null
 ) {
     val selectedIndex = pages.indexOfFirst { it.messageId == selectedId }.coerceAtLeast(0)
     val shown = pages[selectedIndex]
@@ -432,6 +433,7 @@ internal fun MediaViewer(
             }
             externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp)) }
             fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+            extraFooter?.invoke()
         }
     }
 }
@@ -463,7 +465,7 @@ private fun MediaViewerPage(
     LaunchedEffect(media.fileId, concealed) {
         if (concealed) return@LaunchedEffect
         // Миниатюра нужна и TGS, и фото: она показывается, пока грузится оригинал.
-        if (tgs || media.mimeType.startsWith("image/")) previewId?.let(downloadFile)
+        if (tgs || media.mimeType.startsWith("image/") || media.mimeType.startsWith("video/")) previewId?.let(downloadFile)
         downloadFile(media.fileId)
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -493,6 +495,15 @@ private fun MediaViewerPage(
                 }
             }
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
+            path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()
+            ) {
+                LocalMediaImage(thumb.localPath!!, Modifier.weight(1f).fillMaxWidth(), fit = true)
+                Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)),
+                    color = Color.LightGray, modifier = Modifier.padding(8.dp))
+                if (file.isDownloading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                else TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
+            }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                 if (file.isDownloading) CircularProgressIndicator()
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))

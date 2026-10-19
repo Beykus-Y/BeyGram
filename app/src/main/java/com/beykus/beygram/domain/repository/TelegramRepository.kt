@@ -38,6 +38,10 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     fun refreshMyProfile()
     suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit>
     suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit>
+    /** Only available TDLib photo history, fetched on demand, never as part of ProfileInfo. */
+    suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.ProfilePhotosPage>
+    /** Delete the selected own Telegram profile photo, by its TDLib photo id. */
+    suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit>
 
     /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
     suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>
