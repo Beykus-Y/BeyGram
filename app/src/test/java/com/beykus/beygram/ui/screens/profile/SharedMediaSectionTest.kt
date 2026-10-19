@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.profile
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.TextStyleKind
 import org.junit.Assert.assertEquals
@@ -11,6 +12,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SharedMediaSectionTest {
+    @Test fun personalChatIncludesMusicTab() {
+        assertEquals(SharedMediaKind.entries.toList(), chatSharedKinds)
+        assertEquals(SharedMediaKind.Music, chatSharedKinds.last())
+    }
+
     private fun message(id: Long, text: String = "", vararg entities: MessageTextEntity) =
         ChatMessage(id = id, chatId = 1L, text = text, time = "", isOutgoing = false, entities = entities.toList())
 

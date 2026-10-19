@@ -24,6 +24,8 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Devices
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Videocam
@@ -45,7 +47,9 @@ import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Настройки приложения: нижнее меню, уведомления и диагностика. */
 @Composable
-fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit, onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit, onDiagnostics: () -> Unit, onUpdates: () -> Unit) {
+fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit,
+    onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit,
+    onDiagnostics: () -> Unit, onUpdates: () -> Unit, onLanguage: () -> Unit, onSessions: () -> Unit) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -57,6 +61,10 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
         )
         Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+            SettingsLink(Icons.Rounded.Language, stringResource(R.string.feature_language), onLanguage)
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsLink(Icons.Rounded.Devices, stringResource(R.string.feature_sessions), onSessions)
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.Dashboard, stringResource(R.string.nav_title), onNavigationSettings)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.Palette, stringResource(R.string.theme_title), onAppearance)

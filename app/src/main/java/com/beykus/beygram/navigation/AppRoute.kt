@@ -25,9 +25,13 @@ enum class AppRoute {
     StorageSettings,
     Diagnostics,
     Resources,
+    GlobalSearch,
     ReportProblem,
     Proxy,
     ProxyConnect,
     Appearance,
-    ThemeEditor
+    ThemeEditor,
+    Language,
+    Sessions,
+    CreateChannel
 }

@@ -110,6 +110,9 @@ android {
             dimension = "environment"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
+            // DEV beta builds add the CI run number to the stable code: each published DEV build
+            // installs over the previous one and stays above Stable. Local builds keep the stable code.
+            versionCode = stableVersionCode + ((project.findProperty("devBuildNumber") as String?)?.toInt() ?: 0)
             // Dev and Stable are often installed side by side. Loopback ports are shared by every app on the
             // device, so each variant needs its own listener port (issue #75).
             buildConfigField("int", "MIHOMO_PROXY_PORT", "17892")

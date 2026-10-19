@@ -11,6 +11,10 @@ interface ConversationRepository {
     suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit>
     suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer>
     val messageLimits: StateFlow<MessageLimits>
+    /** Local-first persistent composer drafts, synchronized with TDLib when connected. */
+    fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft>
+    /** Atomic updates prevent text/formatting/reply callbacks from overwriting one another. */
+    fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft)
     fun observeChatHistory(chatId: Long): StateFlow<ChatHistory>
     fun openChat(chatId: Long)
     fun closeChat(chatId: Long)
@@ -49,6 +53,11 @@ interface ConversationRepository {
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
     /** Messages in one chat whose text matches [query]. Pass 0 for the first page, then the previous page's nextFromMessageId. */
     suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
+    /**
+     * Messages matching [query] in all chats of the account, limited by [filter]. Pass "" for the first page, then the
+     * previous page's nextOffset. The offset is only valid with the same filter it came from.
+     */
+    suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter): Result<GlobalMessagePage>
     /**
      * Messages with an attachment of [kind] for the chat profile tabs and the chat media viewer, newest first. Same paging as
      * [searchMessages]. With [newer], the page holds messages newer than [fromMessageId] instead.
