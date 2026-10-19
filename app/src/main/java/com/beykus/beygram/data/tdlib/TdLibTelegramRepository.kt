@@ -330,7 +330,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 device = session.deviceModel.orEmpty().ifBlank { session.platform.orEmpty() },
                 application = session.applicationName.orEmpty(),
                 location = session.location.orEmpty(),
-                ip = session.ip.orEmpty(),
+                ip = session.ipAddress.orEmpty(),
                 lastActive = session.lastActiveDate.toLong()
             )
         }
