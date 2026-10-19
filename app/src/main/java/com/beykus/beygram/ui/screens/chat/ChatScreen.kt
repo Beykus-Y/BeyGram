@@ -399,8 +399,13 @@ fun ChatScreen(
         if (pendingVideoNotes.isNotEmpty()) listState.animateScrollToItem(0)
     }
     LaunchedEffect(chat.id, newest?.id) {
-        // With unread messages the opening position belongs to the read boundary effect below; an outgoing message still scrolls.
-        if (chat.unreadCount > 0 && !scrollPosition.readBoundaryChecked && newest?.isOutgoing != true) return@LaunchedEffect
+        // A message sent while the chat opens drops the boundary: the list goes to the bottom and the boundary is not placed.
+        val arrived = scrollPosition.seenNewestId != 0L && newest != null && newest.id != scrollPosition.seenNewestId
+        scrollPosition.seenNewestId = newest?.id ?: 0L
+        if (chat.unreadCount > 0 && !scrollPosition.readBoundaryChecked) {
+            if (arrived && newest?.isOutgoing == true) scrollPosition.readBoundaryChecked = true
+            else return@LaunchedEffect
+        }
         if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) listState.animateScrollToItem(0)
     }
     // Открытие с непрочитанными: экран встаёт у разделителя «Непрочитанные», а не у последнего сообщения.

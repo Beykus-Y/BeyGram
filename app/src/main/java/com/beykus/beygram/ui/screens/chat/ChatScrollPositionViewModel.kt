@@ -17,6 +17,8 @@ internal class ChatScrollPositionViewModel : ViewModel() {
     /** Set once the opening position of the visit is decided. Until then read marks are held back, so the boundary cannot move. */
     var readBoundaryChecked by mutableStateOf(false)
     var readBoundaryWindowRequested = false
+    /** Newest message seen by the list scroll, so a message that arrives later is told apart from the first load. */
+    var seenNewestId = 0L
     /** Set when the chat hands over to chat info, so leaving the screen for it does not end the visit. */
     var visitContinues = false
 
@@ -24,5 +26,6 @@ internal class ChatScrollPositionViewModel : ViewModel() {
         readBoundaryId = null
         readBoundaryChecked = false
         readBoundaryWindowRequested = false
+        seenNewestId = 0L
     }
 }
