@@ -87,6 +87,19 @@ internal fun nextInQueue(queue: List<PlaybackItem>, index: Int, currentKey: Stri
     return queue.getOrNull(index + 1)
 }
 
+/** Очередь музыки: файлы по порядку и место играющего файла в них. Пустая очередь не имеет места. */
+internal data class PlaybackQueue(val items: List<PlaybackItem> = emptyList(), val index: Int = -1)
+
+/**
+ * Очередь после повторного выбора файла, который уже играет. Переданная очередь заменяет прежнюю. Без неё прежняя остаётся,
+ * только если файл выбран из того же места: очередь другого чата не должна играть дальше.
+ */
+internal fun queueAfterReselect(previous: PlaybackQueue, given: PlaybackQueue?, sameOrigin: Boolean): PlaybackQueue =
+    given ?: previous.takeIf { sameOrigin } ?: PlaybackQueue()
+
+/** Позиция, с которой продолжается файл [key]: прерванная музыка возвращается к своему месту, остальные файлы идут с начала. */
+internal fun resumePositionMs(waiting: InterruptedMusic?, key: String): Long = waiting?.takeIf { it.item.key == key }?.positionMs ?: 0L
+
 /** Ключ файла в общем плеере: один на весь файл, поэтому повторный запуск не начинает его сначала. */
 internal fun MessageMedia.playbackKey(): String = "$kind:$fileId"
 
@@ -186,11 +199,12 @@ object PlaybackEngine {
         if (onStarted != null) startedCallback = item.key to onStarted
         if (exo != null && _state.value.item?.key == item.key) {
             // Файл, который играет без очереди, например из ленты чата, берёт очередь вкладки: после паузы и продолжения она пойдёт дальше.
-            if (items.isNotEmpty()) {
-                queue = items
-                queueIndex = index
-            }
-            // Тот же файл из другого сообщения или чата: «Показать в чате» ведёт к сообщению, с которого его запустили последним.
+            // Тот же файл из другого сообщения или чата сбрасывает очередь прошлого места, иначе следующий трек пошёл бы из чужого чата.
+            val given = if (items.isNotEmpty()) PlaybackQueue(items, index) else null
+            val next = queueAfterReselect(PlaybackQueue(queue, queueIndex), given, sameOrigin = _state.value.item?.origin == item.origin)
+            queue = next.items
+            queueIndex = next.index
+            // «Показать в чате» ведёт к сообщению, с которого файл запустили последним.
             _state.update { it.copy(item = item) }
             togglePlayPause()
         } else {
@@ -220,7 +234,7 @@ object PlaybackEngine {
         // Отметка ждёт только свой файл: запуск другого файла её сбрасывает.
         startedCallback = startedCallback?.takeIf { it.first == item.key }
         val waiting = interruptedMusic
-        val resumeMs = waiting?.takeIf { it.item.key == item.key }?.positionMs ?: 0L
+        val resumeMs = resumePositionMs(waiting, item.key)
         interruptedMusic = interruptedAfterStart(_state.value, waiting, item)
         target.setMediaItem(
             MediaItem.Builder()
@@ -305,21 +319,30 @@ object PlaybackEngine {
     /** Останавливает секретный файл, когда пользователь ушёл из чата или свернул приложение. Остальные файлы играют дальше. */
     fun stopSecret() {
         if (_state.value.item?.secret != true) return
-        // Музыка, которую секретный файл прервал, продолжается, как после его конца.
         val music = interruptedMusic
-        stop()
-        val context = appContext ?: return
-        if (music != null) play(context, music.item)
+        val context = appContext
+        if (music == null || context == null) {
+            stop()
+            return
+        }
+        // Музыка, которую секретный файл прервал, продолжается с того же места и из той же очереди, как после его конца.
+        halt()
+        play(context, music.item)
     }
 
-    /** Останавливает звук, убирает файл из мини-плеера и снимает уведомление, которое держал сервис. */
+    /** Останавливает звук, убирает файл из мини-плеера и снимает уведомление, которое держал сервис. Забывает музыку и очередь. */
     fun stop() {
-        progress?.cancel()
-        progress = null
-        pendingStartFraction = 0f
         interruptedMusic = null
         queue = emptyList()
         queueIndex = -1
+        halt()
+    }
+
+    /** Останавливает плеер и сервис, но оставляет ждущую музыку и её очередь: их продолжает [play]. */
+    private fun halt() {
+        progress?.cancel()
+        progress = null
+        pendingStartFraction = 0f
         startedCallback = null
         exo?.let {
             it.stop()

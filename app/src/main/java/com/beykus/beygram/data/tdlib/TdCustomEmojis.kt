@@ -13,12 +13,14 @@ import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Custom emoji stickers used as reactions, by their id. Each id is asked from TDLib once, and an id that TDLib cannot answer
- * for is asked again the next time it is observed.
+ * Custom emoji stickers used as reactions, by their id. Each id is asked from TDLib once. An id that TDLib cannot answer
+ * for is asked again until it answers, and observers already waiting on it get the sticker as soon as it does.
  */
-internal class TdCustomEmojis(client: () -> Client) {
-    private val requests = TdRequests(client)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+internal class TdCustomEmojis(
+    client: () -> Client,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val lookup: suspend (Long) -> CustomEmoji? = { customEmojiId -> lookupCustomEmoji(TdRequests(client), customEmojiId) },
+) {
     private val flows = ConcurrentHashMap<Long, MutableStateFlow<CustomEmoji?>>()
 
     /** The sticker of [customEmojiId]; null until TDLib has answered. */
@@ -27,30 +29,27 @@ internal class TdCustomEmojis(client: () -> Client) {
         val flow = MutableStateFlow<CustomEmoji?>(null)
         flows.putIfAbsent(customEmojiId, flow)?.let { return it }
         scope.launch {
-            // Наблюдатели держат этот поток, поэтому сбой не должен оставлять его пустым: пробуем снова с растущей паузой.
+            // Наблюдатели держат этот поток, поэтому он не должен остаться пустым: после бюджета пауз спрашиваем с последней паузой.
             var emoji = lookup(customEmojiId)
-            for (pause in RETRY_PAUSES_MILLIS) {
-                if (emoji != null) break
-                delay(pause)
+            var attempt = 0
+            while (emoji == null) {
+                delay(RETRY_PAUSES_MILLIS[minOf(attempt, RETRY_PAUSES_MILLIS.lastIndex)])
+                attempt++
                 emoji = lookup(customEmojiId)
             }
-            if (emoji != null) {
-                flow.value = emoji
-            } else {
-                flows.remove(customEmojiId, flow)
-            }
+            flow.value = emoji
         }
         return flow
-    }
-
-    private suspend fun lookup(customEmojiId: Long): CustomEmoji? {
-        val stickers = runCatching { requests(TdApi.GetCustomEmojiStickers(longArrayOf(customEmojiId))) }.getOrNull()?.stickers.orEmpty()
-        // One id is asked for, so the sticker that comes back is its own, whatever id TDLib gives the sticker itself.
-        val sticker = stickers.firstOrNull() ?: return null
-        return CustomEmoji(customEmojiId, sticker.sticker.id, sticker.emoji, stickerMimeType(sticker.format))
     }
 
     private companion object {
         val RETRY_PAUSES_MILLIS = longArrayOf(2_000L, 5_000L, 15_000L, 30_000L)
     }
+}
+
+private suspend fun lookupCustomEmoji(requests: TdRequests, customEmojiId: Long): CustomEmoji? {
+    val stickers = runCatching { requests(TdApi.GetCustomEmojiStickers(longArrayOf(customEmojiId))) }.getOrNull()?.stickers.orEmpty()
+    // One id is asked for, so the sticker that comes back is its own, whatever id TDLib gives the sticker itself.
+    val sticker = stickers.firstOrNull() ?: return null
+    return CustomEmoji(customEmojiId, sticker.sticker.id, sticker.emoji, stickerMimeType(sticker.format))
 }

@@ -39,6 +39,25 @@ class PlaybackQueueTest {
     }
 
     @Test
+    fun sameFileFromAnotherChatDropsTheOldQueue() {
+        val previous = PlaybackQueue(queue, 0)
+        assertEquals(PlaybackQueue(), queueAfterReselect(previous, given = null, sameOrigin = false))
+    }
+
+    @Test
+    fun sameFileFromTheSamePlaceKeepsTheQueue() {
+        val previous = PlaybackQueue(queue, 0)
+        assertEquals(previous, queueAfterReselect(previous, given = null, sameOrigin = true))
+    }
+
+    @Test
+    fun givenQueueReplacesTheOldOne() {
+        val previous = PlaybackQueue(queue, 0)
+        val given = PlaybackQueue(listOf(third, first), 1)
+        assertEquals(given, queueAfterReselect(previous, given, sameOrigin = false))
+    }
+
+    @Test
     fun repeatedTrackAdvancesFromItsOwnPlace() {
         val repeated = listOf(first, second, first, third)
         assertEquals(third, nextInQueue(repeated, 2, first.key))
