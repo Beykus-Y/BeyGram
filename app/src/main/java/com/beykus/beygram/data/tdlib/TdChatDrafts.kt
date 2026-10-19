@@ -3,6 +3,7 @@ package com.beykus.beygram.data.tdlib
 import android.content.Context
 import com.beykus.beygram.domain.model.MessageDraft
 import com.beykus.beygram.domain.model.MessageDraftCodec
+import com.beykus.beygram.domain.model.MessageDraftSync
 import com.beykus.beygram.domain.model.StoredMessageDraft
 import com.beykus.beygram.domain.model.validTextEntities
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +28,7 @@ private const val DRAFTS_PREFS = "chat_message_drafts"
  * Local-first composer drafts plus TDLib synchronization.
  * UI edits update a StateFlow and Android's private preferences immediately; the remote request is debounced.
  * A stale TDLib update is never allowed to replace text changed in an open editor.
+ * Once TDLib holds a value, its backup is marked synced, so a draft cleared on another device is never sent back.
  */
 internal class TdChatDrafts(context: Context, client: () -> Client) {
     private val prefs = context.applicationContext.getSharedPreferences(DRAFTS_PREFS, Context.MODE_PRIVATE)
@@ -43,6 +45,10 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
     private fun stored(chatId: Long): StoredMessageDraft? =
         prefs.getString(key(chatId), null)?.let(MessageDraftCodec::decode)
 
+    private fun save(chatId: Long, draft: StoredMessageDraft) {
+        prefs.edit().putString(key(chatId), MessageDraftCodec.encode(draft)).apply()
+    }
+
     private fun state(chatId: Long): MutableStateFlow<MessageDraft> =
         states.computeIfAbsent(chatId) { MutableStateFlow(stored(chatId)?.value ?: MessageDraft()) }
 
@@ -56,7 +62,7 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
             val next = changed.copy(entities = validTextEntities(changed.text, changed.entities))
             if (next == flow.value) return
             flow.value = next
-            prefs.edit().putString(key(chatId), MessageDraftCodec.encode(StoredMessageDraft(next, System.currentTimeMillis()))).apply()
+            save(chatId, StoredMessageDraft(next, System.currentTimeMillis()))
             dirty.add(chatId)
             editedWhileOpen.add(chatId)
             revisions.computeIfAbsent(chatId) { AtomicLong() }.incrementAndGet()
@@ -66,32 +72,44 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
 
     fun closed(chatId: Long) {
         editedWhileOpen.remove(chatId)
-        if (chatId in dirty) schedule(chatId, 0L)
+        if (chatId in dirty) {
+            schedule(chatId, 0L)
+        } else {
+            // Cloud drafts that changed while the editor was open were ignored, so the current one is read once.
+            scope.launch {
+                val chat = runCatching { request(TdApi.GetChat(chatId)) }.getOrNull() ?: return@launch
+                receive(chatId, chat.draftMessage)
+            }
+        }
     }
 
     fun connectionReady() {
         dirty.forEach { schedule(it, 0L) }
     }
 
-    /** Existing local edits win over older cloud echoes; newer untouched drafts arrive from other devices. */
+    /**
+     * Existing local edits win over older cloud echoes; newer untouched drafts arrive from other devices.
+     * A synced backup always yields to TDLib, so a draft cleared on another device stays cleared.
+     */
     fun receive(chatId: Long, raw: TdApi.DraftMessage?) {
         val remote = fromTd(raw) ?: return
         val remoteTime = (raw?.date ?: 0).toLong() * 1000L
         synchronized(guard) {
             val flow = state(chatId)
+            val local = stored(chatId)
             if (flow.value == remote) {
                 dirty.remove(chatId)
+                if (local != null && !local.synced) save(chatId, local.copy(synced = true))
                 return
             }
             if (chatId in dirty || chatId in editedWhileOpen) return
-            val local = stored(chatId)
-            if (local != null && local.updatedAtMillis >= remoteTime) {
+            if (MessageDraftSync.keepsUnsentLocal(local, remote, remoteTime)) {
                 dirty.add(chatId)
                 schedule(chatId, WRITE_DELAY_MS)
                 return
             }
             flow.value = remote
-            prefs.edit().putString(key(chatId), MessageDraftCodec.encode(StoredMessageDraft(remote, remoteTime))).apply()
+            save(chatId, StoredMessageDraft(remote, remoteTime, synced = true))
         }
     }
 
@@ -134,10 +152,17 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
                         draftMessage = toTd(snapshot)
                     })
                 }.isSuccess
-                if (succeeded && generation == revisions[chatId]?.get() && state(chatId).value == snapshot) {
-                    dirty.remove(chatId)
-                }
+                if (succeeded) confirmSent(chatId, snapshot, generation)
             }
+        }
+    }
+
+    /** TDLib now holds [snapshot]; a newer edit keeps the backup unsynced until its own request succeeds. */
+    private fun confirmSent(chatId: Long, snapshot: MessageDraft, generation: Long) {
+        synchronized(guard) {
+            if (generation != revisions[chatId]?.get() || state(chatId).value != snapshot) return
+            dirty.remove(chatId)
+            stored(chatId)?.let { save(chatId, it.copy(synced = true)) }
         }
     }
 
