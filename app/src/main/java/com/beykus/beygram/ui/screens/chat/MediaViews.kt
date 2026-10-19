@@ -578,15 +578,16 @@ private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls:
             LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y + dismissY }, fit = true, maxDimension = 4096)
         }
         // Кнопки стоят поверх картинки, а не внутри её жестов: тап по кнопке не должен переключать панели или сдвигать фото.
-        if (showZoomControls) Column(
-            Modifier.align(Alignment.BottomEnd).padding(16.dp).background(Color(0x80070B10), RoundedCornerShape(24.dp)),
-            horizontalAlignment = Alignment.CenterHorizontally
+        // Внизу по центру, чтобы на низком окне не наезжать на кнопки листания у краёв.
+        if (showZoomControls) Row(
+            Modifier.align(Alignment.BottomCenter).padding(16.dp).background(Color(0x80070B10), RoundedCornerShape(24.dp)),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { zoomTo(scale * 1.5f) }, enabled = scale < 5f) {
-                Icon(Icons.Rounded.Add, stringResource(R.string.media_zoom_in), tint = Color.White.copy(alpha = if (scale < 5f) 1f else 0.3f))
-            }
             IconButton(onClick = { zoomTo(scale / 1.5f) }, enabled = scale > 1f) {
                 Icon(Icons.Rounded.Remove, stringResource(R.string.media_zoom_out), tint = Color.White.copy(alpha = if (scale > 1f) 1f else 0.3f))
+            }
+            IconButton(onClick = { zoomTo(scale * 1.5f) }, enabled = scale < 5f) {
+                Icon(Icons.Rounded.Add, stringResource(R.string.media_zoom_in), tint = Color.White.copy(alpha = if (scale < 5f) 1f else 0.3f))
             }
         }
     }
