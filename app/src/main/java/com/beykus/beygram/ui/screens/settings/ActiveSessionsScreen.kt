@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
@@ -13,6 +14,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.DeviceSession
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -24,6 +26,7 @@ fun ActiveSessionsScreen(
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var sessions by remember { mutableStateOf<List<DeviceSession>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
@@ -34,7 +37,7 @@ fun ActiveSessionsScreen(
     LaunchedEffect(refresh) {
         loading = true
         load().fold({ sessions = it.sortedWith(compareByDescending<DeviceSession> { s -> s.current }.thenByDescending { s -> s.lastActive }); error = null },
-            { error = it.localizedMessage ?: it.message })
+            { error = it.userMessage(context, R.string.feature_action_failed) })
         loading = false
     }
     Column {
@@ -78,7 +81,7 @@ fun ActiveSessionsScreen(
                     busy = true
                     val result = if (all) terminateAll() else terminate(target!!)
                     busy = false
-                    result.fold({ target = null; all = false; refresh++ }, { error = it.localizedMessage ?: it.message })
+                    result.fold({ target = null; all = false; refresh++ }, { error = it.userMessage(context, R.string.feature_action_failed) })
                 }
             }) { Text(stringResource(R.string.feature_confirm), color = palette.danger) }
         },

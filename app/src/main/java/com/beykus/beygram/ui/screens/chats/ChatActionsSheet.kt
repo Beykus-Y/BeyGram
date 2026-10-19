@@ -5,11 +5,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 
 /** Actions from the chat list. Destructive operations are impossible without an explicit confirmation. */
@@ -25,13 +27,14 @@ internal fun ChatActionsSheet(
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     var confirmDelete by remember(chat.id) { mutableStateOf(false) }
+    val context = LocalContext.current
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     fun perform(action: suspend () -> Result<Unit>) {
         if (busy) return
         scope.launch {
             busy = true; error = null
-            try { action().fold({ onClose() }, { error = it.localizedMessage ?: it.message }) }
+            try { action().fold({ onClose() }, { error = it.userMessage(context, R.string.feature_action_failed) }) }
             finally { busy = false }
         }
     }

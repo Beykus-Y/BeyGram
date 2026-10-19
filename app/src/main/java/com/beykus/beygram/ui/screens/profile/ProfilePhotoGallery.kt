@@ -8,6 +8,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.AvatarPhoto
@@ -20,6 +21,7 @@ import com.beykus.beygram.domain.model.ProfilePhotosWindow
 import com.beykus.beygram.ui.screens.chat.MediaViewer
 import com.beykus.beygram.ui.screens.chat.MediaViewerActions
 import com.beykus.beygram.ui.screens.chat.MediaViewerItem
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -55,6 +57,7 @@ internal fun ProfilePhotoGallery(
     onChanged: () -> Unit,
     onClose: () -> Unit
 ) {
+    val context = LocalContext.current
     val title = stringResource(R.string.profile_photo_title)
     // A negative fallback key is stable for older/group avatars without a known photo ID.
     val currentId = avatar.photoId.takeIf { it > 0L } ?: -avatar.bigFileId.toLong()
@@ -85,7 +88,7 @@ internal fun ProfilePhotoGallery(
             try {
                 latestLoader(profileId, window.offset, PHOTOS_PAGE_SIZE).fold(
                     onSuccess = { window = window.append(it) },
-                    onFailure = { error = it.localizedMessage ?: it.message ?: "" }
+                    onFailure = { error = it.userMessage(context, R.string.feature_action_failed) }
                 )
             } finally {
                 loading = false
@@ -119,7 +122,7 @@ internal fun ProfilePhotoGallery(
                         try {
                             setAsMain(selectedId).fold(
                                 onSuccess = { onChanged(); onClose() },
-                                onFailure = { error = it.localizedMessage ?: it.message ?: "" }
+                                onFailure = { error = it.userMessage(context, R.string.feature_action_failed) }
                             )
                         } finally { settingMain = false }
                     }
@@ -148,7 +151,7 @@ internal fun ProfilePhotoGallery(
                     try {
                         deletePhoto(id).fold(
                             onSuccess = { deleteTarget = null; onChanged(); onClose() },
-                            onFailure = { error = it.localizedMessage ?: it.message ?: ""; deleteTarget = null }
+                            onFailure = { error = it.userMessage(context, R.string.feature_action_failed); deleteTarget = null }
                         )
                     } finally { deleting = false }
                 }
