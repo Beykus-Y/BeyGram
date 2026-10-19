@@ -44,4 +44,12 @@ class MediaViewerZoomTest {
     @Test fun offsetInsideTheImageIsKept() {
         assertNear(Offset(100f, 50f), clampImageOffset(Offset(100f, 50f), scale = 2f, size = size))
     }
+
+    @Test fun zoomButtonsScaleTheOffsetAroundTheCentre() {
+        assertNear(Offset(150f, -75f), offsetAroundCenter(Offset(100f, -50f), from = 2f, to = 3f, size = size))
+    }
+
+    @Test fun zoomOutButtonCentersThePannedImage() {
+        assertNear(Offset.Zero, offsetAroundCenter(Offset(100f, -50f), from = 2f, to = 1f, size = size))
+    }
 }

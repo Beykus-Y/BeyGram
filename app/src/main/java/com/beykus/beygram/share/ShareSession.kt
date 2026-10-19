@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MediaKind
@@ -31,6 +34,8 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     var error by mutableStateOf<UiText?>(null)
     private var started = false
     private var released = false
+    /** Сколько файлов ушло из этого запроса за все попытки: нужно, чтобы честно сказать о частичном успехе. */
+    private var sentItems = 0
     private var importer: OutgoingMediaImporter? = null
 
     /** Копирует файлы в приватную папку один раз; вызов после поворота ничего не запускает повторно. */
@@ -83,11 +88,30 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         scope.launch {
             try {
                 // Все файлы убраны пользователем — отправляем только текст.
+                val mode = if (staged.isNotEmpty()) "files" else "text"
+                recordAppEvent(EventKind.UI, "share_send_started", "Отправка из «Поделиться» начата", attrs = mapOf("mode" to mode, "files" to staged.size.toString()))
                 val result = if (staged.isNotEmpty()) sendStaged(chatId, topicId, sendMedia) else sendText(chatId, topicId, draft.trim())
                 result
-                    .onSuccess { sentChatId = chatId; sent = true }
+                    .onSuccess {
+                        sentChatId = chatId
+                        sent = true
+                        recordAppEvent(EventKind.UI, "share_send_done", "Отправка из «Поделиться» завершена", attrs = mapOf("mode" to mode, "sent" to sentItems.toString()))
+                    }
                     .onFailure {
-                        error = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed)
+                        // Только числа и тип ошибки: текст и имена файлов в журнал не пишем.
+                        recordAppEvent(
+                            EventKind.UI,
+                            "share_send_failed",
+                            "Отправка из «Поделиться» не удалась",
+                            Severity.WARNING,
+                            mapOf("mode" to mode, "sent" to sentItems.toString(), "remaining" to staged.size.toString(), "cause" to it.javaClass.simpleName.ifEmpty { "unknown" })
+                        )
+                        // Часть файлов уже в чате: показываем, сколько ушло, а не общую ошибку.
+                        error = if (sentItems > 0) {
+                            UiText.Res(R.string.share_partial_failed, listOf(sentItems, sentItems + staged.size))
+                        } else {
+                            (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed)
+                        }
                         // Экран уже закрыт: повторить отправку будет некому, копии не должны остаться в папке.
                         val leftover = staged
                         if (released) importer?.let { staging -> scope.launch { leftover.forEach { staging.discard(it) } } }
@@ -110,6 +134,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
             val result = sendMedia(chatId, topicId, batch, draft.trim())
             if (result.isFailure) return result
             staged = staged.filterNot { item -> batch.any { it.path == item.path } }
+            sentItems += batch.size
             draft = ""
         }
         return Result.success(Unit)

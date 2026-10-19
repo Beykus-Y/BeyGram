@@ -130,16 +130,23 @@ jobs:
       - name: Build debug, release and instrumented-test APKs (no device tests)
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease :app:assembleDevDebugAndroidTest
 
-      - name: Assert install permission is Prod-only
+      - name: Assert install permission comes only from flavor overlays
         run: |
           set -euo pipefail
           build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
           dev=app/build/outputs/apk/dev/debug/app-dev-debug.apk
           prod=app/build/outputs/apk/prod/release/app-prod-release-unsigned.apk
+          # Every flavor shares the main manifest, so the install permission must never be declared there:
+          # it would reach each flavor, including Stable, without its overlay.
+          if grep -q "REQUEST_INSTALL_PACKAGES" app/src/main/AndroidManifest.xml; then
+            echo "::error::Main manifest declares APK installation permission; only flavor overlays may." >&2
+            exit 1
+          fi
           "$build_tools/aapt" dump permissions "$dev" > "$RUNNER_TEMP/dev-permissions.txt"
           "$build_tools/aapt" dump permissions "$prod" > "$RUNNER_TEMP/prod-permissions.txt"
-          if grep -q "android.permission.REQUEST_INSTALL_PACKAGES" "$RUNNER_TEMP/dev-permissions.txt"; then
-            echo "::error::DEV unexpectedly requests APK installation permission" >&2
+          # DEV beta has its own in-app updater, so its overlay must grant the permission.
+          if ! grep -q "android.permission.REQUEST_INSTALL_PACKAGES" "$RUNNER_TEMP/dev-permissions.txt"; then
+            echo "::error::DEV APK is missing the update installation permission" >&2
             exit 1
           fi
           if ! grep -q "android.permission.REQUEST_INSTALL_PACKAGES" "$RUNNER_TEMP/prod-permissions.txt"; then

@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Close
@@ -80,6 +81,7 @@ import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.components.Avatar
+import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.domain.model.ProfileInfo
@@ -114,7 +116,8 @@ fun ChatsScreen(
     onArchive: suspend (ChatPreview) -> Boolean,
     archiveHidden: Boolean,
     onArchiveHiddenChange: (Boolean) -> Unit,
-    onChatClick: (ChatPreview) -> Unit
+    onChatClick: (ChatPreview) -> Unit,
+    onGlobalSearch: (String) -> Unit = {}
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedFilterName by rememberSaveable { mutableStateOf(ChatFilter.All.name) }
@@ -200,6 +203,11 @@ fun ChatsScreen(
                     Text(stringResource(R.string.app_name).uppercase(), color = palette.accent, style = MaterialTheme.typography.labelMedium, letterSpacing = 0.8.sp)
                     Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
                 }
+                (chats + archivedChats).firstOrNull { it.isSavedMessages }?.let { saved ->
+                    androidx.compose.material3.IconButton(onClick = { onChatClick(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
+                        Icon(Icons.Rounded.Bookmark, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
+                    }
+                }
                 androidx.compose.material3.IconButton(onClick = onNotifications, modifier = Modifier.semantics { contentDescription = context.getString(R.string.chats_notifications_description) }) {
                     Icon(Icons.Rounded.Notifications, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                 }
@@ -246,6 +254,16 @@ fun ChatsScreen(
                         onClick = { onChatClick(chat) },
                         read = readAction.copy(enabled = chat.unreadCount > 0),
                         primary = archiveAction
+                    )
+                }
+            }
+            if (query.isNotBlank()) {
+                item(key = "global_search") {
+                    Text(
+                        stringResource(R.string.chats_search_all, query),
+                        color = palette.accent,
+                        fontSize = 15.sp,
+                        modifier = Modifier.fillMaxWidth().clickable { onGlobalSearch(query) }.padding(horizontal = 20.dp, vertical = 14.dp)
                     )
                 }
             }
@@ -355,7 +373,7 @@ private fun ArchivePullHint(heightDp: Dp) {
 }
 
 @Composable
-private fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
+internal fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
         modifier = Modifier.height(34.dp).clip(RoundedCornerShape(50)).background(if (selected) palette.accent else palette.surface2)
@@ -445,7 +463,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = listDensity.rowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TelegramAvatar(chat.initials, Color(chat.avatarColorArgb), 54.dp, chat.photo, observeFile, downloadFile)
+        ChatAvatar(chat, 54.dp, observeFile, downloadFile)
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
