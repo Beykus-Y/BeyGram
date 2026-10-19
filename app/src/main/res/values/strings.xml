@@ -344,9 +344,11 @@
     <string name="media_kind_video_note">Видеосообщение</string>
     <string name="media_kind_voice">Голосовое</string>
     <string name="media_more_actions">Ещё</string>
+    <string name="media_next">Следующее вложение</string>
     <string name="media_no_app_for_format">Нет приложения для открытия этого формата</string>
     <string name="media_open_file">Открыть файл</string>
     <string name="media_open_in_other_app">Открыть в другом приложении</string>
+    <string name="media_previous">Предыдущее вложение</string>
     <string name="media_save_failed">Не удалось сохранить файл</string>
     <string name="media_saved_downloads">Сохранено в «Загрузки»</string>
     <string name="media_saved_gallery">Сохранено в галерею</string>
@@ -356,6 +358,8 @@
     <string name="media_size_mb">%1$.1f МБ</string>
     <string name="media_spoiler_hint">Спойлер · нажмите, чтобы открыть</string>
     <string name="media_video_unsupported">Формат видео не поддерживается устройством. Откройте его в другом приложении.</string>
+    <string name="media_zoom_in">Приблизить</string>
+    <string name="media_zoom_out">Отдалить</string>
     <string name="player_close">Закрыть плеер</string>
     <string name="player_notification_channel">Воспроизведение</string>
     <string name="player_speed">Скорость</string>

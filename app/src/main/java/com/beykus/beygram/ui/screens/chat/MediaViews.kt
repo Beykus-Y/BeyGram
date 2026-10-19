@@ -33,6 +33,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Forward
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
@@ -43,6 +46,7 @@ import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -381,7 +385,7 @@ internal fun MediaViewer(
                     MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
                         revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                         onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
-                        onDismiss = onClose, onToggleControls = { controlsVisible = !controlsVisible })
+                        onDismiss = onClose, onToggleControls = { controlsVisible = !controlsVisible }, controlsVisible = controlsVisible)
                 }
                 Row(
                     Modifier.fillMaxWidth().align(Alignment.TopCenter).background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent).padding(horizontal = 6.dp, vertical = 6.dp),
@@ -402,6 +406,19 @@ internal fun MediaViewer(
                             }
                         }
                     } else Spacer(Modifier.weight(1f))
+                }
+                // Кнопки листания нужны тем, кто не листает пальцем, например TalkBack. Кнопка у края неактивна, если соседней страницы нет.
+                if (pages.size > 1) {
+                    IconButton(
+                        onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.settledPage - 1) } },
+                        enabled = pagerState.settledPage > 0,
+                        modifier = Modifier.align(Alignment.CenterStart).padding(8.dp).background(Color(0x80070B10), CircleShape)
+                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (pagerState.settledPage > 0) 1f else 0.3f)) }
+                    IconButton(
+                        onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.settledPage + 1) } },
+                        enabled = pagerState.settledPage < pages.lastIndex,
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
+                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (pagerState.settledPage < pages.lastIndex) 1f else 0.3f)) }
                 }
             }
             // Строка всегда занимает место, где может появиться действие: иначе страница прыгает, когда докачанный файл добавляет «Сохранить».
@@ -424,7 +441,7 @@ internal fun MediaViewer(
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     canExport: Boolean, active: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
-    onDismiss: () -> Unit, onToggleControls: () -> Unit
+    onDismiss: () -> Unit, onToggleControls: () -> Unit, controlsVisible: Boolean
 ) {
     val media = item.media
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
@@ -481,7 +498,7 @@ private fun MediaViewerPage(
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
                 if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
-            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls)
+            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = controlsVisible && active)
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
             media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, active) { currentOnViewed(item.messageId) }
@@ -519,7 +536,7 @@ private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color(0
 }
 
 @Composable
-private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls: () -> Unit) {
+private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls: () -> Unit, showZoomControls: Boolean) {
     var scale by remember(path) { mutableFloatStateOf(1f) }
     var offset by remember(path) { mutableStateOf(Offset.Zero) }
     // Протяжка вниз при масштабе 1 двигает картинку за пальцем; отпущенная дальше четверти высоты закрывает просмотр.
@@ -534,24 +551,45 @@ private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls:
     val dismissDrag = rememberDraggableState { delta -> if (scale <= 1f) dismissY += delta }
     // Масштаб, ушедший выше 1 посреди протяжки, отменяет её: сдвиг не должен остаться после возврата к масштабу 1.
     LaunchedEffect(scale > 1f) { if (scale > 1f) dismissY = 0f }
-    Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1f })
-        .draggable(state = dismissDrag, orientation = Orientation.Vertical, enabled = scale <= 1f, onDragStopped = {
-            if (dismissY > size.height / 4f) currentOnDismiss()
-            dismissY = 0f
-        })
-        .pointerInput(path) {
-            detectTapGestures(
-                onTap = { currentOnToggleControls() },
-                // Двойной тап приближает к точке касания, поэтому место под пальцем не уезжает. Второй тап возвращает масштаб 1.
-                onDoubleTap = { point ->
-                    val target = if (scale > 1f) 1f else 2.5f
-                    offset = clampImageOffset(offsetAroundPoint(point, Offset(size.width / 2f, size.height / 2f), offset, scale, target), target, size)
-                    scale = target
-                }
-            )
+    // Кнопки масштаба меняют его вокруг центра, как и жест. Нужны тем, кому неудобно сводить два пальца.
+    fun zoomTo(target: Float) {
+        val next = target.coerceIn(1f, 5f)
+        offset = offsetAroundCenter(offset, scale, next, size)
+        scale = next
+    }
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1f })
+            .draggable(state = dismissDrag, orientation = Orientation.Vertical, enabled = scale <= 1f, onDragStopped = {
+                if (dismissY > size.height / 4f) currentOnDismiss()
+                dismissY = 0f
+            })
+            .pointerInput(path) {
+                detectTapGestures(
+                    onTap = { currentOnToggleControls() },
+                    // Двойной тап приближает к точке касания, поэтому место под пальцем не уезжает. Второй тап возвращает масштаб 1.
+                    onDoubleTap = { point ->
+                        val target = if (scale > 1f) 1f else 2.5f
+                        offset = clampImageOffset(offsetAroundPoint(point, Offset(size.width / 2f, size.height / 2f), offset, scale, target), target, size)
+                        scale = target
+                    }
+                )
+            }
+        ) {
+            LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y + dismissY }, fit = true, maxDimension = 4096)
         }
-    ) {
-        LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y + dismissY }, fit = true, maxDimension = 4096)
+        // Кнопки стоят поверх картинки, а не внутри её жестов: тап по кнопке не должен переключать панели или сдвигать фото.
+        // Внизу по центру, чтобы на низком окне не наезжать на кнопки листания у краёв.
+        if (showZoomControls) Row(
+            Modifier.align(Alignment.BottomCenter).padding(16.dp).background(Color(0x80070B10), RoundedCornerShape(24.dp)),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { zoomTo(scale / 1.5f) }, enabled = scale > 1f) {
+                Icon(Icons.Rounded.Remove, stringResource(R.string.media_zoom_out), tint = Color.White.copy(alpha = if (scale > 1f) 1f else 0.3f))
+            }
+            IconButton(onClick = { zoomTo(scale * 1.5f) }, enabled = scale < 5f) {
+                Icon(Icons.Rounded.Add, stringResource(R.string.media_zoom_in), tint = Color.White.copy(alpha = if (scale < 5f) 1f else 0.3f))
+            }
+        }
     }
 }
 
@@ -560,6 +598,10 @@ internal fun offsetAroundPoint(point: Offset, center: Offset, offset: Offset, fr
     val relative = point - center
     return relative - (relative - offset) * (to / from)
 }
+
+/** Смещение при смене масштаба с [from] на [to] вокруг центра картинки: точка в центре остаётся на месте, пустой край не открывается. */
+internal fun offsetAroundCenter(offset: Offset, from: Float, to: Float, size: IntSize): Offset =
+    clampImageOffset(offset * (to / from), to, size)
 
 /** Смещение, которое не открывает пустой край картинки при масштабе [scale]. */
 internal fun clampImageOffset(offset: Offset, scale: Float, size: IntSize): Offset {
