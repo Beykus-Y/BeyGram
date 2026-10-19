@@ -546,7 +546,16 @@ fun ChatScreen(
                 closeActions()
             }
         }
-        PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected, ::jumpToPinned)
+        // Sync the pinned preview with what the reader is currently seeing, as in official Telegram.
+        val visibleOldestPinnedBoundary by remember(listState, messageListItems) {
+            derivedStateOf {
+                listState.layoutInfo.visibleItemsInfo.mapNotNull { item ->
+                    messageListItems.getOrNull(item.index)?.messages?.minOfOrNull { it.id }
+                }.minOrNull()
+            }
+        }
+        PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected,
+            ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
