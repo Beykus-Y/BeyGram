@@ -7,12 +7,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
-import com.beykus.beygram.domain.UiText
-import com.beykus.beygram.domain.UserMessageException
-import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -104,7 +104,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
                             "share_send_failed",
                             "Отправка из «Поделиться» не удалась",
                             Severity.WARNING,
-                            mapOf("mode" to mode, "sent" to sentItems.toString(), "remaining" to staged.size.toString(), "reason" to it.javaClass.simpleName)
+                            mapOf("mode" to mode, "sent" to sentItems.toString(), "remaining" to staged.size.toString(), "cause" to it.javaClass.simpleName.ifEmpty { "unknown" })
                         )
                         // Часть файлов уже в чате: показываем, сколько ушло, а не общую ошибку.
                         error = if (sentItems > 0) {
