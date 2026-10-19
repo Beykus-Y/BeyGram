@@ -2,6 +2,8 @@ package com.beykus.beygram.ui.screens.chat
 
 import com.beykus.beygram.domain.model.ChatMessage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PinnedMessageNavigationTest {
@@ -19,5 +21,13 @@ class PinnedMessageNavigationTest {
     @Test fun olderHistoryAndEmptyPinsAreSafe() {
         assertEquals(2, currentPinnedIndex(pins, 50L))
         assertEquals(-1, currentPinnedIndex(emptyList(), 50L))
+    }
+    @Test fun viewportOlderThanEveryLoadedPinNeedsNextPage() {
+        assertTrue(needsOlderPinnedPage(pins, 50L))
+        assertFalse(needsOlderPinnedPage(pins, 100L))
+        assertFalse(needsOlderPinnedPage(pins, 250L))
+        assertFalse(needsOlderPinnedPage(pins, null))
+        assertFalse(needsOlderPinnedPage(pins, 0L))
+        assertFalse(needsOlderPinnedPage(emptyList(), 50L))
     }
 }
