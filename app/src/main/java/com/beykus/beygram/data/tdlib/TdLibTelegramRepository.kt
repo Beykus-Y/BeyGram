@@ -297,8 +297,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     override suspend fun deleteChatForSelf(chatId: Long): Result<Unit> = requestResult {
-        // revoke=false is essential: never delete another member's chat history.
-        tdRequests(TdApi.DeleteChatHistory(chatId, true, false))
+        val chat = tdRequests(TdApi.GetChat(chatId))
+        val privateChat = chat.type is TdApi.ChatTypePrivate || chat.type is TdApi.ChatTypeSecret
+        if (privateChat || chat.canBeDeletedOnlyForSelf) {
+            // revoke=false is essential: never delete another member's chat history.
+            tdRequests(TdApi.DeleteChatHistory(chatId, true, false))
+        } else {
+            // Groups and channels cannot be cleared for self only, and TDLib rejects that call, so the user leaves them.
+            tdRequests(TdApi.LeaveChat(chatId))
+        }
         Unit
     }
 
