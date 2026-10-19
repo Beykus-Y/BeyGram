@@ -44,9 +44,14 @@ internal sealed interface UnreadOpenStep {
     data class Scroll(val index: Int) : UnreadOpenStep
 }
 
-/** [items] is the list without the separator. */
-internal fun unreadOpenStep(unreadCount: Int, lastReadInboxId: Long, items: List<ChatMessageListItem>, windowRequested: Boolean): UnreadOpenStep {
-    if (unreadCount <= 0 || lastReadInboxId <= 0) return UnreadOpenStep.Done
+/**
+ * [items] is the list without the separator. [focusClaimed] means a message opened from outside the chat owns the position:
+ * the unread opening then never requests a window or scrolls, so it cannot cancel that jump.
+ */
+internal fun unreadOpenStep(
+    unreadCount: Int, lastReadInboxId: Long, items: List<ChatMessageListItem>, windowRequested: Boolean, focusClaimed: Boolean = false
+): UnreadOpenStep {
+    if (focusClaimed || unreadCount <= 0 || lastReadInboxId <= 0) return UnreadOpenStep.Done
     val index = withUnreadSeparator(items, lastReadInboxId).indexOfFirst { it.unreadSeparator }
     if (index >= 0) return UnreadOpenStep.Scroll(index)
     // No separator without a read message loaded above the unread ones. If a read message is loaded, the window shows no

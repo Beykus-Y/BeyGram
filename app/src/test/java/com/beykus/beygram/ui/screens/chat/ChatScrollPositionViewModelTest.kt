@@ -10,9 +10,11 @@ class ChatScrollPositionViewModelTest {
         state.readBoundaryId = 42L
         state.readBoundaryChecked = true
         state.readBoundaryWindowRequested = true
+        state.focusClaimed = true
         state.endVisit()
         assertNull(state.readBoundaryId)
         assertFalse(state.readBoundaryChecked)
         assertFalse(state.readBoundaryWindowRequested)
+        assertFalse(state.focusClaimed)
     }
 }

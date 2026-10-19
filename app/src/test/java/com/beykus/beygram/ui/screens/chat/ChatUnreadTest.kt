@@ -59,6 +59,18 @@ class ChatUnreadTest {
         assertEquals(UnreadOpenStep.Done, unreadOpenStep(unreadCount = 30, lastReadInboxId = 3, items = list, windowRequested = true))
     }
 
+    @Test fun focusedMessageFromProfileOwnsTheOpeningWhileWindowIsStillLoading() {
+        // Unread chat, the focused media is loaded from the profile, and the TDLib window around the boundary has not arrived yet.
+        val list = items(message(9), message(8))
+        assertEquals(UnreadOpenStep.Done, unreadOpenStep(unreadCount = 30, lastReadInboxId = 3, items = list, windowRequested = false, focusClaimed = true))
+    }
+
+    @Test fun focusedMessageFromProfileKeepsUnreadScrollOff() {
+        // The unread boundary is already loaded, so without the focus the opening would scroll to the separator.
+        val list = items(message(5), message(4), message(3), message(2), message(1))
+        assertEquals(UnreadOpenStep.Done, unreadOpenStep(unreadCount = 2, lastReadInboxId = 3, items = list, windowRequested = false, focusClaimed = true))
+    }
+
     @Test fun openingIsDoneWhenLoadedWindowHasNoUnreadNewerThanBoundary() {
         val list = items(message(3), message(2), message(1))
         assertEquals(UnreadOpenStep.Done, unreadOpenStep(unreadCount = 1, lastReadInboxId = 3, items = list, windowRequested = false))
