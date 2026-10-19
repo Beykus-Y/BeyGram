@@ -22,6 +22,18 @@ class SearchPagingTest {
     }
 
     @Test
+    fun appendWithEmptyIncomingKeepsExisting() {
+        val merged = appendDistinctBy(listOf(1, 2), emptyList()) { it }
+        assertEquals(listOf(1, 2), merged)
+    }
+
+    @Test
+    fun appendDropsDuplicatesInsideIncoming() {
+        val merged = appendDistinctBy(listOf(1), listOf(2, 2, 3)) { it }
+        assertEquals(listOf(1, 2, 3), merged)
+    }
+
+    @Test
     fun staleQueryIsNotCurrent() {
         assertTrue(isCurrentSearch(" котик ", "котик"))
         assertFalse(isCurrentSearch("котик", "кот"))

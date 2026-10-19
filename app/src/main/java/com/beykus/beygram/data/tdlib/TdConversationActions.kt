@@ -245,6 +245,7 @@ internal class TdConversationActions(
      * через nextOffset, который передаётся обратно как есть.
      */
     suspend fun searchGlobal(query: String, offset: String): Result<GlobalMessagePage> = requestResult {
+        if (query.isBlank()) return@requestResult GlobalMessagePage(emptyList(), "")
         val found = request(TdApi.SearchMessages(null, query, offset, SEARCH_PAGE_SIZE, null, null, 0, 0))
         GlobalMessagePage(found.messages.orEmpty().filterNotNull().map(map), found.nextOffset.orEmpty())
     }
