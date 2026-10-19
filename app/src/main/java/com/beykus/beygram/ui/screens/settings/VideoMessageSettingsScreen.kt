@@ -16,16 +16,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.text.font.FontWeight
@@ -34,15 +40,28 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.media.VideoNoteDiagnostics
+import com.beykus.beygram.data.media.VideoNoteDiagnosticReport
 import com.beykus.beygram.data.media.VideoFrameRatePriority
 import com.beykus.beygram.data.media.VideoQualityPreset
 import com.beykus.beygram.data.media.videoMirrorToggleSupported
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
 fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> Unit) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
+    val diagnostics = remember(context) { VideoNoteDiagnostics.also { it.initialize(context) } }
+    val reports by diagnostics.reports.collectAsStateWithLifecycle()
+    var selectedReport by remember { mutableStateOf<VideoNoteDiagnosticReport?>(null) }
+    var confirmClear by remember { mutableStateOf(false) }
     val settings by store.settings.collectAsStateWithLifecycle()
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -116,7 +135,97 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
                     }
                 }
             }
+
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().toggleable(settings.diagnosticsEnabled, role = Role.Switch) { enabled ->
+                        store.updateSettings { it.copy(diagnosticsEnabled = enabled) }
+                    },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(stringResource(R.string.settings_video_diagnostics_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(stringResource(R.string.settings_video_diagnostics_hint), color = palette.textSecondary, fontSize = 13.sp)
+                    }
+                    Switch(checked = settings.diagnosticsEnabled, onCheckedChange = null)
+                }
+                Text(stringResource(R.string.settings_video_diagnostics_privacy), color = palette.textSecondary, fontSize = 12.sp)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.settings_video_diagnostics_history, reports.size),
+                        color = palette.textPrimary, modifier = Modifier.weight(1f), fontSize = 14.sp)
+                    if (reports.isNotEmpty()) {
+                        TextButton(onClick = { confirmClear = true }) {
+                            Text(stringResource(R.string.settings_video_diagnostics_clear))
+                        }
+                    }
+                }
+                if (reports.isEmpty()) {
+                    Text(stringResource(R.string.settings_video_diagnostics_empty), color = palette.textSecondary, fontSize = 13.sp)
+                }
+                reports.forEach { report ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .clickable { selectedReport = report }.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(Date(report.startedAt)),
+                                color = palette.textPrimary, fontSize = 14.sp)
+                            Text(report.status + " · " + stringResource(R.string.settings_video_diagnostics_raw_final,
+                                report.rawFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
+                                report.outputFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—"),
+                                color = palette.textSecondary, fontSize = 12.sp)
+                        }
+                        Text(stringResource(R.string.settings_video_diagnostics_open), color = palette.accent, fontSize = 13.sp)
+                    }
+                }
+            }
         }
+    }
+
+    selectedReport?.let { report ->
+        AlertDialog(
+            onDismissRequest = { selectedReport = null },
+            title = { Text(stringResource(R.string.settings_video_diagnostics_report)) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(report.asText(), fontSize = 12.sp, lineHeight = 17.sp)
+            } },
+            confirmButton = {
+                TextButton(onClick = { selectedReport = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram video diagnostics", report.asText()))
+                    }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
+                    TextButton(onClick = {
+                        val share = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.settings_video_diagnostics_report))
+                            putExtra(Intent.EXTRA_TEXT, report.asText())
+                        }
+                        context.startActivity(Intent.createChooser(share, context.getString(R.string.settings_video_diagnostics_share)))
+                    }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
+                }
+            }
+        )
+    }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text(stringResource(R.string.settings_video_diagnostics_clear)) },
+            text = { Text(stringResource(R.string.settings_video_diagnostics_clear_confirm)) },
+            confirmButton = { TextButton(onClick = { diagnostics.clear(); confirmClear = false; selectedReport = null }) {
+                Text(stringResource(R.string.settings_video_diagnostics_clear))
+            } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) {
+                Text(stringResource(R.string.settings_video_diagnostics_cancel))
+            } }
+        )
     }
 }
 

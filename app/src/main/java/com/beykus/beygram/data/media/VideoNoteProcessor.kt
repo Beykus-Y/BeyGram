@@ -39,7 +39,8 @@ class VideoNoteProcessor(private val context: Context) {
      * складываются в [outputDirectory] (filesDir/uploads, рядом с другими вложениями на отправку).
      * При сбое сегмента уже готовые сегменты и RAW сохраняются: долгую запись нельзя терять из-за одной ошибки.
      */
-    suspend fun process(source: File, settings: VideoMessageSettings, outputDirectory: File): List<OutgoingMedia> {
+    suspend fun process(source: File, settings: VideoMessageSettings, outputDirectory: File, diagnosticId: String? = null): List<OutgoingMedia> {
+        if (diagnosticId != null) VideoNoteDiagnostics.inspect(diagnosticId, "RAW from CameraX", source)
         val sourceInfo = withContext(Dispatchers.IO) { metadata(source) }
         val sourceDurationMs = sourceInfo.durationMs
         require(sourceDurationMs > 0L) { "Не удалось прочитать длительность записи" }
@@ -51,7 +52,13 @@ class VideoNoteProcessor(private val context: Context) {
             val (startMs, endMs) = segment
             val output = File(outputDirectory, "video-note-${index + 1}.mp4")
             try {
+                if (diagnosticId != null) VideoNoteDiagnostics.append(diagnosticId, "Media3 export segment ${index + 1}: target=${target.side}x${target.side}, videoBitrate=${target.videoBitrate}, audioBitrate=${target.audioBitrate}")
+                val exportStartMs = android.os.SystemClock.elapsedRealtime()
                 transform(source, output, startMs, endMs, target.side, target.videoBitrate, target.audioBitrate)
+                if (diagnosticId != null) {
+                    VideoNoteDiagnostics.append(diagnosticId, "Media3 export finished in ${android.os.SystemClock.elapsedRealtime() - exportStartMs}ms")
+                    VideoNoteDiagnostics.inspect(diagnosticId, "Final MP4 segment ${index + 1}", output, output = true)
+                }
                 val info = withContext(Dispatchers.IO) { metadata(output) }
                 require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }
                 require(isAcceptedVideoNoteDuration(info.durationMs)) { "Длительность кружка превышает 60 секунд" }
