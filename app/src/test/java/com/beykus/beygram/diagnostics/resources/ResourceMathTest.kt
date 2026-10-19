@@ -43,6 +43,16 @@ class ResourceMathTest {
     }
 
     @Test
+    fun ratesAreNullForZeroOrNegativeInterval() {
+        val previous = ResourceCounters(10_000, 100, 1_000, 500)
+        val sameTime = ResourceCounters(10_000, 200, 3_000, 900)
+        val actual = ResourceMath.rates(previous, sameTime, cpuCores = 2)
+        assertNull(actual.cpuPercent)
+        assertNull(actual.rxBytesPerSecond)
+        assertNull(actual.txBytesPerSecond)
+    }
+
+    @Test
     fun boundedBufferDropsOldestItems() {
         val buffer = BoundedBuffer<Int>(2)
         buffer.add(1)
