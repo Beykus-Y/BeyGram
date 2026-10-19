@@ -48,6 +48,8 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.settings_video_recording_title), onBack)
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(stringResource(R.string.settings_autosave_note), color = palette.textSecondary, fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 4.dp))
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(vertical = 4.dp)) {
                 Text(stringResource(R.string.settings_video_quality), color = palette.textSecondary, fontSize = 13.sp,
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp))

@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">BeyGram Dev</string>
+    <string name="updates_stable_only">Канал: DEV beta · Проверка только по вашему запросу</string>
+    <string name="updates_manual_hint">Нажмите кнопку, чтобы проверить новую DEV-сборку на GitHub.</string>
 </resources>

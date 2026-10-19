@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="sharedpref" path="vpn-settings.xml" />
+    <!-- Private and possibly unsynced message drafts must not enter Android backup. -->
+    <exclude domain="sharedpref" path="chat_message_drafts.xml" />
     <!-- The loopback SOCKS credentials are per installation; a restored copy would share them with another device. -->
     <exclude domain="sharedpref" path="mihomo-loopback.xml" />
     <!-- The diagnostics report draft is session-local; restoring it on another device makes no sense. -->
