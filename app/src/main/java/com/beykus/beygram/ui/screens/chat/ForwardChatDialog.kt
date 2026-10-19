@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.components.Avatar
+import com.beykus.beygram.ui.components.SavedMessagesAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Выбор чата для пересылки. Во время отправки список не нажимается и диалог не закрывается. */
@@ -34,7 +35,7 @@ internal fun ForwardChatDialog(chats: List<ChatPreview>, busy: Boolean, error: S
                 LazyColumn(Modifier.heightIn(max = 420.dp)) {
                     items(chats, key = { it.id }) { chat ->
                         Row(Modifier.fillMaxWidth().clickable(enabled = !busy) { onPick(chat) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Avatar(chat.initials, Color(chat.avatarColorArgb), 40.dp)
+                            if (chat.isSavedMessages) SavedMessagesAvatar(40.dp) else Avatar(chat.initials, Color(chat.avatarColorArgb), 40.dp)
                             Spacer(Modifier.width(12.dp))
                             Text(chat.title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         }
