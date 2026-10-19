@@ -199,11 +199,14 @@ object PlaybackEngine {
         if (onStarted != null) startedCallback = item.key to onStarted
         if (exo != null && _state.value.item?.key == item.key) {
             // Файл, который играет без очереди, например из ленты чата, берёт очередь вкладки: после паузы и продолжения она пойдёт дальше.
-            // Тот же файл из другого сообщения или чата сбрасывает очередь прошлого места, иначе следующий трек пошёл бы из чужого чата.
-            val given = if (items.isNotEmpty()) PlaybackQueue(items, index) else null
-            val next = queueAfterReselect(PlaybackQueue(queue, queueIndex), given, sameOrigin = _state.value.item?.origin == item.origin)
-            queue = next.items
-            queueIndex = next.index
+            // Тот же музыкальный файл из другого сообщения или чата сбрасывает очередь прошлого места, иначе следующий трек пошёл бы из чужого чата.
+            // Голосовое и кружок очередь не трогают, как и при первом запуске.
+            if (item.kind == MediaKind.Audio) {
+                val given = if (items.isNotEmpty()) PlaybackQueue(items, index) else null
+                val next = queueAfterReselect(PlaybackQueue(queue, queueIndex), given, sameOrigin = _state.value.item?.origin == item.origin)
+                queue = next.items
+                queueIndex = next.index
+            }
             // «Показать в чате» ведёт к сообщению, с которого файл запустили последним.
             _state.update { it.copy(item = item) }
             togglePlayPause()
