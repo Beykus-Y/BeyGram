@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.diagnostics
 
+import android.content.Context
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -28,17 +29,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.diagnostics.resources.BoundedBuffer
 import com.beykus.beygram.diagnostics.resources.RESOURCE_HISTORY_CAPACITY
 import com.beykus.beygram.diagnostics.resources.RESOURCE_SAMPLE_INTERVAL_MILLIS
-import com.beykus.beygram.diagnostics.resources.BoundedBuffer
 import com.beykus.beygram.diagnostics.resources.ResourceSample
 import com.beykus.beygram.diagnostics.resources.ResourceSampler
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -49,23 +56,28 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
- * Экран «Ресурсы BeyGram». Опрос запускается в LaunchedEffect, поэтому останавливается
- * сразу после выхода с экрана. История живёт, пока экран в композиции.
+ * Экран «Ресурсы BeyGram». Опрос идёт только в состоянии RESUMED: при сворачивании
+ * или переходе на другой экран корутина останавливается, а при возврате история
+ * и сравнение со старым снимком начинаются заново.
  */
 @Composable
 fun ResourcesScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val palette = beyGramPalette()
-    val sampler = remember { ResourceSampler() }
-    val history = remember { BoundedBuffer<ResourceSample>(RESOURCE_HISTORY_CAPACITY) }
+    val lifecycleOwner = LocalLifecycleOwner.current
     var samples by remember { mutableStateOf(emptyList<ResourceSample>()) }
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            history.add(withContext(Dispatchers.Default) { sampler.sample() })
-            samples = history.snapshot()
-            delay(RESOURCE_SAMPLE_INTERVAL_MILLIS)
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            val sampler = ResourceSampler()
+            val history = BoundedBuffer<ResourceSample>(RESOURCE_HISTORY_CAPACITY)
+            samples = emptyList()
+            while (true) {
+                history.add(withContext(Dispatchers.Default) { sampler.sample() })
+                samples = history.snapshot()
+                delay(RESOURCE_SAMPLE_INTERVAL_MILLIS)
+            }
         }
     }
 
@@ -84,15 +96,15 @@ fun ResourcesScreen(onBack: () -> Unit) {
             Text(stringResource(R.string.resources_intro), color = palette.textSecondary, fontSize = 13.sp, lineHeight = 17.sp)
 
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(16.dp)) {
-                val cpu = latest?.rates?.cpuPercent
                 Text(stringResource(R.string.resources_cpu), color = palette.textPrimary, fontSize = 16.sp)
                 Text(
-                    cpu?.let { String.format(Locale.getDefault(), "%.1f%%", it) } ?: unavailable,
+                    latest?.rates?.cpuPercent?.let { String.format(Locale.getDefault(), "%.1f%%", it) } ?: unavailable,
                     color = palette.textSecondary, fontSize = 13.sp
                 )
                 ResourceChart(
-                    series = samples.map { it.rates?.cpuPercent },
-                    color = palette.accent,
+                    label = stringResource(R.string.resources_chart_cpu),
+                    series = listOf(samples.map { it.rates?.cpuPercent }),
+                    colors = listOf(palette.accent),
                     modifier = Modifier.fillMaxWidth().height(96.dp)
                 )
                 Spacer(Modifier.height(12.dp))
@@ -140,8 +152,12 @@ fun ResourcesScreen(onBack: () -> Unit) {
                     color = palette.textSecondary, fontSize = 13.sp
                 )
                 ResourceChart(
-                    series = samples.map { it.rates?.rxBytesPerSecond },
-                    color = palette.accent,
+                    label = stringResource(R.string.resources_chart_network),
+                    series = listOf(
+                        samples.map { it.rates?.rxBytesPerSecond },
+                        samples.map { it.rates?.txBytesPerSecond }
+                    ),
+                    colors = listOf(palette.accent, palette.textSecondary),
                     modifier = Modifier.fillMaxWidth().height(96.dp)
                 )
                 Text(stringResource(R.string.resources_network_note), color = palette.textSecondary, fontSize = 12.sp, lineHeight = 16.sp)
@@ -150,26 +166,33 @@ fun ResourcesScreen(onBack: () -> Unit) {
     }
 }
 
-private fun rateText(context: android.content.Context, bytes: Long?, unavailable: String): String =
+private fun rateText(context: Context, bytes: Long?, unavailable: String): String =
     bytes?.let { Formatter.formatShortFileSize(context, it) } ?: unavailable
 
-/** Линия по последним опросам. Пустые значения разрывают линию: это не ноль. */
+/**
+ * Линии по последним опросам, по одной на каждую серию. Пустое значение разрывает линию
+ * и не рисуется нулём. Одиночная точка рисуется кружком.
+ */
 @Composable
-private fun ResourceChart(series: List<Double?>, color: Color, modifier: Modifier) {
-    val peak = (series.filterNotNull().maxOrNull() ?: 0.0).coerceAtLeast(1.0)
-    Canvas(modifier) {
-        val path = Path()
-        var drawing = false
-        series.forEachIndexed { index, value ->
-            if (value == null) {
-                drawing = false
-                return@forEachIndexed
+private fun ResourceChart(label: String, series: List<List<Double?>>, colors: List<Color>, modifier: Modifier) {
+    Canvas(modifier.semantics { contentDescription = label }) {
+        val peak = (series.flatten().filterNotNull().maxOrNull() ?: 0.0).coerceAtLeast(1.0)
+        val strokePx = 2.dp.toPx()
+        series.forEachIndexed { seriesIndex, values ->
+            val path = Path()
+            values.forEachIndexed { index, value ->
+                if (value == null) return@forEachIndexed
+                val x = index * size.width / (RESOURCE_HISTORY_CAPACITY - 1)
+                val y = size.height - (value / peak * size.height).toFloat()
+                val before = values.getOrNull(index - 1)
+                val after = values.getOrNull(index + 1)
+                when {
+                    before == null && after == null -> drawCircle(colors[seriesIndex], strokePx, Offset(x, y))
+                    before == null -> path.moveTo(x, y)
+                    else -> path.lineTo(x, y)
+                }
             }
-            val x = index * size.width / (RESOURCE_HISTORY_CAPACITY - 1)
-            val y = size.height - (value / peak * size.height).toFloat()
-            if (drawing) path.lineTo(x, y) else path.moveTo(x, y)
-            drawing = true
+            drawPath(path, colors[seriesIndex], style = Stroke(width = strokePx))
         }
-        drawPath(path, color, style = Stroke(width = 2.dp.toPx()))
     }
 }
