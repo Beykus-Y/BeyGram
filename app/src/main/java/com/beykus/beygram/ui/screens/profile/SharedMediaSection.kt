@@ -3,6 +3,8 @@ package com.beykus.beygram.ui.screens.profile
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -84,8 +86,8 @@ private const val PREFETCH_CELLS = 12
 internal const val PREFETCH_ROWS = 6
 private const val PAGER_SCREEN_FRACTION = 0.7f
 private val PAGER_MIN_HEIGHT = 360.dp
-/** Вкладки профиля чата. «Музыка» пока только в профиле группы: пять вкладок в ряд обрезают подписи. */
-private val chatSharedKinds = SharedMediaKind.entries.filter { it != SharedMediaKind.Music }
+/** Personal/group chat profiles show the same media kinds; the tab bar scrolls on narrow screens. */
+internal val chatSharedKinds: List<SharedMediaKind> = SharedMediaKind.entries
 
 /**
  * Вкладки «Медиа», «Файлы», «Ссылки» и «Голосовые» под разделами профиля чата. Каждая листается свайпом и грузит страницы по мере прокрутки.
@@ -204,14 +206,15 @@ internal fun SharedMediaViewer(
 @Composable
 private fun SharedMediaTabBar(titles: List<String>, counts: List<String?>, selected: Int, onSelect: (Int) -> Unit) {
     val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         titles.forEachIndexed { index, title ->
             val isSelected = index == selected
             val ink = if (isSelected) palette.accentInk else palette.textSecondary
             Column(
-                Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(16.dp))
+                Modifier.widthIn(min = 84.dp).height(52.dp).clip(RoundedCornerShape(16.dp))
                     .background(if (isSelected) palette.accentSoft else palette.surface2)
-                    .clickable { onSelect(index) },
+                    .clickable { onSelect(index) }.padding(horizontal = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -295,11 +298,16 @@ private fun SharedMediaList(
     onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val listState = rememberLazyListState()
-    val nearEnd by remember(tab) { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= tab.messages.size - PREFETCH_ROWS } ?: true } }
+    val shown = remember(kind, tab.messages) { tab.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null } }
+    val nearEnd by remember(tab, shown) { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= shown.size - PREFETCH_ROWS } ?: true } }
     LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
-        items(tab.messages.asReversed(), key = { it.id }) { message ->
-            SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
+        items(shown, key = { it.id }) { message ->
+            if (kind == SharedMediaKind.Music) {
+                message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage) }
+            } else {
+                SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
+            }
         }
         item(key = "footer") { SharedMediaFooter(tab, onRetry = onMore) }
     }
@@ -319,7 +327,7 @@ internal fun SharedMediaRowItem(
         SharedMediaKind.Links -> SharedLinkRow(message, meta, onOpenMessage)
         SharedMediaKind.Voice -> message.media?.let { SharedVoiceRow(chatId, message, it, meta, observeFile, downloadFile, onContentOpened, onOpenMessage) }
         SharedMediaKind.Media -> Unit
-        // Музыку собирает профиль группы: очередь нужна вся вкладка, а не одна строка.
+        // Playlist rows are handled by both group and personal profile containers.
         SharedMediaKind.Music -> Unit
     }
 }
