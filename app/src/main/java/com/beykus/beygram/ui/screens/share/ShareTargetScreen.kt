@@ -56,6 +56,7 @@ fun ShareTargetScreen(
     text: String,
     uris: List<Uri>,
     chats: List<ChatPreview>,
+    captionLimit: Int,
     sendText: suspend (chatId: Long, text: String) -> Result<Unit>,
     sendMedia: suspend (chatId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>,
     onSent: (chatId: Long) -> Unit,
@@ -70,9 +71,12 @@ fun ShareTargetScreen(
     var query by rememberSaveable { mutableStateOf("") }
     val target = chats.firstOrNull { it.id == targetId }
     val hasFiles = uris.isNotEmpty()
-    val tooLong = session.draft.codePointCount(0, session.draft.length) > IncomingShareParser.MAX_TEXT_LENGTH
-    // С файлами отправлять можно только когда все они подготовлены, иначе текст уйдёт без них.
-    val canSend = !tooLong && !session.sending && !session.staging && if (hasFiles) session.staged.isNotEmpty() else session.draft.isNotBlank()
+    // С файлами подпись идёт в её лимите; без файлов — лимит текста сообщения.
+    val limit = if (session.staged.isNotEmpty()) captionLimit else IncomingShareParser.MAX_TEXT_LENGTH
+    val tooLong = session.draft.codePointCount(0, session.draft.length) > limit
+    // Без готовых файлов текст уйдёт, только если файлов не было или пользователь убрал их все сам; при сбое подготовки не отправляем.
+    val canSend = !tooLong && !session.sending && !session.staging &&
+        (session.staged.isNotEmpty() || (session.draft.isNotBlank() && (!hasFiles || session.error == null)))
     BackHandler(enabled = session.sending) {}
 
     LaunchedEffect(session) { session.startStaging(context, appScope) }
@@ -175,7 +179,7 @@ fun ShareTargetScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (tooLong) {
-                        Text(stringResource(R.string.share_text_too_long, IncomingShareParser.MAX_TEXT_LENGTH), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.share_text_too_long, limit), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                     }
                     session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                     Button(

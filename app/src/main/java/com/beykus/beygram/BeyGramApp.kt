@@ -299,6 +299,7 @@ private fun BeyGramAppContent(
         // Архивные чаты тоже можно выбрать: отправка в них не требует вынимать их из архива.
         val shareChats by repository.chats.collectAsStateWithLifecycle()
         val shareArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        val shareCaptionLimit = repository.messageLimits.collectAsStateWithLifecycle().value.caption
         Dialog(
             onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
@@ -316,6 +317,7 @@ private fun BeyGramAppContent(
                     requestId = incomingShare.requestId,
                     text = incomingShare.text,
                     uris = incomingShare.uris,
+                    captionLimit = shareCaptionLimit,
                     chats = shareChats + shareArchivedChats,
                     sendText = { chatId, text ->
                         forumGuard(chatId).mapCatching { repository.sendMessage(chatId, text, clearDraft = false).getOrThrow() }

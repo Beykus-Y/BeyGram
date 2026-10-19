@@ -70,7 +70,8 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         error = null
         scope.launch {
             try {
-                val result = if (uris.isNotEmpty()) sendStaged(chatId, sendMedia) else sendText(chatId, draft.trim())
+                // Все файлы убраны пользователем — отправляем только текст.
+                val result = if (staged.isNotEmpty()) sendStaged(chatId, sendMedia) else sendText(chatId, draft.trim())
                 result
                     .onSuccess { sentChatId = chatId; sent = true }
                     .onFailure { error = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed) }
