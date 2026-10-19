@@ -299,7 +299,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
-    private val customEmojis = TdCustomEmojis { client }
+    private val customEmojis = TdCustomEmojis(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
     // ---- Память и кэш --------------------------------------------------------

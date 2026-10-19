@@ -48,4 +48,17 @@ class InterruptedMusicTest {
         val voicePlaying = PlaybackState(item = voice, playing = true)
         assertNull(interruptedAfterStart(voicePlaying, waiting, music))
     }
+
+    @Test
+    fun resumeReturnsTheWaitingMusicToItsPosition() {
+        val waiting = InterruptedMusic(music, 61_000L)
+        assertEquals(61_000L, resumePositionMs(waiting, music.key))
+    }
+
+    @Test
+    fun otherFileStartsFromTheBeginning() {
+        val waiting = InterruptedMusic(music, 61_000L)
+        assertEquals(0L, resumePositionMs(waiting, otherMusic.key))
+        assertEquals(0L, resumePositionMs(null, music.key))
+    }
 }
