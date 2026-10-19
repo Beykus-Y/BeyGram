@@ -12,7 +12,7 @@ import com.beykus.beygram.data.appearance.themePresetFromStored
 
 /**
  * Keeps the unsaved theme draft through Activity recreation. Values are written the way DataStore writes them,
- * so a restored draft reads back exactly as it was. A damaged list restores as no draft.
+ * so a restored draft reads back exactly as it was. No draft is saved as an empty list, and an empty or damaged list restores as no draft.
  */
 internal val AppearanceDraftSaver: Saver<AppearanceConfig?, Any> = listSaver<AppearanceConfig?, String>(
     save = { draft ->
@@ -26,7 +26,7 @@ internal val AppearanceDraftSaver: Saver<AppearanceConfig?, Any> = listSaver<App
                 it.outgoingBubbleColor?.toString().orEmpty(),
                 it.wallpaper.encode()
             )
-        }
+        }.orEmpty()
     },
     restore = { parts ->
         if (parts.size != 7) null else AppearanceConfig(
