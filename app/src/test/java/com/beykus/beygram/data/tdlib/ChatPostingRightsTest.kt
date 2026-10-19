@@ -43,6 +43,25 @@ class ChatPostingRightsTest {
     }
 
     @Test
+    fun restrictedMemberOfChannelCannotPost() {
+        val allowed = TdApi.ChatPermissions().apply { canSendBasicMessages = true }
+        assertFalse(chat(isChannel = true).canPostMessages(TdApi.ChatMemberStatusRestricted(true, 0, allowed)))
+    }
+
+    @Test
+    fun basicGroupFollowsTheSameRulesAsSupergroup() {
+        val group = TdApi.Chat().apply {
+            type = TdApi.ChatTypeBasicGroup(2L)
+            permissions = TdApi.ChatPermissions().apply { canSendBasicMessages = false }
+        }
+        assertTrue(group.canPostMessages(admin(canPost = false)))
+        assertFalse(group.canPostMessages(TdApi.ChatMemberStatusMember()))
+        assertFalse(group.canPostMessages(TdApi.ChatMemberStatusLeft()))
+        group.permissions = TdApi.ChatPermissions().apply { canSendBasicMessages = true }
+        assertTrue(group.canPostMessages(TdApi.ChatMemberStatusMember()))
+    }
+
+    @Test
     fun unknownStatusKeepsComposer() {
         assertTrue(chat(isChannel = true, canSend = false).canPostMessages(null))
     }
