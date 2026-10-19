@@ -57,7 +57,7 @@ import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackOrigin
-import com.beykus.beygram.ui.components.TelegramAvatar
+import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
@@ -81,11 +81,16 @@ fun ChatScreen(
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
     recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {}
 ) {
-    var draft by rememberSaveable(chat.id) { mutableStateOf("") }
-    var draftEntities by rememberSaveable(chat.id) { mutableStateOf(arrayListOf<MessageTextEntity>()) }
+    // One persistent state source for text, rich formatting and the selected reply target.
+    val composerDraft by remember(conversation, chat.id) { conversation.observeMessageDraft(chat.id) }.collectAsStateWithLifecycle()
+    val draft = composerDraft.text
+    val draftEntities = composerDraft.entities
+    val replyId = composerDraft.replyToMessageId
+    fun updateDraft(transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) =
+        conversation.updateMessageDraft(chat.id, transform)
+    fun clearReply() = updateDraft { it.copy(replyToMessageId = null) }
     var editEntities by remember(chat.id) { mutableStateOf<List<MessageTextEntity>>(emptyList()) }
     val botKeyboard by remember(conversation, chat.id) { conversation.observeBotKeyboard(chat.id) }.collectAsStateWithLifecycle()
-    var replyId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     // Bumped whenever a reply starts, so the composer takes focus and the keyboard opens.
     var replyFocusRequest by remember(chat.id) { mutableIntStateOf(0) }
     // The message of the latest swipe; a slower capability check for an older swipe is ignored.
@@ -173,7 +178,7 @@ fun ChatScreen(
                         val result = conversation.sendMedia(chat.id, media, "", replyId)
                         if (result.isSuccess) {
                             sentRecordingPaths = sentRecordingPaths + media.path
-                            replyId = null
+                            clearReply()
                         } else {
                             recordingRecovery.showPreview(mediaList, index)
                             error = result.exceptionOrNull().userMessage(context, R.string.chat_video_note_send_failed)
@@ -196,7 +201,7 @@ fun ChatScreen(
     }
     /** Typing is shown from each keystroke; clearing the field ends it. */
     fun typedDraft(text: String) {
-        draft = text
+        updateDraft { it.copy(text = text) }
         if (text.isBlank()) conversation.endChatActivity(chat.id, ChatActivity.Typing)
         else conversation.startChatActivity(chat.id, ChatActivity.Typing)
     }
@@ -220,7 +225,7 @@ fun ChatScreen(
     val attachments = rememberAttachmentState(chat.id) { media, caption ->
         val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities)
         else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities)
-        if (result.isSuccess) replyId = null
+        if (result.isSuccess) clearReply()
         result
     }
     val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, onError = { error = it })
@@ -233,7 +238,7 @@ fun ChatScreen(
                     val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, replyId) { media, targetReply ->
                         conversation.sendMedia(item.chatId, media, "", targetReply).map { Unit }
                     }
-                    if (accepted) replyId = null
+                    if (accepted) clearReply()
                 }
             }
         }
@@ -318,7 +323,7 @@ fun ChatScreen(
     val swipeReplyAllowed = chat.canPost && !searching && !deleting && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
         !sending && !attachments.sending && !recordingQueueSending && pendingVideoNotes.isEmpty()
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
-    LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) replyId = botKeyboard?.messageId }
+    LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
     fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null }
     fun closeEdit() { editId = null; editText = ""; editError = null }
@@ -476,7 +481,7 @@ fun ChatScreen(
             result
                 .onSuccess {
                     if (it.canReply) {
-                        replyId = messageId
+                        updateDraft { it.copy(replyToMessageId = messageId) }
                         replyFocusRequest++
                     } else {
                         error = context.getString(R.string.err_message_cannot_reply)
@@ -534,7 +539,7 @@ fun ChatScreen(
         if (actionMessage != null) MessageActionsBar(
             capabilities = capabilities, error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
             onClose = ::closeActions, onRetry = { capabilitiesAttempt++ },
-            onReply = { replyId = actionMessage.id; replyFocusRequest++; closeActions() },
+            onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
             onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
@@ -625,7 +630,7 @@ fun ChatScreen(
                     Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Text(replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable), color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
                 }
-                IconButton(enabled = !sending, onClick = { replyId = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary) }
+                IconButton(enabled = !sending, onClick = ::clearReply) { Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary) }
             }
         }
         val editing = editMessage != null
@@ -657,7 +662,7 @@ fun ChatScreen(
             else if (videoNote.active) VideoNoteRecordingDock(videoNote, Modifier.weight(1f), onCancel = videoNote::discardLocked)
             else FormattingTextField(fieldText, if (editing) editEntities else draftEntities,
                 onChange = { if (editing) editText = it else typedDraft(it) },
-                onEntitiesChange = { if (editing) editEntities = it else draftEntities = ArrayList(it) },
+                onEntitiesChange = { if (editing) editEntities = it else updateDraft { state -> state.copy(entities = it) } },
                 placeholder = if (attachments.active) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
                 locked = busy, isError = overLimit, modifier = Modifier.weight(1f), focusRequest = replyFocusRequest)
             Spacer(Modifier.width(8.dp))
@@ -690,13 +695,13 @@ fun ChatScreen(
                                 if (result.isSuccess) closeEdit() else editError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_edit_failed)
                             } finally { editBusy = false }
                         }
-                        attachments.active -> attachments.send(draft) { draft = it; if (it.isEmpty()) draftEntities = arrayListOf() }
+                        attachments.active -> attachments.send(draft) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
                         else -> scope.launch {
                             sending = true; error = null
                             try {
                                 val result = conversation.sendMessage(chat.id, draft, replyId, draftEntities)
                                 if (result.isSuccess) {
-                                    draft = ""; draftEntities = arrayListOf(); replyId = null
+                                    updateDraft { com.beykus.beygram.domain.model.MessageDraft() }
                                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
                                 } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
                             } finally { sending = false }
@@ -726,7 +731,7 @@ fun ChatScreen(
                 val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, replyId) { media, targetReply ->
                     conversation.sendMedia(video.chatId, media, "", targetReply).map { Unit }
                 }
-                if (accepted) replyId = null
+                if (accepted) clearReply()
             }
         )
     }
@@ -794,7 +799,7 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
-            TelegramAvatar(chat.initials, Color(chat.avatarColorArgb), 40.dp, chat.photo, observeFile, downloadFile, Modifier.clickable(onClick = onInfo))
+            ChatAvatar(chat, 40.dp, observeFile, downloadFile, Modifier.clickable(onClick = onInfo))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f).clickable(onClick = onInfo)) {
                 Text(chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)

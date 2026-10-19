@@ -122,6 +122,12 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long): Result<PinnedMessagePage> = unavailable()
     override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> = unavailable()
+    override fun observeMessageDraft(chatId: Long): StateFlow<com.beykus.beygram.domain.model.MessageDraft> =
+        MutableStateFlow(com.beykus.beygram.domain.model.MessageDraft()).asStateFlow()
+    override fun updateMessageDraft(
+        chatId: Long,
+        transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft
+    ) {}
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = noHistory
     override fun openChat(chatId: Long) {}
     override fun closeChat(chatId: Long) {}

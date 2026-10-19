@@ -17,6 +17,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.MessageDraft
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
@@ -56,6 +57,9 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
@@ -95,6 +99,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences("mihomo_tdlib_proxy", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
+    private val messageDrafts = TdChatDrafts(appContext) { client }
 
     // ---- Прокси Telegram -----------------------------------------------------
 
@@ -247,6 +252,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId)
+    override fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft> = messageDrafts.observe(chatId)
+    override fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft) =
+        messageDrafts.update(chatId, transform)
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
@@ -533,6 +541,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     override fun closeChat(chatId: Long) {
+        messageDrafts.closed(chatId)
         _notificationPresentation.update { it.copy(openedChats = it.openedChats - chatId) }
         conversationEffects.closed(chatId)
         messageHistory.closed(chatId)
@@ -620,6 +629,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateChatReplyMarkup -> botKeyboards.update(update.chatId, update.replyMarkupMessage)
             is TdApi.UpdateChatPosition -> handleChatPosition(update.chatId, update.position)
             is TdApi.UpdateChatDraftMessage -> {
+                messageDrafts.receive(update.chatId, update.draftMessage)
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.withPositions(update.positions) }
                 notificationFeed.chatPositionChanged(update.chatId)
                 publishChat(update.chatId)
@@ -698,6 +708,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     attrs = mapOf("state" to update.state.wireState())
                 )
                 if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib connection: ${update.state.javaClass.simpleName}")
+                if (update.state is TdApi.ConnectionStateReady) messageDrafts.connectionReady()
                 _connectionState.value = when (update.state) {
                     is TdApi.ConnectionStateReady -> TelegramConnectionState.Connected
                     is TdApi.ConnectionStateConnecting,
@@ -792,8 +803,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 conversationEffects.authorized()
                 notificationFeed.initialize()
                 cacheMaintenance.authorized()
+                messageDrafts.connectionReady()
             }
-            is TdApi.AuthorizationStateLoggingOut,
+            is TdApi.AuthorizationStateLoggingOut -> {
+                messageDrafts.signedOut()
+                _authState.value = AuthState.WaitingForPhone
+                conversationEffects.signedOut()
+                cacheMaintenance.signedOut()
+            }
             is TdApi.AuthorizationStateClosed -> {
                 _authState.value = AuthState.WaitingForPhone
                 conversationEffects.signedOut()
@@ -839,6 +856,18 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun loadChatsWithNotificationScopes() {
         loadChats()
         chatListScope.launch { loadNotificationScopes() }
+        // Чаты приходят раньше GetMe, поэтому «Избранное» помечаем снова, когда аккаунт станет известен.
+        chatListScope.launch { profiles.me.map { it.info?.id }.filterNotNull().distinctUntilChanged().collect { markSavedMessages() } }
+    }
+
+    /** У личного чата id совпадает с id пользователя, так что чат с самим собой узнаётся без типа чата. */
+    private fun markSavedMessages() {
+        chatCache.keys.toList().forEach { chatId ->
+            val existing = chatCache[chatId] ?: return@forEach
+            if (existing.isSavedMessages || existing.isGroup || !profiles.isSelf(chatId)) return@forEach
+            chatCache[chatId] = existing.copy(isSavedMessages = true, title = appContext.getString(R.string.saved_messages_title))
+            publishChat(chatId)
+        }
     }
 
     /**
@@ -881,6 +910,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     private fun handleNewChat(chat: TdApi.Chat) {
+        messageDrafts.receive(chat.id, chat.draftMessage)
         profiles.putChat(chat)
         rememberLastSender(chat.id, chat.lastMessage)
         messageHistory.readInbox(chat.id, chat.lastReadInboxMessageId)
@@ -962,7 +992,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleChatTitleChange(chatId: Long, title: String) {
         val existing = chatCache[chatId] ?: return
-        chatCache[chatId] = existing.copy(title = title)
+        // Название «Избранного» задаёт приложение на языке интерфейса, поэтому присланное TDLib не перезаписывает его.
+        chatCache[chatId] = existing.copy(title = if (existing.isSavedMessages) existing.title else title)
         publishChat(chatId)
     }
 
@@ -1021,7 +1052,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // =========================================================================
 
     private fun TdApi.Chat.toChatPreview(): ChatPreview? {
-        val chatTitle = title.ifBlank { return null }
+        val saved = type.let { it is TdApi.ChatTypePrivate && profiles.isSelf(it.userId) }
+        val chatTitle = if (saved) appContext.getString(R.string.saved_messages_title) else title.ifBlank { return null }
         val mainPosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListMain }
         val archivePosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListArchive }
         return ChatPreview(
@@ -1033,6 +1065,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             unreadCount = unreadCount,
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
+            isSavedMessages = saved,
             isPinned = mainPosition?.isPinned == true,
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,
