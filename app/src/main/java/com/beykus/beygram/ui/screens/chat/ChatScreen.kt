@@ -411,7 +411,7 @@ fun ChatScreen(
     }
     // Открытие с непрочитанными: экран встаёт у разделителя «Непрочитанные», а не у последнего сообщения.
     // Пока граница не зафиксирована, отметки прочтения не отправляются (см. сбор видимых сообщений выше), поэтому она не сдвигается.
-    LaunchedEffect(chat.id, history.isLoading, messages) {
+    LaunchedEffect(chat.id, history.isLoading, messages, focusMessageId) {
         // Выбранное сообщение из профиля задаёт открытие. Флаг держится до конца визита: этот эффект запускается и позже, когда запроса уже нет.
         if (focusMessageId != 0L) scrollPosition.focusClaimed = true
         if (scrollPosition.readBoundaryChecked || history.isLoading || messages.isEmpty()) return@LaunchedEffect
