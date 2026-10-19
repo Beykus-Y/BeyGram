@@ -11,6 +11,10 @@ interface ConversationRepository {
     suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit>
     suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer>
     val messageLimits: StateFlow<MessageLimits>
+    /** Local-first persistent composer drafts, synchronized with TDLib when connected. */
+    fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft>
+    /** Atomic updates prevent text/formatting/reply callbacks from overwriting one another. */
+    fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft)
     fun observeChatHistory(chatId: Long): StateFlow<ChatHistory>
     fun openChat(chatId: Long)
     fun closeChat(chatId: Long)
