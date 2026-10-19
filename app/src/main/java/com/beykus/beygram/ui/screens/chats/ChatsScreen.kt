@@ -49,6 +49,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +76,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.components.Avatar
@@ -418,13 +420,29 @@ private fun SendStatusIcon(chat: ChatPreview) {
     }
 }
 
+/** Плотность списка чатов: сколько места отдано каждой строке. [Default] — вид, который BeyGram всегда имел. */
+internal data class ChatListDensity(
+    /** Отступ над и под содержимым строки чата. */
+    val rowVerticalPadding: Dp = 10.dp
+)
+
+internal val LocalChatListDensity = compositionLocalOf { ChatListDensity() }
+
+/** Строки списка чатов для выбранной плотности. [ListDensity.Comfortable] даёт прежний отступ строки. */
+internal fun chatListDensityFor(density: ListDensity): ChatListDensity = when (density) {
+    ListDensity.Compact -> ChatListDensity(rowVerticalPadding = 6.dp)
+    ListDensity.Comfortable -> ChatListDensity()
+    ListDensity.Spacious -> ChatListDensity(rowVerticalPadding = 14.dp)
+}
+
 @Composable
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit) {
     val palette = beyGramPalette()
+    val listDensity = LocalChatListDensity.current
     val unread = chat.unreadCount > 0
     val emptyPreview = (chat.lastMessage as? UiText.Raw)?.text?.isBlank() == true
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = listDensity.rowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
         TelegramAvatar(chat.initials, Color(chat.avatarColorArgb), 54.dp, chat.photo, observeFile, downloadFile)
@@ -445,7 +463,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                     // Чат без звука получает серый счётчик, как в Telegram.
                     val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
                     Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(11.dp)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
-                        Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

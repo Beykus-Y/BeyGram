@@ -8,17 +8,14 @@ import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.media.AudioAttributes
 import android.content.ClipData
 import android.content.ContentValues
-import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.LruCache
 import android.webkit.MimeTypeMap
 import android.widget.ImageView
-import android.widget.MediaController
-import android.widget.VideoView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,7 +38,9 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.*
@@ -72,11 +71,26 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackItem
+import com.beykus.beygram.playback.PlaybackOrigin
+import com.beykus.beygram.playback.PlaybackState
+import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.playback.NowPlayingControls
+import com.beykus.beygram.ui.screens.playback.ViewerNowPlayingColors
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -189,6 +203,9 @@ private fun DownloadBadge(downloading: Boolean, onClick: () -> Unit) {
 
 private const val BLUR_PREVIEW_DIMENSION = 24
 
+/** Строка, которая ждёт загрузки после нажатия на музыку или голосовое. Ждёт только последнее нажатое, и начинает играть только её строка, даже если такой же файл стоит в другом сообщении. */
+internal val pendingPlaybackRow = mutableStateOf<Any?>(null)
+
 @Composable
 internal fun MediaPreview(
     media: MessageMedia,
@@ -196,7 +213,8 @@ internal fun MediaPreview(
     downloadFile: (Int) -> Unit,
     onOpen: () -> Unit,
     onLongPress: (() -> Unit)? = null,
-    onPlayed: () -> Unit = {}
+    onPlayed: () -> Unit = {},
+    origin: PlaybackOrigin? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -204,24 +222,47 @@ internal fun MediaPreview(
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val palette = beyGramPalette()
     val context = LocalContext.current
-    val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation, MediaKind.Sticker)
+    val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
     // Секретное вложение в ленте не грузим и не показываем до открытия: превью иначе видно раньше просмотрщика.
     val imageFile = if (media.isSecret) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
     LaunchedEffect(thumbId, revealed) {
         if (!media.isSecret && revealed && isVisual && (thumbId != media.fileId || media.mimeType.startsWith("image/") && file.size <= 300_000)) downloadFile(thumbId)
     }
+    // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
+    val audioTitle = media.kind.label(context)
+    val audioPath = file.localPath
+    // Голосовое ждёт загрузки в своём пузыре, поэтому здесь ожидание относится только к музыке.
+    val row = remember(media.fileId) { Any() }
+    val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
+    fun playAudio() {
+        if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle, origin))
+    }
+    // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
+    LaunchedEffect(audioPath, waitingForAudio) {
+        if (waitingForAudio && audioPath != null) {
+            pendingPlaybackRow.value = null
+            startAudio(context, media.playbackItem(audioPath, audioTitle, origin))
+        }
+    }
+    DisposableEffect(row) {
+        onDispose { if (pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
+    }
     if (media.kind == MediaKind.Voice) {
-        VoiceBubble(media, file, downloadFile, onPlayed, onLongPress)
+        VoiceBubble(media, file, downloadFile, onPlayed, onLongPress, origin)
         return
     }
     if (media.kind == MediaKind.VideoNote) {
-        VideoNoteBubble(media, observeFile, downloadFile, onPlayed, onLongPress)
+        VideoNoteBubble(media, observeFile, downloadFile, onPlayed, onLongPress, origin = origin)
+        return
+    }
+    if (media.kind == MediaKind.Sticker) {
+        StickerPreview(media, file, thumb, downloadFile, onOpen, onLongPress)
         return
     }
     if (isVisual) {
         val ratio = if (media.width > 0 && media.height > 0) media.width.toFloat() / media.height else 1.5f
         // Полного файла ещё нет: вместо растянутой миниатюры показываем размытую заглушку и кнопку загрузки.
-        val awaitingFile = revealed && !media.isSecret && file.localPath == null && media.kind != MediaKind.Sticker
+        val awaitingFile = revealed && !media.isSecret && file.localPath == null
         Box(
             Modifier.width(244.dp).height((244 / ratio).coerceIn(120f, 280f).dp)
                 .background(palette.disabled)
@@ -229,7 +270,7 @@ internal fun MediaPreview(
             contentAlignment = Alignment.Center
         ) {
             if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
-            else if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize(), fit = media.kind == MediaKind.Sticker)
+            else if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize())
             if (!revealed) Text(stringResource(R.string.media_spoiler_hint), color = palette.textPrimary, modifier = Modifier.padding(16.dp))
             else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, onClick = { downloadFile(media.fileId) })
             else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
@@ -248,7 +289,7 @@ internal fun MediaPreview(
             )
         }
     } else {
-        Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = { if (media.kind == MediaKind.Audio) playAudio() else onOpen() }, onLongClick = onLongPress).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(if (media.kind == MediaKind.Audio) Icons.Rounded.MusicNote else Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
                 modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(10.dp))
             Spacer(Modifier.width(12.dp))
@@ -256,6 +297,10 @@ internal fun MediaPreview(
                 Text(if (media.kind == MediaKind.Audio) media.fileName.ifBlank { stringResource(R.string.media_kind_audio) } else media.fileName.ifBlank { stringResource(R.string.media_kind_file) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "", color = palette.textSecondary, fontSize = 13.sp)
                 if (file.isDownloading || file.isUploading) LinearProgressIndicator(progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+            }
+            // Тап по музыке запускает её в общем плеере, а действия с вложением (поделиться, сохранить, переслать) открываются отсюда.
+            if (media.kind == MediaKind.Audio) IconButton(onClick = onOpen) {
+                Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = palette.textSecondary)
             }
         }
     }
@@ -276,17 +321,21 @@ internal val viewerSwipeKinds = setOf(MediaKind.Photo, MediaKind.Video)
 /**
  * [pages] листаются слева направо, от самого раннего; [selectedId] — вложение, которое показано сейчас.
  * [canExport] разрешает сохранить файл и передать его наружу; Telegram запрещает это в защищённых чатах.
+ * [confirmExport] заново проверяет право на сообщение перед каждым действием с файлом: кнопки могут показывать прошлый ответ.
+ * Без него проверки нет, так открывается фото профиля, которое не относится к сообщению.
  * [onShowInChat] не передаётся, если просмотр открыт не из чата.
  */
 @Composable
 internal fun MediaViewer(
     pages: List<MediaViewerItem>, selectedId: Long, onSelect: (Long) -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onViewed: (Long) -> Unit, onClose: () -> Unit,
-    title: String? = null, subtitle: String? = null, canExport: Boolean = true, actions: MediaViewerActions? = null,
-    onShowInChat: ((Long) -> Unit)? = null
+    title: String? = null, subtitle: String? = null, canExport: Boolean = true, confirmExport: suspend (Long) -> Boolean = { true },
+    actions: MediaViewerActions? = null, onShowInChat: ((Long) -> Unit)? = null
 ) {
     val selectedIndex = pages.indexOfFirst { it.messageId == selectedId }.coerceAtLeast(0)
     val shown = pages[selectedIndex]
+    // A spoiler page stays hidden until the user reveals that page; swiping to a neighbour does not reveal it.
+    var revealedSpoilers by remember { mutableStateOf(emptySet<Long>()) }
     val pagerState = rememberPagerState(initialPage = selectedIndex) { pages.size }
     // Лента может измениться (пришло или удалено сообщение), поэтому выбранное вложение держим по id, а не по индексу.
     LaunchedEffect(selectedIndex) { if (pagerState.settledPage != selectedIndex) pagerState.scrollToPage(selectedIndex) }
@@ -302,10 +351,19 @@ internal fun MediaViewer(
     var externalError by remember { mutableStateOf<String?>(null) }
     var fileNotice by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
-    val exportPath = if (canExport && !shown.media.isSecret) shownFile.localPath else null
+    // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
+    val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
+    val exportPath = if (canExport && !shown.media.isSecret && !shownHidden) shownFile.localPath else null
+    // Кнопки могут показывать право, пришедшее для соседнего вложения, поэтому каждое действие сверяет право заново.
+    fun exportIfAllowed(messageId: Long, action: suspend () -> String?) {
+        scope.launch { fileNotice = if (confirmExport(messageId)) action() else context.getString(R.string.media_export_denied) }
+    }
     fun openExternal(item: MediaViewerItem, path: String) {
-        externalError = openExternalMedia(context, path, item.media.mimeType)
-        if (externalError == null) onViewed(item.messageId)
+        scope.launch {
+            if (!confirmExport(item.messageId)) { externalError = context.getString(R.string.media_export_denied); return@launch }
+            externalError = openExternalMedia(context, path, item.media.mimeType)
+            if (externalError == null) onViewed(item.messageId)
+        }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -315,7 +373,7 @@ internal fun MediaViewer(
                     Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
-                if (exportPath != null) IconButton(onClick = { fileNotice = shareMedia(context, exportPath, shown.media.mimeType) }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
+                if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
                 if (exportPath != null || onShowInChat != null) Box {
                     IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -327,12 +385,13 @@ internal fun MediaViewer(
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().weight(1f), key = { pages[it].messageId }) { page ->
                 val item = pages[page]
                 MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
+                    revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                     onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed)
             }
             if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
                 if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
-                    scope.launch { fileNotice = withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
+                    exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
                 }
                 if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
                 if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
@@ -347,33 +406,52 @@ internal fun MediaViewer(
 @Composable
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    canExport: Boolean, active: Boolean, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit
+    canExport: Boolean, active: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit
 ) {
     val media = item.media
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val tgs = media.mimeType == "application/x-tgsticker"
     val previewId = media.thumbnailFileId
     val exportable = canExport && !media.isSecret
+    // Спойлер не грузится и не показывается, пока пользователь не раскроет именно эту страницу.
+    val spoilerHidden = media.hasSpoiler && !media.isSecret && !revealed
     // Соседняя секретная страница при свайпе не грузится и ничего не показывает, даже если файл уже на диске.
-    val concealed = MediaViewerPolicy.concealed(media, active)
+    val concealed = MediaViewerPolicy.concealed(media, active) || spoilerHidden
     val currentOnViewed by rememberUpdatedState(onViewed)
-    LaunchedEffect(media.fileId, file.localPath, active) {
-        if (active && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
+    // A spoiler page counts as opened only once the user reveals it, even when its file is already on disk.
+    LaunchedEffect(media.fileId, file.localPath, active, spoilerHidden) {
+        if (active && !spoilerHidden && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
     }
     LaunchedEffect(media.fileId, concealed) {
         if (concealed) return@LaunchedEffect
-        if (!tgs) downloadFile(media.fileId) else previewId?.let(downloadFile)
+        if (tgs) previewId?.let(downloadFile)
+        downloadFile(media.fileId)
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
         when {
+            spoilerHidden -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 16.sp,
+                modifier = Modifier.padding(16.dp).clickable(onClick = onReveal))
             concealed -> Unit
             tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (previewId != null) {
-                    val preview by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
-                    preview.localPath?.let { LocalMediaImage(it, Modifier.size(240.dp), fit = true) }
+                val preview: @Composable () -> Unit = {
+                    if (previewId != null) {
+                        val previewFile by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
+                        previewFile.localPath?.let { LocalMediaImage(it, Modifier.size(240.dp), fit = true) }
+                    }
                 }
-                Text(stringResource(R.string.media_animated_sticker_preview), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                if (path != null) {
+                    // Если TGS не открылся, показываем превью и подпись, а не пустое место.
+                    TgsSticker(path, Modifier.size(240.dp), playing = active) {
+                        preview()
+                        Text(stringResource(R.string.media_animated_sticker_failed), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                    }
+                } else {
+                    preview()
+                    if (file.isDownloading) CircularProgressIndicator()
+                    Text(file.error?.resolve() ?: stringResource(R.string.media_animated_sticker_preview), color = Color.LightGray, modifier = Modifier.padding(16.dp))
+                    if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
+                }
             }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                 if (file.isDownloading) CircularProgressIndicator()
@@ -383,7 +461,7 @@ private fun MediaViewerPage(
             media.mimeType.startsWith("image/") -> ZoomableImage(path)
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
-            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> LocalAudio(path, active) { currentOnViewed(item.messageId) }
+            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, active) { currentOnViewed(item.messageId) }
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -417,76 +495,181 @@ private fun ZoomableImage(path: String) {
     }
 }
 
+private const val VIDEO_PROGRESS_INTERVAL_MS = 250L
+
 @Composable
 private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: () -> Unit) {
     val context = LocalContext.current
-    var error by remember(path) { mutableStateOf(false) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentActive by rememberUpdatedState(active)
-    val video = remember(path) { object : VideoView(context) {
-        override fun start() { super.start(); if (runCatching { isPlaying }.getOrDefault(false)) currentOnStarted() }
-    } }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(video, lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) video.pause() }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+    val player = remember(path, loop) {
+        ExoPlayer.Builder(context.applicationContext)
+            // Звук видео забирает фокус у внешних плееров. У анимации звука нет, поэтому фокус ей не нужен.
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), /* handleAudioFocus = */ !loop)
+            .setHandleAudioBecomingNoisy(true)
+            .build()
     }
-    DisposableEffect(video) {
-        video.setMediaController(MediaController(context).apply { setAnchorView(video) })
-        video.setOnPreparedListener { it.isLooping = loop; if (currentActive && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) video.start() }
-        video.setOnErrorListener { _, _, _ -> error = true; true }
-        video.setVideoPath(path)
-        onDispose { video.stopPlayback() }
+    var video by remember(path, loop) { mutableStateOf(VideoPlayerState()) }
+    // Просмотр отмечается, когда файл начинает играть после нажатия или открытия. Возврат из буферизации отметку не повторяет.
+    var startRequested by remember(path, loop) { mutableStateOf(false) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                video = video.copy(playing = isPlaying)
+                if (isPlaying && startRequested) {
+                    startRequested = false
+                    currentOnStarted()
+                }
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) { video = video.afterPlaybackState(playbackState) }
+            override fun onPlayerError(error: PlaybackException) { video = video.afterFailure() }
+        }
+        player.addListener(listener)
+        player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        player.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
+        player.prepare()
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+        }
     }
-    // Играет только текущая страница; соседнее видео, которое увели свайпом, ставим на паузу.
-    LaunchedEffect(active) { if (active) video.start() else video.pause() }
-    if (error) Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray, modifier = Modifier.padding(24.dp))
-    else AndroidView(factory = { video }, modifier = Modifier.fillMaxSize())
-}
-
-@Composable
-private fun LocalAudio(path: String, active: Boolean, onStarted: () -> Unit) {
-    val player = remember(path) { MediaPlayer() }
-    var ready by remember(path) { mutableStateOf(false) }
-    var playing by remember(path) { mutableStateOf(false) }
-    var position by remember(path) { mutableIntStateOf(0) }
-    var total by remember(path) { mutableIntStateOf(0) }
-    var error by remember(path) { mutableStateOf(false) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    fun play() {
+        if (video.ended) player.seekToDefaultPosition()
+        // Пока файл уже играет, отметку не ставим: иначе следующий возврат из буферизации снова её отправит.
+        if (!player.isPlaying) startRequested = true
+        player.play()
+    }
     DisposableEffect(player, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) { runCatching { if (player.isPlaying) player.pause() }; playing = false }
+            if (event == Lifecycle.Event.ON_STOP) player.pause()
+            // Анимация без панели управления играет сама, пока страница на экране: после возврата в приложение она продолжает.
+            // Возврат не ставит отметку снова: первый запуск её уже поставил.
+            if (event == Lifecycle.Event.ON_START && loop && currentActive) player.play()
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    DisposableEffect(player) {
-        try {
-            player.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-            player.setDataSource(path)
-            player.setOnPreparedListener { ready = true; total = it.duration }
-            player.setOnCompletionListener { playing = false; position = 0 }
-            player.setOnErrorListener { _, _, _ -> error = true; playing = false; true }
-            player.prepareAsync()
-        } catch (_: Exception) { error = true }
-        onDispose { player.release() }
+    fun seek(fraction: Float) {
+        val target = seekPositionMs(fraction, video.durationMs) ?: return
+        player.seekTo(target)
+        video = video.copy(positionMs = target)
     }
-    LaunchedEffect(playing) { while (playing) { position = runCatching { player.currentPosition }.getOrDefault(0); delay(250) } }
-    // Как у видео: играет только активная страница. Соседнюю ставим на паузу, чтобы её звук не шёл поверх текущей.
-    LaunchedEffect(active) { if (!active) { runCatching { if (player.isPlaying) player.pause() }; playing = false } }
-    Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("♫", color = Color.White, fontSize = 56.sp)
-        if (error) Text(stringResource(R.string.media_audio_play_failed), color = Color.LightGray)
-        else {
-            Slider(value = position.toFloat().coerceIn(0f, total.coerceAtLeast(1).toFloat()), onValueChange = { position = it.toInt(); player.seekTo(position) }, valueRange = 0f..total.coerceAtLeast(1).toFloat(), enabled = ready)
-            Text("${duration(position / 1000)} / ${duration(total / 1000)}", color = Color.White)
-            TextButton(enabled = ready, onClick = { if (playing) player.pause() else { player.start(); onStarted() }; playing = !playing }) { Text(if (playing) stringResource(R.string.common_pause) else stringResource(R.string.common_play)) }
+    // Играет только текущая страница; соседнее видео, которое увели свайпом, ставим на паузу.
+    // Звук видео не идёт поверх музыки из общего плеера: когда видео становится активным, музыка на паузе.
+    LaunchedEffect(active, player) {
+        if (active) {
+            // Анимация без звука музыку не прерывает.
+            if (!loop) PlaybackEngine.pause()
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) play()
+        } else {
+            player.pause()
         }
+    }
+    // Пока видео играет, ползунок и время обновляются. На паузе хватает одного обновления. Анимации ползунка не нужны.
+    if (!loop) LaunchedEffect(player, video.playing, video.buffering) {
+        do {
+            video = video.copy(positionMs = player.currentPosition, durationMs = player.duration.coerceAtLeast(0L))
+            if (video.playing) delay(VIDEO_PROGRESS_INTERVAL_MS)
+        } while (video.playing)
+    }
+    if (video.failed) Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray, modifier = Modifier.padding(24.dp))
+    else Box(Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { viewContext ->
+                PlayerView(viewContext).apply {
+                    setUseController(false)
+                    setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT)
+                }
+            },
+            update = { it.player = player },
+            onRelease = { it.player = null },
+            modifier = Modifier.fillMaxSize()
+        )
+        if (video.buffering) CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
+        // Анимация играет по кругу без панели управления; обычное видео получает кнопку и ползунок.
+        if (!loop) VideoControls(
+            state = video,
+            onAction = { action -> if (action == VideoAction.Pause) player.pause() else play() },
+            onSeek = ::seek,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }
 
-private fun openExternalMedia(context: Context, path: String, mime: String): String? = runCatching {
+/** Кнопка и ползунок поверх видео. Ползунок работает, только когда известна длина: перематывать без неё некуда. */
+@Composable
+private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Unit, onSeek: (Float) -> Unit, modifier: Modifier) {
+    val action = state.primaryAction()
+    // Позиция во время перетаскивания живёт в ползунке, а перемотка уходит один раз, когда палец отпущен.
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    Row(
+        modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.5f)).navigationBarsPadding().padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = { onAction(action) }) {
+            Icon(
+                imageVector = when (action) {
+                    VideoAction.Play -> Icons.Rounded.PlayArrow
+                    VideoAction.Pause -> Icons.Rounded.Pause
+                    VideoAction.Replay -> Icons.Rounded.Replay
+                },
+                contentDescription = stringResource(if (action == VideoAction.Pause) R.string.common_pause else R.string.common_play),
+                tint = Color.White
+            )
+        }
+        Slider(
+            value = dragFraction ?: state.fraction(),
+            onValueChange = { dragFraction = it },
+            onValueChangeFinished = {
+                dragFraction?.let(onSeek)
+                dragFraction = null
+            },
+            enabled = state.durationMs > 0L,
+            modifier = Modifier.weight(1f),
+            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White)
+        )
+        // Пока палец двигает ползунок, время показывает ту же позицию, что и ползунок.
+        val shownMs = dragFraction?.let { seekPositionMs(it, state.durationMs) } ?: state.positionMs
+        Text(
+            "${duration((shownMs / 1000).toInt())} / ${duration((state.durationMs / 1000).toInt())}",
+            color = Color.White,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(start = 8.dp)
+        )
+    }
+}
+
+/** Звук в просмотрщике идёт через общий плеер. Открытие ничего не запускает, поэтому текущий трек не прерывается. */
+@Composable
+private fun AudioInPlayer(media: MessageMedia, path: String, active: Boolean, onViewed: () -> Unit) {
+    val context = LocalContext.current
+    val item = media.playbackItem(path, media.kind.label(context))
+    val state by PlaybackEngine.state.collectAsStateWithLifecycle()
+    val currentOnViewed by rememberUpdatedState(onViewed)
+    // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.
+    val playingHere = state.item?.key == item.key && state.playing
+    val startedHere = state.item?.key == item.key && state.started
+    LaunchedEffect(playingHere, startedHere, active) {
+        if (active && playingHere && startedHere) currentOnViewed()
+    }
+    // Пока файл не играет в общем плеере, его перемотка и скорость относятся к другому файлу, поэтому выключены.
+    val current = state.item?.key == item.key
+    NowPlayingControls(
+        state = if (current) state else PlaybackState(item = item),
+        item = item,
+        colors = ViewerNowPlayingColors,
+        enabled = current,
+        onPlayPause = { startAudio(context, item) }
+    )
+}
+
+/** Музыка из чата и просмотрщика идёт через общий плеер. Новый файл заменяет текущий, в том числе кружок в ленте. */
+private fun startAudio(context: Context, item: PlaybackItem) {
+    PlaybackEngine.toggle(context, item)
+}
+
+internal fun openExternalMedia(context: Context, path: String, mime: String): String? = runCatching {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
     context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
 }.exceptionOrNull()?.let { context.getString(R.string.media_no_app_for_format) }

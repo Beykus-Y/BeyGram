@@ -85,7 +85,8 @@ internal class TdConversationEffects(private val client: () -> Client, private v
     fun uploadStarted(message: TdApi.Message) {
         synchronized(lock) {
             val activity = uploadActivityOf(message.content) ?: return@synchronized
-            if (!message.isOutgoing || message.sendingState !is TdApi.MessageSendingStatePending) return@synchronized
+            // A forwarded copy is pending too, but nothing is read from this device, so it shows no upload.
+            if (!message.isOutgoing || message.forwardInfo != null || message.sendingState !is TdApi.MessageSendingStatePending) return@synchronized
             uploads.getOrPut(message.chatId) { mutableMapOf() }[message.id] = activity
             startLocked(message.chatId, activity)
         }

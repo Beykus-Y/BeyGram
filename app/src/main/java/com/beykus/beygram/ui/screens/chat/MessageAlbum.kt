@@ -42,11 +42,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.reactionMessage
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
@@ -57,7 +59,9 @@ internal data class ChatMessageListItem(
     val messages: List<ChatMessage>,
     val mediaAlbumId: Long = 0L,
     /** Автоматический кружок, который ещё не принят TDLib; в ленте показывается вместо сообщения. */
-    val pendingVideoNote: PendingVideoNote? = null
+    val pendingVideoNote: PendingVideoNote? = null,
+    /** Разделитель «Непрочитанные»; в ленте он без сообщений. */
+    val unreadSeparator: Boolean = false
 )
 
 /** Combines messages only when TDLib supplied the same nonzero mediaAlbumId. */
@@ -84,21 +88,23 @@ internal fun MessageAlbumBubble(
     onActions: (Long) -> Unit,
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)? = null,
-    onReaction: (Long, String) -> Unit,
+    onReaction: (Long, ReactionOption) -> Unit,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     onRetry: () -> Unit = {}
 ) {
     if (messages.isEmpty()) return
     val palette = beyGramPalette()
     val chronological = remember(messages) { messages.sortedWith(compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.id }) }
     val latest = chronological.last()
-    val shape = if (latest.isOutgoing) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+    val metrics = LocalBubbleMetrics.current
+    val shape = bubbleShape(latest.isOutgoing, metrics)
     val columns = if (chronological.size > 4) 3 else 2
     val captions = chronological.filter { it.text.isNotBlank() }
     val captionMessage = captions.lastOrNull() ?: latest
     val reply = chronological.firstNotNullOfOrNull { it.reply }
     val reactionOwner = reactionMessage(chronological)
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = metrics.sideInset), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && captionMessage.sendState == MessageSendState.Sent, outgoing = latest.isOutgoing,
             onReply = { onReply?.invoke(captionMessage.id) }) { swipe ->
             BubbleLayout(
@@ -146,7 +152,7 @@ internal fun MessageAlbumBubble(
                 }
             )
         }
-        MessageReactionChips(reactionOwner.reactions, onToggle = { onReaction(reactionOwner.id, it.emoji) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
+        MessageReactionChips(reactionOwner.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(reactionOwner.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }
 

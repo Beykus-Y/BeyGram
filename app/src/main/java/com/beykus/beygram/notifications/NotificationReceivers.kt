@@ -19,7 +19,7 @@ class NotificationDismissReceiver : BroadcastReceiver() {
         // Persist removal immediately. The shared client flushes it when authorized, without ViewMessages.
         val runtime = NotificationRuntime.get(context)
         runtime.dismiss(intent.getIntExtra(NotificationIntents.GROUP_ID, 0), intent.getIntExtra(NotificationIntents.MAX_ID, 0))
-        if (runtime.preferences.authorized) runtime.attachRealClient()
+        if (runtime.preferences.authorized) runtime.attachRealClient(startProxy = false)
     }
 }
 
@@ -36,6 +36,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             groupId = intent.getIntExtra(NotificationIntents.GROUP_ID, 0),
             maxId = intent.getIntExtra(NotificationIntents.MAX_ID, 0),
             replyToMessageId = intent.getLongExtra(NotificationIntents.REPLY_TO, 0L),
+            topicId = intent.getLongExtra(NotificationIntents.TOPIC, 0L),
             text = text,
             session = session,
             finished = { pending.finish() }

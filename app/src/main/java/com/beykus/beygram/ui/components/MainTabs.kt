@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.TabVisibility
+import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 
 /** Подпись раздела в нижнем меню. */
 internal val MainTab.title: String
@@ -132,6 +133,7 @@ internal fun MainTabsScaffold(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             stateHolder.SaveableStateProvider(key) { content() }
         }
+        NowPlayingBar()
         MainTabBar(tabs = MainTab.entries.filter { visibility.isVisible(it) }, selected = selected, onSelect = onSelect)
     }
 }

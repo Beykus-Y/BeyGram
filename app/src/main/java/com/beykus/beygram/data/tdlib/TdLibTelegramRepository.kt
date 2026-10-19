@@ -11,6 +11,7 @@ import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
@@ -298,11 +299,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
     private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
+    private val customEmojis = TdCustomEmojis(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
     // ---- Память и кэш --------------------------------------------------------
 
-    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")))
+    // Copies listed in the profile's shared media stay protected from the cache policy while that listing is recent.
+    private val listedMediaFiles = ListedMediaFiles()
+    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")), File(appContext.filesDir, "uploads")) { messageHistory.mediaFileIds() + listedMediaFiles.current() }
     private val storageSettings = StorageSettingsStore.getInstance(context)
     private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
     override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
@@ -334,11 +338,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationActions.delete(chatId, messageId, scope).onSuccess { conversationEffects.uploadFinished(chatId, messageId) }
     override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long) = conversationActions.forward(fromChatId, messageId, toChatId)
     override suspend fun availableReactions(chatId: Long, messageId: Long) = conversationActions.availableReactions(chatId, messageId)
-    override suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean) =
-        conversationActions.toggleReaction(chatId, messageId, emoji, addToRecent)
+    override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean) =
+        conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
+    override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
-    override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long) = conversationActions.shared(chatId, kind, fromMessageId)
+    override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean) = conversationActions.shared(chatId, kind, fromMessageId, newer)
+        .onSuccess { page -> listedMediaFiles.remember(page.messages.flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }) }
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
     override fun startChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.startActivity(chatId, activity)
     override fun endChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.endActivity(chatId, activity)
@@ -371,6 +377,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
      * пересобираются не чаще раза в [CHAT_LIST_PUBLISH_DELAY_MS].
      */
     private val chatCache = ConcurrentHashMap<Long, ChatPreview>()
+    /** The user who sent each chat's last message. Their name can load after the preview, and then the preview shows it. */
+    private val lastSenderUsers = ConcurrentHashMap<Long, Long>()
     private val muteState = ChatMuteState()
     // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
     private val historyRequests = ConcurrentHashMap<Long, Long>()
@@ -581,10 +589,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         })
     }
 
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+    override suspend fun isForumChat(chatId: Long): Result<Boolean> = conversationActions.isForum(chatId)
+
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
         leaveJumpWindow(chatId)
         conversationEffects.endActivity(chatId, ChatActivity.Typing)
-        return conversationActions.sendText(chatId, text, replyToMessageId, entities)
+        return conversationActions.sendText(chatId, text, replyToMessageId, entities, forumTopicId)
     }
 
     // =========================================================================
@@ -600,6 +610,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         profiles.handle(update)
         notificationFeed.handle(update)
         when (update) {
+            is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
             is TdApi.UpdateChatLastMessage    -> handleChatLastMessage(update.chatId, update.lastMessage, update.positions)
@@ -630,7 +641,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateMessageEdited -> messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
             is TdApi.UpdateMessageInteractionInfo -> messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
+            is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
+            is TdApi.UpdateSupergroup, is TdApi.UpdateBasicGroup -> chatCache.keys.toList().forEach(::refreshPostingRight)
+            is TdApi.UpdateChatPermissions -> refreshPostingRight(update.chatId)
             is TdApi.UpdateChatPhoto -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(photo = profiles.photo(update.photo)) }
                 publishChat(update.chatId)
@@ -694,21 +708,33 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }
     }
 
-    /** Files stay on disk until TDLib reports the message sent. Then their copies under uploads go; unsent files stay. */
+    /**
+     * Files stay on disk until TDLib reports the message sent. Then the folder of the copy gets a sent mark, so the
+     * cache policy may remove it later; unsent files stay unmarked. Voice notes and video notes are removed at once:
+     * TDLib keeps the local path of a sent photo, video, audio or document and reads it for the feed and the viewer,
+     * so those copies wait for the cache policy.
+     */
     private fun cleanupSentUploads(message: TdApi.Message) {
         val content = message.content
-        content.localFiles().mapNotNull { it?.local?.path }.filter { it.isNotBlank() }.forEach { localPath ->
+        content.localFiles().filterNotNull().filter { !it.local.path.isNullOrBlank() }.forEach { tdFile ->
+            val localPath = tdFile.local.path
             runCatching {
                 val uploads = File(appContext.filesDir, "uploads").canonicalFile
                 val file = File(localPath).canonicalFile
                 // TDLib's own cache is outside uploads and is never touched here.
                 if (!file.path.startsWith(uploads.path + File.separator)) return@runCatching
+                if (content !is TdApi.MessageVoiceNote && content !is TdApi.MessageVideoNote) {
+                    val folder = generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }
+                    // The mark keeps the file id, so the cache policy can tell TDLib that this copy is gone.
+                    markSentUpload(folder, tdFile.id)
+                    return@runCatching
+                }
                 if (content is TdApi.MessageVideoNote) {
                     // A session folder can hold segments that still wait to be sent, so only this segment's files and an emptied folder go.
                     file.delete()
                     file.parentFile?.takeIf { it.listFiles().isNullOrEmpty() }?.delete()
                 } else {
-                    // Every other upload has a folder of its own. Removing it also removes files TDLib does not report, such as a photo's thumbnail.
+                    // A voice note has a folder of its own. Removing it also removes files TDLib does not report.
                     generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }.deleteRecursively()
                 }
                 android.util.Log.i("BeyGramNet", "Sent upload cleaned kind=${content.javaClass.simpleName} path=$localPath")
@@ -853,6 +879,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleNewChat(chat: TdApi.Chat) {
         profiles.putChat(chat)
+        rememberLastSender(chat.id, chat.lastMessage)
         messageHistory.readInbox(chat.id, chat.lastReadInboxMessageId)
         messageHistory.readOutbox(chat.id, chat.lastReadOutboxMessageId)
         muteState.putChat(chat.id, NotificationScope.ofChat(chat.type), chat.notificationSettings)
@@ -864,10 +891,38 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     private fun handleChatLastMessage(chatId: Long, lastMessage: TdApi.Message?, positions: Array<TdApi.ChatPosition>) {
+        rememberLastSender(chatId, lastMessage)
         val existing = chatCache[chatId] ?: return
         chatCache[chatId] = existing.withLastMessage(lastMessage).withPositions(positions)
         notificationFeed.chatPositionChanged(chatId)
         publishChat(chatId)
+    }
+
+    /** Republishes the chat only when its posting right changed, so unrelated group updates do not wake its observers. */
+    private fun refreshPostingRight(chatId: Long) {
+        val existing = chatCache[chatId] ?: return
+        val chat = profiles.chat(chatId) ?: return
+        val canPost = profiles.canPost(chat)
+        if (canPost == existing.canPost) return
+        chatCache[chatId] = existing.copy(canPost = canPost)
+        publishChat(chatId)
+    }
+
+    private fun rememberLastSender(chatId: Long, message: TdApi.Message?) {
+        val userId = (message?.senderId as? TdApi.MessageSenderUser)?.userId
+        if (userId == null) lastSenderUsers.remove(chatId) else lastSenderUsers[chatId] = userId
+    }
+
+    /** A user loaded after a chat's preview was built: the preview shows the sender's name from now on. */
+    private fun refreshLastSenders(userId: Long) {
+        lastSenderUsers.forEach { (chatId, senderId) ->
+            if (senderId != userId) return@forEach
+            val existing = chatCache[chatId] ?: return@forEach
+            val name = profiles.senderName(TdApi.MessageSenderUser(userId))
+            if (existing.lastMessageSender == name) return@forEach
+            chatCache[chatId] = existing.copy(lastMessageSender = name)
+            publishChat(chatId)
+        }
     }
 
     /** Поля строки чата, которые зависят от последнего сообщения: текст, время, отправитель и статус своего сообщения. */
@@ -983,6 +1038,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             lastMessageSender = lastMessage?.let { profiles.senderName(it.senderId) }.orEmpty(),
             lastMessageSendState = lastMessage?.sendingState.toSendState(),
             lastReadOutboxMessageId = lastReadOutboxMessageId,
+            canPost = profiles.canPost(this),
             photo = profiles.photo(photo)
         )
     }

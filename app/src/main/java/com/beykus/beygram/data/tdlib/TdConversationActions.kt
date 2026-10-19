@@ -26,6 +26,8 @@ internal class TdConversationActions(
     private val reactionLocks = KeyedMutex<Pair<Long, Long>>()
     private val _limits = MutableStateFlow(MessageLimits())
     val limits = _limits.asStateFlow()
+    private val _activeReactions = MutableStateFlow<List<String>>(emptyList())
+    fun activeEmojiReactions(emojis: List<String>) { _activeReactions.value = emojis }
     fun option(name: String, value: TdApi.OptionValue) {
         val limit = (value as? TdApi.OptionValueInteger)?.value?.toInt()?.coerceIn(1, 65536) ?: return
         when (name) {
@@ -62,10 +64,16 @@ internal class TdConversationActions(
         MediaKind.Sticker -> error("Стикеры не нумеруются")
     }
 
-    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
+    /** True for a forum supergroup: its replies belong to a topic, which a plain send cannot pick. */
+    suspend fun isForum(chatId: Long): Result<Boolean> = conversationResult {
+        val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup ?: return@conversationResult false
+        request(TdApi.GetSupergroup(type.supergroupId)).isForum
+    }
+
+    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
         if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_message_too_long))
-        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); clearDraft = true }, replyId)
+        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); clearDraft = true }, replyId, forumTopicId)
     }.onFailure { recordSendFailure("text", it) }
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
@@ -102,7 +110,8 @@ internal class TdConversationActions(
         request(TdApi.ResendMessages(chatId, orderedIds.toLongArray(), null, 0L))
         Unit
     }
-    private suspend fun send(chatId: Long, content: TdApi.InputMessageContent, replyId: Long?) {
+    /** [forumTopicId] is used only without a reply target: a reply already carries its topic. */
+    private suspend fun send(chatId: Long, content: TdApi.InputMessageContent, replyId: Long?, forumTopicId: Long = 0L) {
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
             request(TdApi.GetMessage(chatId, it))
@@ -112,6 +121,8 @@ internal class TdConversationActions(
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+            } else if (forumTopicId > 0L) {
+                topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }
         })
         history.put(map(message)); hydrateReply(message)
@@ -152,28 +163,33 @@ internal class TdConversationActions(
         if (!forwarded.messages.orEmpty().any { it != null }) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
     }
 
-    /** Emoji from the message's top, recent and popular reactions; premium-only ones are left out for users without Premium. */
-    suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<String>> = conversationResult<List<String>> {
-        val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_REACTION_COUNT))
-        if (available.unavailabilityReason != null) emptyList() else pickerEmojis(available, premium = request(TdApi.GetMe()).isPremium)
+    /**
+     * Reactions the user can add to the message, in the picker's order: TDLib's top, recent and popular reactions, then the chat's
+     * own list, or every active emoji when the chat allows all of them. Premium-only ones are left out for users without Premium,
+     * and so are custom emoji, which only Premium users can add.
+     */
+    suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>> = conversationResult<List<ReactionOption>> {
+        val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_ROW_SIZE))
+        if (available.unavailabilityReason != null) emptyList()
+        else pickerOptions(available, request(TdApi.GetChat(chatId)).availableReactions, _activeReactions.value, premium = request(TdApi.GetMe()).isPremium)
     }
 
     /**
-     * Removes [emoji] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
+     * Removes [reaction] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
      * chosen reaction in the server's order makes room, and it comes back if the new reaction can't be added.
      * [addToRecent] is set only for a reaction picked from the extended menu. Returns the message's reactions after the change.
      */
-    suspend fun toggleReaction(chatId: Long, messageId: Long, emoji: String, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
+    suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
         reactionLocks.withLock(chatId to messageId) {
             val chosen = request(TdApi.GetMessage(chatId, messageId)).interactionInfo?.reactions?.reactions.orEmpty()
                 .filter { it.isChosen && it.type !is TdApi.ReactionTypePaid }
-            val own = chosen.firstOrNull { (it.type as? TdApi.ReactionTypeEmoji)?.emoji == emoji }
+            val own = chosen.firstOrNull { optionOf(it.type) == reaction }
             if (own != null) {
                 request(TdApi.RemoveMessageReaction(chatId, messageId, own.type))
             } else {
                 replaceReactions(
                     displaced = overflowReactions(chosen.map { it.type }, maxReactionCount(chatId)),
-                    add = { request(TdApi.AddMessageReaction(chatId, messageId, TdApi.ReactionTypeEmoji(emoji), false, addToRecent)) },
+                    add = { request(TdApi.AddMessageReaction(chatId, messageId, reactionTypeOf(reaction), false, addToRecent)) },
                     remove = { request(TdApi.RemoveMessageReaction(chatId, messageId, it)) },
                     // Возвращённые реакции были выбраны раньше, поэтому в недавние они не попадают.
                     restore = { request(TdApi.AddMessageReaction(chatId, messageId, it, false, false)) },
@@ -217,9 +233,14 @@ internal class TdConversationActions(
         MessageSearchPage(found.messages.orEmpty().map(map), found.nextFromMessageId)
     }
 
-    /** Вкладка профиля: пустой запрос с фильтром вида вложения, новые сообщения первыми. */
-    suspend fun shared(chatId: Long, kind: SharedMediaKind, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
-        val found = request(TdApi.SearchChatMessages(chatId, null, "", null, fromMessageId, 0, SEARCH_PAGE_SIZE, sharedFilter(kind)))
+    /**
+     * Вкладка профиля и окно просмотрщика: пустой запрос с фильтром вида вложения, новые сообщения первыми. С [newer]
+     * страница идёт от [fromMessageId] к более новым: TDLib отдаёт их при отрицательном смещении.
+     */
+    suspend fun shared(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean): Result<MessageSearchPage> = requestResult {
+        // На одно меньше лимита: повтор [fromMessageId] в ответе окно отсекает по id.
+        val offset = if (newer) -(SEARCH_PAGE_SIZE - 1) else 0
+        val found = request(TdApi.SearchChatMessages(chatId, null, "", null, fromMessageId, offset, SEARCH_PAGE_SIZE, sharedFilter(kind)))
         MessageSearchPage(found.messages.orEmpty().filterNotNull().map(map), found.nextFromMessageId)
     }
     private fun sharedFilter(kind: SharedMediaKind): TdApi.SearchMessagesFilter = when (kind) {
@@ -227,6 +248,7 @@ internal class TdConversationActions(
         SharedMediaKind.Files -> TdApi.SearchMessagesFilterDocument()
         SharedMediaKind.Links -> TdApi.SearchMessagesFilterUrl()
         SharedMediaKind.Voice -> TdApi.SearchMessagesFilterVoiceNote()
+        SharedMediaKind.Music -> TdApi.SearchMessagesFilterAudio()
     }
 
     fun hydrateReply(message: TdApi.Message) {

@@ -28,6 +28,8 @@ internal class AndroidNotificationRenderer(private val context: Context, private
     private var blockedReason: String? = null
     // Groups whose direct reply was rejected, with the newest notice id at that time. The note stays until a newer notice arrives or the group is cancelled.
     private val failedReplies = ConcurrentHashMap<Int, Int>()
+    // Tags posted by this process: lets stale entries be cancelled even before TDLib's startup snapshot arrives.
+    private val postedTags = ConcurrentHashMap.newKeySet<String>()
     init { channels(context) }
     fun render(state: TelegramNotifications, config: NotificationPreferences, presentation: NotificationPresentation, authorized: Boolean) {
         if (!state.initialized && authorized) return // Wait for TDLib's startup snapshot before reconciling old tray entries.
@@ -75,11 +77,12 @@ internal class AndroidNotificationRenderer(private val context: Context, private
                 .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
                 .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH)
             // A reply needs a visible chat title and a chat the user can write to, so other groups get no reply action.
-            if (!hideContent && group.replyable) builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId))
+            if (!hideContent && group.replyable) builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId, latest.topicId))
             if (failedReplies.containsKey(group.id)) builder.setSubText(context.getString(R.string.notif_reply_failed))
             val notification = builder.build()
             try {
                 compat.notify(tag, 0, notification)
+                postedTags.add(tag)
                 // Advanced only after the system accepted the post, so a failed alert is retried on the next render.
                 preferences.handled(group.id, maxId)
             } catch (error: RuntimeException) {
@@ -89,7 +92,11 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             shown.add(tag)
         }
         // Stale entries are cancelled only once TDLib's state has arrived (startup snapshot or a group update), so a cold start keeps the tray.
+        if (!state.snapshot) {
+            postedTags.filter { it !in shown }.forEach { manager.cancel(it, 0); postedTags.remove(it) }
+        }
         if (state.snapshot) {
+            postedTags.retainAll(shown)
             manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
             // A failure note belongs to its group; once the group is gone, a reused group ID must not inherit the note.
             failedReplies.keys.filter { id -> state.groups.none { it.id == id } }.forEach { failedReplies.remove(it) }
@@ -97,7 +104,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
     }
     fun cancelGroup(id: Int) { manager.cancel(tag(id), 0); failedReplies.remove(id) }
     fun markReplyFailed(id: Int, maxId: Int) { failedReplies[id] = maxId }
-    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, context.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId))
+    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, context.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId, topicId))
         .addRemoteInput(RemoteInput.Builder(NotificationIntents.REPLY_TEXT).setLabel(context.getString(R.string.notif_reply_hint)).build())
         .setAllowGeneratedReplies(false)
         .build()

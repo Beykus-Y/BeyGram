@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -40,7 +41,8 @@ internal class TelegramAutoSelector(
     fun start() {
         if (job?.isActive == true) return
         job = scope.launch(Dispatchers.IO) {
-            combine(connectionState, networkState, settings, runtimeState) { connection, network, currentSettings, runtime ->
+            // Метрики прокси (upstreamReachable, telegramConnected) меняются во время перебора; перезапускать должен только статус.
+            combine(connectionState, networkState, settings, runtimeState.distinctUntilChangedBy { it.status }) { connection, network, currentSettings, runtime ->
                 AutoSelectInputs(connection, network, currentSettings, runtime)
             }.collectLatest { inputs ->
                 val settings = inputs.settings
@@ -56,7 +58,7 @@ internal class TelegramAutoSelector(
                 ) {
                     if (checking.compareAndSet(false, true)) {
                         try {
-                            evaluateAndSelect(settings.connectionGroup)
+                            MihomoProbeCoordinator.sweep { evaluateAndSelect(settings.connectionGroup) }
                         } finally {
                             checking.set(false)
                         }

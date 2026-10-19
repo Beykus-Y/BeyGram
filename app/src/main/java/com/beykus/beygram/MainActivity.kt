@@ -1,24 +1,36 @@
 package com.beykus.beygram
 
+import android.graphics.Color
 import android.os.Bundle
 import android.content.Intent
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationIntents
 import com.beykus.beygram.notifications.NotificationRuntime
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
+import com.beykus.beygram.ui.screens.chat.LocalChatWallpaper
+import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
+import com.beykus.beygram.ui.screens.chats.LocalChatListDensity
+import com.beykus.beygram.ui.screens.chats.chatListDensityFor
+import com.beykus.beygram.ui.theme.AppearanceViewModel
 import com.beykus.beygram.ui.theme.BeyGramTheme
+import com.beykus.beygram.ui.theme.resolveTokens
 
 class MainActivity : ComponentActivity() {
     private var notificationRequest by mutableStateOf<NotificationOpenRequest?>(null)
@@ -29,23 +41,39 @@ class MainActivity : ComponentActivity() {
                 savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"))
         } else acceptNotificationIntent(intent)
         enableEdgeToEdge()
-        val preferences = getSharedPreferences("appearance", MODE_PRIVATE)
 
         setContent {
-            val systemDarkTheme = isSystemInDarkTheme()
-            var isDarkTheme by rememberSaveable { mutableStateOf(preferences.getBoolean("dark_theme", systemDarkTheme)) }
+            val appearance: AppearanceViewModel = viewModel()
+            // The saved choice is read asynchronously. Nothing is drawn until it is known, so the theme never flips.
+            val config = appearance.config.collectAsState().value ?: return@setContent
+            val systemDark = isSystemInDarkTheme()
+            val isDarkTheme = config.mode.isDark(systemDark)
+            // The status and navigation bar icons follow the theme in use. The bars stay transparent, so the app's own colours show through.
+            SideEffect {
+                enableEdgeToEdge(
+                    statusBarStyle = if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+                    navigationBarStyle = if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                )
+            }
 
-            BeyGramTheme(darkTheme = isDarkTheme) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+            BeyGramTheme(darkTheme = isDarkTheme, tokens = resolveTokens(config, systemDark)) {
+                // Bubble shape and list density come from the same saved choice as the colours.
+                CompositionLocalProvider(
+                    LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density),
+                    LocalChatListDensity provides chatListDensityFor(config.density),
+                    LocalChatWallpaper provides config.wallpaper
                 ) {
-                    BeyGramApp(
-                        notificationRequest = notificationRequest,
-                        onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
-                        isDarkTheme = isDarkTheme,
-                        onThemeChange = { isDarkTheme = it; preferences.edit().putBoolean("dark_theme", it).apply() }
-                    )
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        BeyGramApp(
+                            notificationRequest = notificationRequest,
+                            onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
+                            appearance = config,
+                            onAppearanceChange = appearance::save
+                        )
+                    }
                 }
             }
         }

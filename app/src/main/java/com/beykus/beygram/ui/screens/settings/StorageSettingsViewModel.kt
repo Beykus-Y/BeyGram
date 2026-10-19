@@ -63,12 +63,16 @@ class StorageSettingsViewModel(
         freedBytes = null
         cleaningProgress = 0f
         viewModelScope.launch {
-            repository.clearStorage(categories) { done, total ->
-                cleaningProgress = if (total == 0) 1f else done.toFloat() / total
+            try {
+                repository.clearStorage(categories) { done, total ->
+                    cleaningProgress = if (total == 0) 1f else done.toFloat() / total
+                }
+                    .onSuccess { freedBytes = it }
+                    .onFailure { error = it.toUiText(R.string.storage_clear_failed) }
+            } finally {
+                // A cancelled clear (the sign-out ends its scope) must not leave the screen stuck on "cleaning".
+                cleaningProgress = null
             }
-                .onSuccess { freedBytes = it }
-                .onFailure { error = it.toUiText(R.string.storage_clear_failed) }
-            cleaningProgress = null
             loadUsage()
         }
     }

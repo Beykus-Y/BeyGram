@@ -24,6 +24,13 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     private val windowEpochs = mutableMapOf<Long, Long>()
     fun version(): Long = synchronized(lock) { revision }
 
+    /** Файлы медиа, которые показывают сообщения открытых и загруженных чатов: их локальные копии нужны ленте и просмотрщику. */
+    fun mediaFileIds(): Set<Int> = synchronized(lock) {
+        (cachedChats + openedChats).flatMap { chatId -> states[chatId]?.value?.messages.orEmpty() }
+            .flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }
+            .filter { it != 0 }.toSet()
+    }
+
     private fun flow(chatId: Long) = states.computeIfAbsent(chatId) { MutableStateFlow(ChatHistory()) }
     fun observe(chatId: Long): StateFlow<ChatHistory> = flow(chatId).asStateFlow()
 

@@ -30,8 +30,8 @@ internal class TdNotifications(
         conversationResult {
             request(TdApi.SetOption("notification_group_size_max", TdApi.OptionValueInteger(10)))
             request(TdApi.SetOption("notification_group_count_max", TdApi.OptionValueInteger(25)))
-            // On first opt-in TDLib can enable groups after its startup snapshot phase.
-            synchronized(lock) { _state.value = _state.value.copy(initialized = true) }
+            // Configuring group limits does not confirm TDLib delivered an initial snapshot.
+            // Keep the existing Android tray until the real UpdateActiveNotifications arrives.
         }
     } }
     suspend fun dismiss(groupId: Int, maxId: Int): Result<Unit> = conversationResult {
@@ -65,7 +65,8 @@ internal class TdNotifications(
                 recordAppEvent(EventKind.NOTIFICATION, "snapshot", "Снимок уведомлений: групп ${groups.size}", attrs = mapOf("groups" to groups.size.toString()))
             }
             is TdApi.UpdateNotificationGroup -> {
-                _state.value = _state.value.copy(initialized = true, snapshot = true)
+                // Incremental groups can render immediately but cannot prove other groups are absent.
+                _state.value = _state.value.copy(initialized = true)
                 if (update.type is TdApi.NotificationGroupTypeCalls) { groups.remove(update.notificationGroupId); publish(); return@synchronized }
                 val old = groups[update.notificationGroupId]?.takeIf { it.chatId == update.chatId }
                 val removed = (update.removedNotificationIds ?: intArrayOf()).toSet()
@@ -110,7 +111,8 @@ internal class TdNotifications(
         chat.type !is TdApi.ChatTypeSecret && (chat.type as? TdApi.ChatTypeSupergroup)?.isChannel != true && chat.permissions.canSendBasicMessages
     private fun notice(notification: TdApi.Notification): TelegramNotice? = when (val type = notification.type) {
         is TdApi.NotificationTypeNewMessage -> TelegramNotice(notification.id, notification.date.toLong(), senderName(type.message.senderId),
-            if (type.showPreview) preview(type.message.content) else UiText.Res(R.string.notif_new_message), type.showPreview, type.message.id)
+            if (type.showPreview) preview(type.message.content) else UiText.Res(R.string.notif_new_message), type.showPreview, type.message.id,
+            (type.message.topicId as? TdApi.MessageTopicForum)?.forumTopicId?.toLong() ?: 0L)
         is TdApi.NotificationTypeNewSecretChat -> TelegramNotice(notification.id, notification.date.toLong(), "", UiText.Res(R.string.notif_new_secret_chat), false)
         else -> null // No FCM registration; push payloads and unimplemented calls are not rendered.
     }

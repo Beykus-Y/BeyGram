@@ -50,8 +50,8 @@ data class ChatMembersPage(val total: Int, val members: List<ProfileMember>, val
 /** Владелец или администратор группы/канала; роль берётся из статуса участника в TDLib. */
 data class ProfileAdmin(val userId: Long, val name: String, val isOwner: Boolean, val customTitle: String)
 
-/** Число сообщений с медиа, файлами, ссылками и голосовыми в чате; null, если TDLib не ответил по этому типу. */
-data class SharedCounts(val media: Int?, val files: Int?, val links: Int?, val voice: Int?)
+/** Число сообщений с медиа, файлами, ссылками, голосовыми и музыкой в чате; null, если TDLib не ответил по этому типу. */
+data class SharedCounts(val media: Int?, val files: Int?, val links: Int?, val voice: Int?, val music: Int? = null)
 
 data class ProfileInfo(
     val id: Long,

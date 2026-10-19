@@ -57,6 +57,22 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
+      - name: Test release notes validator
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
+      - name: Require changelog when a PR changes the Stable version
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          if git diff --quiet "$BASE_SHA" HEAD -- release-version.properties; then
+            echo '::notice::Stable version unchanged; no new release changelog required.'
+          else
+            python3 scripts/release_notes.py validate
+          fi
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -98,6 +114,18 @@ jobs:
         # JVM tests of the dev debug variant. They run before the APKs are built, so a failing test fails this job,
         # and a failed main build cannot be published.
         run: ./gradlew --no-daemon :app:testDevDebugUnitTest
+
+      - name: Upload unit test reports
+        # A failed run keeps the report, so the exact failing assertion can be read after the job ends.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports-${{ github.sha }}
+          path: |
+            app/build/reports/tests/testDevDebugUnitTest/
+            app/build/test-results/testDevDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Build debug, release and instrumented-test APKs (no device tests)
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease :app:assembleDevDebugAndroidTest
@@ -216,6 +244,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Check out release configuration
+        uses: actions/checkout@v4
+
       - name: Resolve version
         id: version
         env:
@@ -234,6 +265,11 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Stable changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python3 scripts/release_notes.py validate --version "$VERSION"
 
       - name: Find the successful main build of this commit
         id: run
@@ -345,33 +381,88 @@ jobs:
 
 
 
+      - name: Prepare user and technical release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          output="$RUNNER_TEMP/beygram-release-notes.md"
+          cp "docs/releases/v${VERSION}.md" "$output"
+          # Best-effort GitHub-generated PR list. Human-authored notes remain canonical.
+          # Generate this from the same commit whose tested APK will be published.
+          generated="$RUNNER_TEMP/technical-release-notes.md"
+          if ! gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$tag" -f target_commitish="$GITHUB_SHA" \
+              -f configuration_file_path='.github/release.yml' --jq .body > "$generated"; then
+            echo '::warning::GitHub could not generate technical release notes; using commit link.'
+            : > "$generated"
+          fi
+          {
+            printf '\n\n<!-- TECHNICAL_CHANGELOG -->\n\n---\n\n## Для разработчиков\n\n'
+            if [ -s "$generated" ]; then
+              cat "$generated"
+            else
+              printf 'Технические изменения: https://github.com/%s/commits/%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            fi
+          } >> "$output"
+          echo "::notice::Prepared release notes for $tag"
+
       - name: Create or update release
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           tag="v$VERSION"
-          # An existing tag must point at this commit, or --clobber would swap the APK
-          # of a release built from another commit.
+          apk_name="BeyGram-$VERSION-prod-release.apk"
+          notes_file="$RUNNER_TEMP/beygram-release-notes.md"
+          # A pre-existing tag must resolve to the exact commit whose signed APK was checked.
           tag_err="$RUNNER_TEMP/tag.err"
           if tag_sha=$(gh api --method GET "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>"$tag_err"); then
             :
           elif grep -qE 'HTTP (404|422)' "$tag_err"; then
-            # No such tag yet, so there is nothing to replace.
             tag_sha=""
           else
             cat "$tag_err" >&2
-            echo "::error::Could not read tag $tag, so it cannot be checked against ${GITHUB_SHA::7}. Refusing to publish." >&2
+            echo "::error::Cannot verify tag $tag; refusing to publish." >&2
             exit 1
           fi
           if [ -n "$tag_sha" ] && [ "$tag_sha" != "$GITHUB_SHA" ]; then
-            echo "::error::Tag $tag points to ${tag_sha::7}, not ${GITHUB_SHA::7}. Refusing to replace its APK." >&2
+            echo "::error::Tag $tag points to ${tag_sha:0:7}, not ${GITHUB_SHA:0:7}; refusing to publish." >&2
             exit 1
           fi
-          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            draft=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+            if [ "$draft" != 'true' ]; then
+              # Published releases are immutable from this workflow, even on retries.
+              assets=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets)
+              if ! printf '%s\n' "$assets" | jq -e --arg apk "$apk_name" \
+                  '([.assets[].name] | index($apk) != null) and ([.assets[].name] | index("BeyGram-stable-update.json") != null)' >/dev/null; then
+                echo "::error::Already published $tag is missing required files. Refusing to mutate it." >&2
+                exit 1
+              fi
+              echo "::notice::Release $tag is already published; leaving its notes and assets unchanged."
+              exit 0
+            fi
+            # Retry a partial failure only while the release is still a Draft.
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+              --title "BeyGram $VERSION" --notes-file "$notes_file"
+          else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "BeyGram $VERSION" \
-              --notes "Android APKs built from ${GITHUB_SHA::7}."
+              --target "$GITHUB_SHA" --title "BeyGram $VERSION" \
+              --notes-file "$notes_file" --draft
           fi
-          gh release upload "$tag" "apks/BeyGram-$VERSION-prod-release.apk" "apks/BeyGram-stable-update.json" --repo "$GITHUB_REPOSITORY" --clobber
+
+          gh release upload "$tag" \
+            "apks/$apk_name" "apks/BeyGram-stable-update.json" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          assets=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets)
+          if ! printf '%s\n' "$assets" | jq -e --arg apk "$apk_name" \
+              '([.assets[].name] | index($apk) != null) and ([.assets[].name] | index("BeyGram-stable-update.json") != null)' >/dev/null; then
+            echo "::error::Draft release is missing required assets; it remains unpublished." >&2
+            exit 1
+          fi
+          # Only now make the release visible to the app's /releases/latest updater.
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
+

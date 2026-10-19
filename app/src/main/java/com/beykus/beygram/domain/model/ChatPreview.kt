@@ -13,6 +13,8 @@ data class ChatPreview(
     val isGroup: Boolean = false,
     val isPinned: Boolean = false,
     val isMuted: Boolean = false,
+    /** False when the user may not write here: a channel they do not administer, or a group that restricts them. */
+    val canPost: Boolean = true,
     /** TDLib main-list position; zero means the chat is outside the main list. */
     val order: Long = 0L,
     /** TDLib archive-list position; zero means the chat is not archived. */

@@ -1,0 +1,455 @@
+package com.beykus.beygram.playback
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.view.TextureView
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageMedia
+import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+/** Место файла в чате: по нему мини-плеер открывает сообщение, из которого файл запущен. */
+data class PlaybackOrigin(val chatId: Long, val messageId: Long)
+
+/** Файл для общего плеера. [key] отличает файлы друг от друга: повторный тап по тому же файлу ставит его на паузу. [origin] пустой, если файл запущен не из ленты чата. */
+data class PlaybackItem(
+    val key: String,
+    val kind: MediaKind,
+    val path: String,
+    val title: String,
+    val durationSeconds: Int,
+    val origin: PlaybackOrigin? = null,
+    /** Секретное вложение: играет только пока открыт его чат и не повторяется после конца. */
+    val secret: Boolean = false
+)
+
+/** Состояние общего плеера для интерфейса. Без [item] плеер пуст, и мини-плеер не показывается. */
+data class PlaybackState(
+    val item: PlaybackItem? = null,
+    val playing: Boolean = false,
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val speed: Float = 1f,
+    val failed: Boolean = false,
+    /** Плеер хотя бы раз сообщил, что файл реально играет. Отметка «прослушано» ставится по этому флагу, потому что [playing] выставляется уже при нажатии. */
+    val started: Boolean = false,
+    /** Файл доиграл до конца. Кружок в ленте сворачивается, а новый запуск начинает файл сначала. */
+    val ended: Boolean = false
+) {
+    /** Доля проигранного от 0 до 1. Пока длина неизвестна, она равна 0. */
+    val fraction: Float
+        get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+}
+
+/** Музыка, которую прервало голосовое или кружок. Продолжается с [positionMs], когда прерывающий файл доиграет. */
+internal data class InterruptedMusic(val item: PlaybackItem, val positionMs: Long)
+
+/**
+ * Что ждёт музыку после запуска [next]. Играющая музыка ждёт, пока голосовое или кружок доиграет. Новая музыка заменяет
+ * ждущую, а голосовое или кружок поверх другого голосового или кружка ждущую не трогают.
+ */
+internal fun interruptedAfterStart(current: PlaybackState, waiting: InterruptedMusic?, next: PlaybackItem): InterruptedMusic? {
+    val playingMusic = current.item?.takeIf { it.kind == MediaKind.Audio && current.playing }
+    return when {
+        next.kind == MediaKind.Audio -> null
+        playingMusic != null -> InterruptedMusic(playingMusic, current.positionMs)
+        else -> waiting
+    }
+}
+
+/**
+ * Файл очереди, который идёт сразу за местом [index], если на этом месте играет [currentKey]. Место ищем по номеру, а не по ключу:
+ * один файл может стоять в очереди дважды. Последний файл и место, где играет другой файл, дают null.
+ */
+internal fun nextInQueue(queue: List<PlaybackItem>, index: Int, currentKey: String): PlaybackItem? {
+    if (queue.getOrNull(index)?.key != currentKey) return null
+    return queue.getOrNull(index + 1)
+}
+
+/** Очередь музыки: файлы по порядку и место играющего файла в них. Пустая очередь не имеет места. */
+internal data class PlaybackQueue(val items: List<PlaybackItem> = emptyList(), val index: Int = -1)
+
+/**
+ * Очередь после повторного выбора файла, который уже играет. Голосовое и кружок очередь не трогают. Музыка: переданная очередь
+ * заменяет прежнюю. Без неё прежняя остаётся, только если файл выбран из того же места: очередь другого чата не должна играть дальше.
+ */
+internal fun queueAfterReselect(previous: PlaybackQueue, next: PlaybackItem, given: PlaybackQueue?, currentOrigin: PlaybackOrigin?): PlaybackQueue {
+    if (next.kind != MediaKind.Audio) return previous
+    return given ?: previous.takeIf { currentOrigin == next.origin } ?: PlaybackQueue()
+}
+
+/** Позиция, с которой продолжается файл [key]: прерванная музыка возвращается к своему месту, остальные файлы идут с начала. */
+internal fun resumePositionMs(waiting: InterruptedMusic?, key: String): Long = waiting?.takeIf { it.item.key == key }?.positionMs ?: 0L
+
+/** Ключ файла в общем плеере: один на весь файл, поэтому повторный запуск не начинает его сначала. */
+internal fun MessageMedia.playbackKey(): String = "$kind:$fileId"
+
+/** Файл из сообщения как элемент общего плеера. [origin] указывает сообщение, в котором лежит файл. */
+fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: PlaybackOrigin? = null): PlaybackItem = PlaybackItem(
+    key = playbackKey(),
+    kind = kind,
+    path = path,
+    // У музыки в плеере показываем теги: «Исполнитель — Название», а не имя файла.
+    title = if (kind == MediaKind.Audio && (title.isNotBlank() || performer.isNotBlank())) listOf(performer, title.ifBlank { fileName }).filter { it.isNotBlank() }.joinToString(" — ") else fileName.ifBlank { fallbackTitle },
+    durationSeconds = durationSeconds,
+    origin = origin,
+    secret = isSecret
+)
+
+/** Скорость без лишнего нуля: «1» и «2», но «0.5» и «1.5». */
+internal fun speedLabel(speed: Float): String = if (speed % 1f == 0f) speed.toInt().toString() else speed.toString()
+
+/**
+ * Общий плеер приложения. Музыка, голосовые и кружки играют через один ExoPlayer, поэтому звук не обрывается
+ * при переходе между экранами. Плеер живёт в процессе, а [PlaybackService] держит его на переднем плане,
+ * пока он играет: уведомление, экран блокировки и гарнитура работают через систему.
+ */
+object PlaybackEngine {
+    private const val PROGRESS_INTERVAL_MS = 250L
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val _state = MutableStateFlow(PlaybackState())
+    val state: StateFlow<PlaybackState> = _state.asStateFlow()
+    private val _showInChat = MutableSharedFlow<PlaybackOrigin>(extraBufferCapacity = 1)
+    /** Запросы открыть чат с сообщением текущего файла. Их разбирает корневой экран приложения. */
+    val showInChat: SharedFlow<PlaybackOrigin> = _showInChat.asSharedFlow()
+    private var exo: ExoPlayer? = null
+    private var controls: Player? = null
+    private var appContext: Context? = null
+    private var progress: Job? = null
+    private var pendingStartFraction = 0f
+    private var videoOwner: Any? = null
+    private var videoView: TextureView? = null
+    /** Музыка, которая ждёт, пока голосовое или кружок доиграет. Очищается при остановке и при новом запуске музыки. */
+    private var interruptedMusic: InterruptedMusic? = null
+    /** Очередь музыки в порядке показа. Когда файл очереди доиграл, следующий начинает играть сам. Сбрасывается при запуске файла вне очереди и при остановке. */
+    private var queue: List<PlaybackItem> = emptyList()
+    /** Место играющего файла в [queue]. По номеру место находится однозначно, даже если один файл в очереди стоит дважды. */
+    private var queueIndex = -1
+    /** Отметка «прослушано», которую плеер вызовет, когда файл начнёт играть. Работает, даже если пузырь уже ушёл с экрана. */
+    private var startedCallback: Pair<String, () -> Unit>? = null
+    /** Приложение на переднем плане. Отметку репозиторий принимает только отсюда, поэтому файл, начавший играть в фоне, ждёт возврата. */
+    private var foreground = false
+
+    /**
+     * Общий плеер для системного управления: уведомление, экран блокировки и гарнитура. «Играть» после конца файла начинает
+     * его сначала, а после ошибки загружает заново, как кнопка в приложении.
+     */
+    fun player(context: Context): Player = controls ?: createPlayer(context).also { controls = it }
+
+    /** Единственный ExoPlayer процесса. Создаётся на главном потоке при первом обращении. */
+    private fun createPlayer(context: Context): Player {
+        val created = ExoPlayer.Builder(context.applicationContext)
+            .setAudioAttributes(
+                AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
+                /* handleAudioFocus = */ true
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .build()
+            .also { it.addListener(listener) }
+        exo = created
+        appContext = context.applicationContext
+        return object : ForwardingPlayer(created) {
+            override fun play() {
+                if (playbackState == Player.STATE_IDLE) prepare()
+                if (playbackState == Player.STATE_ENDED) {
+                    // Секретный файл после конца не повторяется ни кнопкой уведомления, ни мини-плеером.
+                    if (_state.value.item?.secret == true) return
+                    seekToDefaultPosition()
+                }
+                // Повтор доигравшего файла снимает отметку конца сразу, чтобы возврат музыки не сработал до первого события плеера.
+                _state.update { it.copy(ended = false) }
+                super.play()
+            }
+        }
+    }
+
+    /**
+     * Тот же файл ставит на паузу или продолжает, другой файл начинает играть сначала. [onStarted] вызывается один раз, когда
+     * файл начнёт играть, даже если пузырь, который его запустил, уже ушёл с экрана. Если это случилось в фоне, вызов ждёт [setForeground].
+     */
+    fun toggle(context: Context, item: PlaybackItem, onStarted: (() -> Unit)? = null) = startItem(context, item, emptyList(), -1, onStarted)
+
+    /** Запускает [index]-й файл очереди [items]. Когда он доиграет, следующий файл очереди начинает играть сам. Тап по играющему файлу ставит его на паузу. */
+    fun playQueue(context: Context, items: List<PlaybackItem>, index: Int, onStarted: (() -> Unit)? = null) {
+        val item = items.getOrNull(index) ?: return
+        startItem(context, item, items, index, onStarted)
+    }
+
+    /** Общая часть [toggle] и [playQueue]: тот же файл ставит на паузу или продолжает, другой запускает с очередью [items]. */
+    private fun startItem(context: Context, item: PlaybackItem, items: List<PlaybackItem>, index: Int, onStarted: (() -> Unit)?) {
+        if (onStarted != null) startedCallback = item.key to onStarted
+        if (exo != null && _state.value.item?.key == item.key) {
+            // Файл, который играет без очереди, например из ленты чата, берёт очередь вкладки: после паузы и продолжения она пойдёт дальше.
+            // Тот же музыкальный файл из другого сообщения или чата сбрасывает очередь прошлого места, иначе следующий трек пошёл бы из чужого чата.
+            val given = if (items.isNotEmpty()) PlaybackQueue(items, index) else null
+            val next = queueAfterReselect(PlaybackQueue(queue, queueIndex), item, given, currentOrigin = _state.value.item?.origin)
+            queue = next.items
+            queueIndex = next.index
+            // «Показать в чате» ведёт к сообщению, с которого файл запустили последним.
+            _state.update { it.copy(item = item) }
+            togglePlayPause()
+        } else {
+            // Голосовое или кружок поверх музыки очередь не сбрасывают: музыка продолжится и дальше пойдёт по очереди.
+            if (item.kind == MediaKind.Audio) {
+                queue = items
+                queueIndex = index
+            }
+            play(context, item)
+        }
+    }
+
+    /** Приложение ушло в фон или вернулось на передний план. Отметка, которую файл начал в фоне, уходит на возврате. */
+    fun setForeground(active: Boolean) {
+        foreground = active
+        if (active) fireStartedCallback()
+    }
+
+    /**
+     * Запускает файл с начала или с доли [startFraction]. Скорость сохраняется между файлами. Если запустили музыку, которую
+     * прервало голосовое или кружок, она продолжается с того же места.
+     */
+    fun play(context: Context, item: PlaybackItem, startFraction: Float = 0f, onStarted: (() -> Unit)? = null) {
+        val target = player(context)
+        if (onStarted != null) startedCallback = item.key to onStarted
+        syncPosition()
+        // Отметка ждёт только свой файл: запуск другого файла её сбрасывает.
+        startedCallback = startedCallback?.takeIf { it.first == item.key }
+        val waiting = interruptedMusic
+        val resumeMs = resumePositionMs(waiting, item.key)
+        interruptedMusic = interruptedAfterStart(_state.value, waiting, item)
+        target.setMediaItem(
+            MediaItem.Builder()
+                .setMediaId(item.key)
+                .setUri(Uri.fromFile(File(item.path)))
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
+                .build(),
+            resumeMs
+        )
+        target.prepare()
+        // Длина из сообщения округлена до секунды, поэтому долю применяем, когда плеер узнает настоящую длину файла.
+        pendingStartFraction = startFraction.coerceIn(0f, 1f)
+        target.play()
+        _state.value = PlaybackState(item = item, playing = true, positionMs = resumeMs, speed = _state.value.speed)
+        startPlaybackService()
+        startProgress()
+    }
+
+    /** Отметка для файла, который продолжают после паузы: вызывается, когда он начнёт играть, даже если пузырь уже ушёл с экрана. */
+    fun resume(key: String, onStarted: () -> Unit) {
+        startedCallback = key to onStarted
+        togglePlayPause()
+    }
+
+    /** Пауза или продолжение. Конец файла и ошибку обрабатывает обёртка плеера, поэтому системные кнопки ведут себя так же. */
+    fun togglePlayPause() {
+        val target = controls ?: return
+        // Решает то же состояние, что видит интерфейс: файл, который уже буферизуется, пауза отменяет, а не запускает снова.
+        if (_state.value.playing) {
+            pause()
+            return
+        }
+        _state.update { it.copy(failed = false) }
+        startPlaybackService()
+        target.play()
+    }
+
+    /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
+    fun pause() {
+        exo?.pause()
+        _state.update { it.copy(playing = false) }
+    }
+
+    /** Перемотка по доле длины. Пока длина неизвестна, ничего не делает. */
+    fun seekTo(fraction: Float) {
+        val target = exo ?: return
+        val duration = target.duration
+        if (duration == C.TIME_UNSET || duration <= 0L) return
+        val position = (fraction.coerceIn(0f, 1f) * duration).toLong()
+        target.seekTo(position)
+        _state.update { it.copy(positionMs = position) }
+    }
+
+    fun setSpeed(speed: Float) {
+        exo?.setPlaybackSpeed(speed)
+        _state.update { it.copy(speed = speed) }
+    }
+
+    /** Просит открыть чат с сообщением, из которого запущен файл. Экран приложения переходит к этому сообщению. */
+    fun requestShowInChat(origin: PlaybackOrigin) {
+        _showInChat.tryEmit(origin)
+    }
+
+    /** Выводит видео текущего файла на [view]. Пузырь кружка вызывает это, пока кружок показан: без экрана звук продолжает играть. */
+    fun attachVideo(owner: Any, view: TextureView) {
+        val target = exo ?: return
+        if (videoOwner === owner && videoView === view) return
+        videoView?.let { target.clearVideoTextureView(it) }
+        videoOwner = owner
+        videoView = view
+        target.setVideoTextureView(view)
+    }
+
+    /** Снимает видео, если его держит [owner]. Чужой пузырь ничего не снимает, поэтому порядок ухода с экрана не важен. */
+    fun detachVideo(owner: Any) {
+        if (videoOwner !== owner) return
+        videoView?.let { exo?.clearVideoTextureView(it) }
+        videoOwner = null
+        videoView = null
+    }
+
+    /** Останавливает секретный файл, когда пользователь ушёл из чата или свернул приложение. Остальные файлы играют дальше. */
+    fun stopSecret() {
+        if (_state.value.item?.secret != true) return
+        val music = interruptedMusic
+        val context = appContext
+        if (music == null || context == null) {
+            stop()
+            return
+        }
+        // Музыка, которую секретный файл прервал, продолжается с того же места и из той же очереди, как после его конца.
+        halt()
+        play(context, music.item)
+    }
+
+    /** Останавливает звук, убирает файл из мини-плеера и снимает уведомление, которое держал сервис. Забывает музыку и очередь. */
+    fun stop() {
+        interruptedMusic = null
+        queue = emptyList()
+        queueIndex = -1
+        halt()
+    }
+
+    /** Останавливает плеер и сервис, но оставляет ждущую музыку и её очередь: их продолжает [play]. */
+    private fun halt() {
+        progress?.cancel()
+        progress = null
+        pendingStartFraction = 0f
+        startedCallback = null
+        exo?.let {
+            it.stop()
+            it.clearMediaItems()
+        }
+        _state.value = PlaybackState(speed = _state.value.speed)
+        appContext?.let { it.stopService(Intent(it, PlaybackService::class.java)) }
+    }
+
+    /** Сервис нужен для уведомления и экрана блокировки. Фоновый запуск может не пройти, тогда звук всё равно играет. */
+    private fun startPlaybackService() {
+        val context = appContext ?: return
+        runCatching { context.startService(Intent(context, PlaybackService::class.java)) }
+    }
+
+    private val listener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            _state.update { it.copy(playing = isPlaying, durationMs = durationNow(), started = it.started || isPlaying) }
+            if (isPlaying) startProgress() else syncPosition()
+            if (isPlaying) fireStartedCallback()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) applyPendingStartFraction()
+            _state.update { it.copy(durationMs = durationNow(), ended = playbackState == Player.STATE_ENDED) }
+            // Следующий файл ставим после того, как плеер закончит обрабатывать конец файла, а не внутри его обработчика.
+            if (playbackState == Player.STATE_ENDED) scope.launch { advanceAfterEnd() }
+        }
+
+        // Перемотку с уведомления или экрана блокировки делает сам плеер, минуя PlaybackEngine: позицию обновляем и на паузе.
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            syncPosition()
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            progress?.cancel()
+            _state.update { it.copy(playing = false, failed = true) }
+            // Голосовое или кружок, которые не открылись, не должны оставить прерванную музыку навсегда на паузе.
+            val music = interruptedMusic ?: return
+            val context = appContext ?: return
+            if (_state.value.item?.key == music.item.key) return
+            scope.launch { play(context, music.item) }
+        }
+    }
+
+    private fun durationNow(): Long = exo?.duration?.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+
+    /** Доля начала становится позицией, когда плеер знает настоящую длину файла. Пока длина неизвестна, доля ждёт. */
+    private fun applyPendingStartFraction() {
+        val target = exo ?: return
+        val duration = target.duration
+        if (pendingStartFraction <= 0f || duration == C.TIME_UNSET || duration <= 0L) return
+        target.seekTo((pendingStartFraction * duration).toLong())
+        pendingStartFraction = 0f
+    }
+
+    /** Голосовое или кружок доиграл: музыка, которую он прервал, продолжается с того же места. Если файл уже снова запущен, возврат отменяется. */
+    private fun resumeInterruptedMusic() {
+        val music = interruptedMusic ?: return
+        if (!_state.value.ended) return
+        val context = appContext ?: return
+        play(context, music.item)
+    }
+
+    /** Файл доиграл: сначала возвращаем музыку, которую прервало голосовое или кружок, иначе запускаем следующий файл очереди. */
+    private fun advanceAfterEnd() {
+        if (interruptedMusic != null) resumeInterruptedMusic()
+        // Секретный файл доиграл: его нельзя перемотать и запустить снова, поэтому он уходит из плеера.
+        else if (_state.value.item?.secret == true) stop()
+        else playNextInQueue()
+    }
+
+    /** Следующий файл очереди. Если текущий файл не из очереди или отметка конца уже снята, ничего не делает. */
+    private fun playNextInQueue() {
+        if (!_state.value.ended) return
+        val current = _state.value.item?.key ?: return
+        val next = nextInQueue(queue, queueIndex, current) ?: return
+        val context = appContext ?: return
+        queueIndex += 1
+        play(context, next)
+    }
+
+    /** Отдаёт отметку текущему файлу один раз, когда он уже играет и приложение на переднем плане. Если файл сменился, отметка уже сброшена в [play]. */
+    private fun fireStartedCallback() {
+        val pending = startedCallback ?: return
+        if (!foreground || !_state.value.started || pending.first != _state.value.item?.key) return
+        startedCallback = null
+        pending.second()
+    }
+
+    private fun syncPosition() {
+        val position = exo?.currentPosition ?: return
+        _state.update { it.copy(positionMs = position) }
+    }
+
+    /** Обновляет позицию, пока файл играет. Пауза и конец файла останавливают цикл. */
+    private fun startProgress() {
+        progress?.cancel()
+        progress = scope.launch {
+            while (true) {
+                syncPosition()
+                val target = exo ?: break
+                if (!target.isPlaying) break
+                delay(PROGRESS_INTERVAL_MS)
+            }
+        }
+    }
+}

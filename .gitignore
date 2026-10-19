@@ -48,3 +48,6 @@ key.properties
 
 # Local Gradle user home used for development builds.
 /.gradle-dev/
+
+__pycache__/
+*.pyc
