@@ -2,6 +2,8 @@ package com.beykus.beygram.ui.screens.playback
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,11 +53,10 @@ import com.beykus.beygram.R
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackState
+import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.duration
-
-private val SPEEDS = listOf(0.5f, 1f, 1.5f, 2f)
 
 /** Цвета управления плеером: на светлом листе приложения и на тёмном фоне просмотрщика. */
 internal class NowPlayingColors(
@@ -204,8 +205,9 @@ internal fun NowPlayingControls(
             )
         }
         Text(stringResource(R.string.player_speed), color = colors.secondary, fontSize = 12.sp, modifier = Modifier.padding(top = 16.dp))
-        Row(Modifier.padding(top = 8.dp).alpha(if (enabled) 1f else 0.4f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SPEEDS.forEach { speed -> SpeedChip(speed = speed, selected = state.speed == speed, enabled = enabled, colors = colors) }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp).alpha(if (enabled) 1f else 0.4f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PLAYBACK_SPEED_OPTIONS.forEach { speed -> SpeedChip(speed = speed, selected = state.speed == speed, enabled = enabled, colors = colors) }
         }
     }
 }

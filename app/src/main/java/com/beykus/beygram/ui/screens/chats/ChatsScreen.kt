@@ -120,7 +120,8 @@ fun ChatsScreen(
     onCreateChannel: () -> Unit,
     archiveHidden: Boolean,
     onArchiveHiddenChange: (Boolean) -> Unit,
-    onChatClick: (ChatPreview) -> Unit
+    onChatClick: (ChatPreview) -> Unit,
+    onGlobalSearch: (String) -> Unit = {}
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedFilterName by rememberSaveable { mutableStateOf(ChatFilter.All.name) }
@@ -265,6 +266,16 @@ fun ChatsScreen(
                     )
                 }
             }
+            if (query.isNotBlank()) {
+                item(key = "global_search") {
+                    Text(
+                        stringResource(R.string.chats_search_all, query),
+                        color = palette.accent,
+                        fontSize = 15.sp,
+                        modifier = Modifier.fillMaxWidth().clickable { onGlobalSearch(query) }.padding(horizontal = 20.dp, vertical = 14.dp)
+                    )
+                }
+            }
             if (regularChats.isEmpty() && pinnedChats.isEmpty()) {
                 item(key = "empty_state") { EmptyState(selectedFilter, query) }
             } else {
@@ -381,7 +392,7 @@ private fun ArchivePullHint(heightDp: Dp) {
 }
 
 @Composable
-private fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
+internal fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
         modifier = Modifier.height(34.dp).clip(RoundedCornerShape(50)).background(if (selected) palette.accent else palette.surface2)

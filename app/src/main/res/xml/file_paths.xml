@@ -4,4 +4,5 @@
     <files-path name="outgoing_media" path="uploads/" />
     <cache-path name="diagnostics" path="diagnostics/" />
     <cache-path name="stable_updates" path="stable-updates/" />
+    <cache-path name="dev_updates" path="dev-updates/" />
 </paths>

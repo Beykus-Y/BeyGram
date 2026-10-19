@@ -166,7 +166,11 @@ object PlaybackEngine {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
-            .also { it.addListener(listener) }
+            .also {
+                it.addListener(listener)
+                // The user can choose speed on a bubble before the player is created.
+                it.setPlaybackSpeed(_state.value.speed)
+            }
         exo = created
         appContext = context.applicationContext
         return object : ForwardingPlayer(created) {
@@ -291,6 +295,7 @@ object PlaybackEngine {
     }
 
     fun setSpeed(speed: Float) {
+        if (speed !in PLAYBACK_SPEED_OPTIONS) return
         exo?.setPlaybackSpeed(speed)
         _state.update { it.copy(speed = speed) }
     }
