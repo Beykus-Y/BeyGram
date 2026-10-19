@@ -192,17 +192,21 @@ class DiagnosticsApiClientTest {
     }
 
     @Test
-    fun `https to a plain port fails as a transient network error`() {
+    fun `https to a plain port is a network error that is transient exactly when not TLS`() {
         val httpsConfig = DiagnosticsApiConfig(
             baseUrl = "https://127.0.0.1:${server.address.port}",
             botUsername = "BeyGram_Bot",
             botUserId = 8841599020L
         )
-        // Обычный HTTP-сервер не отвечает на TLS-handshake: клиент получает
-        // TLS-отказ или таймаут — в обоих случаях исход временный.
+        // Обычный HTTP-сервер не отвечает на TLS-handshake: клиент получает TLS-отказ, таймаут или обрыв.
+        // Что именно придёт, зависит от сети и таймингов, поэтому проверяем правило классификации:
+        // TLS-отказ повтором не исправить, таймаут и обрыв временные.
         val outcome = client.postReport(httpsConfig, bodyBytes, "nonce")
         assertTrue("ожидали Network, было $outcome", outcome is ReportApiOutcome.Network)
-        assertTrue("отказ должен быть временным", outcome.isTransient)
+        val failure = (outcome as ReportApiOutcome.Network).failure
+        val expected = setOf(ReportApiNetworkFailure.TLS, ReportApiNetworkFailure.TIMEOUT, ReportApiNetworkFailure.UNKNOWN)
+        assertTrue("неожиданный вид сбоя $failure", failure in expected)
+        assertEquals("временность задаётся видом сбоя", failure != ReportApiNetworkFailure.TLS, outcome.isTransient)
     }
 
     @Test
