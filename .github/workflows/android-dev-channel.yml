@@ -21,7 +21,8 @@ env:
   DEV_SIGNER_SHA256: e7b9e482b2c2feacda9edcef17f960576ed94e94ff8cf7991f89a16e33bf436d
 
 concurrency:
-  group: android-dev-channel-${{ github.sha }}
+  # One DEV publish at a time, so each changelog starts from the previous published build.
+  group: android-dev-channel
   cancel-in-progress: false
 
 jobs:
@@ -129,7 +130,10 @@ jobs:
           tag="dev-${{ github.run_number }}"
           dir="$RUNNER_TEMP/dev-beta"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::notice::Prerelease $tag already exists; leaving it unchanged."
+            # A re-run of the same run number may follow a half-finished upload: refresh both files.
+            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
+              "$dir/BeyGram-dev-beta.apk" "$dir/manifest.json"
+            echo "::notice::Prerelease $tag already exists; its files were refreshed."
             exit 0
           fi
           previous=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName \
@@ -142,8 +146,12 @@ jobs:
             echo
             echo "Изменения с прошлой сборки:"
             echo
+            prev_sha=""
             if [ -n "$previous" ]; then
               prev_sha=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$previous" --jq .target_commitish)
+            fi
+            # A force-push to DEV can drop the previous build's commit from history: then list the latest commits.
+            if [ -n "$prev_sha" ] && git merge-base --is-ancestor "$prev_sha" "$GITHUB_SHA" 2>/dev/null; then
               git log --no-merges --format='- %s' "$prev_sha..$GITHUB_SHA" | head -n 100
             else
               git log --no-merges --format='- %s' -n 30 "$GITHUB_SHA"
