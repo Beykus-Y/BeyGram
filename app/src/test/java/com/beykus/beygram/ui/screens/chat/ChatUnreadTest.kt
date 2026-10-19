@@ -41,4 +41,31 @@ class ChatUnreadTest {
         val result = withUnreadSeparator(list, lastReadInboxId = 2)
         assertEquals(listOf("pending-video:a", "message:3", UNREAD_SEPARATOR_KEY, "message:2", "message:1"), result.keys())
     }
+
+    @Test fun openingScrollsToSeparatorWhenReadMessageIsLoaded() {
+        val list = items(message(5), message(4), message(3), message(2), message(1))
+        assertEquals(UnreadOpenStep.Scroll(2), unreadOpenStep(unreadCount = 2, lastReadInboxId = 3, items = list, windowRequested = false))
+    }
+
+    @Test fun openingDoesNothingWithoutUnreadOrBoundary() {
+        val list = items(message(3), message(2), message(1))
+        assertEquals(UnreadOpenStep.Done, unreadOpenStep(unreadCount = 0, lastReadInboxId = 3, items = list, windowRequested = false))
+        assertEquals(UnreadOpenStep.Done, unreadOpenStep(unreadCount = 4, lastReadInboxId = 0, items = list, windowRequested = false))
+    }
+
+    @Test fun openingRequestsWindowOnceWhenBoundaryIsNotLoaded() {
+        val list = items(message(9), message(8))
+        assertEquals(UnreadOpenStep.RequestWindow, unreadOpenStep(unreadCount = 30, lastReadInboxId = 3, items = list, windowRequested = false))
+        assertEquals(UnreadOpenStep.Done, unreadOpenStep(unreadCount = 30, lastReadInboxId = 3, items = list, windowRequested = true))
+    }
+
+    @Test fun openingIsDoneWhenLoadedWindowHasNoUnreadNewerThanBoundary() {
+        val list = items(message(3), message(2), message(1))
+        assertEquals(UnreadOpenStep.Done, unreadOpenStep(unreadCount = 1, lastReadInboxId = 3, items = list, windowRequested = false))
+    }
+
+    @Test fun boundaryOnNewestMessageHasNoSeparator() {
+        val list = items(message(3), message(2), message(1))
+        assertSame(list, withUnreadSeparator(list, lastReadInboxId = 3))
+    }
 }

@@ -134,6 +134,12 @@ fun ChatScreen(
             scrollPosition.firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
         }
     }
+    DisposableEffect(chat.id) {
+        onDispose {
+            // Chat info keeps the visit, so coming back from it neither moves the boundary nor the separator.
+            if (scrollPosition.visitContinues) scrollPosition.visitContinues = false else scrollPosition.endVisit()
+        }
+    }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
@@ -274,9 +280,11 @@ fun ChatScreen(
     }
     val messages = history.messages
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
-    val messageListItems = remember(messages, pendingVideoNotes, scrollPosition.readBoundaryId) {
-        val items = pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + groupTelegramMediaAlbums(messages)
-        scrollPosition.readBoundaryId?.let { withUnreadSeparator(items, it) } ?: items
+    val rawMessageItems = remember(messages, pendingVideoNotes) {
+        pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + groupTelegramMediaAlbums(messages)
+    }
+    val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
+        scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
     }
     val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
     val currentMessageItemsByKey by rememberUpdatedState(messageItemsByKey)
@@ -373,7 +381,7 @@ fun ChatScreen(
     LaunchedEffect(chat.id, lifecycle, conversation) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             snapshotFlow {
-                if (!window.isWindowFocused || searching) emptyList() else {
+                if (!window.isWindowFocused || searching || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
                     val eligible = currentMessages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id }
                     layout.visibleItemsInfo.filter { item ->
@@ -391,30 +399,35 @@ fun ChatScreen(
         if (pendingVideoNotes.isNotEmpty()) listState.animateScrollToItem(0)
     }
     LaunchedEffect(chat.id, newest?.id) {
-        // With unread messages the opening position belongs to the read boundary effect below.
-        if (chat.unreadCount > 0 && !scrollPosition.readBoundaryChecked) return@LaunchedEffect
+        // With unread messages the opening position belongs to the read boundary effect below; an outgoing message still scrolls.
+        if (chat.unreadCount > 0 && !scrollPosition.readBoundaryChecked && newest?.isOutgoing != true) return@LaunchedEffect
         if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) listState.animateScrollToItem(0)
     }
     // Открытие с непрочитанными: экран встаёт у разделителя «Непрочитанные», а не у последнего сообщения.
-    // Граница снимается один раз за открытие: просмотр отмечает сообщения прочитанными, и разделитель не должен уезжать.
+    // Пока граница не зафиксирована, отметки прочтения не отправляются (см. сбор видимых сообщений выше), поэтому она не сдвигается.
     LaunchedEffect(chat.id, history.isLoading, messages) {
         if (scrollPosition.readBoundaryChecked || history.isLoading || messages.isEmpty()) return@LaunchedEffect
         val boundary = history.lastReadInboxMessageId
-        if (chat.unreadCount <= 0 || boundary <= 0) { scrollPosition.readBoundaryChecked = true; return@LaunchedEffect }
-        val separatorIndex = withUnreadSeparator(messageListItems, boundary).indexOfFirst { it.unreadSeparator }
-        if (separatorIndex < 0) {
-            // Read messages are not loaded yet, so the window around the boundary is requested once.
-            if (messages.any { it.id <= boundary } || scrollPosition.readBoundaryWindowRequested) { scrollPosition.readBoundaryChecked = true; return@LaunchedEffect }
-            scrollPosition.readBoundaryWindowRequested = true
-            scope.launch { conversation.loadMessagesAround(chat.id, boundary).onFailure { scrollPosition.readBoundaryChecked = true } }
-            return@LaunchedEffect
+        when (val step = unreadOpenStep(chat.unreadCount, boundary, rawMessageItems, scrollPosition.readBoundaryWindowRequested)) {
+            UnreadOpenStep.Done -> scrollPosition.readBoundaryChecked = true
+            UnreadOpenStep.RequestWindow -> {
+                scrollPosition.readBoundaryWindowRequested = true
+                scope.launch { conversation.loadMessagesAround(chat.id, boundary).onFailure { scrollPosition.readBoundaryChecked = true } }
+            }
+            is UnreadOpenStep.Scroll -> {
+                // Scrolling by an offset needs the viewport height, which exists only after the first layout.
+                val viewportHeight = snapshotFlow { listState.layoutInfo.viewportSize.height }.first { it > 0 }
+                if (scrollPosition.readBoundaryId == null) {
+                    val itemsBefore = listState.layoutInfo.totalItemsCount
+                    scrollPosition.readBoundaryId = boundary
+                    // The separator is one more row: the index is applied only once the list has measured it.
+                    snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > itemsBefore }
+                }
+                // Negative offset lifts the separator above the bottom edge, so the unread messages below it fill the lower part of the screen.
+                listState.scrollToItem(step.index, -(viewportHeight * UNREAD_SEPARATOR_VIEWPORT_FRACTION).roundToInt())
+                scrollPosition.readBoundaryChecked = true
+            }
         }
-        // Scrolling by an offset needs the viewport height, which exists only after the first layout.
-        val viewportHeight = snapshotFlow { listState.layoutInfo.viewportSize.height }.first { it > 0 }
-        scrollPosition.readBoundaryId = boundary
-        // Negative offset lifts the separator above the bottom edge, so the unread messages below it stay on screen.
-        listState.scrollToItem(separatorIndex, -(viewportHeight * UNREAD_SEPARATOR_VIEWPORT_FRACTION).roundToInt())
-        scrollPosition.readBoundaryChecked = true
     }
     LaunchedEffect(pendingJumpId, messageListItems) {
         val target = pendingJumpId ?: return@LaunchedEffect
@@ -505,7 +518,7 @@ fun ChatScreen(
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
-        else ChatTopBar(chat, info, lastSeenStyle, onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
+        else ChatTopBar(chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true }, observeFile, onDownloadFile)
         reactionOwner?.takeIf { !deleting }?.let { owner ->
             MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
                 setReaction(owner.id, option, addToRecent = true)

@@ -60,7 +60,7 @@ private fun topVisibleDay(listState: LazyListState, items: List<ChatMessageListI
     val topIndex = listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: return null
     // Служебные строки над историей (загрузка, «ещё») идут после сообщений; дата там — самого старого загруженного сообщения.
     // Разделитель без сообщений пропускается: дата берётся у ближайшего сообщения ниже по ленте.
-    val seconds = items.drop(topIndex.coerceAtMost(items.lastIndex)).firstNotNullOfOrNull { it.messages.firstOrNull()?.dateSeconds } ?: return null
+    val seconds = (topIndex.coerceAtMost(items.lastIndex) until items.size).firstNotNullOfOrNull { items[it].messages.firstOrNull()?.dateSeconds } ?: return null
     if (seconds <= 0L) return null
     return Instant.ofEpochSecond(seconds).atZone(ZoneId.systemDefault()).toLocalDate()
 }
