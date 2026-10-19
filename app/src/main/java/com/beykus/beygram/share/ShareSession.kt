@@ -31,7 +31,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     var error by mutableStateOf<UiText?>(null)
     private var started = false
     private var released = false
-    /** Сколько файлов уже ушло в текущей отправке: нужно, чтобы честно сказать о частичном успехе. */
+    /** Сколько файлов ушло из этого запроса за все попытки: нужно, чтобы честно сказать о частичном успехе. */
     private var sentItems = 0
     private var importer: OutgoingMediaImporter? = null
 
@@ -82,7 +82,6 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         if (sending) return
         sending = true
         error = null
-        sentItems = 0
         scope.launch {
             try {
                 // Все файлы убраны пользователем — отправляем только текст.
