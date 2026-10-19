@@ -80,13 +80,13 @@ internal object StableApkSignerPolicy {
     }
 }
 
-class StableUpdateRepository(private val context: Context) {
+class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
     private val repoApi = "https://api.github.com/repos/Beykus-Y/BeyGram/releases/latest"
     private val downloadPrefix = "https://github.com/Beykus-Y/BeyGram/releases/download/"
     private val updateDir: File get() = File(context.cacheDir, "stable-updates")
 
     /** Fetch only the latest published non-prerelease release and its matched manifest. */
-    suspend fun check(installedCode: Long): StableRelease? = withContext(Dispatchers.IO) {
+    override suspend fun check(installedCode: Long): StableRelease? = withContext(Dispatchers.IO) {
         require(context.packageName == StableUpdatePolicy.PACKAGE) { "Обновления доступны только в Stable." }
         val release = JSONObject(readText(repoApi, 2_000_000))
         if (release.optBoolean("draft") || release.optBoolean("prerelease")) {
@@ -132,7 +132,7 @@ class StableUpdateRepository(private val context: Context) {
     }
 
     /** Download into cache, hash while streaming, verify Android package identity and signature. */
-    suspend fun download(release: StableRelease, onProgress: suspend (Int) -> Unit): File =
+    override suspend fun download(release: StableRelease, onProgress: suspend (Int) -> Unit): File =
         withContext(Dispatchers.IO) {
             require(context.packageName == StableUpdatePolicy.PACKAGE)
             require(StableUpdatePolicy.valid(
@@ -198,7 +198,7 @@ class StableUpdateRepository(private val context: Context) {
             }
         }
 
-    fun installedCode(): Long {
+    override fun installedCode(): Long {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         return info.longVersionCode
     }
@@ -268,7 +268,7 @@ class StableUpdateRepository(private val context: Context) {
     }
 
     /** Recheck the bytes off the UI thread immediately before the platform installer. */
-    suspend fun verifyForInstall(apk: File, release: StableRelease) = withContext(Dispatchers.IO) {
+    override suspend fun verifyForInstall(apk: File, release: StableRelease) = withContext(Dispatchers.IO) {
         if (!apk.isFile || apk.parentFile?.canonicalFile != updateDir.canonicalFile) {
             throw IOException("Файл обновления не найден.")
         }
@@ -290,7 +290,7 @@ class StableUpdateRepository(private val context: Context) {
     }
 
     /** Android O+ requires consent to install from this source. Must be called on the main thread. */
-    fun install(apk: File): Boolean {
+    override fun install(apk: File): Boolean {
         if (!apk.isFile || apk.parentFile?.canonicalFile != updateDir.canonicalFile) {
             throw IOException("Файл обновления не найден.")
         }
