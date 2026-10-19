@@ -51,6 +51,27 @@ class ReleaseNotesParserTest {
     }
 
     @Test
+    fun acceptsOrderedMarkersUpToNineDigits() {
+        val result = parseReleaseNotes("100. Шаг\nпродолжение")
+        assertEquals(
+            listOf(ReleaseNotesLine(ReleaseNotesKind.Numbered, "Шаг продолжение", marker = "100.")),
+            result
+        )
+    }
+
+    @Test
+    fun h1HeadingEndsTheOpenItem() {
+        val result = parseReleaseNotes("- first\n# New release\nstandalone")
+        assertEquals(
+            listOf(
+                ReleaseNotesLine(ReleaseNotesKind.Bullet, "first"),
+                ReleaseNotesLine(ReleaseNotesKind.Paragraph, "standalone")
+            ),
+            result
+        )
+    }
+
+    @Test
     fun supportsReadableLinksAndMarkupWithoutRawSyntax() {
         val result = parseReleaseNotes(
             "## Улучшения\n- Открыть [подробности](https://github.com/example/repo)\n\nТекст с `кодом` и *курсивом*."

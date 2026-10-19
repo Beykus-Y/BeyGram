@@ -13,7 +13,7 @@ internal data class ReleaseNotesLine(val kind: ReleaseNotesKind, val text: Strin
 
 private const val TECHNICAL_CHANGELOG_MARKER = "<!-- TECHNICAL_CHANGELOG -->"
 private val HEADING = Regex("^(#{1,6})\\s+(.*)$")
-private val NUMBERED_ITEM = Regex("^(\\d{1,2})[.)]\\s+(.*)$")
+private val NUMBERED_ITEM = Regex("^(\\d{1,9})[.)]\\s+(.*)$")
 
 /**
  * Pure, bounded parser: never passes GitHub Markdown or HTML through a WebView.
@@ -41,7 +41,7 @@ internal fun parseReleaseNotes(markdown: String): List<ReleaseNotesLine> {
         val heading = HEADING.matchEntire(line)
         val numbered = NUMBERED_ITEM.matchEntire(line)
         when {
-            heading != null && heading.groupValues[1] == "#" -> Unit
+            heading != null && heading.groupValues[1] == "#" -> inItem = false
             heading != null -> {
                 lines += ReleaseNotesLine(ReleaseNotesKind.Section, releaseNotePlainText(heading.groupValues[2]))
                 inItem = false
