@@ -143,6 +143,17 @@
     <string name="global_search_more">Показать ещё</string>
     <string name="global_search_more_failed">Не удалось загрузить ещё. Нажмите «Показать ещё» снова</string>
     <string name="global_search_attachment">Вложение без текста</string>
+    <string name="global_search_filter_any">Любой</string>
+    <string name="global_search_filter_media">Фото и видео</string>
+    <string name="global_search_filter_files">Файлы</string>
+    <string name="global_search_filter_links">Ссылки</string>
+    <string name="global_search_filter_voice">Голосовые</string>
+    <string name="global_search_filter_music">Музыка</string>
+    <string name="global_search_filter_private">Личные</string>
+    <string name="global_search_filter_group">Группы</string>
+    <string name="global_search_filter_channel">Каналы</string>
+    <string name="global_search_filter_week">За неделю</string>
+    <string name="global_search_filter_month">За месяц</string>
     <string name="chats_search_placeholder">Поиск сообщений и чатов</string>
     <string name="chats_section_all">ВСЕ ЧАТЫ</string>
     <string name="chats_section_pinned">ЗАКРЕПЛЁННЫЕ</string>

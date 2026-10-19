@@ -9,6 +9,7 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
+import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ReactionOption
@@ -347,7 +348,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
-    override suspend fun searchGlobalMessages(query: String, offset: String) = conversationActions.searchGlobal(query, offset)
+    override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter) =
+        conversationActions.searchGlobal(query, offset, filter)
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean) = conversationActions.shared(chatId, kind, fromMessageId, newer)
         .onSuccess { page -> listedMediaFiles.remember(page.messages.flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }) }
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
