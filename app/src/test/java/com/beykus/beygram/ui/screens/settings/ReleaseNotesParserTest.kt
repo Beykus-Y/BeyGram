@@ -30,6 +30,27 @@ class ReleaseNotesParserTest {
     }
 
     @Test
+    fun dropsMultiLineCommentsAndEverythingAfterTechnicalMarker() {
+        val result = parseReleaseNotes(
+            """
+            ## Что нового
+            - Готово.
+            <!-- Release notes generated using configuration
+            in .github/release.yml at 2e783d9 -->
+            <!-- TECHNICAL_CHANGELOG -->
+            ## What's Changed
+            """.trimIndent()
+        )
+        assertEquals(
+            listOf(
+                ReleaseNotesLine(ReleaseNotesKind.Section, "Что нового"),
+                ReleaseNotesLine(ReleaseNotesKind.Bullet, "Готово.")
+            ),
+            result
+        )
+    }
+
+    @Test
     fun supportsReadableLinksAndMarkupWithoutRawSyntax() {
         val result = parseReleaseNotes(
             "## Улучшения\n- Открыть [подробности](https://github.com/example/repo)\n\nТекст с `кодом` и *курсивом*."

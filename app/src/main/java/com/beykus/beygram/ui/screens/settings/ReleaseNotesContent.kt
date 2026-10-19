@@ -22,14 +22,22 @@ private val NUMBERED_ITEM = Regex("^(\\d{1,2})[.)]\\s+(.*)$")
 internal fun parseReleaseNotes(markdown: String): List<ReleaseNotesLine> {
     val lines = mutableListOf<ReleaseNotesLine>()
     var inItem = false
+    var inComment = false
     for (raw in markdown.lineSequence()) {
         val line = raw.trim()
         if (line == TECHNICAL_CHANGELOG_MARKER) break
+        if (inComment) {
+            inComment = !line.contains("-->")
+            continue
+        }
         if (line.isBlank()) {
             inItem = false
             continue
         }
-        if (line.startsWith("<!--")) continue
+        if (line.startsWith("<!--")) {
+            inComment = !line.contains("-->")
+            continue
+        }
         val heading = HEADING.matchEntire(line)
         val numbered = NUMBERED_ITEM.matchEntire(line)
         when {
