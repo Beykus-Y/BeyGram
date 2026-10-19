@@ -46,7 +46,12 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState != null) {
             if (savedInstanceState.getBoolean("notification_pending")) notificationRequest = NotificationOpenRequest(savedInstanceState.getLong("notification_token"),
                 savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"))
-            if (savedInstanceState.containsKey("share_text")) incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), savedInstanceState.getString("share_text").orEmpty(), restoredUris(savedInstanceState))
+            val restoredText = savedInstanceState.getString("share_text").orEmpty()
+            val restoredFiles = restoredUris(savedInstanceState)
+            // После фильтра файлов запрос может остаться пустым: тогда пустой диалог не показываем.
+            if (savedInstanceState.containsKey("share_text") && (restoredText.isNotEmpty() || restoredFiles.isNotEmpty())) {
+                incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), restoredText, restoredFiles)
+            }
         } else {
             acceptNotificationIntent(intent)
             acceptShareIntent(intent)
