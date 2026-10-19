@@ -404,7 +404,8 @@ internal fun MediaViewer(
                     } else Spacer(Modifier.weight(1f))
                 }
             }
-            if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            // Строка всегда занимает место, где может появиться действие: иначе страница прыгает, когда докачанный файл добавляет «Сохранить».
+            if (actions != null || canExport) Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
                 if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
                     exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
@@ -429,6 +430,9 @@ private fun MediaViewerPage(
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val tgs = media.mimeType == "application/x-tgsticker"
     val previewId = media.thumbnailFileId
+    // Миниатюра показывается вместо оригинала, пока тот грузится.
+    val thumbId = previewId ?: media.fileId
+    val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
     val exportable = canExport && !media.isSecret
     // Спойлер не грузится и не показывается, пока пользователь не раскроет именно эту страницу.
     val spoilerHidden = media.hasSpoiler && !media.isSecret && !revealed
@@ -441,7 +445,8 @@ private fun MediaViewerPage(
     }
     LaunchedEffect(media.fileId, concealed) {
         if (concealed) return@LaunchedEffect
-        if (tgs) previewId?.let(downloadFile)
+        // Миниатюра нужна и TGS, и фото: она показывается, пока грузится оригинал.
+        if (tgs || media.mimeType.startsWith("image/")) previewId?.let(downloadFile)
         downloadFile(media.fileId)
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -470,6 +475,7 @@ private fun MediaViewerPage(
                     if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
                 }
             }
+            path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                 if (file.isDownloading) CircularProgressIndicator()
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
@@ -484,6 +490,22 @@ private fun MediaViewerPage(
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
             }
         }
+    }
+}
+
+/** Фото до полной загрузки: миниатюра остаётся на экране, а поверх неё прогресс, ошибка и кнопка повтора. */
+@Composable
+private fun PhotoPreview(file: MediaFileState, thumbnailPath: String?, onDownload: () -> Unit) {
+    Box(Modifier.fillMaxSize()) {
+        if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true)
+        Column(
+            Modifier.align(Alignment.Center).padding(24.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.White)
+            if (!file.isDownloading) TextButton(onClick = onDownload) { Text(stringResource(R.string.common_download)) }
+        }
+        if (file.isDownloading) LinearProgressIndicator(progress = { file.downloadProgress }, modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter))
     }
 }
 
