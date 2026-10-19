@@ -418,7 +418,8 @@ fun ChatScreen(
         val boundary = history.lastReadInboxMessageId
         val step = unreadOpenStep(chat.unreadCount, boundary, rawMessageItems, scrollPosition.readBoundaryWindowRequested, scrollPosition.focusClaimed)
         when (step) {
-            UnreadOpenStep.Done -> scrollPosition.readBoundaryChecked = true
+            // A focused message settles the opening itself (see settleFocusedOpening), so read marks wait for its jump.
+            UnreadOpenStep.Done -> if (!scrollPosition.focusClaimed) scrollPosition.readBoundaryChecked = true
             UnreadOpenStep.RequestWindow -> {
                 scrollPosition.readBoundaryWindowRequested = true
                 scope.launch { conversation.loadMessagesAround(chat.id, boundary).onFailure { scrollPosition.readBoundaryChecked = true } }
@@ -438,12 +439,15 @@ fun ChatScreen(
             }
         }
     }
+    // Read marks stay held while a focused message from outside the chat is being opened; its jump decides the position.
+    fun settleFocusedOpening() { if (scrollPosition.focusClaimed) scrollPosition.readBoundaryChecked = true }
     LaunchedEffect(pendingJumpId, messageListItems) {
         val target = pendingJumpId ?: return@LaunchedEffect
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == target } }
         if (index < 0) return@LaunchedEffect
         listState.animateScrollToItem(index)
         highlighted = target
+        settleFocusedOpening()
         // Cleared last: changing the key earlier would cancel the scroll that is still running.
         pendingJumpId = null
     }
@@ -503,11 +507,11 @@ fun ChatScreen(
     }
     fun jumpToMessage(messageId: Long, failure: Int) {
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
-        if (index >= 0) { scope.launch { listState.animateScrollToItem(index); highlighted = messageId }; return }
+        if (index >= 0) { scope.launch { listState.animateScrollToItem(index); highlighted = messageId; settleFocusedOpening() }; return }
         scope.launch {
             conversation.loadMessagesAround(chat.id, messageId)
-                .onSuccess { applied -> if (applied) pendingJumpId = messageId }
-                .onFailure { error = it.userMessage(context, failure) }
+                .onSuccess { applied -> if (applied) pendingJumpId = messageId else settleFocusedOpening() }
+                .onFailure { error = it.userMessage(context, failure); settleFocusedOpening() }
         }
     }
     fun jumpToPinned(message: ChatMessage) = jumpToMessage(message.id, R.string.chat_pinned_failed)
