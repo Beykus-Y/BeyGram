@@ -179,6 +179,8 @@ private fun BeyGramAppContent(
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     var globalSearchQuery by rememberSaveable { mutableStateOf("") }
     // The choice made on the theme screen but not applied yet, so the editor starts from it.
+    // One draft shared across the palette screen and its editor; neither navigation nor cancel loses pending choices.
+    var appearanceDraft by remember { mutableStateOf<AppearanceConfig?>(null) }
     var editorSeed by remember { mutableStateOf<AppearanceConfig?>(null) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
@@ -585,19 +587,21 @@ private fun BeyGramAppContent(
                         onNotifications = { openNotifications(AppRoute.MyProfile) },
                         hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
-                        onOpenAppearance = { appearanceReturnRouteName = AppRoute.MyProfile.name; routeName = AppRoute.Appearance.name }, lastSeenStyle = lastSeenStyle)
+                        onOpenAppearance = { appearanceDraft = appearance; editorSeed = null; appearanceReturnRouteName = AppRoute.MyProfile.name; routeName = AppRoute.Appearance.name }, lastSeenStyle = lastSeenStyle)
                 }
                 AppRoute.Appearance -> ThemeSettingsScreen(
                     saved = appearance,
-                    onSave = onAppearanceChange,
+                    draft = appearanceDraft ?: appearance,
+                    onDraftChange = { appearanceDraft = it },
+                    onSave = { config -> appearanceDraft = config; onAppearanceChange(config) },
                     onOpenEditor = { pending -> editorSeed = pending; routeName = AppRoute.ThemeEditor.name },
-                    onBack = { routeName = appearanceReturnRouteName }
+                    onBack = { appearanceDraft = null; editorSeed = null; routeName = appearanceReturnRouteName }
                 )
                 AppRoute.ThemeEditor -> ThemeEditorScreen(
-                    saved = editorSeed ?: appearance,
+                    saved = editorSeed ?: appearanceDraft ?: appearance,
                     current = appearance,
-                    onSave = onAppearanceChange,
-                    onBack = { routeName = AppRoute.Appearance.name }
+                    onSave = { config -> appearanceDraft = config; onAppearanceChange(config) },
+                    onBack = { editorSeed = null; routeName = AppRoute.Appearance.name }
                 )
                 AppRoute.EditProfile -> {
                     myProfile.info?.let { info ->
@@ -636,7 +640,7 @@ private fun BeyGramAppContent(
                 AppRoute.Settings -> MainTabsScaffold(MainTab.Settings.route.name, MainTab.Settings, tabVisibility, selectTab, tabStateHolder) {
                     SettingsScreen(
                         onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
-                        onAppearance = { appearanceReturnRouteName = AppRoute.Settings.name; routeName = AppRoute.Appearance.name },
+                        onAppearance = { appearanceDraft = appearance; editorSeed = null; appearanceReturnRouteName = AppRoute.Settings.name; routeName = AppRoute.Appearance.name },
                         onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
                         onNotifications = { openNotifications(AppRoute.Settings) },
                         onStorage = { routeName = AppRoute.StorageSettings.name },
