@@ -28,5 +28,8 @@ enum class AppRoute {
     Proxy,
     ProxyConnect,
     Appearance,
-    ThemeEditor
+    ThemeEditor,
+    Language,
+    Sessions,
+    CreateChannel
 }

@@ -72,6 +72,7 @@ internal fun GroupProfileScreen(
     info: ProfileInfo, state: ProfileState, lastSeenStyle: LastSeenStyle,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onBack: () -> Unit, onRefresh: () -> Unit, onAvatarClick: () -> Unit,
+    onDelete: suspend () -> Result<Unit>, onDeleted: () -> Unit,
     onMembers: () -> Unit, onOpenUser: (Long) -> Unit,
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)?, confirmExport: suspend (Long) -> Boolean,
     messageRights: suspend (Long) -> MessageCapabilities?, forwardMessage: suspend (Long, Long) -> Result<Unit>, chats: List<ChatPreview>,
@@ -100,7 +101,7 @@ internal fun GroupProfileScreen(
         if (nearEnd && window.hasOlder) window.loadOlder()
     }
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        GroupProfileToolbar(title, collapse, refreshEnabled = !state.isLoading, onBack = onBack, onRefresh = onRefresh)
+        GroupProfileToolbar(title, collapse, onBack = onBack, onDelete = onDelete, onDeleted = onDeleted)
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
         // Ошибку показываем над списком: в конце длинной вкладки она оказалась бы за сотнями строк.
         state.error?.let { error -> Text(error.resolve(), color = palette.danger, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
@@ -148,13 +149,15 @@ internal fun GroupProfileScreen(
 
 /** Панель профиля группы. Название появляется здесь, когда шапка уходит за экран; читается из [collapse] при рисовании. */
 @Composable
-private fun GroupProfileToolbar(title: String, collapse: State<Float>, refreshEnabled: Boolean, onBack: () -> Unit, onRefresh: () -> Unit) {
+private fun GroupProfileToolbar(title: String, collapse: State<Float>, onBack: () -> Unit,
+    onDelete: suspend () -> Result<Unit>, onDeleted: () -> Unit) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
         Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).graphicsLayer { alpha = collapse.value })
-        IconButton(onClick = onRefresh, enabled = refreshEnabled) { Icon(Icons.Rounded.Refresh, stringResource(R.string.common_refresh), tint = palette.textSecondary) }
+        ChatInfoMenu(canBlock = false, canDelete = true, onBlock = { Result.success(Unit) },
+            onDelete = onDelete, onDeleted = onDeleted)
     }
 }
 

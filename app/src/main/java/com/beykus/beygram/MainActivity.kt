@@ -38,6 +38,9 @@ import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.resolveTokens
 
 class MainActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(com.beykus.beygram.data.settings.AppLocale.context(newBase))
+    }
     private var notificationRequest by mutableStateOf<NotificationOpenRequest?>(null)
     private var incomingShare by mutableStateOf<IncomingShare?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {

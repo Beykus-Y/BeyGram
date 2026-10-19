@@ -304,6 +304,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             birthday = full?.birthdate?.let { ProfileBirthday(it.day, it.month, it.year.takeIf { year -> year > 0 }) },
             address = full?.businessInfo?.location?.address.orEmpty(),
             commonGroupCount = full?.groupInCommonCount?.takeIf { it > 0 && user.id != myId },
+            personalChatId = full?.personalChatId?.toLong() ?: 0L,
             isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true
         )
     }
