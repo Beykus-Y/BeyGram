@@ -789,6 +789,14 @@
     <string name="resources_unavailable">недоступно</string>
     <string name="resources_cpu">Процессор</string>
     <string name="resources_chart_cpu">Загрузка процессора за последние 5 минут</string>
+    <string name="resources_record_start">Записать сессию (до 10 минут)</string>
+    <string name="resources_record_stop">Остановить запись</string>
+    <string name="resources_record_hint">Идёт запись. Она остановится сама через 10 минут или по кнопке. Пока экран открыт.</string>
+    <string name="resources_report_title">Отчёт о ресурсах</string>
+    <string name="resources_report_length">Записано снимков: %1$d, примерно %2$d мин</string>
+    <string name="resources_report_note">В отчёт попадают только числа о BeyGram: без адресов, токенов и переписок. Отправить его или нет, решаете вы.</string>
+    <string name="resources_share">Поделиться</string>
+    <string name="resources_share_chooser">Поделиться отчётом о ресурсах</string>
     <string name="resources_chart_heap">Память приложения за последние 5 минут</string>
     <string name="resources_chart_native">Память служебных модулей за последние 5 минут</string>
     <string name="resources_chart_network">Скорость сети за последние 5 минут</string>
