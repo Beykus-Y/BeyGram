@@ -355,6 +355,8 @@ internal fun MediaViewer(
     var fileNotice by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
+    // Панель возвращается при каждом переходе: иначе после скрытия на фото нельзя вернуть действия на видео или файле.
+    LaunchedEffect(pagerState.settledPage) { controlsVisible = true }
     // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
     val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
     val exportPath = if (canExport && !shown.media.isSecret && !shownHidden) shownFile.localPath else null
@@ -370,47 +372,48 @@ internal fun MediaViewer(
         }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
-        // Панели поверх страницы: тап по картинке прячет их. Крестик закрытия остаётся, чтобы выйти можно было без жестов.
-        Box(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { pages[it].messageId }) { page ->
-                val item = pages[page]
-                MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
-                    revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
-                    onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
-                    onDismiss = onClose, onToggleControls = { controlsVisible = !controlsVisible })
-            }
-            Row(
-                Modifier.fillMaxWidth().align(Alignment.TopCenter).background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent).padding(horizontal = 6.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
-                if (controlsVisible) {
-                    Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                        Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    }
-                    if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
-                    if (exportPath != null || onShowInChat != null) Box {
-                        IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            if (exportPath != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_open_in_other_app)) }, onClick = { menuOpen = false; openExternal(shown, exportPath) })
-                            if (onShowInChat != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_show_in_chat)) }, onClick = { menuOpen = false; onShowInChat(shown.messageId) })
-                        }
-                    }
-                } else Spacer(Modifier.weight(1f))
-            }
-            Column(Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
-                if (controlsVisible && (actions != null || exportPath != null)) Row(Modifier.fillMaxWidth().background(Color(0xB3070B10)).padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
-                    if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
-                        exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
-                    }
-                    if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
-                    if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
+        // Верхняя панель лежит поверх страницы: тап по картинке её прячет, крестик закрытия виден всегда.
+        // Панель действий и сообщения стоят под страницей, потому что поверх неё лежит управление видео и аудио.
+        Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { pages[it].messageId }) { page ->
+                    val item = pages[page]
+                    MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
+                        revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
+                        onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
+                        onDismiss = onClose, onToggleControls = { controlsVisible = !controlsVisible })
                 }
-                externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.fillMaxWidth().background(Color(0xB3070B10)).padding(16.dp)) }
-                fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().background(Color(0xB3070B10)).padding(horizontal = 16.dp, vertical = 4.dp)) }
+                Row(
+                    Modifier.fillMaxWidth().align(Alignment.TopCenter).background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent).padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
+                    if (controlsVisible) {
+                        Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                            Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        }
+                        if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
+                        if (exportPath != null || onShowInChat != null) Box {
+                            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                if (exportPath != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_open_in_other_app)) }, onClick = { menuOpen = false; openExternal(shown, exportPath) })
+                                if (onShowInChat != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_show_in_chat)) }, onClick = { menuOpen = false; onShowInChat(shown.messageId) })
+                            }
+                        }
+                    } else Spacer(Modifier.weight(1f))
+                }
             }
+            if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
+                if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
+                    exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
+                }
+                if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
+                if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
+            }
+            externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp)) }
+            fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
         }
     }
 }
@@ -507,6 +510,8 @@ private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls:
         offset = clampImageOffset(offset + pan, scale, size)
     }
     val dismissDrag = rememberDraggableState { delta -> if (scale <= 1f) dismissY += delta }
+    // Масштаб, ушедший выше 1 посреди протяжки, отменяет её: сдвиг не должен остаться после возврата к масштабу 1.
+    LaunchedEffect(scale > 1f) { if (scale > 1f) dismissY = 0f }
     Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1f })
         .draggable(state = dismissDrag, orientation = Orientation.Vertical, enabled = scale <= 1f, onDragStopped = {
             if (dismissY > size.height / 4f) currentOnDismiss()
