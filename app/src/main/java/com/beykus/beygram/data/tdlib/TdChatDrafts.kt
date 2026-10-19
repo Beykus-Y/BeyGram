@@ -97,7 +97,7 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
 
     private fun fromTd(raw: TdApi.DraftMessage?): MessageDraft? {
         if (raw == null) return MessageDraft()
-        val input = raw.inputMessageText as? TdApi.InputMessageText ?: return null
+        val input = raw.content as? TdApi.DraftMessageContentText ?: return null
         val formatted = input.text ?: return null
         val reply = (raw.replyTo as? TdApi.InputMessageReplyToMessage)?.messageId?.takeIf { it > 0L }
         return MessageDraft(formatted.text.orEmpty(), formatted.text?.let { validTextEntities(it, formatted.domainEntities()) }.orEmpty(), reply)
@@ -107,7 +107,7 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
         if (draft.isEmpty) return null
         return TdApi.DraftMessage().apply {
             date = (System.currentTimeMillis() / 1000L).toInt()
-            inputMessageText = TdApi.InputMessageText().apply {
+            content = TdApi.DraftMessageContentText().apply {
                 text = formattedText(draft.text, draft.entities)
             }
             draft.replyToMessageId?.takeIf { it > 0L }?.let { replyId ->
