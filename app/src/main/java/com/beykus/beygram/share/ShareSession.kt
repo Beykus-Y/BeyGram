@@ -31,12 +31,15 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     var error by mutableStateOf<UiText?>(null)
     private var started = false
     private var released = false
+    private var importer: OutgoingMediaImporter? = null
 
     /** Копирует файлы в приватную папку один раз; вызов после поворота ничего не запускает повторно. */
     fun startStaging(context: Context, scope: CoroutineScope) {
         if (started || uris.isEmpty()) return
         started = true
-        scope.launch { stage(OutgoingMediaImporter(context), context, scope) }
+        val staging = OutgoingMediaImporter(context)
+        importer = staging
+        scope.launch { stage(staging, context, scope) }
     }
 
     private suspend fun stage(importer: OutgoingMediaImporter, context: Context, scope: CoroutineScope) {
@@ -74,7 +77,12 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
                 val result = if (staged.isNotEmpty()) sendStaged(chatId, sendMedia) else sendText(chatId, draft.trim())
                 result
                     .onSuccess { sentChatId = chatId; sent = true }
-                    .onFailure { error = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed) }
+                    .onFailure {
+                        error = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed)
+                        // Экран уже закрыт: повторить отправку будет некому, копии не должны остаться в папке.
+                        val leftover = staged
+                        if (released) importer?.let { staging -> scope.launch { leftover.forEach { staging.discard(it) } } }
+                    }
             } finally {
                 sending = false
             }
