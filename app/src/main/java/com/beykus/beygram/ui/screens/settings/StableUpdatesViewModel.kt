@@ -6,6 +6,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.beykus.beygram.data.update.ApkUpdateSource
+import com.beykus.beygram.data.update.DEV_PACKAGE
+import com.beykus.beygram.data.update.DevUpdateRepository
 import com.beykus.beygram.data.update.StableRelease
 import com.beykus.beygram.data.update.StableUpdateRepository
 import kotlinx.coroutines.CancellationException
@@ -41,7 +44,10 @@ internal object StableUpdateActionPolicy {
 }
 
 class StableUpdatesViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = StableUpdateRepository(application.applicationContext)
+    // DEV beta updates come from its own prereleases; every other install uses the Stable channel.
+    private val repository: ApkUpdateSource = application.applicationContext.let { context ->
+        if (context.packageName == DEV_PACKAGE) DevUpdateRepository(context) else StableUpdateRepository(context)
+    }
     var status: UpdateStatus by mutableStateOf(UpdateStatus.Idle)
         private set
     var installHint: String? by mutableStateOf(null)
