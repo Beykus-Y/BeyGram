@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
@@ -38,6 +39,9 @@ import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.resolveTokens
 
 class MainActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(com.beykus.beygram.data.settings.AppLocale.context(newBase))
+    }
     private var notificationRequest by mutableStateOf<NotificationOpenRequest?>(null)
     private var incomingShare by mutableStateOf<IncomingShare?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,7 +49,12 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState != null) {
             if (savedInstanceState.getBoolean("notification_pending")) notificationRequest = NotificationOpenRequest(savedInstanceState.getLong("notification_token"),
                 savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"))
-            if (savedInstanceState.containsKey("share_text")) incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), savedInstanceState.getString("share_text").orEmpty(), restoredUris(savedInstanceState))
+            val restoredText = savedInstanceState.getString("share_text").orEmpty()
+            val restoredFiles = restoredUris(savedInstanceState)
+            // После фильтра файлов запрос может остаться пустым: тогда пустой диалог не показываем.
+            if (savedInstanceState.containsKey("share_text") && (restoredText.isNotEmpty() || restoredFiles.isNotEmpty())) {
+                incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), restoredText, restoredFiles)
+            }
         } else {
             acceptNotificationIntent(intent)
             acceptShareIntent(intent)
@@ -99,7 +108,9 @@ class MainActivity : ComponentActivity() {
     }
     /** Текст и файлы из другого приложения: сохраняем до выбора чата; отправка начнётся только после подтверждения на экране. */
     private fun acceptShareIntent(intent: Intent?) {
-        val shared = IncomingShareParser.from(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT), streamUris(intent), SystemClock.elapsedRealtimeNanos())
+        val files = IncomingShareParser.checkUris(streamUris(intent), packageName)
+        if (files.rejected > 0) Toast.makeText(this, R.string.share_file_rejected, Toast.LENGTH_LONG).show()
+        val shared = IncomingShareParser.from(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT), files.accepted, SystemClock.elapsedRealtimeNanos())
         // Чужой intent без содержимого не должен стирать уже принятый запрос.
         if (shared != null) incomingShare = shared
     }
@@ -124,7 +135,10 @@ class MainActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     private fun restoredUris(bundle: Bundle): List<Uri> =
-        (if (Build.VERSION.SDK_INT >= 33) bundle.getParcelableArrayList("share_uris", Uri::class.java) else bundle.getParcelableArrayList<Uri>("share_uris")).orEmpty()
+        IncomingShareParser.checkUris(
+            (if (Build.VERSION.SDK_INT >= 33) bundle.getParcelableArrayList("share_uris", Uri::class.java) else bundle.getParcelableArrayList<Uri>("share_uris")).orEmpty(),
+            packageName,
+        ).accepted
     private fun acceptNotificationIntent(intent: Intent?) {
         if (intent == null || intent.action !in listOf(NotificationIntents.OPEN_CHAT, NotificationIntents.OPEN_SETTINGS, NotificationIntents.OPEN_PROXY) || !NotificationIntents.valid(this, intent)) return
         when (intent?.action) {

@@ -65,6 +65,9 @@ fun ProfileScreen(
     deleteMyProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Profile photo deletion unavailable")) },
     setPreviousProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Previous photo unavailable")) },
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
+    onBlock: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
+    onDelete: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
+    onDeleted: () -> Unit = {}, onOpenLinkedChannel: (Long) -> Unit = {},
     hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)? = null,
     confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
@@ -94,12 +97,16 @@ fun ProfileScreen(
     if (pendingPhoto == null && groupInfo != null) GroupProfileScreen(
         info = groupInfo, state = state, lastSeenStyle = lastSeenStyle, observeFile = observeFile, downloadFile = downloadFile,
         onBack = { if (!saving && !preparing) onBack() }, onRefresh = onRefresh, onAvatarClick = { showPhoto = true },
+        onDelete = onDelete, onDeleted = onDeleted,
         onMembers = onMembers, onOpenUser = onOpenUser, sharedMessages = sharedMessages, confirmExport = confirmExport,
         messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened, onOpenMessage = onOpenMessage
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
-            IconButton(onClick = onRefresh, enabled = !state.isLoading && !saving) { Icon(Icons.Rounded.Refresh, stringResource(R.string.common_refresh), tint = palette.textSecondary) }
+            if (!isOwnProfile) ChatInfoMenu(
+                canBlock = state.info?.kind in listOf(ProfileKind.Person, ProfileKind.Bot) && state.info?.isSelf != true,
+                canDelete = true, onBlock = onBlock, onDelete = onDelete, onDeleted = onDeleted
+            )
         }
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 28.dp)) {
@@ -120,6 +127,18 @@ fun ProfileScreen(
                     }
                 }
                 ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null))
+                if (info.personalChatId > 0L) {
+                    TextButton(onClick = { onOpenLinkedChannel(info.personalChatId) },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        Text(buildString {
+                            append(stringResource(R.string.feature_linked_channel))
+                            if (info.personalChatTitle.isNotBlank()) {
+                                append(": ")
+                                append(info.personalChatTitle)
+                            }
+                        }, color = palette.accentInk)
+                    }
+                }
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
                 if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage)

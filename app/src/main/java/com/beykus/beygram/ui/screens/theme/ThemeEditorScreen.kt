@@ -74,10 +74,14 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
     val tokens = resolveTokens(draft, systemDark)
     val issues = contrastIssues(tokens, bubbleColor)
     val metrics = bubbleMetricsFor(style, density)
-    BackHandler(onBack = onBack)
+    var confirmDiscard by rememberSaveable { mutableStateOf(false) }
+    fun requestBack() {
+        if (draft != saved) confirmDiscard = true else onBack()
+    }
+    BackHandler(onBack = ::requestBack)
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.theme_editor_title), onBack)
+        ProfileToolbar(stringResource(R.string.theme_editor_title), ::requestBack)
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -125,14 +129,20 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
             ) {
                 Text(stringResource(R.string.theme_editor_reset))
             }
+            Text(stringResource(R.string.theme_editor_save_note), color = palette.textSecondary, fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 4.dp))
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.theme_editor_cancel)) }
+            OutlinedButton(onClick = ::requestBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.theme_editor_cancel)) }
             Button(onClick = { onSave(draft); onBack() }, enabled = draft != current, modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.theme_apply))
             }
         }
     }
+    if (confirmDiscard) ThemeDiscardDialog(
+        onKeepEditing = { confirmDiscard = false },
+        onDiscard = { confirmDiscard = false; onBack() }
+    )
 }
 
 @Composable

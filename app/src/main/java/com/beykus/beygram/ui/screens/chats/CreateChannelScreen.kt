@@ -1,0 +1,48 @@
+package com.beykus.beygram.ui.screens.chats
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import com.beykus.beygram.R
+import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.ui.components.beyGramPalette
+import kotlinx.coroutines.launch
+
+/** Creates a broadcast channel; never creates it until the explicit button is pressed. */
+@Composable
+fun CreateChannelScreen(onBack: () -> Unit, create: suspend (String, String) -> Result<Long>, onCreated: (Long) -> Unit) {
+    val palette = beyGramPalette()
+    val scope = rememberCoroutineScope()
+    var title by rememberSaveable { mutableStateOf("") }
+    var description by rememberSaveable { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    Column {
+        ProfileToolbar(stringResource(R.string.feature_create_channel), onBack)
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            OutlinedTextField(title, { title = it.take(128) }, label = { Text(stringResource(R.string.feature_channel_name)) },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy)
+            OutlinedTextField(description, { description = it.take(255) }, label = { Text(stringResource(R.string.feature_channel_description)) },
+                modifier = Modifier.fillMaxWidth(), minLines = 3, enabled = !busy)
+            Text(stringResource(R.string.feature_channel_private_note), color = palette.textSecondary)
+            error?.let { Text(it, color = palette.danger) }
+            Button(
+                enabled = title.isNotBlank() && !busy,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    scope.launch {
+                        busy = true; error = null
+                        try { create(title, description).fold(onCreated, { error = it.localizedMessage ?: it.message }) }
+                        finally { busy = false }
+                    }
+                }
+            ) { Text(stringResource(if (busy) R.string.common_saving else R.string.feature_create_channel)) }
+        }
+    }
+}

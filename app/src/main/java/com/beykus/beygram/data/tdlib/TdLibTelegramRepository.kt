@@ -11,12 +11,14 @@ import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.MessageDraft
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
@@ -98,6 +100,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences("mihomo_tdlib_proxy", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
+    private val messageDrafts = TdChatDrafts(appContext) { client }
 
     // ---- Прокси Telegram -----------------------------------------------------
 
@@ -250,6 +253,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId)
+    override fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft> = messageDrafts.observe(chatId)
+    override fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft) =
+        messageDrafts.update(chatId, transform)
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
@@ -273,6 +279,80 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = requestResult {
         val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
         TdRequests { client }(TdApi.AddChatToList(chatId, list)); Unit
+    }
+
+    override suspend fun setChatPinned(chatId: Long, pinned: Boolean): Result<Unit> = requestResult {
+        tdRequests(TdApi.ToggleChatIsPinned(TdApi.ChatListMain(), chatId, pinned))
+        Unit
+    }
+
+    override suspend fun setChatMuted(chatId: Long, muted: Boolean): Result<Unit> = requestResult {
+        val chat = tdRequests(TdApi.GetChat(chatId))
+        // Reuse the existing chat settings to preserve previews, sounds and mentions.
+        val settings = chat.notificationSettings
+        settings.useDefaultMuteFor = false
+        settings.muteFor = if (muted) Int.MAX_VALUE else 0
+        tdRequests(TdApi.SetChatNotificationSettings(chatId, settings))
+        Unit
+    }
+
+    override suspend fun deleteChatForSelf(chatId: Long): Result<Unit> = requestResult {
+        // revoke=false is essential: never delete another member's chat history.
+        tdRequests(TdApi.DeleteChatHistory(chatId, true, false))
+        Unit
+    }
+
+    override suspend fun blockPrivateChat(chatId: Long): Result<Unit> = requestResult {
+        val chat = tdRequests(TdApi.GetChat(chatId))
+        val privateType = chat.type as? TdApi.ChatTypePrivate
+            ?: throw IllegalArgumentException("Only private conversations can be blocked")
+        if (profiles.isSelf(privateType.userId)) throw IllegalArgumentException("Cannot block your own account")
+        tdRequests(TdApi.SetMessageSenderBlockList(TdApi.MessageSenderUser(privateType.userId), TdApi.BlockListMain()))
+        Unit
+    }
+
+    override suspend fun createChannel(title: String, description: String): Result<Long> = requestResult {
+        val name = title.trim()
+        require(name.length in 1..128) { "Channel title must contain 1–128 characters" }
+        require(description.length <= 255) { "Channel description must contain at most 255 characters" }
+        val chat = tdRequests(TdApi.CreateNewSupergroupChat().apply {
+            this.title = name
+            isChannel = true
+            isForum = false
+            this.description = description.trim()
+            location = null
+            messageAutoDeleteTime = 0
+            forImport = false
+        })
+        handleNewChat(chat)
+        chat.id
+    }
+
+    override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = requestResult {
+        tdRequests(TdApi.GetActiveSessions()).sessions.orEmpty().map { session ->
+            com.beykus.beygram.domain.model.DeviceSession(
+                id = session.id,
+                current = session.isCurrent,
+                device = session.deviceModel.orEmpty().ifBlank { session.platform.orEmpty() },
+                application = session.applicationName.orEmpty(),
+                location = session.location.orEmpty(),
+                ip = session.ipAddress.orEmpty(),
+                lastActive = session.lastActiveDate.toLong()
+            )
+        }
+    }
+
+    override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = requestResult {
+        require(sessionId > 0 && activeSessions().getOrThrow().any { it.id == sessionId && !it.current }) {
+            "Cannot terminate the current session"
+        }
+        tdRequests(TdApi.TerminateSession(sessionId))
+        Unit
+    }
+
+    override suspend fun terminateAllOtherSessions(): Result<Unit> = requestResult {
+        tdRequests(TdApi.TerminateAllOtherSessions())
+        Unit
     }
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = requestResult {
         !TdRequests { client }(TdApi.GetArchiveChatListSettings()).keepUnmutedChatsArchived
@@ -347,6 +427,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
+    override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter) =
+        conversationActions.searchGlobal(query, offset, filter)
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean) = conversationActions.shared(chatId, kind, fromMessageId, newer)
         .onSuccess { page -> listedMediaFiles.remember(page.messages.flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }) }
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
@@ -540,6 +622,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     override fun closeChat(chatId: Long) {
+        messageDrafts.closed(chatId)
         _notificationPresentation.update { it.copy(openedChats = it.openedChats - chatId) }
         conversationEffects.closed(chatId)
         messageHistory.closed(chatId)
@@ -627,6 +710,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateChatReplyMarkup -> botKeyboards.update(update.chatId, update.replyMarkupMessage)
             is TdApi.UpdateChatPosition -> handleChatPosition(update.chatId, update.position)
             is TdApi.UpdateChatDraftMessage -> {
+                messageDrafts.receive(update.chatId, update.draftMessage)
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.withPositions(update.positions) }
                 notificationFeed.chatPositionChanged(update.chatId)
                 publishChat(update.chatId)
@@ -705,6 +789,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     attrs = mapOf("state" to update.state.wireState())
                 )
                 if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib connection: ${update.state.javaClass.simpleName}")
+                if (update.state is TdApi.ConnectionStateReady) messageDrafts.connectionReady()
                 _connectionState.value = when (update.state) {
                     is TdApi.ConnectionStateReady -> TelegramConnectionState.Connected
                     is TdApi.ConnectionStateConnecting,
@@ -799,8 +884,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 conversationEffects.authorized()
                 notificationFeed.initialize()
                 cacheMaintenance.authorized()
+                messageDrafts.connectionReady()
             }
-            is TdApi.AuthorizationStateLoggingOut,
+            is TdApi.AuthorizationStateLoggingOut -> {
+                messageDrafts.signedOut()
+                _authState.value = AuthState.WaitingForPhone
+                conversationEffects.signedOut()
+                cacheMaintenance.signedOut()
+            }
             is TdApi.AuthorizationStateClosed -> {
                 _authState.value = AuthState.WaitingForPhone
                 conversationEffects.signedOut()
@@ -900,6 +991,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     private fun handleNewChat(chat: TdApi.Chat) {
+        messageDrafts.receive(chat.id, chat.draftMessage)
         profiles.putChat(chat)
         rememberLastSender(chat.id, chat.lastMessage)
         messageHistory.readInbox(chat.id, chat.lastReadInboxMessageId)
