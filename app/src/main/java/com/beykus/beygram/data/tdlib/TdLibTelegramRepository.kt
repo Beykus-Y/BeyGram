@@ -643,6 +643,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
+            is TdApi.UpdateSupergroup, is TdApi.UpdateBasicGroup -> chatCache.keys.toList().forEach(::refreshPostingRight)
+            is TdApi.UpdateChatPermissions -> refreshPostingRight(update.chatId)
             is TdApi.UpdateChatPhoto -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(photo = profiles.photo(update.photo)) }
                 publishChat(update.chatId)
@@ -896,6 +898,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         publishChat(chatId)
     }
 
+    /** Republishes the chat only when its posting right changed, so unrelated group updates do not wake its observers. */
+    private fun refreshPostingRight(chatId: Long) {
+        val existing = chatCache[chatId] ?: return
+        val chat = profiles.chat(chatId) ?: return
+        val canPost = profiles.canPost(chat)
+        if (canPost == existing.canPost) return
+        chatCache[chatId] = existing.copy(canPost = canPost)
+        publishChat(chatId)
+    }
+
     private fun rememberLastSender(chatId: Long, message: TdApi.Message?) {
         val userId = (message?.senderId as? TdApi.MessageSenderUser)?.userId
         if (userId == null) lastSenderUsers.remove(chatId) else lastSenderUsers[chatId] = userId
@@ -1026,6 +1038,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             lastMessageSender = lastMessage?.let { profiles.senderName(it.senderId) }.orEmpty(),
             lastMessageSendState = lastMessage?.sendingState.toSendState(),
             lastReadOutboxMessageId = lastReadOutboxMessageId,
+            canPost = profiles.canPost(this),
             photo = profiles.photo(photo)
         )
     }
