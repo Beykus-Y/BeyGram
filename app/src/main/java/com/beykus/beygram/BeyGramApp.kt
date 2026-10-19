@@ -299,21 +299,34 @@ private fun BeyGramAppContent(
         // Архивные чаты тоже можно выбрать: отправка в них не требует вынимать их из архива.
         val shareChats by repository.chats.collectAsStateWithLifecycle()
         val shareArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        val shareCaptionLimit = repository.messageLimits.collectAsStateWithLifecycle().value.caption
         Dialog(
             onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
         ) {
             // Новый запрос из «Поделиться» получает свежее состояние выбора, даже если диалог уже открыт.
             key(incomingShare.requestId) {
+                // Если не удалось узнать, форум ли чат, не отправляем: иначе сообщение уйдёт в General.
+                val forumGuard: suspend (Long) -> Result<Unit> = { chatId ->
+                    repository.isForumChat(chatId).fold(
+                        onSuccess = { forum -> if (forum) Result.failure(UserMessageException(UiText.Res(R.string.share_forum_unsupported))) else Result.success(Unit) },
+                        onFailure = { Result.failure(it) }
+                    )
+                }
                 ShareTargetScreen(
+                    requestId = incomingShare.requestId,
                     text = incomingShare.text,
-                    fileUnsupported = incomingShare.fileUnsupported,
+                    uris = incomingShare.uris,
+                    captionLimit = shareCaptionLimit,
                     chats = shareChats + shareArchivedChats,
                     sendText = { chatId, text ->
-                        // Если не удалось узнать, форум ли чат, не отправляем: иначе текст уйдёт в General.
-                        val forum = repository.isForumChat(chatId).getOrElse { return@ShareTargetScreen Result.failure(it) }
-                        if (forum) Result.failure(UserMessageException(UiText.Res(R.string.share_forum_unsupported)))
-                        else repository.sendMessage(chatId, text, clearDraft = false)
+                        forumGuard(chatId).mapCatching { repository.sendMessage(chatId, text, clearDraft = false).getOrThrow() }
+                    },
+                    sendMedia = { chatId, media, caption ->
+                        forumGuard(chatId).mapCatching {
+                            if (media.size == 1) repository.sendMedia(chatId, media.single(), caption).getOrThrow()
+                            else repository.sendMediaAlbum(chatId, media, caption).getOrThrow()
+                        }
                     },
                     onSent = { chatId ->
                         onIncomingShareHandled(incomingShare.requestId)

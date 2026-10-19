@@ -92,7 +92,8 @@
     <string name="chat_video_note_permission_denied">Для кружков нужны камера и микрофон</string>
     <string name="chat_video_note_send_failed">Не удалось отправить кружок</string>
     <string name="chat_video_note_processing">Обработка</string>
-    <string name="share_file_unsupported">Пока можно отправлять только текст. Файлы из других приложений появятся позже.</string>
+    <string name="share_caption_placeholder">Подпись</string>
+    <string name="share_preparing">Подготовка файлов…</string>
     <string name="share_forum_unsupported">В чатах с темами пока нельзя отправить из других приложений. Выберите другой чат.</string>
     <string name="share_no_chats">Нет чатов, куда можно отправить</string>
     <string name="share_search">Поиск чатов</string>
