@@ -405,7 +405,7 @@ internal fun MediaViewer(
                 }
             }
             // Строка всегда занимает место, где может появиться действие: иначе страница прыгает, когда докачанный файл добавляет «Сохранить».
-            if (actions != null || canExport) Row(Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            if (actions != null || canExport) Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
                 if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
                     exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
