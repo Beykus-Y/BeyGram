@@ -788,6 +788,8 @@
     <string name="resources_unavailable">недоступно</string>
     <string name="resources_cpu">Процессор</string>
     <string name="resources_chart_cpu">Загрузка процессора за последние 5 минут</string>
+    <string name="resources_chart_heap">Память приложения за последние 5 минут</string>
+    <string name="resources_chart_native">Память служебных модулей за последние 5 минут</string>
     <string name="resources_chart_network">Скорость сети за последние 5 минут</string>
     <string name="resources_heap">Память приложения</string>
     <string name="resources_heap_value">занято %1$s из %2$s</string>

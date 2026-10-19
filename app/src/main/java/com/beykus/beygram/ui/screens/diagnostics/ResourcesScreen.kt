@@ -86,7 +86,7 @@ fun ResourcesScreen(onBack: () -> Unit) {
 
     Column(
         Modifier.fillMaxSize().background(palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
     ) {
         ProfileToolbar(stringResource(R.string.resources_title), onBack)
         Column(
@@ -120,12 +120,24 @@ fun ResourcesScreen(onBack: () -> Unit) {
                     } ?: unavailable,
                     color = palette.textSecondary, fontSize = 13.sp
                 )
+                ResourceChart(
+                    label = stringResource(R.string.resources_chart_heap),
+                    series = listOf(samples.map { it.javaHeapUsedBytes.toDouble() }),
+                    colors = listOf(palette.accent),
+                    modifier = Modifier.fillMaxWidth().height(96.dp)
+                )
                 Spacer(Modifier.height(12.dp))
 
                 Text(stringResource(R.string.resources_native), color = palette.textPrimary, fontSize = 16.sp)
                 Text(
                     latest?.let { Formatter.formatShortFileSize(context, it.nativeHeapBytes) } ?: unavailable,
                     color = palette.textSecondary, fontSize = 13.sp
+                )
+                ResourceChart(
+                    label = stringResource(R.string.resources_chart_native),
+                    series = listOf(samples.map { it.nativeHeapBytes.toDouble() }),
+                    colors = listOf(palette.accent),
+                    modifier = Modifier.fillMaxWidth().height(96.dp)
                 )
             }
 
