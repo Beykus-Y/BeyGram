@@ -66,6 +66,7 @@ import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.data.media.VideoMessageSettings
+import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoQualityPreset
 import com.beykus.beygram.data.media.requestedFrameRateRange
@@ -198,6 +199,7 @@ internal class VideoNoteRecorder(
             bind(cameraProvider, selector, current.settings, capture)
             preferFrontCamera = targetFront
             Log.i(TAG, "video_camera_switched front=$preferFrontCamera")
+            VideoNoteDiagnostics.append(current.sessionName, "Camera switched: ${if (preferFrontCamera) "front" else "back"}")
         } catch (failure: Exception) {
             Log.e(TAG, "video_camera_switch_failed", failure)
             if (!unbound) {
@@ -268,7 +270,7 @@ internal class VideoNoteRecorder(
                 val startSelector = if (cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
                     CameraSelector.DEFAULT_FRONT_CAMERA
                 } else CameraSelector.DEFAULT_BACK_CAMERA
-                if (canSwitchCamera) preferFrontCamera = startSelector == CameraSelector.DEFAULT_FRONT_CAMERA
+                preferFrontCamera = startSelector == CameraSelector.DEFAULT_FRONT_CAMERA
                 val capture = createCapture(cameraProvider, startSelector, settings)
                 videoCapture = capture
                 bind(cameraProvider, startSelector, settings, capture)
@@ -493,6 +495,15 @@ internal class VideoNoteRecorder(
         val rawDirectory = File(context.noBackupFilesDir, "uploads").resolve(sessionName).apply { mkdirs() }
         val current = VideoTake(rawDirectory.resolve("video-note.mp4"), settings, sessionName)
         take = current
+        VideoNoteDiagnostics.begin(
+            context = context,
+            sessionId = sessionName,
+            settings = settings,
+            lens = if (preferFrontCamera) "front" else "back",
+            selectedRange = captureFpsRange?.toString() ?: "CameraX automatic",
+            supportedRanges = camera?.cameraInfo?.supportedFrameRateRanges?.joinToString() ?: "unavailable",
+            captureBitrate = videoCameraBitrate(settings)
+        )
         try {
             current.recording = prepare(current, persistent = persistentSupported)
             Log.i(TAG, "video_recording_started session=$sessionName persistent=$persistentSupported")
@@ -534,6 +545,7 @@ internal class VideoNoteRecorder(
                     started = true
                     startClock()
                     recordStarted()
+                    VideoNoteDiagnostics.append(current.sessionName, "CameraX VideoRecordEvent.Start")
                 }
                 if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
             }
@@ -554,6 +566,7 @@ internal class VideoNoteRecorder(
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
         val outcome = videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)
+        VideoNoteDiagnostics.append(current.sessionName, "CameraX finalized: duration=${seconds}s, bytes=${current.file.length()}, errorCode=${event.error}, outcome=$outcome", if (outcome == VideoTakeOutcome.Send) "Обработка" else outcome.name)
         recordAppEvent(
             kind = EventKind.UI,
             code = "video_note_finalized",
