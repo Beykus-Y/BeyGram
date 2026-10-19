@@ -2,6 +2,7 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="vpn-settings.xml" />
+        <exclude domain="sharedpref" path="chat_message_drafts.xml" />
         <!-- The loopback SOCKS credentials are per installation; a restored copy would share them with another device. -->
         <exclude domain="sharedpref" path="mihomo-loopback.xml" />
         <!-- The diagnostics report draft is session-local; restoring it on another device makes no sense. -->
@@ -11,6 +12,7 @@
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="vpn-settings.xml" />
+        <exclude domain="sharedpref" path="chat_message_drafts.xml" />
         <exclude domain="sharedpref" path="mihomo-loopback.xml" />
         <exclude domain="file" path="diagnostics-report" />
         <exclude domain="file" path="uploads" />

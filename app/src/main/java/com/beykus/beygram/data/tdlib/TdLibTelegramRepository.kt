@@ -18,6 +18,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.MessageDraft
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
@@ -99,6 +100,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences("mihomo_tdlib_proxy", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
+    private val messageDrafts = TdChatDrafts(appContext) { client }
 
     // ---- Прокси Telegram -----------------------------------------------------
 
@@ -251,6 +253,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId)
+    override fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft> = messageDrafts.observe(chatId)
+    override fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft) =
+        messageDrafts.update(chatId, transform)
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
@@ -539,6 +544,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     override fun closeChat(chatId: Long) {
+        messageDrafts.closed(chatId)
         _notificationPresentation.update { it.copy(openedChats = it.openedChats - chatId) }
         conversationEffects.closed(chatId)
         messageHistory.closed(chatId)
@@ -626,6 +632,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateChatReplyMarkup -> botKeyboards.update(update.chatId, update.replyMarkupMessage)
             is TdApi.UpdateChatPosition -> handleChatPosition(update.chatId, update.position)
             is TdApi.UpdateChatDraftMessage -> {
+                messageDrafts.receive(update.chatId, update.draftMessage)
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.withPositions(update.positions) }
                 notificationFeed.chatPositionChanged(update.chatId)
                 publishChat(update.chatId)
@@ -704,6 +711,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     attrs = mapOf("state" to update.state.wireState())
                 )
                 if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib connection: ${update.state.javaClass.simpleName}")
+                if (update.state is TdApi.ConnectionStateReady) messageDrafts.connectionReady()
                 _connectionState.value = when (update.state) {
                     is TdApi.ConnectionStateReady -> TelegramConnectionState.Connected
                     is TdApi.ConnectionStateConnecting,
@@ -798,8 +806,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 conversationEffects.authorized()
                 notificationFeed.initialize()
                 cacheMaintenance.authorized()
+                messageDrafts.connectionReady()
             }
-            is TdApi.AuthorizationStateLoggingOut,
+            is TdApi.AuthorizationStateLoggingOut -> {
+                messageDrafts.signedOut()
+                _authState.value = AuthState.WaitingForPhone
+                conversationEffects.signedOut()
+                cacheMaintenance.signedOut()
+            }
             is TdApi.AuthorizationStateClosed -> {
                 _authState.value = AuthState.WaitingForPhone
                 conversationEffects.signedOut()
@@ -899,6 +913,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     private fun handleNewChat(chat: TdApi.Chat) {
+        messageDrafts.receive(chat.id, chat.draftMessage)
         profiles.putChat(chat)
         rememberLastSender(chat.id, chat.lastMessage)
         messageHistory.readInbox(chat.id, chat.lastReadInboxMessageId)
