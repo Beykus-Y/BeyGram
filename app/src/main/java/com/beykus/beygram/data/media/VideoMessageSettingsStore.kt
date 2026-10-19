@@ -22,7 +22,8 @@ data class VideoMessageSettings(
     val processing: VideoProcessingMode = VideoProcessingMode.Automatic,
     val frameRatePriority: VideoFrameRatePriority = VideoFrameRatePriority.Balanced,
     val longRecordingEnabled: Boolean = false,
-    val mirrorFrontCamera: Boolean = true
+    val mirrorFrontCamera: Boolean = true,
+    val diagnosticsEnabled: Boolean = false
 )
 
 /**
@@ -53,6 +54,7 @@ class VideoMessageSettingsStore(context: Context) {
             .putString(KEY_FRAME_RATE_PRIORITY, next.frameRatePriority.name)
             .putBoolean(KEY_LONG_RECORDING, next.longRecordingEnabled)
             .putBoolean(KEY_MIRROR_FRONT_CAMERA, next.mirrorFrontCamera)
+            .putBoolean(KEY_VIDEO_DIAGNOSTICS, next.diagnosticsEnabled)
             .commit()){ "Не удалось сохранить настройки видеосообщений" }
         _settings.value = next
     }
@@ -72,7 +74,8 @@ class VideoMessageSettingsStore(context: Context) {
         processing = preferences.getString(KEY_PROCESSING, null).enumOr(VideoProcessingMode.Automatic),
         frameRatePriority = preferences.getString(KEY_FRAME_RATE_PRIORITY, null).enumOr(VideoFrameRatePriority.Balanced),
         longRecordingEnabled = preferences.getBoolean(KEY_LONG_RECORDING, false),
-        mirrorFrontCamera = preferences.getBoolean(KEY_MIRROR_FRONT_CAMERA, true)
+        mirrorFrontCamera = preferences.getBoolean(KEY_MIRROR_FRONT_CAMERA, true),
+        diagnosticsEnabled = preferences.getBoolean(KEY_VIDEO_DIAGNOSTICS, false)
     )
 
     private fun readRecordingMode() = preferences.getString(KEY_RECORDING_MODE, null).enumOr(ComposerRecordingMode.Video)
@@ -103,5 +106,6 @@ class VideoMessageSettingsStore(context: Context) {
         private const val KEY_LONG_RECORDING = "long_recording"
         private const val KEY_MIRROR_FRONT_CAMERA = "mirror_front_camera"
         private const val KEY_RECORDING_MODE = "recording_mode"
+        private const val KEY_VIDEO_DIAGNOSTICS = "video_note_diagnostics"
     }
 }

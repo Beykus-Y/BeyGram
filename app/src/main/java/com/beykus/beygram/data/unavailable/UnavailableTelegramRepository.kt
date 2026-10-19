@@ -11,11 +11,14 @@ import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.DeleteMessageScope
+import com.beykus.beygram.domain.model.GlobalMessagePage
+import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.domain.model.MessageContext
+import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MessageLimits
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MessageReaction
@@ -72,7 +75,18 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun refreshMyProfile() {}
     override suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit> = unavailable()
     override suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit> = unavailable()
+    override suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.ProfilePhotosPage> = unavailable()
+    override suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit> = unavailable()
+    override suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit> = unavailable()
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = unavailable()
+    override suspend fun setChatPinned(chatId: Long, pinned: Boolean): Result<Unit> = unavailable()
+    override suspend fun setChatMuted(chatId: Long, muted: Boolean): Result<Unit> = unavailable()
+    override suspend fun deleteChatForSelf(chatId: Long): Result<Unit> = unavailable()
+    override suspend fun blockPrivateChat(chatId: Long): Result<Unit> = unavailable()
+    override suspend fun createChannel(title: String, description: String): Result<Long> = unavailable()
+    override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = unavailable()
+    override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = unavailable()
+    override suspend fun terminateAllOtherSessions(): Result<Unit> = unavailable()
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = unavailable()
     override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = unavailable()
     override suspend fun markChatRead(chatId: Long): Result<Unit> = unavailable()
@@ -120,14 +134,22 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer> = unavailable()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long): Result<PinnedMessagePage> = unavailable()
-    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> = unavailable()
+    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> = unavailable()
+    override fun observeMessageDraft(chatId: Long): StateFlow<com.beykus.beygram.domain.model.MessageDraft> =
+        MutableStateFlow(com.beykus.beygram.domain.model.MessageDraft()).asStateFlow()
+    override fun updateMessageDraft(
+        chatId: Long,
+        transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft
+    ) {}
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = noHistory
     override fun openChat(chatId: Long) {}
     override fun closeChat(chatId: Long) {}
     override fun loadOlderMessages(chatId: Long) {}
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> = unavailable()
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean): Result<Unit> = unavailable()
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = unavailable()
-    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> = unavailable()
+
+    override suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = unavailable()
+    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> = unavailable()
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = unavailable()
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition> = unavailable()
@@ -141,6 +163,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
+    override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter): Result<GlobalMessagePage> = unavailable()
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean): Result<MessageSearchPage> = unavailable()
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) {}
     override fun setAppForeground(foreground: Boolean) {}

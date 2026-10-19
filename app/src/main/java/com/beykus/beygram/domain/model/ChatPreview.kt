@@ -11,6 +11,8 @@ data class ChatPreview(
     val unreadCount: Int,
     val avatarColorArgb: Long,
     val isGroup: Boolean = false,
+    /** Чат «Избранное»: личный чат аккаунта с самим собой. Его название и значок задаёт интерфейс. */
+    val isSavedMessages: Boolean = false,
     val isPinned: Boolean = false,
     val isMuted: Boolean = false,
     /** False when the user may not write here: a channel they do not administer, or a group that restricts them. */

@@ -59,6 +59,9 @@ data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boole
 enum class DeleteMessageScope { ForSelf, ForEveryone }
 data class MessageContext(val chatId: Long, val title: String, val targetId: Long, val messages: List<ChatMessage>)
 data class MessageSearchPage(val messages: List<ChatMessage>, val nextFromMessageId: Long)
+
+/** Страница общего поиска по всем чатам аккаунта. [nextOffset] пустой, когда страницы кончились. */
+data class GlobalMessagePage(val messages: List<ChatMessage>, val nextOffset: String)
 data class MessageLimits(val text: Int = 4096, val caption: Int = 1024)
 
 data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)

@@ -20,7 +20,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
@@ -30,6 +33,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Forward
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
@@ -40,6 +46,7 @@ import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -330,7 +337,10 @@ internal fun MediaViewer(
     pages: List<MediaViewerItem>, selectedId: Long, onSelect: (Long) -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onViewed: (Long) -> Unit, onClose: () -> Unit,
     title: String? = null, subtitle: String? = null, canExport: Boolean = true, confirmExport: suspend (Long) -> Boolean = { true },
-    actions: MediaViewerActions? = null, onShowInChat: ((Long) -> Unit)? = null
+    actions: MediaViewerActions? = null, onShowInChat: ((Long) -> Unit)? = null,
+    extraFooter: (@Composable () -> Unit)? = null,
+    /** For profile galleries prefetch only thumbnails of adjacent pages, not full originals. */
+    fullFileOnlyWhenActive: Boolean = false
 ) {
     val selectedIndex = pages.indexOfFirst { it.messageId == selectedId }.coerceAtLeast(0)
     val shown = pages[selectedIndex]
@@ -351,6 +361,9 @@ internal fun MediaViewer(
     var externalError by remember { mutableStateOf<String?>(null) }
     var fileNotice by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    // Панель возвращается при каждом переходе: иначе после скрытия на фото нельзя вернуть действия на видео или файле.
+    LaunchedEffect(pagerState.settledPage) { controlsVisible = true }
     // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
     val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
     val exportPath = if (canExport && !shown.media.isSecret && !shownHidden) shownFile.localPath else null
@@ -366,29 +379,54 @@ internal fun MediaViewer(
         }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
+        // Верхняя панель лежит поверх страницы: тап по картинке её прячет, крестик закрытия виден всегда.
+        // Панель действий и сообщения стоят под страницей, потому что поверх неё лежит управление видео и аудио.
         Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
-                Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                    Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { pages[it].messageId }) { page ->
+                    val item = pages[page]
+                    MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
+                        fullFileOnlyWhenActive = fullFileOnlyWhenActive,
+                        revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
+                        onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
+                        onDismiss = onClose, onToggleControls = { controlsVisible = !controlsVisible }, controlsVisible = controlsVisible)
                 }
-                if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
-                if (exportPath != null || onShowInChat != null) Box {
-                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        if (exportPath != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_open_in_other_app)) }, onClick = { menuOpen = false; openExternal(shown, exportPath) })
-                        if (onShowInChat != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_show_in_chat)) }, onClick = { menuOpen = false; onShowInChat(shown.messageId) })
-                    }
+                Row(
+                    Modifier.fillMaxWidth().align(Alignment.TopCenter).background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent).padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
+                    if (controlsVisible) {
+                        Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                            Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        }
+                        if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
+                        if (exportPath != null || onShowInChat != null) Box {
+                            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                if (exportPath != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_open_in_other_app)) }, onClick = { menuOpen = false; openExternal(shown, exportPath) })
+                                if (onShowInChat != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_show_in_chat)) }, onClick = { menuOpen = false; onShowInChat(shown.messageId) })
+                            }
+                        }
+                    } else Spacer(Modifier.weight(1f))
+                }
+                // Кнопки листания нужны тем, кто не листает пальцем, например TalkBack. Кнопка у края неактивна, если соседней страницы нет.
+                if (pages.size > 1) {
+                    IconButton(
+                        onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.settledPage - 1) } },
+                        enabled = pagerState.settledPage > 0,
+                        modifier = Modifier.align(Alignment.CenterStart).padding(8.dp).background(Color(0x80070B10), CircleShape)
+                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (pagerState.settledPage > 0) 1f else 0.3f)) }
+                    IconButton(
+                        onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.settledPage + 1) } },
+                        enabled = pagerState.settledPage < pages.lastIndex,
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
+                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (pagerState.settledPage < pages.lastIndex) 1f else 0.3f)) }
                 }
             }
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().weight(1f), key = { pages[it].messageId }) { page ->
-                val item = pages[page]
-                MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
-                    revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
-                    onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed)
-            }
-            if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            // Строка всегда занимает место, где может появиться действие: иначе страница прыгает, когда докачанный файл добавляет «Сохранить».
+            if (actions != null || canExport) Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
                 if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
                     exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
@@ -398,6 +436,7 @@ internal fun MediaViewer(
             }
             externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp)) }
             fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+            extraFooter?.invoke()
         }
     }
 }
@@ -406,12 +445,16 @@ internal fun MediaViewer(
 @Composable
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    canExport: Boolean, active: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit
+    canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
+    onDismiss: () -> Unit, onToggleControls: () -> Unit, controlsVisible: Boolean
 ) {
     val media = item.media
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val tgs = media.mimeType == "application/x-tgsticker"
     val previewId = media.thumbnailFileId
+    // Миниатюра показывается вместо оригинала, пока тот грузится.
+    val thumbId = previewId ?: media.fileId
+    val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
     val exportable = canExport && !media.isSecret
     // Спойлер не грузится и не показывается, пока пользователь не раскроет именно эту страницу.
     val spoilerHidden = media.hasSpoiler && !media.isSecret && !revealed
@@ -422,10 +465,11 @@ private fun MediaViewerPage(
     LaunchedEffect(media.fileId, file.localPath, active, spoilerHidden) {
         if (active && !spoilerHidden && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
     }
-    LaunchedEffect(media.fileId, concealed) {
+    LaunchedEffect(media.fileId, concealed, active, fullFileOnlyWhenActive) {
         if (concealed) return@LaunchedEffect
-        if (tgs) previewId?.let(downloadFile)
-        downloadFile(media.fileId)
+        // The profile gallery downloads adjacent previews; the full file waits for an active page.
+        if (tgs || media.mimeType.startsWith("image/") || media.mimeType.startsWith("video/")) previewId?.let(downloadFile)
+        if (!fullFileOnlyWhenActive || active) downloadFile(media.fileId)
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
@@ -453,12 +497,22 @@ private fun MediaViewerPage(
                     if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
                 }
             }
+            path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
+            path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()
+            ) {
+                LocalMediaImage(thumb.localPath!!, Modifier.weight(1f).fillMaxWidth(), fit = true)
+                Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)),
+                    color = Color.LightGray, modifier = Modifier.padding(8.dp))
+                if (file.isDownloading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                else TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
+            }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                 if (file.isDownloading) CircularProgressIndicator()
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
                 if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
-            media.mimeType.startsWith("image/") -> ZoomableImage(path)
+            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = controlsVisible && active)
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
             media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, active) { currentOnViewed(item.messageId) }
@@ -467,6 +521,22 @@ private fun MediaViewerPage(
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
             }
         }
+    }
+}
+
+/** Фото до полной загрузки: миниатюра остаётся на экране, а поверх неё прогресс, ошибка и кнопка повтора. */
+@Composable
+private fun PhotoPreview(file: MediaFileState, thumbnailPath: String?, onDownload: () -> Unit) {
+    Box(Modifier.fillMaxSize()) {
+        if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true)
+        Column(
+            Modifier.align(Alignment.Center).padding(24.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.White)
+            if (!file.isDownloading) TextButton(onClick = onDownload) { Text(stringResource(R.string.common_download)) }
+        }
+        if (file.isDownloading) LinearProgressIndicator(progress = { file.downloadProgress }, modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter))
     }
 }
 
@@ -480,19 +550,78 @@ private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color(0
 }
 
 @Composable
-private fun ZoomableImage(path: String) {
+private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls: () -> Unit, showZoomControls: Boolean) {
     var scale by remember(path) { mutableFloatStateOf(1f) }
     var offset by remember(path) { mutableStateOf(Offset.Zero) }
+    // Протяжка вниз при масштабе 1 двигает картинку за пальцем; отпущенная дальше четверти высоты закрывает просмотр.
+    var dismissY by remember(path) { mutableFloatStateOf(0f) }
     var size by remember { mutableStateOf(IntSize.Zero) }
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+    val currentOnToggleControls by rememberUpdatedState(onToggleControls)
     val transform = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 5f)
-        offset = Offset((offset.x + pan.x).coerceIn(-size.width * (scale - 1) / 2, size.width * (scale - 1) / 2), (offset.y + pan.y).coerceIn(-size.height * (scale - 1) / 2, size.height * (scale - 1) / 2))
+        offset = clampImageOffset(offset + pan, scale, size)
     }
-    Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1f }).pointerInput(path) {
-        detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; offset = Offset.Zero })
-    }) {
-        LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y }, fit = true, maxDimension = 4096)
+    val dismissDrag = rememberDraggableState { delta -> if (scale <= 1f) dismissY += delta }
+    // Масштаб, ушедший выше 1 посреди протяжки, отменяет её: сдвиг не должен остаться после возврата к масштабу 1.
+    LaunchedEffect(scale > 1f) { if (scale > 1f) dismissY = 0f }
+    // Кнопки масштаба меняют его вокруг центра, как и жест. Нужны тем, кому неудобно сводить два пальца.
+    fun zoomTo(target: Float) {
+        val next = target.coerceIn(1f, 5f)
+        offset = offsetAroundCenter(offset, scale, next, size)
+        scale = next
     }
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1f })
+            .draggable(state = dismissDrag, orientation = Orientation.Vertical, enabled = scale <= 1f, onDragStopped = {
+                if (dismissY > size.height / 4f) currentOnDismiss()
+                dismissY = 0f
+            })
+            .pointerInput(path) {
+                detectTapGestures(
+                    onTap = { currentOnToggleControls() },
+                    // Двойной тап приближает к точке касания, поэтому место под пальцем не уезжает. Второй тап возвращает масштаб 1.
+                    onDoubleTap = { point ->
+                        val target = if (scale > 1f) 1f else 2.5f
+                        offset = clampImageOffset(offsetAroundPoint(point, Offset(size.width / 2f, size.height / 2f), offset, scale, target), target, size)
+                        scale = target
+                    }
+                )
+            }
+        ) {
+            LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y + dismissY }, fit = true, maxDimension = 4096)
+        }
+        // Кнопки стоят поверх картинки, а не внутри её жестов: тап по кнопке не должен переключать панели или сдвигать фото.
+        // Внизу по центру, чтобы на низком окне не наезжать на кнопки листания у краёв.
+        if (showZoomControls) Row(
+            Modifier.align(Alignment.BottomCenter).padding(16.dp).background(Color(0x80070B10), RoundedCornerShape(24.dp)),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { zoomTo(scale / 1.5f) }, enabled = scale > 1f) {
+                Icon(Icons.Rounded.Remove, stringResource(R.string.media_zoom_out), tint = Color.White.copy(alpha = if (scale > 1f) 1f else 0.3f))
+            }
+            IconButton(onClick = { zoomTo(scale * 1.5f) }, enabled = scale < 5f) {
+                Icon(Icons.Rounded.Add, stringResource(R.string.media_zoom_in), tint = Color.White.copy(alpha = if (scale < 5f) 1f else 0.3f))
+            }
+        }
+    }
+}
+
+/** Смещение, при котором точка [point] остаётся под пальцем, когда масштаб меняется с [from] на [to]. Координаты от центра картинки. */
+internal fun offsetAroundPoint(point: Offset, center: Offset, offset: Offset, from: Float, to: Float): Offset {
+    val relative = point - center
+    return relative - (relative - offset) * (to / from)
+}
+
+/** Смещение при смене масштаба с [from] на [to] вокруг центра картинки: точка в центре остаётся на месте, пустой край не открывается. */
+internal fun offsetAroundCenter(offset: Offset, from: Float, to: Float, size: IntSize): Offset =
+    clampImageOffset(offset * (to / from), to, size)
+
+/** Смещение, которое не открывает пустой край картинки при масштабе [scale]. */
+internal fun clampImageOffset(offset: Offset, scale: Float, size: IntSize): Offset {
+    val maxX = size.width * (scale - 1) / 2
+    val maxY = size.height * (scale - 1) / 2
+    return Offset(offset.x.coerceIn(-maxX, maxX), offset.y.coerceIn(-maxY, maxY))
 }
 
 private const val VIDEO_PROGRESS_INTERVAL_MS = 250L

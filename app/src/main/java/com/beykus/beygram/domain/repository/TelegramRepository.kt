@@ -38,9 +38,29 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     fun refreshMyProfile()
     suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit>
     suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit>
+    /** Only available TDLib photo history, fetched on demand, never as part of ProfileInfo. */
+    suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.ProfilePhotosPage>
+    /** Delete the selected own Telegram profile photo, by its TDLib photo id. */
+    suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit>
+    /** Reuse an existing Telegram profile photo as the current (non-public) avatar. */
+    suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit>
 
     /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
     suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>
+    /** Pin/unpin a conversation on Telegram's main chat list. */
+    suspend fun setChatPinned(chatId: Long, pinned: Boolean): Result<Unit>
+    /** Mute indefinitely or explicitly enable notifications for one conversation. */
+    suspend fun setChatMuted(chatId: Long, muted: Boolean): Result<Unit>
+    /** Remove this conversation and its history only for the signed-in user, never for everyone. */
+    suspend fun deleteChatForSelf(chatId: Long): Result<Unit>
+    /** Block the other user from a private conversation. Refuses group/channel and self. */
+    suspend fun blockPrivateChat(chatId: Long): Result<Unit>
+    /** Create a Telegram broadcast channel; returns its new chat ID. */
+    suspend fun createChannel(title: String, description: String): Result<Long>
+    /** Current Telegram session and other authorized devices. */
+    suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>>
+    suspend fun terminateOtherSession(sessionId: Long): Result<Unit>
+    suspend fun terminateAllOtherSessions(): Result<Unit>
 
     /** Настройка аккаунта: возвращать ли непрочитанный архивный чат в основной список при новом сообщении. */
     suspend fun archiveReturnsOnNewMessage(): Result<Boolean>

@@ -148,6 +148,10 @@ private fun ReleaseNotesContent(markdown: String) {
                     Text("•", color = palette.accent, fontSize = 15.sp, modifier = Modifier.padding(end = 10.dp))
                     Text(note.text, color = palette.textPrimary, fontSize = 15.sp)
                 }
+                ReleaseNotesKind.Numbered -> Row(verticalAlignment = Alignment.Top) {
+                    Text(note.marker, color = palette.accent, fontSize = 15.sp, modifier = Modifier.padding(end = 10.dp))
+                    Text(note.text, color = palette.textPrimary, fontSize = 15.sp)
+                }
                 ReleaseNotesKind.Paragraph -> Text(
                     note.text, color = palette.textPrimary, fontSize = 15.sp
                 )

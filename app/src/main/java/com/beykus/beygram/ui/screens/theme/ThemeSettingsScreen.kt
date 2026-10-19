@@ -30,7 +30,6 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -49,8 +48,6 @@ import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.WallpaperFiles
-import com.beykus.beygram.data.appearance.chatWallpaperFromStored
-import com.beykus.beygram.data.appearance.encode
 import com.beykus.beygram.data.appearance.ThemePreset
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
@@ -61,27 +58,36 @@ import com.beykus.beygram.ui.theme.resolveTokens
 
 /**
  * Lets the user pick a palette and a brightness. The preview shows the choice as it is being made.
- * The choice reaches the rest of the app only after «Применить». Leaving the screen drops it.
+ * The choice reaches the rest of the app only after «Применить». Unapplied changes survive visiting the editor.
  */
 @Composable
-fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> Unit, onOpenEditor: (AppearanceConfig) -> Unit, onBack: () -> Unit) {
+fun ThemeSettingsScreen(
+    saved: AppearanceConfig,
+    draft: AppearanceConfig,
+    onDraftChange: (AppearanceConfig) -> Unit,
+    onSave: (AppearanceConfig) -> Unit,
+    onOpenEditor: (AppearanceConfig) -> Unit,
+    onBack: () -> Unit
+) {
     val palette = beyGramPalette()
     val systemDark = isSystemInDarkTheme()
-    var preset by rememberSaveable { mutableStateOf(saved.preset.takeUnless { it == ThemePreset.MaterialYou && !SystemColorsAvailable } ?: ThemePreset.Warm) }
-    var mode by rememberSaveable { mutableStateOf(saved.mode) }
-    // Keeps the bubble style and density that the screen does not edit, so picking a palette never resets them.
-    var wallpaper by rememberSaveable(stateSaver = WallpaperSaver) { mutableStateOf(saved.wallpaper) }
-    val draft = saved.copy(preset = preset, mode = mode, wallpaper = wallpaper)
+    val preset = draft.preset.takeUnless { it == ThemePreset.MaterialYou && !SystemColorsAvailable } ?: ThemePreset.Warm
+    val mode = draft.mode
+    val wallpaper = draft.wallpaper
+    var confirmDiscard by rememberSaveable { mutableStateOf(false) }
+    fun requestBack() {
+        if (draft != saved) confirmDiscard = true else onBack()
+    }
     // Once a picture is applied, the copies of the pictures that were only tried are no longer needed.
     val context = LocalContext.current
     LaunchedEffect(saved.wallpaper) {
         // The restored draft is kept too, so turning the screen does not delete a picture that is still on screen.
         WallpaperFiles.deleteAllExcept(context, setOfNotNull((saved.wallpaper as? ChatWallpaper.Photo)?.fileName, (wallpaper as? ChatWallpaper.Photo)?.fileName))
     }
-    BackHandler(onBack = onBack)
+    BackHandler(onBack = ::requestBack)
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.theme_title), onBack)
+        ProfileToolbar(stringResource(R.string.theme_title), ::requestBack)
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -97,27 +103,27 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
                     title = stringResource(R.string.theme_palette_warm),
                     selected = preset == ThemePreset.Warm,
                     swatch = resolveTokens(ThemePreset.Warm, mode, systemDark)
-                ) { preset = ThemePreset.Warm }
+                ) { onDraftChange(draft.copy(preset = ThemePreset.Warm)) }
                 PresetRow(
                     title = stringResource(R.string.theme_palette_graphite),
                     selected = preset == ThemePreset.Graphite,
                     swatch = resolveTokens(ThemePreset.Graphite, mode, systemDark)
-                ) { preset = ThemePreset.Graphite }
+                ) { onDraftChange(draft.copy(preset = ThemePreset.Graphite)) }
                 if (SystemColorsAvailable) {
                     PresetRow(
                         title = stringResource(R.string.theme_palette_system),
                         selected = preset == ThemePreset.MaterialYou,
                         swatch = resolveTokens(ThemePreset.MaterialYou, mode, systemDark)
-                    ) { preset = ThemePreset.MaterialYou }
+                    ) { onDraftChange(draft.copy(preset = ThemePreset.MaterialYou)) }
                 }
             }
 
             SectionTitle(stringResource(R.string.theme_brightness_title))
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(vertical = 4.dp)) {
-                BrightnessRow(stringResource(R.string.theme_brightness_system), ThemeMode.FollowSystem, mode) { mode = ThemeMode.FollowSystem }
-                BrightnessRow(stringResource(R.string.theme_brightness_light), ThemeMode.Light, mode) { mode = ThemeMode.Light }
-                BrightnessRow(stringResource(R.string.theme_brightness_dark), ThemeMode.Dark, mode) { mode = ThemeMode.Dark }
-                BrightnessRow(stringResource(R.string.theme_brightness_amoled), ThemeMode.Amoled, mode) { mode = ThemeMode.Amoled }
+                BrightnessRow(stringResource(R.string.theme_brightness_system), ThemeMode.FollowSystem, mode) { onDraftChange(draft.copy(mode = ThemeMode.FollowSystem)) }
+                BrightnessRow(stringResource(R.string.theme_brightness_light), ThemeMode.Light, mode) { onDraftChange(draft.copy(mode = ThemeMode.Light)) }
+                BrightnessRow(stringResource(R.string.theme_brightness_dark), ThemeMode.Dark, mode) { onDraftChange(draft.copy(mode = ThemeMode.Dark)) }
+                BrightnessRow(stringResource(R.string.theme_brightness_amoled), ThemeMode.Amoled, mode) { onDraftChange(draft.copy(mode = ThemeMode.Amoled)) }
             }
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).clickable { onOpenEditor(draft) }.padding(horizontal = 18.dp, vertical = 16.dp),
@@ -127,7 +133,7 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = palette.textSecondary)
             }
             SectionTitle(stringResource(R.string.wallpaper_title))
-            WallpaperSection(selected = wallpaper, saved = saved.wallpaper, onSelect = { wallpaper = it })
+            WallpaperSection(selected = wallpaper, saved = saved.wallpaper, onSelect = { onDraftChange(draft.copy(wallpaper = it)) })
             Text(stringResource(R.string.theme_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
         }
         Button(
@@ -138,6 +144,10 @@ fun ThemeSettingsScreen(saved: AppearanceConfig, onSave: (AppearanceConfig) -> U
             Text(stringResource(R.string.theme_apply))
         }
     }
+    if (confirmDiscard) ThemeDiscardDialog(
+        onKeepEditing = { confirmDiscard = false },
+        onDiscard = { confirmDiscard = false; onBack() }
+    )
 }
 
 @Composable
@@ -221,5 +231,3 @@ private fun BrightnessRow(title: String, value: ThemeMode, selected: ThemeMode, 
     }
 }
 
-/** Keeps the wallpaper draft across rotation. */
-private val WallpaperSaver = Saver<ChatWallpaper, String>(save = { it.encode() }, restore = { chatWallpaperFromStored(it) })

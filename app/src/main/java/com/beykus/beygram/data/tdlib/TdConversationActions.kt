@@ -6,6 +6,7 @@ import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -70,18 +71,49 @@ internal class TdConversationActions(
         request(TdApi.GetSupergroup(type.supergroupId)).isForum
     }
 
-    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
+    /**
+     * Темы группы с темами, в которые можно писать; null для всего остального. TDLib отдаёт до 100 тем за запрос, поэтому идём по страницам.
+     * Закрытые темы видны, если их создал этот аккаунт или он управляет темами: в закрытую тему пишут создатель и администраторы с этим правом.
+     */
+    suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = conversationResult<List<ForumTopic>?> {
+        val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup ?: return@conversationResult null
+        val supergroup = request(TdApi.GetSupergroup(type.supergroupId))
+        if (!supergroup.isForum) return@conversationResult null
+        val manageTopics = when (val status = supergroup.status) {
+            is TdApi.ChatMemberStatusCreator -> true
+            is TdApi.ChatMemberStatusAdministrator -> status.rights.canManageTopics
+            else -> false
+        }
+        val topics = mutableListOf<ForumTopic>()
+        var offsetDate = 0
+        var offsetMessageId = 0L
+        var offsetTopicId = 0
+        var pages = 0
+        while (true) {
+            val page = request(TdApi.GetForumTopics(chatId, "", offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
+            page.topics.filter { !it.info.isClosed || it.info.isOutgoing || manageTopics }
+                .mapTo(topics) { ForumTopic(it.info.forumTopicId.toLong(), it.info.name) }
+            pages++
+            if (page.topics.isEmpty() || page.nextOffsetForumTopicId == 0 || pages == MAX_FORUM_TOPIC_PAGES) break
+            offsetDate = page.nextOffsetDate
+            offsetMessageId = page.nextOffsetMessageId
+            offsetTopicId = page.nextOffsetForumTopicId
+        }
+        topics
+    }
+
+    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {
         if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_message_too_long))
-        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); clearDraft = true }, replyId, forumTopicId)
+        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); this.clearDraft = clearDraft }, replyId, forumTopicId)
     }.onFailure { recordSendFailure("text", it) }
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
-        send(chatId, media.toInputContent(caption, entities), replyId)
+        send(chatId, media.toInputContent(caption, entities), replyId, forumTopicId)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
         require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
         if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
         val replyTarget = replyId?.let {
@@ -94,6 +126,8 @@ internal class TdConversationActions(
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+            } else if (forumTopicId > 0L) {
+                topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }
         })
         messages.messages.filterNotNull().forEach { message -> history.put(map(message)); hydrateReply(message) }
@@ -227,6 +261,33 @@ internal class TdConversationActions(
         MessageContext(chatId, chat.title, messageId, (page?.messages.orEmpty().toList() + target).distinctBy { it.id }.sortedBy { it.id }.map(map))
     }
 
+    /**
+     * Поиск по всем чатам аккаунта, без фильтра по папке: chatList = null. TDLib отдаёт страницы
+     * через nextOffset, который передаётся обратно как есть.
+     */
+    suspend fun searchGlobal(query: String, offset: String, filter: GlobalSearchFilter): Result<GlobalMessagePage> = requestResult {
+        if (query.isBlank()) return@requestResult GlobalMessagePage(emptyList(), "")
+        val minDate = filter.period.minDate(System.currentTimeMillis() / 1000) ?: 0
+        val found = request(
+            TdApi.SearchMessages(
+                null,
+                query,
+                offset,
+                SEARCH_PAGE_SIZE,
+                filter.kind?.let { sharedFilter(it) },
+                filter.chatType?.let { chatTypeFilter(it) },
+                minDate,
+                0
+            )
+        )
+        GlobalMessagePage(found.messages.orEmpty().filterNotNull().map(map), found.nextOffset.orEmpty())
+    }
+    private fun chatTypeFilter(type: GlobalChatType): TdApi.SearchMessagesChatTypeFilter = when (type) {
+        GlobalChatType.Private -> TdApi.SearchMessagesChatTypeFilterPrivate()
+        GlobalChatType.Group -> TdApi.SearchMessagesChatTypeFilterGroup()
+        GlobalChatType.Channel -> TdApi.SearchMessagesChatTypeFilterChannel()
+    }
+
     /** Поиск по тексту внутри одного чата: TDLib отдаёт новые сообщения первыми, дальше страницы идут через nextFromMessageId. */
     suspend fun search(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
         val found = request(TdApi.SearchChatMessages(chatId, null, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
@@ -271,6 +332,8 @@ internal class TdConversationActions(
 }
 
 private const val TAG = "BeyGramNet"
+private const val FORUM_TOPIC_PAGE_SIZE = 100
+private const val MAX_FORUM_TOPIC_PAGES = 20
 
 internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(text.take(180)) else UiText.Res(when (media?.kind) {
     MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title
