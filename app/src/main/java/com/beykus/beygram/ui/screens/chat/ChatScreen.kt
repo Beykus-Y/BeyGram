@@ -63,11 +63,13 @@ import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
+import kotlin.math.roundToInt
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(FlowPreview::class)
@@ -272,8 +274,9 @@ fun ChatScreen(
     }
     val messages = history.messages
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
-    val messageListItems = remember(messages, pendingVideoNotes) {
-        pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + groupTelegramMediaAlbums(messages)
+    val messageListItems = remember(messages, pendingVideoNotes, scrollPosition.readBoundaryId) {
+        val items = pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + groupTelegramMediaAlbums(messages)
+        scrollPosition.readBoundaryId?.let { withUnreadSeparator(items, it) } ?: items
     }
     val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
     val currentMessageItemsByKey by rememberUpdatedState(messageItemsByKey)
@@ -388,7 +391,30 @@ fun ChatScreen(
         if (pendingVideoNotes.isNotEmpty()) listState.animateScrollToItem(0)
     }
     LaunchedEffect(chat.id, newest?.id) {
+        // With unread messages the opening position belongs to the read boundary effect below.
+        if (chat.unreadCount > 0 && !scrollPosition.readBoundaryChecked) return@LaunchedEffect
         if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) listState.animateScrollToItem(0)
+    }
+    // Открытие с непрочитанными: экран встаёт у разделителя «Непрочитанные», а не у последнего сообщения.
+    // Граница снимается один раз за открытие: просмотр отмечает сообщения прочитанными, и разделитель не должен уезжать.
+    LaunchedEffect(chat.id, history.isLoading, messages) {
+        if (scrollPosition.readBoundaryChecked || history.isLoading || messages.isEmpty()) return@LaunchedEffect
+        val boundary = history.lastReadInboxMessageId
+        if (chat.unreadCount <= 0 || boundary <= 0) { scrollPosition.readBoundaryChecked = true; return@LaunchedEffect }
+        val separatorIndex = withUnreadSeparator(messageListItems, boundary).indexOfFirst { it.unreadSeparator }
+        if (separatorIndex < 0) {
+            // Read messages are not loaded yet, so the window around the boundary is requested once.
+            if (messages.any { it.id <= boundary } || scrollPosition.readBoundaryWindowRequested) { scrollPosition.readBoundaryChecked = true; return@LaunchedEffect }
+            scrollPosition.readBoundaryWindowRequested = true
+            scope.launch { conversation.loadMessagesAround(chat.id, boundary).onFailure { scrollPosition.readBoundaryChecked = true } }
+            return@LaunchedEffect
+        }
+        // Scrolling by an offset needs the viewport height, which exists only after the first layout.
+        val viewportHeight = snapshotFlow { listState.layoutInfo.viewportSize.height }.first { it > 0 }
+        scrollPosition.readBoundaryId = boundary
+        // Negative offset lifts the separator above the bottom edge, so the unread messages below it stay on screen.
+        listState.scrollToItem(separatorIndex, -(viewportHeight * UNREAD_SEPARATOR_VIEWPORT_FRACTION).roundToInt())
+        scrollPosition.readBoundaryChecked = true
     }
     LaunchedEffect(pendingJumpId, messageListItems) {
         val target = pendingJumpId ?: return@LaunchedEffect
@@ -501,7 +527,9 @@ fun ChatScreen(
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = metrics.listPadding), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }) { listItem ->
-                if (listItem.pendingVideoNote != null) {
+                if (listItem.unreadSeparator) {
+                    UnreadMessagesSeparator()
+                } else if (listItem.pendingVideoNote != null) {
                     PendingVideoNoteBubble(listItem.pendingVideoNote)
                 } else if (listItem.mediaAlbumId != 0L) {
                     val latest = listItem.messages.maxByOrNull { it.id }

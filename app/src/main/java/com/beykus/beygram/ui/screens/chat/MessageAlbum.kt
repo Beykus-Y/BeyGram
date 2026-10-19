@@ -59,7 +59,9 @@ internal data class ChatMessageListItem(
     val messages: List<ChatMessage>,
     val mediaAlbumId: Long = 0L,
     /** Автоматический кружок, который ещё не принят TDLib; в ленте показывается вместо сообщения. */
-    val pendingVideoNote: PendingVideoNote? = null
+    val pendingVideoNote: PendingVideoNote? = null,
+    /** Разделитель «Непрочитанные»; в ленте он без сообщений. */
+    val unreadSeparator: Boolean = false
 )
 
 /** Combines messages only when TDLib supplied the same nonzero mediaAlbumId. */
