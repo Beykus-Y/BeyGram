@@ -76,7 +76,10 @@ object VideoNoteDiagnostics {
             }
         }.onFailure { Log.w(TAG, "Cannot read stored video diagnostics: ${it.javaClass.simpleName}") }
             .getOrDefault(emptyList())
-        mutableReports.value = trim(saved)
+        val retained = trim(saved)
+        mutableReports.value = retained
+        // Expired reports are removed from disk as soon as diagnostics are opened again.
+        if (retained.size != saved.size) persist(retained)
     }
 
     @Synchronized
