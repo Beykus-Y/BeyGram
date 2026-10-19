@@ -236,6 +236,86 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         synchronized(lock) { chats[chat.id] = chat; publish() }
     }
 
+    /** The gallery can only fetch what the server permits; notably personal/public photos are not in history. */
+    suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<ProfilePhotosPage> {
+        return try {
+            require(profileId > 0L && offset >= 0 && limit in 1..100)
+            val type = synchronized(lock) {
+                when {
+                    profileId == myId -> Pair(myId, null)
+                    else -> when (val chatType = chats[profileId]?.type) {
+                        is TdApi.ChatTypePrivate -> Pair(chatType.userId, null)
+                        is TdApi.ChatTypeSecret -> Pair(chatType.userId, null)
+                        else -> Pair(0L, chatType)
+                    }
+                }
+            }
+            val page = withTimeout(25_000) {
+                if (type.first > 0) {
+                    val raw = request(TdApi.GetUserProfilePhotos(type.first, offset, limit))
+                    val records = raw.photos.orEmpty().toList()
+                    // Full user info can contain the animated variant of the currently visible avatar.
+                    // The history endpoint omits some personal/public avatars, so include only data TDLib
+                    // has actually delivered for this user; never synthesize inaccessible historical media.
+                    val currentFull = if (offset == 0) synchronized(lock) { userFull[type.first]?.photo } else null
+                    val head = currentFull?.toProfilePhotoMedia { file -> files.register(file.toMediaFileState()) }
+                    val history = records.mapNotNull { it.toProfilePhotoMedia { file -> files.register(file.toMediaFileState()) } }
+                    val photos = (listOfNotNull(head) + history).distinctBy(ProfilePhotoMedia::photoId)
+                    ProfilePhotosPage(
+                        photos = photos,
+                        totalCount = maxOf(raw.totalCount, photos.size),
+                        nextOffset = offset + records.size,
+                        hasMore = records.isNotEmpty() && offset + records.size < raw.totalCount
+                    )
+                } else {
+                    // For groups/channels TDLib exposes only the current full chat photo, not a list of past photos.
+                    val current = synchronized(lock) {
+                        when (val chatType = type.second) {
+                            is TdApi.ChatTypeSupergroup -> superFull[chatType.supergroupId]?.photo
+                            is TdApi.ChatTypeBasicGroup -> groupFull[chatType.basicGroupId]?.photo
+                            else -> null
+                        }
+                    }
+                    val photos = if (offset == 0) listOfNotNull(current?.toProfilePhotoMedia { file -> files.register(file.toMediaFileState()) }) else emptyList()
+                    ProfilePhotosPage(photos, photos.size, offset + photos.size, false)
+                }
+            }
+            Result.success(page)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    suspend fun setPreviousPhoto(photoId: Long): Result<Unit> {
+        return try {
+            require(photoId > 0L && synchronized(lock) { myId > 0L })
+            withTimeout(30_000) {
+                request(TdApi.SetProfilePhoto(TdApi.InputChatPhotoPrevious(photoId), false))
+            }
+            refreshMe()
+            Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    suspend fun deleteMyPhoto(photoId: Long): Result<Unit> {
+        return try {
+            require(photoId > 0L && synchronized(lock) { myId > 0L })
+            withTimeout(30_000) { request(TdApi.DeleteProfilePhoto(photoId)) }
+            refreshMe()
+            Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     suspend fun edit(edit: ProfileEdit): Result<Unit> = runCatching {
         val current = me.value.info ?: throw UserMessageException(UiText.Res(R.string.err_profile_not_loaded))
         if (edit.firstName.trim().isEmpty()) throw UserMessageException(UiText.Res(R.string.err_name_empty))
@@ -309,7 +389,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         return ProfileInfo(
             id = user.id, title = listOf(user.firstName, user.lastName).filter { it.isNotBlank() }.joinToString(" "),
             kind = if (user.type is TdApi.UserTypeBot) ProfileKind.Bot else ProfileKind.Person,
-            photo = user.profilePhoto?.let { photo(it.small, it.big) }, firstName = user.firstName.orEmpty(), lastName = user.lastName.orEmpty(),
+            photo = user.profilePhoto?.let { p -> photo(p.small, p.big).copy(photoId = p.id) },
+            firstName = user.firstName.orEmpty(), lastName = user.lastName.orEmpty(),
             username = user.usernames?.editableUsername.orEmpty(), usernames = user.usernames?.activeUsernames.orEmpty().toList(),
             phone = user.phoneNumber.orEmpty(), bio = full?.bio?.text.orEmpty(), status = status(user),
             birthday = full?.birthdate?.let { ProfileBirthday(it.day, it.month, it.year.takeIf { year -> year > 0 }) },

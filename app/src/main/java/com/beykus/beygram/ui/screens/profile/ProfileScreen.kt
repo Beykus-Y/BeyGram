@@ -61,6 +61,9 @@ fun ProfileScreen(
     onBack: () -> Unit, onRefresh: () -> Unit, onEdit: () -> Unit,
     setPhoto: suspend (OutgoingMedia) -> Result<Unit>,
     onOpenAppearance: () -> Unit = {}, lastSeenStyle: LastSeenStyle,
+    loadProfilePhotos: suspend (Long, Int, Int) -> Result<ProfilePhotosPage> = { _, _, _ -> Result.failure(IllegalStateException("Profile photos unavailable")) },
+    deleteMyProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Profile photo deletion unavailable")) },
+    setPreviousProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Previous photo unavailable")) },
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
     onBlock: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
     onDelete: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
@@ -153,10 +156,15 @@ fun ProfileScreen(
         }
     }
     val photo = state.info?.photo
-    // Фото профиля не привязано к сообщению, поэтому у единственной страницы нет id (0).
-    if (showPhoto && photo != null) MediaViewer(
-        pages = listOf(MediaViewerItem(0L, MessageMedia(MediaKind.Photo, photo.bigFileId, photo.smallFileId, stringResource(R.string.profile_photo_title), "image/jpeg"))), selectedId = 0L,
-        onSelect = {}, observeFile = observeFile, downloadFile = downloadFile, onViewed = {}, onClose = { showPhoto = false })
+    // Profile photo ids are distinct from message ids. History loads only after the avatar is tapped.
+    if (showPhoto && photo != null) key(state.info?.id, photo.photoId, photo.bigFileId) {
+        ProfilePhotoGallery(
+            profileId = state.info?.id ?: 0L, avatar = photo, own = isOwnProfile,
+            observeFile = observeFile, downloadFile = downloadFile, loadPhotos = loadProfilePhotos,
+            deletePhoto = deleteMyProfilePhoto, setAsMain = setPreviousProfilePhoto,
+            onChanged = onRefresh, onClose = { showPhoto = false }
+        )
+    }
     pendingPhoto?.let { selected ->
         fun discard() { if (!saving) { pendingPhoto = null; scope.launch { importer.discard(selected) } } }
         BackHandler(onBack = ::discard)

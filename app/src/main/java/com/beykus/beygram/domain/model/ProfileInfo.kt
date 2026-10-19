@@ -2,7 +2,7 @@ package com.beykus.beygram.domain.model
 
 import com.beykus.beygram.domain.UiText
 
-data class AvatarPhoto(val smallFileId: Int, val bigFileId: Int)
+data class AvatarPhoto(val smallFileId: Int, val bigFileId: Int, val photoId: Long = 0L)
 
 enum class ProfileKind { Person, Bot, Group, Channel, Secret }
 

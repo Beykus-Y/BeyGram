@@ -337,7 +337,10 @@ internal fun MediaViewer(
     pages: List<MediaViewerItem>, selectedId: Long, onSelect: (Long) -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onViewed: (Long) -> Unit, onClose: () -> Unit,
     title: String? = null, subtitle: String? = null, canExport: Boolean = true, confirmExport: suspend (Long) -> Boolean = { true },
-    actions: MediaViewerActions? = null, onShowInChat: ((Long) -> Unit)? = null
+    actions: MediaViewerActions? = null, onShowInChat: ((Long) -> Unit)? = null,
+    extraFooter: (@Composable () -> Unit)? = null,
+    /** For profile galleries prefetch only thumbnails of adjacent pages, not full originals. */
+    fullFileOnlyWhenActive: Boolean = false
 ) {
     val selectedIndex = pages.indexOfFirst { it.messageId == selectedId }.coerceAtLeast(0)
     val shown = pages[selectedIndex]
@@ -383,6 +386,7 @@ internal fun MediaViewer(
                 HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { pages[it].messageId }) { page ->
                     val item = pages[page]
                     MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
+                        fullFileOnlyWhenActive = fullFileOnlyWhenActive,
                         revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                         onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
                         onDismiss = onClose, onToggleControls = { controlsVisible = !controlsVisible }, controlsVisible = controlsVisible)
@@ -432,6 +436,7 @@ internal fun MediaViewer(
             }
             externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp)) }
             fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+            extraFooter?.invoke()
         }
     }
 }
@@ -440,7 +445,7 @@ internal fun MediaViewer(
 @Composable
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    canExport: Boolean, active: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
+    canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
     onDismiss: () -> Unit, onToggleControls: () -> Unit, controlsVisible: Boolean
 ) {
     val media = item.media
@@ -460,11 +465,11 @@ private fun MediaViewerPage(
     LaunchedEffect(media.fileId, file.localPath, active, spoilerHidden) {
         if (active && !spoilerHidden && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
     }
-    LaunchedEffect(media.fileId, concealed) {
+    LaunchedEffect(media.fileId, concealed, active, fullFileOnlyWhenActive) {
         if (concealed) return@LaunchedEffect
-        // Миниатюра нужна и TGS, и фото: она показывается, пока грузится оригинал.
-        if (tgs || media.mimeType.startsWith("image/")) previewId?.let(downloadFile)
-        downloadFile(media.fileId)
+        // The profile gallery downloads adjacent previews; the full file waits for an active page.
+        if (tgs || media.mimeType.startsWith("image/") || media.mimeType.startsWith("video/")) previewId?.let(downloadFile)
+        if (!fullFileOnlyWhenActive || active) downloadFile(media.fileId)
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
@@ -493,6 +498,15 @@ private fun MediaViewerPage(
                 }
             }
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
+            path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()
+            ) {
+                LocalMediaImage(thumb.localPath!!, Modifier.weight(1f).fillMaxWidth(), fit = true)
+                Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)),
+                    color = Color.LightGray, modifier = Modifier.padding(8.dp))
+                if (file.isDownloading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                else TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
+            }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                 if (file.isDownloading) CircularProgressIndicator()
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))

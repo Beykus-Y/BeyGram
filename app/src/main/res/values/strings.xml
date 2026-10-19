@@ -903,6 +903,11 @@
     <string name="updates_install">Установить</string>
     <string name="updates_failed">Ошибка: %1$s</string>
     <string name="updates_retry_download">Повторить загрузку</string>
+    <string name="profile_gallery_position">%1$d из %2$d</string>
+    <string name="profile_gallery_retry">Не удалось загрузить историю аватарок · Повторить</string>
+    <string name="profile_gallery_set_main">Сделать основной фотографией</string>
+    <string name="profile_gallery_delete_title">Удалить фотографию профиля?</string>
+    <string name="profile_gallery_delete_warning">Это фото будет удалено из истории аватарок вашего Telegram-аккаунта. Действие необратимо.</string>
     <string name="settings_video_diagnostics_title">Диагностический режим видеосообщений</string>
     <string name="settings_video_diagnostics_hint">Измерять фактический FPS до и после обработки кружков, записывать этапы CameraX, Media3 и TDLib</string>
     <string name="settings_video_diagnostics_privacy">Выключено по умолчанию. Не сохраняет видео, аудио, переписки и пути к файлам. Последние 20 отчётов хранятся локально до 7 дней и не отправляются автоматически.</string>
