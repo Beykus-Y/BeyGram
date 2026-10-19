@@ -591,10 +591,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = conversationActions.isForum(chatId)
 
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean): Result<Unit> {
         leaveJumpWindow(chatId)
         conversationEffects.endActivity(chatId, ChatActivity.Typing)
-        return conversationActions.sendText(chatId, text, replyToMessageId, entities, forumTopicId)
+        return conversationActions.sendText(chatId, text, replyToMessageId, entities, forumTopicId, clearDraft)
     }
 
     // =========================================================================

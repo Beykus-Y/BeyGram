@@ -313,7 +313,7 @@ private fun BeyGramAppContent(
                         // Если не удалось узнать, форум ли чат, не отправляем: иначе текст уйдёт в General.
                         val forum = repository.isForumChat(chatId).getOrElse { return@ShareTargetScreen Result.failure(it) }
                         if (forum) Result.failure(UserMessageException(UiText.Res(R.string.share_forum_unsupported)))
-                        else repository.sendMessage(chatId, text)
+                        else repository.sendMessage(chatId, text, clearDraft = false)
                     },
                     onSent = { chatId ->
                         onIncomingShareHandled(incomingShare.requestId)

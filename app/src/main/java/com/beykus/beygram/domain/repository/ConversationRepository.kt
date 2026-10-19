@@ -18,7 +18,8 @@ interface ConversationRepository {
     /** Replaces the loaded history with messages around [messageId]; newer messages load on [loadLatestMessages]. False when a newer jump or latest load superseded it. */
     suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean>
     fun loadLatestMessages(chatId: Long)
-    suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit>
+    /** [clearDraft] false оставляет черновик чата нетронутым: нужно для текста из других приложений. */
+    suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit>
     suspend fun isForumChat(chatId: Long): Result<Boolean>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
