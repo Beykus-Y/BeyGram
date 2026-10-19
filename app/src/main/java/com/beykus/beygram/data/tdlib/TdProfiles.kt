@@ -277,6 +277,21 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         }
     }
 
+    suspend fun setPreviousPhoto(photoId: Long): Result<Unit> {
+        return try {
+            require(photoId > 0L && synchronized(lock) { myId > 0L })
+            withTimeout(30_000) {
+                request(TdApi.SetProfilePhoto(TdApi.InputChatPhotoPrevious(photoId), false))
+            }
+            refreshMe()
+            Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     suspend fun deleteMyPhoto(photoId: Long): Result<Unit> {
         return try {
             require(photoId > 0L && synchronized(lock) { myId > 0L })

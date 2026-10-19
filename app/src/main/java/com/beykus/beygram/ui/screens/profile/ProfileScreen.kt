@@ -63,6 +63,7 @@ fun ProfileScreen(
     onOpenAppearance: () -> Unit = {}, lastSeenStyle: LastSeenStyle,
     loadProfilePhotos: suspend (Long, Int, Int) -> Result<ProfilePhotosPage> = { _, _, _ -> Result.failure(IllegalStateException("Profile photos unavailable")) },
     deleteMyProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Profile photo deletion unavailable")) },
+    setPreviousProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Previous photo unavailable")) },
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
     hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)? = null,
@@ -141,7 +142,8 @@ fun ProfileScreen(
         ProfilePhotoGallery(
             profileId = state.info?.id ?: 0L, avatar = photo, own = isOwnProfile,
             observeFile = observeFile, downloadFile = downloadFile, loadPhotos = loadProfilePhotos,
-            deletePhoto = deleteMyProfilePhoto, onDeleted = onRefresh, onClose = { showPhoto = false }
+            deletePhoto = deleteMyProfilePhoto, setAsMain = setPreviousProfilePhoto,
+            onChanged = onRefresh, onClose = { showPhoto = false }
         )
     }
     pendingPhoto?.let { selected ->

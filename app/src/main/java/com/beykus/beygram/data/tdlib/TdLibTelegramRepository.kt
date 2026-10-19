@@ -377,6 +377,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int) =
         profiles.loadProfilePhotos(profileId, offset, limit)
     override suspend fun deleteMyProfilePhoto(photoId: Long) = profiles.deleteMyPhoto(photoId)
+    override suspend fun setPreviousProfilePhoto(photoId: Long) = profiles.setPreviousPhoto(photoId)
 
     /**
      * Промежуточный кэш чатов: TDLib отдаёт чаты через несколько обновлений,

@@ -42,6 +42,8 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.ProfilePhotosPage>
     /** Delete the selected own Telegram profile photo, by its TDLib photo id. */
     suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit>
+    /** Reuse an existing Telegram profile photo as the current (non-public) avatar. */
+    suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit>
 
     /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
     suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>

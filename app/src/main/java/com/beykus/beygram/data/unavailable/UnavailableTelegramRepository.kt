@@ -75,6 +75,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit> = unavailable()
     override suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<ProfilePhotosPage> = unavailable()
     override suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit> = unavailable()
+    override suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit> = unavailable()
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = unavailable()
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = unavailable()
     override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = unavailable()

@@ -51,7 +51,8 @@ internal fun ProfilePhotoGallery(
     downloadFile: (Int) -> Unit,
     loadPhotos: suspend (Long, Int, Int) -> Result<ProfilePhotosPage>,
     deletePhoto: suspend (Long) -> Result<Unit>,
-    onDeleted: () -> Unit,
+    setAsMain: suspend (Long) -> Result<Unit>,
+    onChanged: () -> Unit,
     onClose: () -> Unit
 ) {
     val title = stringResource(R.string.profile_photo_title)
@@ -70,6 +71,7 @@ internal fun ProfilePhotoGallery(
     var retry by remember(profileId, currentId) { mutableIntStateOf(0) }
     var deleteTarget by remember(profileId, currentId) { mutableStateOf<Long?>(null) }
     var deleting by remember(profileId, currentId) { mutableStateOf(false) }
+    var settingMain by remember(profileId, currentId) { mutableStateOf(false) }
     val latestLoader by rememberUpdatedState(loadPhotos)
     val scope = rememberCoroutineScope()
 
@@ -108,6 +110,22 @@ internal fun ProfilePhotoGallery(
             onForward = {}, onEdit = {}, onDelete = { deleteTarget = selectedId }
         ) else null,
         extraFooter = {
+            if (own && selectedId > 0L && selectedId != currentId) {
+                TextButton(enabled = !settingMain, onClick = {
+                    scope.launch {
+                        settingMain = true
+                        try {
+                            setAsMain(selectedId).fold(
+                                onSuccess = { onChanged(); onClose() },
+                                onFailure = { error = it.localizedMessage ?: it.message ?: "" }
+                            )
+                        } finally { settingMain = false }
+                    }
+                }) {
+                    if (settingMain) CircularProgressIndicator()
+                    else Text(stringResource(R.string.profile_gallery_set_main))
+                }
+            }
             if (loading) LinearProgressIndicator()
             error?.let {
                 TextButton(onClick = { error = null; retry++ }) {
@@ -127,7 +145,7 @@ internal fun ProfilePhotoGallery(
                     deleting = true
                     try {
                         deletePhoto(id).fold(
-                            onSuccess = { deleteTarget = null; onDeleted(); onClose() },
+                            onSuccess = { deleteTarget = null; onChanged(); onClose() },
                             onFailure = { error = it.localizedMessage ?: it.message ?: ""; deleteTarget = null }
                         )
                     } finally { deleting = false }
