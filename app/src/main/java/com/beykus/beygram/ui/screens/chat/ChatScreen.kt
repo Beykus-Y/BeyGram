@@ -395,6 +395,9 @@ fun ChatScreen(
             }.debounce(350).distinctUntilChanged().collect { ids -> if (ids.isNotEmpty()) conversation.messagesVisible(chat.id, ids) }
         }
     }
+    // LaunchedEffect lives across recompositions; rememberUpdatedState keeps the collector on fresh history/row counts.
+    val autoLoadHistory by rememberUpdatedState(history)
+    val autoLoadRowCount by rememberUpdatedState(messageListItems.size)
     // Reverse LazyColumn: larger visible indexes are OLDER messages. Prefetch when the user approaches
     // the loaded edge, but wait for the unread/focused opening to settle, and stop on errors until retry.
     // beginLoad() in the repository also prevents duplicate in-flight requests.
@@ -402,10 +405,10 @@ fun ChatScreen(
         snapshotFlow {
             shouldAutoLoadOlderMessages(
                 lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: -1,
-                loadedItemCount = messageListItems.size,
-                hasOlderMessages = history.hasOlderMessages,
-                isLoading = history.isLoading,
-                hasError = history.error != null,
+                loadedItemCount = autoLoadRowCount,
+                hasOlderMessages = autoLoadHistory.hasOlderMessages,
+                isLoading = autoLoadHistory.isLoading,
+                hasError = autoLoadHistory.error != null,
                 openingSettled = scrollPosition.readBoundaryChecked
             )
         }.distinctUntilChanged().collect { shouldLoad ->
@@ -597,14 +600,14 @@ fun ChatScreen(
                         onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
                 }
             }
-            if (history.error != null) item(key = "history_error") {
+            history.error?.let { historyError -> item(key = "history_error") {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(history.error.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp))
+                    Text(historyError.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp))
                     TextButton(onClick = { conversation.loadOlderMessages(chat.id) }) {
                         Text(stringResource(R.string.common_retry))
                     }
                 }
-            }
+            } }
             if (history.isLoading) item(key = "history_loading") {
                 Text(stringResource(R.string.chat_history_loading), color = palette.textSecondary,
                     modifier = Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center)
