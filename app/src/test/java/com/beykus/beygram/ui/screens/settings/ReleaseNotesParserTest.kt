@@ -30,13 +30,29 @@ class ReleaseNotesParserTest {
     }
 
     @Test
-    fun supportsPlainParagraphsAndReadableLinks() {
+    fun supportsReadableLinksAndMarkupWithoutRawSyntax() {
         val result = parseReleaseNotes(
-            "## Улучшения\n- Открыть [подробности](https://github.com/example/repo)\nТекст с `кодом`."
+            "## Улучшения\n- Открыть [подробности](https://github.com/example/repo)\n\nТекст с `кодом` и *курсивом*."
         )
         assertEquals(3, result.size)
         assertEquals("Открыть подробности", result[1].text)
-        assertEquals("Текст с кодом.", result[2].text)
+        assertEquals("Текст с кодом и курсивом.", result[2].text)
+    }
+
+    @Test
+    fun keepsNumberedItemsAndJoinsWrappedLinesIntoTheItem() {
+        val result = parseReleaseNotes(
+            "#### Подробности\n1. Первый пункт\nпродолжение пункта\n2) Второй пункт\n* Маркер звёздочкой"
+        )
+        assertEquals(
+            listOf(
+                ReleaseNotesLine(ReleaseNotesKind.Section, "Подробности"),
+                ReleaseNotesLine(ReleaseNotesKind.Numbered, "Первый пункт продолжение пункта", marker = "1."),
+                ReleaseNotesLine(ReleaseNotesKind.Numbered, "Второй пункт", marker = "2."),
+                ReleaseNotesLine(ReleaseNotesKind.Bullet, "Маркер звёздочкой")
+            ),
+            result
+        )
     }
 
     @Test
