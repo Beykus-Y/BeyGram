@@ -50,6 +50,7 @@ import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ConnectionDiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.DiagnosticsScreen
+import com.beykus.beygram.ui.screens.diagnostics.ResourcesScreen
 import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
@@ -643,8 +644,10 @@ private fun BeyGramAppContent(
                 AppRoute.Diagnostics -> DiagnosticsScreen(
                     connectionState = connectionState,
                     onBack = { routeName = AppRoute.Settings.name },
-                    onReportProblem = { routeName = AppRoute.ReportProblem.name }
+                    onReportProblem = { routeName = AppRoute.ReportProblem.name },
+                    onResources = { routeName = AppRoute.Resources.name }
                 )
+                AppRoute.Resources -> ResourcesScreen(onBack = { routeName = AppRoute.Diagnostics.name })
                 AppRoute.ReportProblem -> ReportProblemScreen(
                     repository = repository,
                     connectionState = connectionState,
