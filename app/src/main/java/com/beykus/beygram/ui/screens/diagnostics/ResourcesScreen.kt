@@ -74,7 +74,13 @@ fun ResourcesScreen(onBack: () -> Unit) {
     var samples by remember { mutableStateOf(emptyList<ResourceSample>()) }
     val recorder = remember { ResourceSessionRecorder() }
     var recording by remember { mutableStateOf(false) }
-    var reportText by remember { mutableStateOf<String?>(null) }
+    var reportSamples by remember { mutableStateOf<List<ResourceSample>?>(null) }
+    val cpuCores = Runtime.getRuntime().availableProcessors()
+    val stopRecording: () -> Unit = {
+        recording = false
+        val recorded = recorder.stop()
+        if (recorded.isNotEmpty()) reportSamples = recorded
+    }
     BackHandler(onBack = onBack)
 
     LaunchedEffect(lifecycleOwner) {
@@ -82,17 +88,22 @@ fun ResourcesScreen(onBack: () -> Unit) {
             val sampler = ResourceSampler()
             val history = BoundedBuffer<ResourceSample>(RESOURCE_HISTORY_CAPACITY)
             samples = emptyList()
-            while (true) {
-                history.add(withContext(Dispatchers.Default) { sampler.sample() })
-                samples = history.snapshot()
-                if (recording) {
-                    recorder.add(samples.last())
-                    if (recorder.isFull) {
-                        recording = false
-                        reportText = formatResourceReport(recorder.stop(), Runtime.getRuntime().availableProcessors())
+            try {
+                while (true) {
+                    history.add(withContext(Dispatchers.Default) { sampler.sample() })
+                    samples = history.snapshot()
+                    if (recording) {
+                        recorder.add(samples.last())
+                        if (recorder.isFull) stopRecording()
                     }
+                    delay(RESOURCE_SAMPLE_INTERVAL_MILLIS)
                 }
-                delay(RESOURCE_SAMPLE_INTERVAL_MILLIS)
+            } finally {
+                // Сворачивание и уход с экрана прерывают запись: фон в неё не попадает.
+                if (recording) {
+                    recording = false
+                    recorder.stop()
+                }
             }
         }
     }
@@ -100,15 +111,17 @@ fun ResourcesScreen(onBack: () -> Unit) {
     val latest = samples.lastOrNull()
     val unavailable = stringResource(R.string.resources_unavailable)
 
-    reportText?.let { report ->
+    reportSamples?.let { recorded ->
+        val report = formatResourceReport(recorded, cpuCores)
+        val minutes = (recorded.last().counters.timestampMillis - recorded.first().counters.timestampMillis) / 60_000
         AlertDialog(
-            onDismissRequest = { reportText = null },
+            onDismissRequest = { reportSamples = null },
             title = { Text(stringResource(R.string.resources_report_title)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text(stringResource(R.string.resources_report_note), fontSize = 13.sp, lineHeight = 17.sp)
+                    Text(stringResource(R.string.resources_report_length, recorded.size, minutes.toInt()), fontSize = 14.sp)
                     Spacer(Modifier.height(8.dp))
-                    Text(report, fontSize = 12.sp, lineHeight = 16.sp)
+                    Text(stringResource(R.string.resources_report_note), fontSize = 13.sp, lineHeight = 17.sp)
                 }
             },
             confirmButton = {
@@ -117,12 +130,14 @@ fun ResourcesScreen(onBack: () -> Unit) {
                         .setType("text/plain")
                         .putExtra(Intent.EXTRA_TEXT, report)
                     context.startActivity(Intent.createChooser(intent, context.getString(R.string.resources_share_chooser)))
-                    reportText = null
+                    reportSamples = null
                 }) { Text(stringResource(R.string.resources_share)) }
             },
             dismissButton = {
-                TextButton(onClick = { reportText = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
+                TextButton(onClick = { reportSamples = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
             }
+        )
+    }
         )
     }
 
@@ -140,8 +155,7 @@ fun ResourcesScreen(onBack: () -> Unit) {
             Button(
                 onClick = {
                     if (recording) {
-                        recording = false
-                        reportText = formatResourceReport(recorder.stop(), Runtime.getRuntime().availableProcessors())
+                        stopRecording()
                     } else {
                         recorder.start()
                         recording = true
