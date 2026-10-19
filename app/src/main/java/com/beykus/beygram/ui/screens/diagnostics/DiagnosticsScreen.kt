@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -60,7 +61,8 @@ import kotlinx.coroutines.launch
 fun DiagnosticsScreen(
     connectionState: TelegramConnectionState,
     onBack: () -> Unit,
-    onReportProblem: () -> Unit
+    onReportProblem: () -> Unit,
+    onResources: () -> Unit
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
@@ -87,6 +89,13 @@ fun DiagnosticsScreen(
                     title = stringResource(R.string.diagnostics_report_problem),
                     hint = stringResource(R.string.diagnostics_report_problem_hint),
                     onClick = onReportProblem
+                )
+                HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+                DiagnosticsLink(
+                    icon = Icons.Rounded.Speed,
+                    title = stringResource(R.string.diagnostics_resources),
+                    hint = stringResource(R.string.diagnostics_resources_hint),
+                    onClick = onResources
                 )
                 HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
                 DiagnosticsLink(

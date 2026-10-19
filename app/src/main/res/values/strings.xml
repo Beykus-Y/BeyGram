@@ -781,6 +781,19 @@
     <string name="diagnostics_view_close">Закрыть</string>
     <string name="diagnostics_view_loading">Готовим данные…</string>
     <string name="diagnostics_view_failed">Не удалось подготовить данные</string>
+    <string name="diagnostics_resources">Ресурсы BeyGram</string>
+    <string name="diagnostics_resources_hint">Загрузка процессора, память и сеть самого приложения</string>
+    <string name="resources_title">Ресурсы BeyGram</string>
+    <string name="resources_intro">Показатели самого приложения. Обновляются каждые 2 секунды, пока открыт этот экран.</string>
+    <string name="resources_unavailable">недоступно</string>
+    <string name="resources_cpu">Процессор (от всей мощности устройства)</string>
+    <string name="resources_heap">Память Java</string>
+    <string name="resources_heap_value">занято %1$s из %2$s</string>
+    <string name="resources_native">Нативная память</string>
+    <string name="resources_network">Сеть (трафик этого приложения)</string>
+    <string name="resources_traffic_total">Всего: приём %1$s, отправка %2$s</string>
+    <string name="resources_traffic_rate">Сейчас: приём %1$s/с, отправка %2$s/с</string>
+    <string name="resources_network_note">Считается по UID приложения. Прокси и loopback могут учитываться иначе, это не точный трафик Telegram.</string>
 
     <string name="report_back">Назад</string>
     <string name="report_title">Сообщить о проблеме</string>
