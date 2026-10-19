@@ -3,6 +3,7 @@ package com.beykus.beygram
 import android.graphics.Color
 import android.os.Bundle
 import android.content.Intent
+import android.os.Build
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,6 +22,7 @@ import androidx.compose.runtime.setValue
 import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationIntents
 import com.beykus.beygram.notifications.NotificationRuntime
+import android.net.Uri
 import com.beykus.beygram.share.IncomingShare
 import com.beykus.beygram.share.IncomingShareParser
 import androidx.compose.ui.Modifier
@@ -42,7 +44,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState != null) {
             if (savedInstanceState.getBoolean("notification_pending")) notificationRequest = NotificationOpenRequest(savedInstanceState.getLong("notification_token"),
                 savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"))
-            if (savedInstanceState.containsKey("share_text")) incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), savedInstanceState.getString("share_text").orEmpty(), savedInstanceState.getBoolean("share_file"))
+            if (savedInstanceState.containsKey("share_text")) incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), savedInstanceState.getString("share_text").orEmpty(), restoredUris(savedInstanceState))
         } else {
             acceptNotificationIntent(intent)
             acceptShareIntent(intent)
@@ -91,14 +93,37 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
         notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy) }
-        incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text); outState.putBoolean("share_file", it.fileUnsupported) }
+        incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text); outState.putParcelableArrayList("share_uris", ArrayList(it.uris)) }
         super.onSaveInstanceState(outState)
     }
-    /** Текст из другого приложения: сохраняем его до выбора чата; отправка начнётся только после подтверждения на экране. */
+    /** Текст и файлы из другого приложения: сохраняем до выбора чата; отправка начнётся только после подтверждения на экране. */
     private fun acceptShareIntent(intent: Intent?) {
-        val requestId = SystemClock.elapsedRealtimeNanos()
-        incomingShare = IncomingShareParser.from(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT), intent?.hasExtra(Intent.EXTRA_STREAM) == true, requestId)
+        val shared = IncomingShareParser.from(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT), streamUris(intent), SystemClock.elapsedRealtimeNanos())
+        // Чужой intent без содержимого не должен стирать уже принятый запрос.
+        if (shared != null) incomingShare = shared
     }
+
+    private fun streamUris(intent: Intent?): List<Uri> {
+        if (intent == null) return emptyList()
+        return when (intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(singleStream(intent))
+            Intent.ACTION_SEND_MULTIPLE -> multipleStreams(intent)
+            else -> emptyList()
+        }
+    }
+
+    // minSdk 29: до API 33 нужен устаревший перегруженный вызов, без типа.
+    @Suppress("DEPRECATION")
+    private fun singleStream(intent: Intent): Uri? =
+        if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java) else intent.getParcelableExtra(Intent.EXTRA_STREAM)
+
+    @Suppress("DEPRECATION")
+    private fun multipleStreams(intent: Intent): List<Uri> =
+        (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java) else intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)).orEmpty()
+
+    @Suppress("DEPRECATION")
+    private fun restoredUris(bundle: Bundle): List<Uri> =
+        (if (Build.VERSION.SDK_INT >= 33) bundle.getParcelableArrayList("share_uris", Uri::class.java) else bundle.getParcelableArrayList<Uri>("share_uris")).orEmpty()
     private fun acceptNotificationIntent(intent: Intent?) {
         if (intent == null || intent.action !in listOf(NotificationIntents.OPEN_CHAT, NotificationIntents.OPEN_SETTINGS, NotificationIntents.OPEN_PROXY) || !NotificationIntents.valid(this, intent)) return
         when (intent?.action) {
