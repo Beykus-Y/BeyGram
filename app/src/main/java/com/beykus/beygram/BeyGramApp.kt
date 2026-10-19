@@ -81,6 +81,7 @@ import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyRestoreDialog
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
 import com.beykus.beygram.share.IncomingShare
+import com.beykus.beygram.share.ShareSessions
 import com.beykus.beygram.ui.screens.share.ShareTargetScreen
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -310,9 +311,17 @@ private fun BeyGramAppContent(
         val shareChats by repository.chats.collectAsStateWithLifecycle()
         val shareArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
         val shareCaptionLimit = repository.messageLimits.collectAsStateWithLifecycle().value.caption
+        // Отправка идёт в этой сессии. Пока она не закончилась, диалог не закрывается: иначе результат и частичная отправка пропадают вместе с ним.
+        val shareSession = remember(incomingShare.requestId) { ShareSessions.of(context, incomingShare.requestId, incomingShare.uris, incomingShare.text) }
+        val shareSending = shareSession.sending
         Dialog(
-            onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
-            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+            onDismissRequest = { if (!shareSending) onIncomingShareHandled(incomingShare.requestId) },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+                dismissOnBackPress = !shareSending,
+                dismissOnClickOutside = !shareSending
+            )
         ) {
             // Новый запрос из «Поделиться» получает свежее состояние выбора, даже если диалог уже открыт.
             key(incomingShare.requestId) {
@@ -320,6 +329,7 @@ private fun BeyGramAppContent(
                     requestId = incomingShare.requestId,
                     text = incomingShare.text,
                     uris = incomingShare.uris,
+                    session = shareSession,
                     captionLimit = shareCaptionLimit,
                     chats = shareChats + shareArchivedChats,
                     loadTopics = { chatId -> repository.forumTopics(chatId) },
