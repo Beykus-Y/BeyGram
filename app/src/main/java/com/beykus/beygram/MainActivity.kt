@@ -21,6 +21,8 @@ import androidx.compose.runtime.setValue
 import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationIntents
 import com.beykus.beygram.notifications.NotificationRuntime
+import com.beykus.beygram.share.IncomingShare
+import com.beykus.beygram.share.IncomingShareParser
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
@@ -34,12 +36,17 @@ import com.beykus.beygram.ui.theme.resolveTokens
 
 class MainActivity : ComponentActivity() {
     private var notificationRequest by mutableStateOf<NotificationOpenRequest?>(null)
+    private var incomingShare by mutableStateOf<IncomingShare?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null) {
             if (savedInstanceState.getBoolean("notification_pending")) notificationRequest = NotificationOpenRequest(savedInstanceState.getLong("notification_token"),
                 savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"))
-        } else acceptNotificationIntent(intent)
+            if (savedInstanceState.containsKey("share_text")) incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), savedInstanceState.getString("share_text").orEmpty())
+        } else {
+            acceptNotificationIntent(intent)
+            acceptShareIntent(intent)
+        }
         enableEdgeToEdge()
 
         setContent {
@@ -70,6 +77,8 @@ class MainActivity : ComponentActivity() {
                         BeyGramApp(
                             notificationRequest = notificationRequest,
                             onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
+                            incomingShare = incomingShare,
+                            onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null },
                             appearance = config,
                             onAppearanceChange = appearance::save
                         )
@@ -78,11 +87,17 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptNotificationIntent(intent) }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptNotificationIntent(intent); acceptShareIntent(intent) }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
         notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy) }
+        incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text) }
         super.onSaveInstanceState(outState)
+    }
+    /** Текст из другого приложения: сохраняем его до выбора чата; отправка начнётся только после подтверждения на экране. */
+    private fun acceptShareIntent(intent: Intent?) {
+        val text = IncomingShareParser.textOf(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)) ?: return
+        incomingShare = IncomingShare(SystemClock.elapsedRealtimeNanos(), text)
     }
     private fun acceptNotificationIntent(intent: Intent?) {
         if (intent == null || intent.action !in listOf(NotificationIntents.OPEN_CHAT, NotificationIntents.OPEN_SETTINGS, NotificationIntents.OPEN_PROXY) || !NotificationIntents.valid(this, intent)) return

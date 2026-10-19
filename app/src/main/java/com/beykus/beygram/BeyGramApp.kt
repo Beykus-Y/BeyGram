@@ -75,6 +75,10 @@ import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
 import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyRestoreDialog
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
+import com.beykus.beygram.share.IncomingShare
+import com.beykus.beygram.ui.screens.share.ShareTargetScreen
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
@@ -87,7 +91,9 @@ fun BeyGramApp(
     appearance: AppearanceConfig,
     onAppearanceChange: (AppearanceConfig) -> Unit,
     notificationRequest: NotificationOpenRequest? = null,
-    onNotificationHandled: (Long) -> Unit = {}
+    onNotificationHandled: (Long) -> Unit = {},
+    incomingShare: IncomingShare? = null,
+    onIncomingShareHandled: (Long) -> Unit = {}
 ) {
     val context = LocalContext.current
     val videoMessageSettings = remember(context) { VideoMessageSettingsStore(context) }
@@ -127,7 +133,9 @@ fun BeyGramApp(
         recordingSettings = videoMessageSettings,
         lastSeenSettings = lastSeenSettings,
         notificationRequest = notificationRequest,
-        onNotificationHandled = onNotificationHandled
+        onNotificationHandled = onNotificationHandled,
+        incomingShare = incomingShare,
+        onIncomingShareHandled = onIncomingShareHandled
     )
 }
 
@@ -142,7 +150,9 @@ private fun BeyGramAppContent(
     recordingSettings: VideoMessageSettingsStore,
     lastSeenSettings: LastSeenSettingsStore,
     notificationRequest: NotificationOpenRequest?,
-    onNotificationHandled: (Long) -> Unit
+    onNotificationHandled: (Long) -> Unit,
+    incomingShare: IncomingShare?,
+    onIncomingShareHandled: (Long) -> Unit
 ) {
     // ---- Реактивное состояние ------------------------------------------------
     val authState by repository.authState.collectAsStateWithLifecycle()
@@ -283,6 +293,33 @@ private fun BeyGramAppContent(
             else noticeError = (result.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.err_app_open_chat_failed)
         }
         onNotificationHandled(request.token)
+    }
+    // Текст из другого приложения выбирает чат и подтверждает отправку на отдельном экране поверх приложения.
+    if (incomingShare != null && authState == AuthState.Ready) {
+        val shareChats by repository.chats.collectAsStateWithLifecycle()
+        Dialog(
+            onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        ) {
+            ShareTargetScreen(
+                text = incomingShare.text,
+                chats = shareChats,
+                sendText = { chatId, text ->
+                    if (repository.isForumChat(chatId).getOrDefault(false)) {
+                        Result.failure(UserMessageException(UiText.Res(R.string.share_forum_unsupported)))
+                    } else {
+                        repository.sendMessage(chatId, text)
+                    }
+                },
+                onSent = { chatId ->
+                    onIncomingShareHandled(incomingShare.requestId)
+                    selectedChatId = chatId
+                    chatBackRouteName = AppRoute.Chats.name
+                    routeName = AppRoute.Chat.name
+                },
+                onCancel = { onIncomingShareHandled(incomingShare.requestId) }
+            )
+        }
     }
 
     // ---- Реактивная навигация по AuthState -----------------------------------
