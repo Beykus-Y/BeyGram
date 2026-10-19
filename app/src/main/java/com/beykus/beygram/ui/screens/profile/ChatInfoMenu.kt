@@ -5,9 +5,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 
 /** Profile actions: no destructive RPC is fired until a confirmation has been accepted. */
@@ -23,6 +25,7 @@ internal fun ChatInfoMenu(
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
     var confirmation by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     Box {
@@ -53,7 +56,7 @@ internal fun ChatInfoMenu(
                         busy = false
                         result.fold(
                             { confirmation = null; if (kind == "delete") onDeleted() },
-                            { error = it.localizedMessage ?: it.message }
+                            { error = it.userMessage(context, R.string.feature_action_failed) }
                         )
                     }
                 }) { Text(stringResource(R.string.feature_confirm), color = palette.danger) }

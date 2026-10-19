@@ -7,11 +7,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 
 /** Creates a broadcast channel; never creates it until the explicit button is pressed. */
@@ -19,6 +21,7 @@ import kotlinx.coroutines.launch
 fun CreateChannelScreen(onBack: () -> Unit, create: suspend (String, String) -> Result<Long>, onCreated: (Long) -> Unit) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -38,7 +41,7 @@ fun CreateChannelScreen(onBack: () -> Unit, create: suspend (String, String) -> 
                 onClick = {
                     scope.launch {
                         busy = true; error = null
-                        try { create(title, description).fold(onCreated, { error = it.localizedMessage ?: it.message }) }
+                        try { create(title, description).fold(onCreated, { error = it.userMessage(context, R.string.feature_action_failed) }) }
                         finally { busy = false }
                     }
                 }
