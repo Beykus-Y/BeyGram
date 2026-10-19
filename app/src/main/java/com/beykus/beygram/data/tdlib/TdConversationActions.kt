@@ -71,11 +71,14 @@ internal class TdConversationActions(
         request(TdApi.GetSupergroup(type.supergroupId)).isForum
     }
 
-    /** Темы группы с темами; null для всего остального. Первая страница: TDLib отдаёт до 100 тем за запрос. */
+    /**
+     * Темы группы с темами, в которые можно писать; null для всего остального. Первая страница: TDLib отдаёт до 100 тем за запрос.
+     * Закрытые темы скрыты, если их создал не этот аккаунт: в них могут писать только создатель и администраторы с правом управления темами.
+     */
     suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = conversationResult<List<ForumTopic>?> {
         val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup ?: return@conversationResult null
         if (!request(TdApi.GetSupergroup(type.supergroupId)).isForum) return@conversationResult null
-        request(TdApi.GetForumTopics(chatId, "", 0, 0L, 0, 100)).topics.map { ForumTopic(it.info.forumTopicId.toLong(), it.info.name) }
+        request(TdApi.GetForumTopics(chatId, "", 0, 0L, 0, 100)).topics.filter { !it.info.isClosed || it.info.isOutgoing }.map { ForumTopic(it.info.forumTopicId.toLong(), it.info.name) }
     }
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {
