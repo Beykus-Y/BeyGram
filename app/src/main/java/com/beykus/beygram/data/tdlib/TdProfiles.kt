@@ -243,9 +243,16 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 if (type.first > 0) {
                     val raw = request(TdApi.GetUserProfilePhotos(type.first, offset, limit))
                     val records = raw.photos.orEmpty().toList()
+                    // Full user info can contain the animated variant of the currently visible avatar.
+                    // The history endpoint omits some personal/public avatars, so include only data TDLib
+                    // has actually delivered for this user; never synthesize inaccessible historical media.
+                    val currentFull = if (offset == 0) synchronized(lock) { userFull[type.first]?.photo } else null
+                    val head = currentFull?.toProfilePhotoMedia { file -> files.register(file.toMediaFileState()) }
+                    val history = records.mapNotNull { it.toProfilePhotoMedia { file -> files.register(file.toMediaFileState()) } }
+                    val photos = (listOfNotNull(head) + history).distinctBy(ProfilePhotoMedia::photoId)
                     ProfilePhotosPage(
-                        photos = records.mapNotNull { it.toProfilePhotoMedia { file -> files.register(file.toMediaFileState()) } },
-                        totalCount = raw.totalCount,
+                        photos = photos,
+                        totalCount = maxOf(raw.totalCount, photos.size),
                         nextOffset = offset + records.size,
                         hasMore = records.isNotEmpty() && offset + records.size < raw.totalCount
                     )
