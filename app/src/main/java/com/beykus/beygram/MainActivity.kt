@@ -127,7 +127,10 @@ class MainActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     private fun restoredUris(bundle: Bundle): List<Uri> =
-        (if (Build.VERSION.SDK_INT >= 33) bundle.getParcelableArrayList("share_uris", Uri::class.java) else bundle.getParcelableArrayList<Uri>("share_uris")).orEmpty()
+        IncomingShareParser.checkUris(
+            (if (Build.VERSION.SDK_INT >= 33) bundle.getParcelableArrayList("share_uris", Uri::class.java) else bundle.getParcelableArrayList<Uri>("share_uris")).orEmpty(),
+            packageName,
+        ).accepted
     private fun acceptNotificationIntent(intent: Intent?) {
         if (intent == null || intent.action !in listOf(NotificationIntents.OPEN_CHAT, NotificationIntents.OPEN_SETTINGS, NotificationIntents.OPEN_PROXY) || !NotificationIntents.valid(this, intent)) return
         when (intent?.action) {

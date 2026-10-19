@@ -29,9 +29,14 @@ object IncomingShareParser {
     /**
      * Принимаем только `content://` от чужих приложений. `file://` открывает любой путь с правами BeyGram,
      * включая базу TDLib; свой FileProvider отдаёт скачанные медиа и диагностику.
+     * Адрес с `userId@` или портом отбрасываем: ContentResolver отрезает `userId@` и откроет наш FileProvider.
      */
-    fun isForeignContent(scheme: String?, authority: String?, ownPackage: String): Boolean =
-        scheme == SCHEME_CONTENT && authority != null && authority !in BEYGRAM_FILE_AUTHORITIES && authority != "$ownPackage.files"
+    fun isForeignContent(scheme: String?, authority: String?, ownPackage: String): Boolean {
+        if (scheme?.lowercase() != SCHEME_CONTENT || authority.isNullOrEmpty()) return false
+        if ('@' in authority || ':' in authority) return false
+        val name = authority.lowercase()
+        return name !in BEYGRAM_FILE_AUTHORITIES && !name.startsWith(ownPackage.lowercase())
+    }
 
     fun checkUris(uris: List<Uri>, ownPackage: String): ShareUriCheck {
         val accepted = uris.filter { isForeignContent(it.scheme, it.authority, ownPackage) }

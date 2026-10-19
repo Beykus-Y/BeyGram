@@ -48,5 +48,28 @@ class IncomingShareParserTest {
     @Test fun missingSchemeOrAuthorityIsRejected() {
         assertFalse(IncomingShareParser.isForeignContent(null, null, "com.beykus.beygram"))
         assertFalse(IncomingShareParser.isForeignContent("content", null, "com.beykus.beygram"))
+        assertFalse(IncomingShareParser.isForeignContent("content", "", "com.beykus.beygram"))
+    }
+
+    @Test fun userInfoInAuthorityIsRejected() {
+        assertFalse(IncomingShareParser.isForeignContent("content", "0@com.beykus.beygram.files", "com.beykus.beygram"))
+        assertFalse(IncomingShareParser.isForeignContent("content", "0@com.beykus.beygram.dev.files", "com.beykus.beygram.dev"))
+        assertFalse(IncomingShareParser.isForeignContent("content", "10@com.example.files", "com.beykus.beygram"))
+    }
+
+    @Test fun portInAuthorityIsRejected() {
+        assertFalse(IncomingShareParser.isForeignContent("content", "com.beykus.beygram.files:1", "com.beykus.beygram"))
+        assertFalse(IncomingShareParser.isForeignContent("content", "com.example:443", "com.beykus.beygram"))
+    }
+
+    @Test fun authorityComparisonIgnoresCase() {
+        assertFalse(IncomingShareParser.isForeignContent("content", "COM.BEYKUS.BEYGRAM.FILES", "com.beykus.beygram"))
+        assertFalse(IncomingShareParser.isForeignContent("content", "Com.Beykus.Beygram.Dev.Files", "com.beykus.beygram.dev"))
+        assertFalse(IncomingShareParser.isForeignContent("CONTENT", "com.beykus.beygram.files", "com.beykus.beygram"))
+    }
+
+    @Test fun anyAuthorityOfOwnPackageIsRejected() {
+        assertFalse(IncomingShareParser.isForeignContent("content", "com.beykus.beygram.dev.media", "com.beykus.beygram.dev"))
+        assertFalse(IncomingShareParser.isForeignContent("content", "com.beykus.beygram.media", "com.beykus.beygram"))
     }
 }
