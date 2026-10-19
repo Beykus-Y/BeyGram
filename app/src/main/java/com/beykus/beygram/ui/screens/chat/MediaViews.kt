@@ -20,7 +20,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
@@ -351,6 +354,7 @@ internal fun MediaViewer(
     var externalError by remember { mutableStateOf<String?>(null) }
     var fileNotice by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
+    var controlsVisible by remember { mutableStateOf(true) }
     // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
     val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
     val exportPath = if (canExport && !shown.media.isSecret && !shownHidden) shownFile.localPath else null
@@ -366,38 +370,47 @@ internal fun MediaViewer(
         }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
-        Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
-                Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                    Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                }
-                if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
-                if (exportPath != null || onShowInChat != null) Box {
-                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        if (exportPath != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_open_in_other_app)) }, onClick = { menuOpen = false; openExternal(shown, exportPath) })
-                        if (onShowInChat != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_show_in_chat)) }, onClick = { menuOpen = false; onShowInChat(shown.messageId) })
-                    }
-                }
-            }
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().weight(1f), key = { pages[it].messageId }) { page ->
+        // Панели поверх страницы: тап по картинке прячет их. Крестик закрытия остаётся, чтобы выйти можно было без жестов.
+        Box(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { pages[it].messageId }) { page ->
                 val item = pages[page]
                 MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
                     revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
-                    onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed)
+                    onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
+                    onDismiss = onClose, onToggleControls = { controlsVisible = !controlsVisible })
             }
-            if (actions != null || exportPath != null) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
-                if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
-                    exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
+            Row(
+                Modifier.fillMaxWidth().align(Alignment.TopCenter).background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent).padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
+                if (controlsVisible) {
+                    Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                        Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
+                    if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
+                    if (exportPath != null || onShowInChat != null) Box {
+                        IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            if (exportPath != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_open_in_other_app)) }, onClick = { menuOpen = false; openExternal(shown, exportPath) })
+                            if (onShowInChat != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_show_in_chat)) }, onClick = { menuOpen = false; onShowInChat(shown.messageId) })
+                        }
+                    }
+                } else Spacer(Modifier.weight(1f))
+            }
+            Column(Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
+                if (controlsVisible && (actions != null || exportPath != null)) Row(Modifier.fillMaxWidth().background(Color(0xB3070B10)).padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
+                    if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
+                        exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
+                    }
+                    if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
+                    if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
                 }
-                if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
-                if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
+                externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.fillMaxWidth().background(Color(0xB3070B10)).padding(16.dp)) }
+                fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().background(Color(0xB3070B10)).padding(horizontal = 16.dp, vertical = 4.dp)) }
             }
-            externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp)) }
-            fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
         }
     }
 }
@@ -406,7 +419,8 @@ internal fun MediaViewer(
 @Composable
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    canExport: Boolean, active: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit
+    canExport: Boolean, active: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
+    onDismiss: () -> Unit, onToggleControls: () -> Unit
 ) {
     val media = item.media
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
@@ -458,7 +472,7 @@ private fun MediaViewerPage(
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
                 if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
-            media.mimeType.startsWith("image/") -> ZoomableImage(path)
+            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls)
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
             media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, active) { currentOnViewed(item.messageId) }
@@ -480,19 +494,51 @@ private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color(0
 }
 
 @Composable
-private fun ZoomableImage(path: String) {
+private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls: () -> Unit) {
     var scale by remember(path) { mutableFloatStateOf(1f) }
     var offset by remember(path) { mutableStateOf(Offset.Zero) }
+    // Протяжка вниз при масштабе 1 двигает картинку за пальцем; отпущенная дальше четверти высоты закрывает просмотр.
+    var dismissY by remember(path) { mutableFloatStateOf(0f) }
     var size by remember { mutableStateOf(IntSize.Zero) }
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+    val currentOnToggleControls by rememberUpdatedState(onToggleControls)
     val transform = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 5f)
-        offset = Offset((offset.x + pan.x).coerceIn(-size.width * (scale - 1) / 2, size.width * (scale - 1) / 2), (offset.y + pan.y).coerceIn(-size.height * (scale - 1) / 2, size.height * (scale - 1) / 2))
+        offset = clampImageOffset(offset + pan, scale, size)
     }
-    Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1f }).pointerInput(path) {
-        detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; offset = Offset.Zero })
-    }) {
-        LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y }, fit = true, maxDimension = 4096)
+    val dismissDrag = rememberDraggableState { delta -> if (scale <= 1f) dismissY += delta }
+    Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1f })
+        .draggable(state = dismissDrag, orientation = Orientation.Vertical, enabled = scale <= 1f, onDragStopped = {
+            if (dismissY > size.height / 4f) currentOnDismiss()
+            dismissY = 0f
+        })
+        .pointerInput(path) {
+            detectTapGestures(
+                onTap = { currentOnToggleControls() },
+                // Двойной тап приближает к точке касания, поэтому место под пальцем не уезжает. Второй тап возвращает масштаб 1.
+                onDoubleTap = { point ->
+                    val target = if (scale > 1f) 1f else 2.5f
+                    offset = clampImageOffset(offsetAroundPoint(point, Offset(size.width / 2f, size.height / 2f), offset, scale, target), target, size)
+                    scale = target
+                }
+            )
+        }
+    ) {
+        LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y + dismissY }, fit = true, maxDimension = 4096)
     }
+}
+
+/** Смещение, при котором точка [point] остаётся под пальцем, когда масштаб меняется с [from] на [to]. Координаты от центра картинки. */
+internal fun offsetAroundPoint(point: Offset, center: Offset, offset: Offset, from: Float, to: Float): Offset {
+    val relative = point - center
+    return relative - (relative - offset) * (to / from)
+}
+
+/** Смещение, которое не открывает пустой край картинки при масштабе [scale]. */
+internal fun clampImageOffset(offset: Offset, scale: Float, size: IntSize): Offset {
+    val maxX = size.width * (scale - 1) / 2
+    val maxY = size.height * (scale - 1) / 2
+    return Offset(offset.x.coerceIn(-maxX, maxX), offset.y.coerceIn(-maxY, maxY))
 }
 
 private const val VIDEO_PROGRESS_INTERVAL_MS = 250L
