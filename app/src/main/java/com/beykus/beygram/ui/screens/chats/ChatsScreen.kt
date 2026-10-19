@@ -114,6 +114,10 @@ fun ChatsScreen(
     onArchiveClick: () -> Unit,
     onMarkRead: suspend (ChatPreview) -> Boolean,
     onArchive: suspend (ChatPreview) -> Boolean,
+    onPinChat: suspend (Long, Boolean) -> Result<Unit>,
+    onMuteChat: suspend (Long, Boolean) -> Result<Unit>,
+    onDeleteChat: suspend (Long) -> Result<Unit>,
+    onCreateChannel: () -> Unit,
     archiveHidden: Boolean,
     onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit,
@@ -125,6 +129,7 @@ fun ChatsScreen(
     val palette = beyGramPalette()
     val context = LocalContext.current
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
+    var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
     val readAction = ChatSwipeAction(
         label = stringResource(R.string.chats_action_read), icon = Icons.Rounded.DoneAll, container = palette.surface2, content = palette.accentInk,
         enabled = true, perform = onMarkRead
@@ -203,6 +208,9 @@ fun ChatsScreen(
                     Text(stringResource(R.string.app_name).uppercase(), color = palette.accent, style = MaterialTheme.typography.labelMedium, letterSpacing = 0.8.sp)
                     Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
                 }
+                androidx.compose.material3.TextButton(onClick = onCreateChannel) {
+                    Text(stringResource(R.string.feature_new_channel_short), color = palette.accentInk)
+                }
                 (chats + archivedChats).firstOrNull { it.isSavedMessages }?.let { saved ->
                     androidx.compose.material3.IconButton(onClick = { onChatClick(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
                         Icon(Icons.Rounded.Bookmark, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
@@ -252,6 +260,7 @@ fun ChatsScreen(
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { onChatClick(chat) },
+                        onLongClick = { selectedActions = chat },
                         read = readAction.copy(enabled = chat.unreadCount > 0),
                         primary = archiveAction
                     )
@@ -283,12 +292,22 @@ fun ChatsScreen(
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { onChatClick(chat) },
+                        onLongClick = { selectedActions = chat },
                         read = readAction.copy(enabled = chat.unreadCount > 0),
                         primary = archiveAction
                     )
                 }
             }
         }
+    }
+    selectedActions?.let { selected ->
+        ChatActionsSheet(
+            chat = selected,
+            onClose = { selectedActions = null },
+            setPinned = { onPinChat(selected.id, it) },
+            setMuted = { onMuteChat(selected.id, it) },
+            delete = { onDeleteChat(selected.id) }
+        )
     }
 }
 
@@ -454,13 +473,15 @@ internal fun chatListDensityFor(density: ListDensity): ChatListDensity = when (d
 }
 
 @Composable
-internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit) {
+internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
+    onClick: () -> Unit, onLongClick: (() -> Unit)? = null) {
     val palette = beyGramPalette()
     val listDensity = LocalChatListDensity.current
     val unread = chat.unreadCount > 0
     val emptyPreview = (chat.lastMessage as? UiText.Raw)?.text?.isBlank() == true
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = listDensity.rowVerticalPadding),
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 20.dp, vertical = listDensity.rowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
         ChatAvatar(chat, 54.dp, observeFile, downloadFile)

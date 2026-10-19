@@ -47,6 +47,7 @@ import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
+import com.beykus.beygram.ui.screens.chats.CreateChannelScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ConnectionDiagnosticsScreen
@@ -58,6 +59,8 @@ import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
+import com.beykus.beygram.ui.screens.settings.ActiveSessionsScreen
+import com.beykus.beygram.ui.screens.settings.LanguageScreen
 import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
@@ -378,6 +381,8 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.CreateChannel) { routeName = AppRoute.Chats.name }
     BackHandler(enabled = route == AppRoute.Diagnostics || route == AppRoute.ReportProblem) { routeName = AppRoute.Settings.name }
 
     // Потоки собирает сам раздел, которому они нужны: обновление списка чатов перерисовывает только открытый раздел, а не всё приложение.
@@ -396,6 +401,10 @@ private fun BeyGramAppContent(
                 onArchiveClick = { routeName = AppRoute.Archive.name },
                 onMarkRead = markChatRead,
                 onArchive = archiveChat,
+                onPinChat = repository::setChatPinned,
+                onMuteChat = repository::setChatMuted,
+                onDeleteChat = repository::deleteChatForSelf,
+                onCreateChannel = { routeName = AppRoute.CreateChannel.name },
                 archiveHidden = archiveHidden,
                 onArchiveHiddenChange = onArchiveHiddenChange,
                 onGlobalSearch = { typed ->
@@ -481,6 +490,14 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
+            onBlock = { repository.blockPrivateChat(selectedChatId) },
+            onDelete = { repository.deleteChatForSelf(selectedChatId) },
+            onDeleted = { routeName = AppRoute.Chats.name },
+            onOpenLinkedChannel = { channelId ->
+                selectedChatId = channelId
+                chatBackRouteName = AppRoute.Chats.name
+                routeName = AppRoute.Chat.name
+            },
             lastSeenStyle = lastSeenStyle,
             sharedMessages = { kind, fromMessageId, newer -> repository.sharedMessages(selectedChatId, kind, fromMessageId, newer) },
             confirmExport = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull()?.canSave == true },
@@ -505,6 +522,12 @@ private fun BeyGramAppContent(
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = memberReturnRouteName }, onRefresh = { repository.refreshChatInfo(memberChatId) },
             onEdit = {}, setPhoto = repository::setMyProfilePhoto,
+            onBlock = { repository.blockPrivateChat(memberChatId) },
+            onDelete = { repository.deleteChatForSelf(memberChatId) },
+            onDeleted = { routeName = memberReturnRouteName },
+            onOpenLinkedChannel = { channelId ->
+                selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
+            },
             lastSeenStyle = lastSeenStyle)
     }
 
@@ -587,7 +610,10 @@ private fun BeyGramAppContent(
                         onNotifications = { openNotifications(AppRoute.MyProfile) },
                         hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
-                        onOpenAppearance = { appearanceDraft = appearance; editorSeed = null; appearanceReturnRouteName = AppRoute.MyProfile.name; routeName = AppRoute.Appearance.name }, lastSeenStyle = lastSeenStyle)
+                        onOpenAppearance = { appearanceDraft = appearance; editorSeed = null; appearanceReturnRouteName = AppRoute.MyProfile.name; routeName = AppRoute.Appearance.name },
+                        onOpenLinkedChannel = { channelId ->
+                            selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
+                        }, lastSeenStyle = lastSeenStyle)
                 }
                 AppRoute.Appearance -> ThemeSettingsScreen(
                     saved = appearance,
@@ -647,9 +673,27 @@ private fun BeyGramAppContent(
                         onProxy = { openProxy(AppRoute.Settings) },
                         onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
                         onDiagnostics = { routeName = AppRoute.Diagnostics.name },
-                        onUpdates = { routeName = AppRoute.Updates.name }
+                        onUpdates = { routeName = AppRoute.Updates.name },
+                        onLanguage = { routeName = AppRoute.Language.name },
+                        onSessions = { routeName = AppRoute.Sessions.name }
                     )
                 }
+                AppRoute.Language -> LanguageScreen(onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.Sessions -> ActiveSessionsScreen(
+                    onBack = { routeName = AppRoute.Settings.name },
+                    load = repository::activeSessions,
+                    terminate = repository::terminateOtherSession,
+                    terminateAll = repository::terminateAllOtherSessions
+                )
+                AppRoute.CreateChannel -> CreateChannelScreen(
+                    onBack = { routeName = AppRoute.Chats.name },
+                    create = repository::createChannel,
+                    onCreated = { chatId ->
+                        selectedChatId = chatId
+                        chatBackRouteName = AppRoute.Chats.name
+                        routeName = AppRoute.Chat.name
+                    }
+                )
                 AppRoute.Updates -> StableUpdatesScreen(onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.Diagnostics -> DiagnosticsScreen(
                     connectionState = connectionState,

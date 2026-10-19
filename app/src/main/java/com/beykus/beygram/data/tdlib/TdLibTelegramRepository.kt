@@ -280,6 +280,80 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
         TdRequests { client }(TdApi.AddChatToList(chatId, list)); Unit
     }
+
+    override suspend fun setChatPinned(chatId: Long, pinned: Boolean): Result<Unit> = requestResult {
+        tdRequests(TdApi.ToggleChatIsPinned(TdApi.ChatListMain(), chatId, pinned))
+        Unit
+    }
+
+    override suspend fun setChatMuted(chatId: Long, muted: Boolean): Result<Unit> = requestResult {
+        val chat = tdRequests(TdApi.GetChat(chatId))
+        // Reuse the existing chat settings to preserve previews, sounds and mentions.
+        val settings = chat.notificationSettings
+        settings.useDefaultMuteFor = false
+        settings.muteFor = if (muted) Int.MAX_VALUE else 0
+        tdRequests(TdApi.SetChatNotificationSettings(chatId, settings))
+        Unit
+    }
+
+    override suspend fun deleteChatForSelf(chatId: Long): Result<Unit> = requestResult {
+        // revoke=false is essential: never delete another member's chat history.
+        tdRequests(TdApi.DeleteChatHistory(chatId, true, false))
+        Unit
+    }
+
+    override suspend fun blockPrivateChat(chatId: Long): Result<Unit> = requestResult {
+        val chat = tdRequests(TdApi.GetChat(chatId))
+        val privateType = chat.type as? TdApi.ChatTypePrivate
+            ?: throw IllegalArgumentException("Only private conversations can be blocked")
+        if (profiles.isSelf(privateType.userId)) throw IllegalArgumentException("Cannot block your own account")
+        tdRequests(TdApi.SetMessageSenderBlockList(TdApi.MessageSenderUser(privateType.userId), TdApi.BlockListMain()))
+        Unit
+    }
+
+    override suspend fun createChannel(title: String, description: String): Result<Long> = requestResult {
+        val name = title.trim()
+        require(name.length in 1..128) { "Channel title must contain 1–128 characters" }
+        require(description.length <= 255) { "Channel description must contain at most 255 characters" }
+        val chat = tdRequests(TdApi.CreateNewSupergroupChat().apply {
+            this.title = name
+            isChannel = true
+            isForum = false
+            this.description = description.trim()
+            location = null
+            messageAutoDeleteTime = 0
+            forImport = false
+        })
+        handleNewChat(chat)
+        chat.id
+    }
+
+    override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = requestResult {
+        tdRequests(TdApi.GetActiveSessions()).sessions.orEmpty().map { session ->
+            com.beykus.beygram.domain.model.DeviceSession(
+                id = session.id,
+                current = session.isCurrent,
+                device = session.deviceModel.orEmpty().ifBlank { session.platform.orEmpty() },
+                application = session.applicationName.orEmpty(),
+                location = session.location.orEmpty(),
+                ip = session.ipAddress.orEmpty(),
+                lastActive = session.lastActiveDate.toLong()
+            )
+        }
+    }
+
+    override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = requestResult {
+        require(sessionId > 0 && activeSessions().getOrThrow().any { it.id == sessionId && !it.current }) {
+            "Cannot terminate the current session"
+        }
+        tdRequests(TdApi.TerminateSession(sessionId))
+        Unit
+    }
+
+    override suspend fun terminateAllOtherSessions(): Result<Unit> = requestResult {
+        tdRequests(TdApi.TerminateAllOtherSessions())
+        Unit
+    }
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = requestResult {
         !TdRequests { client }(TdApi.GetArchiveChatListSettings()).keepUnmutedChatsArchived
     }

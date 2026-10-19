@@ -84,7 +84,10 @@ data class ProfileInfo(
     val canListMembers: Boolean = false,
     val isSelf: Boolean = false,
     val isPremium: Boolean = false,
-    val isVerified: Boolean = false
+    val isVerified: Boolean = false,
+    /** Telegram's personal profile channel, present on the user's own or another person's profile. */
+    val personalChatId: Long = 0L,
+    val personalChatTitle: String = ""
 ) {
     val initials: String get() = initialsOf(title)
 }

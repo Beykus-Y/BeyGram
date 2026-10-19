@@ -97,6 +97,7 @@ internal fun SwipeChatRow(
     openChatId: Long?,
     onOpenChange: (Long?) -> Unit,
     onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
     read: ChatSwipeAction,
     primary: ChatSwipeAction
 ) {
@@ -184,7 +185,9 @@ internal fun SwipeChatRow(
                     }
                 )
         ) {
-            ChatListItem(chat, observeFile, downloadFile, onClick = { if (swipeOffset < 0f) close() else onClick() })
+            ChatListItem(chat, observeFile, downloadFile,
+                onClick = { if (swipeOffset < 0f) close() else onClick() },
+                onLongClick = { if (swipeOffset < 0f) close() else onLongClick() })
         }
     }
 }
