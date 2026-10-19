@@ -13,13 +13,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SystemUpdate
@@ -42,11 +45,12 @@ import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Настройки приложения: нижнее меню, уведомления и диагностика. */
 @Composable
-fun SettingsScreen(onNavigationSettings: () -> Unit, onLastSeen: () -> Unit, onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit, onDiagnostics: () -> Unit, onUpdates: () -> Unit) {
+fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit, onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit, onDiagnostics: () -> Unit, onUpdates: () -> Unit) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+            .verticalScroll(rememberScrollState())
     ) {
         Text(
             stringResource(R.string.settings_title), color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold,
@@ -54,6 +58,8 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onLastSeen: () -> Unit, onN
         )
         Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
             SettingsLink(Icons.Rounded.Dashboard, stringResource(R.string.nav_title), onNavigationSettings)
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsLink(Icons.Rounded.Palette, stringResource(R.string.theme_title), onAppearance)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.Schedule, stringResource(R.string.settings_last_seen_title), onLastSeen)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))

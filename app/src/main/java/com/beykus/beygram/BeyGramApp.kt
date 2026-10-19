@@ -241,6 +241,8 @@ private fun BeyGramAppContent(
     // Куда вернуться из раздела нижнего меню и из уведомлений: их открывают из разных мест.
     var tabReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var notificationsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    // Оформление открывают из профиля и из настроек: запоминаем, откуда пришли.
+    var appearanceReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyProfile.name) }
     val openTab: (MainTab, AppRoute) -> Unit = { tab, returnTo ->
         tabReturnRouteName = returnTo.name
         routeName = tab.route.name
@@ -576,13 +578,13 @@ private fun BeyGramAppContent(
                         onNotifications = { openNotifications(AppRoute.MyProfile) },
                         hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
-                        onOpenAppearance = { routeName = AppRoute.Appearance.name }, lastSeenStyle = lastSeenStyle)
+                        onOpenAppearance = { appearanceReturnRouteName = AppRoute.MyProfile.name; routeName = AppRoute.Appearance.name }, lastSeenStyle = lastSeenStyle)
                 }
                 AppRoute.Appearance -> ThemeSettingsScreen(
                     saved = appearance,
                     onSave = onAppearanceChange,
                     onOpenEditor = { pending -> editorSeed = pending; routeName = AppRoute.ThemeEditor.name },
-                    onBack = { routeName = AppRoute.MyProfile.name }
+                    onBack = { routeName = appearanceReturnRouteName }
                 )
                 AppRoute.ThemeEditor -> ThemeEditorScreen(
                     saved = editorSeed ?: appearance,
@@ -627,6 +629,7 @@ private fun BeyGramAppContent(
                 AppRoute.Settings -> MainTabsScaffold(MainTab.Settings.route.name, MainTab.Settings, tabVisibility, selectTab, tabStateHolder) {
                     SettingsScreen(
                         onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
+                        onAppearance = { appearanceReturnRouteName = AppRoute.Settings.name; routeName = AppRoute.Appearance.name },
                         onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
                         onNotifications = { openNotifications(AppRoute.Settings) },
                         onStorage = { routeName = AppRoute.StorageSettings.name },
