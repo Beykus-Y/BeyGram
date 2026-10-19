@@ -107,6 +107,7 @@
     <string name="share_text_placeholder">Текст сообщения</string>
     <string name="share_text_too_long">Текст длиннее %1$d символов. Сократите его, чтобы отправить.</string>
     <string name="share_title">Отправить в BeyGram</string>
+    <string name="share_file_rejected">Этот файл нельзя отправить через «Поделиться»</string>
     <string name="video_note_download_failed">Не удалось загрузить кружок. Нажмите, чтобы повторить</string>
     <string name="voice_download_failed">Не удалось загрузить голосовое. Нажмите, чтобы повторить</string>
     <string name="chat_you">Вы</string>

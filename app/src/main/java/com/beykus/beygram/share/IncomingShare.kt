@@ -8,6 +8,9 @@ import android.net.Uri
  */
 data class IncomingShare(val requestId: Long, val text: String, val uris: List<Uri> = emptyList())
 
+/** Файлы из «Поделиться», которые приняты, и число отброшенных адресов. */
+data class ShareUriCheck(val accepted: List<Uri>, val rejected: Int)
+
 object IncomingShareParser {
     /** Предел текста одного сообщения Telegram в символах Unicode (кодовых точках). */
     const val MAX_TEXT_LENGTH = 4096
@@ -18,6 +21,27 @@ object IncomingShareParser {
     private const val ACTION_SEND = "android.intent.action.SEND"
     private const val ACTION_SEND_MULTIPLE = "android.intent.action.SEND_MULTIPLE"
     private const val MIME_TEXT_PLAIN = "text/plain"
+    private const val SCHEME_CONTENT = "content"
+
+    /** FileProvider Prod и Dev: их файлы BeyGram отдаёт только себе, другим приложениям через «Поделиться» не отдаём. */
+    private val BEYGRAM_FILE_AUTHORITIES = setOf("com.beykus.beygram.files", "com.beykus.beygram.dev.files")
+
+    /**
+     * Принимаем только `content://` от чужих приложений. `file://` открывает любой путь с правами BeyGram,
+     * включая базу TDLib; свой FileProvider отдаёт скачанные медиа и диагностику.
+     * Адрес с `userId@` или портом отбрасываем: ContentResolver отрезает `userId@` и откроет наш FileProvider.
+     */
+    fun isForeignContent(scheme: String?, authority: String?, ownPackage: String): Boolean {
+        if (scheme?.lowercase() != SCHEME_CONTENT || authority.isNullOrEmpty()) return false
+        if ('@' in authority || ':' in authority) return false
+        val name = authority.lowercase()
+        return name !in BEYGRAM_FILE_AUTHORITIES && !name.startsWith(ownPackage.lowercase())
+    }
+
+    fun checkUris(uris: List<Uri>, ownPackage: String): ShareUriCheck {
+        val accepted = uris.filter { isForeignContent(it.scheme, it.authority, ownPackage) }
+        return ShareUriCheck(accepted, uris.size - accepted.size)
+    }
 
     /**
      * Разбирает входящий `SEND` или `SEND_MULTIPLE`. Если есть файлы, возвращает их вместе с подписью-текстом.
