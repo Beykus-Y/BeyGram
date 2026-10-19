@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -122,6 +123,8 @@ fun ResourcesScreen(onBack: () -> Unit) {
                     Text(stringResource(R.string.resources_report_length, recorded.size, minutes.toInt()), fontSize = 14.sp)
                     Spacer(Modifier.height(8.dp))
                     Text(stringResource(R.string.resources_report_note), fontSize = 13.sp, lineHeight = 17.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Text(report, fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp)
                 }
             },
             confirmButton = {

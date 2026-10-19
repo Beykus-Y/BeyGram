@@ -239,7 +239,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     /** The gallery can only fetch what the server permits; notably personal/public photos are not in history. */
     suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<ProfilePhotosPage> {
         return try {
-            require(profileId > 0L && offset >= 0 && limit in 1..100)
+            // Users and private chats have positive ids; groups and channels have negative chat ids.
+            require(profileId != 0L && offset >= 0 && limit in 1..100)
             val type = synchronized(lock) {
                 when {
                     profileId == myId -> Pair(myId, null)

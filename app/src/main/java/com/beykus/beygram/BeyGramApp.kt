@@ -65,6 +65,7 @@ import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
+import com.beykus.beygram.ui.screens.theme.AppearanceDraftSaver
 import com.beykus.beygram.ui.screens.theme.ThemeEditorScreen
 import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
@@ -182,9 +183,9 @@ private fun BeyGramAppContent(
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     var globalSearchQuery by rememberSaveable { mutableStateOf("") }
     // The choice made on the theme screen but not applied yet, so the editor starts from it.
-    // One draft shared across the palette screen and its editor; neither navigation nor cancel loses pending choices.
-    var appearanceDraft by remember { mutableStateOf<AppearanceConfig?>(null) }
-    var editorSeed by remember { mutableStateOf<AppearanceConfig?>(null) }
+    // One draft shared across the palette screen and its editor; neither navigation, cancel nor Activity recreation loses pending choices.
+    var appearanceDraft by rememberSaveable(stateSaver = AppearanceDraftSaver) { mutableStateOf<AppearanceConfig?>(null) }
+    var editorSeed by rememberSaveable(stateSaver = AppearanceDraftSaver) { mutableStateOf<AppearanceConfig?>(null) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
     // Вложение из профиля открывает чат у своего сообщения; 0 значит, что переход не нужен.
