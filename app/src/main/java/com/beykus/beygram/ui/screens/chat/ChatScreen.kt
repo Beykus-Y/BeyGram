@@ -444,7 +444,11 @@ fun ChatScreen(
     LaunchedEffect(pendingJumpId, messageListItems) {
         val target = pendingJumpId ?: return@LaunchedEffect
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == target } }
-        if (index < 0) return@LaunchedEffect
+        if (index < 0) {
+            // The window is in place but has no target (for example, a deleted message): release the opening instead of holding read marks.
+            if (!history.isLoading) { settleFocusedOpening(); pendingJumpId = null }
+            return@LaunchedEffect
+        }
         // A scroll cancelled by the user's touch still settles the opening, or read marks would stay held for the visit.
         try {
             listState.animateScrollToItem(index)
