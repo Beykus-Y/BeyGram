@@ -1,7 +1,6 @@
 package com.beykus.beygram.ui.screens.share
 
 import android.net.Uri
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,6 +24,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,21 +44,22 @@ import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.share.IncomingShareParser
-import com.beykus.beygram.share.ShareSessions
+import com.beykus.beygram.share.ShareSession
 import com.beykus.beygram.ui.text.resolve
 
 /**
  * Экран «Отправить в BeyGram»: выбор чата, в группе с темами — выбор темы, потом предпросмотр с явной кнопкой отправки.
  * Ничего не уходит без нажатия «Отправить»; текст и подпись можно поправить, файлы можно убрать.
  * В группе с темами сообщение не уйдёт в General молча: тема выбирается обязательно.
- * Копирование и отправка живут в [ShareSessions], поэтому поворот экрана их не прерывает и не дублирует отправку.
+ * Копирование и отправка живут в [ShareSession], поэтому поворот экрана их не прерывает и не дублирует отправку.
  * Пока идёт отправка, системный «Назад» не закрывает экран.
  */
 @Composable
-fun ShareTargetScreen(
+internal fun ShareTargetScreen(
     requestId: Long,
     text: String,
     uris: List<Uri>,
+    session: ShareSession,
     chats: List<ChatPreview>,
     captionLimit: Int,
     loadTopics: suspend (chatId: Long) -> Result<List<ForumTopic>?>,
@@ -70,7 +71,6 @@ fun ShareTargetScreen(
     val context = LocalContext.current
     val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
     val importer = remember(context) { OutgoingMediaImporter(context) }
-    val session = remember(requestId) { ShareSessions.of(context, requestId, uris, text) }
 
     var targetId by rememberSaveable(requestId) { mutableStateOf(0L) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -79,6 +79,7 @@ fun ShareTargetScreen(
     var topics by remember(requestId) { mutableStateOf<List<ForumTopic>?>(null) }
     var topicsReady by remember(requestId) { mutableStateOf(false) }
     var topicsError by remember(requestId) { mutableStateOf<UiText?>(null) }
+    var topicsAttempt by remember(requestId) { mutableIntStateOf(0) }
     val target = chats.firstOrNull { it.id == targetId }
     val hasFiles = uris.isNotEmpty()
     // С файлами подпись идёт в её лимите; без файлов — лимит текста сообщения.
@@ -87,11 +88,10 @@ fun ShareTargetScreen(
     // Без готовых файлов текст уйдёт, только если файлов не было или пользователь убрал их все сам; при сбое подготовки не отправляем.
     val canSend = !tooLong && !session.sending && !session.staging &&
         (session.staged.isNotEmpty() || (session.draft.isNotBlank() && (!hasFiles || session.error == null)))
-    BackHandler(enabled = session.sending) {}
 
     LaunchedEffect(session) { session.startStaging(context, appScope) }
-    // Загружаем темы выбранного чата: null означает, что это не группа с темами и тема не нужна.
-    LaunchedEffect(targetId) {
+    // Загружаем темы выбранного чата: null означает, что это не группа с темами и тема не нужна. После сбоя загрузка повторяется.
+    LaunchedEffect(targetId, topicsAttempt) {
         topicsReady = false
         topics = null
         topicsError = null
@@ -140,6 +140,7 @@ fun ShareTargetScreen(
                 }
                 if (session.staging) Text(stringResource(R.string.share_preparing), style = MaterialTheme.typography.bodyMedium)
                 session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -167,7 +168,10 @@ fun ShareTargetScreen(
                 }
             } else if (!topicsReady) {
                 Text(stringResource(R.string.share_send_to, target.title), style = MaterialTheme.typography.titleSmall)
-                topicsError?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                topicsError?.let {
+                    Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { topicsAttempt++ }) { Text(stringResource(R.string.common_retry)) }
+                }
                 if (topicsError == null) Text(stringResource(R.string.share_loading), style = MaterialTheme.typography.bodyMedium)
             } else if (topics != null && topicId == 0L) {
                 Text(stringResource(R.string.share_choose_topic, target.title), style = MaterialTheme.typography.titleSmall)
@@ -223,6 +227,7 @@ fun ShareTargetScreen(
                         Text(stringResource(R.string.share_text_too_long, limit), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                     }
                     session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                    if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }
                     Button(
                         enabled = canSend && target != null,
                         onClick = { session.send(target.id, topicId, appScope, sendText, sendMedia) },

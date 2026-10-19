@@ -54,4 +54,11 @@ object IncomingShareParser {
         if (mimeType?.startsWith(MIME_TEXT_PLAIN) != true || value == null) return null
         return IncomingShare(requestId, value)
     }
+
+    /**
+     * Все файлы запроса: из `EXTRA_STREAM` и из `ClipData`, без повторов. Часть приложений кладёт файлы только в `ClipData`.
+     * Для других действий файлов нет.
+     */
+    fun <T> collectStreams(action: String?, streams: List<T>, clipItems: List<T>): List<T> =
+        if (action != ACTION_SEND && action != ACTION_SEND_MULTIPLE) emptyList() else (streams + clipItems).distinct()
 }

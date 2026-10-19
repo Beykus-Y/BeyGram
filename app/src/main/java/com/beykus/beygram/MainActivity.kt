@@ -117,11 +117,17 @@ class MainActivity : ComponentActivity() {
 
     private fun streamUris(intent: Intent?): List<Uri> {
         if (intent == null) return emptyList()
-        return when (intent.action) {
+        val streams = when (intent.action) {
             Intent.ACTION_SEND -> listOfNotNull(singleStream(intent))
             Intent.ACTION_SEND_MULTIPLE -> multipleStreams(intent)
             else -> emptyList()
         }
+        return IncomingShareParser.collectStreams(intent.action, streams, clipUris(intent))
+    }
+
+    private fun clipUris(intent: Intent): List<Uri> {
+        val clip = intent.clipData ?: return emptyList()
+        return (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
     }
 
     // minSdk 29: до API 33 нужен устаревший перегруженный вызов, без типа.

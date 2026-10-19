@@ -72,13 +72,34 @@ internal class TdConversationActions(
     }
 
     /**
-     * Темы группы с темами, в которые можно писать; null для всего остального. Первая страница: TDLib отдаёт до 100 тем за запрос.
-     * Закрытые темы скрыты, если их создал не этот аккаунт: в них могут писать только создатель и администраторы с правом управления темами.
+     * Темы группы с темами, в которые можно писать; null для всего остального. TDLib отдаёт до 100 тем за запрос, поэтому идём по страницам.
+     * Закрытые темы видны, если их создал этот аккаунт или он управляет темами: в закрытую тему пишут создатель и администраторы с этим правом.
      */
     suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = conversationResult<List<ForumTopic>?> {
         val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup ?: return@conversationResult null
-        if (!request(TdApi.GetSupergroup(type.supergroupId)).isForum) return@conversationResult null
-        request(TdApi.GetForumTopics(chatId, "", 0, 0L, 0, 100)).topics.filter { !it.info.isClosed || it.info.isOutgoing }.map { ForumTopic(it.info.forumTopicId.toLong(), it.info.name) }
+        val supergroup = request(TdApi.GetSupergroup(type.supergroupId))
+        if (!supergroup.isForum) return@conversationResult null
+        val manageTopics = when (val status = supergroup.status) {
+            is TdApi.ChatMemberStatusCreator -> true
+            is TdApi.ChatMemberStatusAdministrator -> status.rights.canManageTopics
+            else -> false
+        }
+        val topics = mutableListOf<ForumTopic>()
+        var offsetDate = 0
+        var offsetMessageId = 0L
+        var offsetTopicId = 0
+        var pages = 0
+        while (true) {
+            val page = request(TdApi.GetForumTopics(chatId, "", offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
+            page.topics.filter { !it.info.isClosed || it.info.isOutgoing || manageTopics }
+                .mapTo(topics) { ForumTopic(it.info.forumTopicId.toLong(), it.info.name) }
+            pages++
+            if (page.topics.isEmpty() || page.nextOffsetForumTopicId == 0 || pages == MAX_FORUM_TOPIC_PAGES) break
+            offsetDate = page.nextOffsetDate
+            offsetMessageId = page.nextOffsetMessageId
+            offsetTopicId = page.nextOffsetForumTopicId
+        }
+        topics
     }
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {
@@ -311,6 +332,8 @@ internal class TdConversationActions(
 }
 
 private const val TAG = "BeyGramNet"
+private const val FORUM_TOPIC_PAGE_SIZE = 100
+private const val MAX_FORUM_TOPIC_PAGES = 20
 
 internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(text.take(180)) else UiText.Res(when (media?.kind) {
     MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title

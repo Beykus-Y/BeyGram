@@ -72,4 +72,13 @@ class IncomingShareParserTest {
         assertFalse(IncomingShareParser.isForeignContent("content", "com.beykus.beygram.dev.media", "com.beykus.beygram.dev"))
         assertFalse(IncomingShareParser.isForeignContent("content", "com.beykus.beygram.media", "com.beykus.beygram"))
     }
+
+    @Test fun clipDataFilesAreCollectedWithoutDuplicates() {
+        assertEquals(listOf("a", "b", "c"), IncomingShareParser.collectStreams(send, listOf("a", "b"), listOf("b", "c")))
+        assertEquals(listOf("x"), IncomingShareParser.collectStreams(sendMultiple, emptyList(), listOf("x")))
+    }
+
+    @Test fun otherActionsCollectNoFiles() {
+        assertEquals(emptyList<String>(), IncomingShareParser.collectStreams("android.intent.action.VIEW", listOf("a"), listOf("b")))
+    }
 }

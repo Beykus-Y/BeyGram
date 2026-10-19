@@ -32,6 +32,8 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     var sent by mutableStateOf(false)
     var sentChatId by mutableStateOf(0L)
     var error by mutableStateOf<UiText?>(null)
+    /** Подготовка файлов не удалась: её можно повторить на месте, без нового запроса из «Поделиться». */
+    var stagingFailed by mutableStateOf(false)
     private var started = false
     private var released = false
     /** Сколько файлов ушло из этого запроса за все попытки: нужно, чтобы честно сказать о частичном успехе. */
@@ -45,6 +47,16 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         val staging = OutgoingMediaImporter(context)
         importer = staging
         scope.launch { stage(staging, context, scope) }
+    }
+
+    /** Повторяет копирование после сбоя: файлы уже переданы приложению, поэтому системный «Поделиться» не нужен. */
+    fun retryStaging(context: Context, scope: CoroutineScope) {
+        if (!stagingFailed) return
+        stagingFailed = false
+        error = null
+        started = false
+        staging = true
+        startStaging(context, scope)
     }
 
     private suspend fun stage(importer: OutgoingMediaImporter, context: Context, scope: CoroutineScope) {
@@ -66,6 +78,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         } catch (failure: Exception) {
             discard(importer, scope, items)
             error = UiText.Res(R.string.composer_prepare_failed)
+            stagingFailed = true
         } finally {
             staging = false
         }
