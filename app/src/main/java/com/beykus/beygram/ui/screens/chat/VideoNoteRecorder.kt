@@ -188,6 +188,7 @@ internal class VideoNoteRecorder(
                 val compatible = targetSupported.any { range -> range.first <= captureFps.lower && captureFps.upper <= range.last }
                 if (!compatible) {
                     Log.i(TAG, "video_camera_switch_refused fps=$captureFps supported=$targetSupported")
+                    VideoNoteDiagnostics.append(current.sessionName, "Camera switch refused: FPS range incompatible with target lens")
                     onError(context.getString(R.string.recorder_camera_switch_failed))
                     return
                 }
@@ -202,6 +203,7 @@ internal class VideoNoteRecorder(
             VideoNoteDiagnostics.append(current.sessionName, "Camera switched: ${if (preferFrontCamera) "front" else "back"}")
         } catch (failure: Exception) {
             Log.e(TAG, "video_camera_switch_failed", failure)
+            VideoNoteDiagnostics.append(current.sessionName, "Camera switch failed: ${failure.javaClass.simpleName}")
             if (!unbound) {
                 // Камера ещё привязана: сбоила только проверка, запись продолжается без изменений.
                 onError(context.getString(R.string.recorder_camera_switch_failed))
