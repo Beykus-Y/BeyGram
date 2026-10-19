@@ -21,8 +21,10 @@ interface ConversationRepository {
     /** [clearDraft] false оставляет черновик чата нетронутым: нужно для текста из других приложений. */
     suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit>
     suspend fun isForumChat(chatId: Long): Result<Boolean>
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
+    /** Темы группы с темами; null, если чат не группа с темами. Берётся первая страница, до 100 тем. */
+    suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?>
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit>
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit>
     /** Retries failed outgoing messages regardless of their content type. */
     suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit>
     suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities>

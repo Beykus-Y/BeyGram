@@ -306,27 +306,19 @@ private fun BeyGramAppContent(
         ) {
             // Новый запрос из «Поделиться» получает свежее состояние выбора, даже если диалог уже открыт.
             key(incomingShare.requestId) {
-                // Если не удалось узнать, форум ли чат, не отправляем: иначе сообщение уйдёт в General.
-                val forumGuard: suspend (Long) -> Result<Unit> = { chatId ->
-                    repository.isForumChat(chatId).fold(
-                        onSuccess = { forum -> if (forum) Result.failure(UserMessageException(UiText.Res(R.string.share_forum_unsupported))) else Result.success(Unit) },
-                        onFailure = { Result.failure(it) }
-                    )
-                }
                 ShareTargetScreen(
                     requestId = incomingShare.requestId,
                     text = incomingShare.text,
                     uris = incomingShare.uris,
                     captionLimit = shareCaptionLimit,
                     chats = shareChats + shareArchivedChats,
-                    sendText = { chatId, text ->
-                        forumGuard(chatId).mapCatching { repository.sendMessage(chatId, text, clearDraft = false).getOrThrow() }
+                    loadTopics = { chatId -> repository.forumTopics(chatId) },
+                    sendText = { chatId, topicId, text ->
+                        repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)
                     },
-                    sendMedia = { chatId, media, caption ->
-                        forumGuard(chatId).mapCatching {
-                            if (media.size == 1) repository.sendMedia(chatId, media.single(), caption).getOrThrow()
-                            else repository.sendMediaAlbum(chatId, media, caption).getOrThrow()
-                        }
+                    sendMedia = { chatId, topicId, media, caption ->
+                        if (media.size == 1) repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId)
+                        else repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId)
                     },
                     onSent = { chatId ->
                         onIncomingShareHandled(incomingShare.requestId)

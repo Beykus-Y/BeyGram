@@ -6,6 +6,7 @@ import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -70,18 +71,28 @@ internal class TdConversationActions(
         request(TdApi.GetSupergroup(type.supergroupId)).isForum
     }
 
+    /**
+     * Темы группы с темами, в которые можно писать; null для всего остального. Первая страница: TDLib отдаёт до 100 тем за запрос.
+     * Закрытые темы скрыты, если их создал не этот аккаунт: в них могут писать только создатель и администраторы с правом управления темами.
+     */
+    suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = conversationResult<List<ForumTopic>?> {
+        val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup ?: return@conversationResult null
+        if (!request(TdApi.GetSupergroup(type.supergroupId)).isForum) return@conversationResult null
+        request(TdApi.GetForumTopics(chatId, "", 0, 0L, 0, 100)).topics.filter { !it.info.isClosed || it.info.isOutgoing }.map { ForumTopic(it.info.forumTopicId.toLong(), it.info.name) }
+    }
+
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {
         if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_message_too_long))
         send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); this.clearDraft = clearDraft }, replyId, forumTopicId)
     }.onFailure { recordSendFailure("text", it) }
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
-        send(chatId, media.toInputContent(caption, entities), replyId)
+        send(chatId, media.toInputContent(caption, entities), replyId, forumTopicId)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList()): Result<Unit> = conversationResult<Unit> {
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
         require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
         if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
         val replyTarget = replyId?.let {
@@ -94,6 +105,8 @@ internal class TdConversationActions(
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+            } else if (forumTopicId > 0L) {
+                topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }
         })
         messages.messages.filterNotNull().forEach { message -> history.put(map(message)); hydrateReply(message) }
