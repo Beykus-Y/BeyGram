@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
@@ -99,7 +100,9 @@ class MainActivity : ComponentActivity() {
     }
     /** Текст и файлы из другого приложения: сохраняем до выбора чата; отправка начнётся только после подтверждения на экране. */
     private fun acceptShareIntent(intent: Intent?) {
-        val shared = IncomingShareParser.from(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT), streamUris(intent), SystemClock.elapsedRealtimeNanos())
+        val files = IncomingShareParser.checkUris(streamUris(intent), packageName)
+        if (files.rejected > 0) Toast.makeText(this, R.string.share_file_rejected, Toast.LENGTH_LONG).show()
+        val shared = IncomingShareParser.from(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT), files.accepted, SystemClock.elapsedRealtimeNanos())
         // Чужой intent без содержимого не должен стирать уже принятый запрос.
         if (shared != null) incomingShare = shared
     }

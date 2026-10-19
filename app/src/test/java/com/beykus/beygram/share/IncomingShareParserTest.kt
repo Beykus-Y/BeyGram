@@ -1,7 +1,9 @@
 package com.beykus.beygram.share
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IncomingShareParserTest {
@@ -24,5 +26,27 @@ class IncomingShareParserTest {
     @Test fun nonTextWithoutFilesIsIgnored() {
         assertNull(IncomingShareParser.from(send, "image/png", "x", emptyList(), 1L))
         assertNull(IncomingShareParser.from(sendMultiple, null, null, emptyList(), 1L))
+    }
+
+    @Test fun foreignContentIsAccepted() {
+        assertTrue(IncomingShareParser.isForeignContent("content", "com.example.files", "com.beykus.beygram"))
+        assertTrue(IncomingShareParser.isForeignContent("content", "media", "com.beykus.beygram.dev"))
+    }
+
+    @Test fun fileSchemeIsRejected() {
+        assertFalse(IncomingShareParser.isForeignContent("file", null, "com.beykus.beygram"))
+        assertFalse(IncomingShareParser.isForeignContent("file", "", "com.beykus.beygram.dev"))
+    }
+
+    @Test fun ownFileProviderIsRejectedForBothVariants() {
+        assertFalse(IncomingShareParser.isForeignContent("content", "com.beykus.beygram.files", "com.beykus.beygram"))
+        assertFalse(IncomingShareParser.isForeignContent("content", "com.beykus.beygram.dev.files", "com.beykus.beygram.dev"))
+        assertFalse(IncomingShareParser.isForeignContent("content", "com.beykus.beygram.dev.files", "com.beykus.beygram"))
+        assertFalse(IncomingShareParser.isForeignContent("content", "com.beykus.beygram.files", "com.beykus.beygram.dev"))
+    }
+
+    @Test fun missingSchemeOrAuthorityIsRejected() {
+        assertFalse(IncomingShareParser.isForeignContent(null, null, "com.beykus.beygram"))
+        assertFalse(IncomingShareParser.isForeignContent("content", null, "com.beykus.beygram"))
     }
 }
