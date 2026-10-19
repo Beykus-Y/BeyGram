@@ -60,6 +60,7 @@
     <string name="chat_history_load_older">Загрузить более ранние сообщения</string>
     <string name="chat_history_loading">Загружаем историю…</string>
     <string name="chat_jump_to_latest">К последним</string>
+    <string name="chat_unread_separator">Непрочитанные</string>
     <string name="chat_media_position">%1$d из %2$d</string>
     <string name="chat_message">Сообщение</string>
     <string name="chat_message_forwarded">Сообщение переслано</string>

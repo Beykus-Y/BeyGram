@@ -64,11 +64,13 @@ import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
+import kotlin.math.roundToInt
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(FlowPreview::class)
@@ -131,6 +133,12 @@ fun ChatScreen(
         onDispose {
             scrollPosition.firstVisibleItemIndex = listState.firstVisibleItemIndex
             scrollPosition.firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+        }
+    }
+    DisposableEffect(chat.id) {
+        onDispose {
+            // Chat info keeps the visit, so coming back from it neither moves the boundary nor the separator.
+            if (scrollPosition.visitContinues) scrollPosition.visitContinues = false else scrollPosition.endVisit()
         }
     }
     val scope = rememberCoroutineScope()
@@ -273,8 +281,11 @@ fun ChatScreen(
     }
     val messages = history.messages
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
-    val messageListItems = remember(messages, pendingVideoNotes) {
+    val rawMessageItems = remember(messages, pendingVideoNotes) {
         pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + groupTelegramMediaAlbums(messages)
+    }
+    val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
+        scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
     }
     val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
     val currentMessageItemsByKey by rememberUpdatedState(messageItemsByKey)
@@ -371,7 +382,7 @@ fun ChatScreen(
     LaunchedEffect(chat.id, lifecycle, conversation) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             snapshotFlow {
-                if (!window.isWindowFocused || searching) emptyList() else {
+                if (!window.isWindowFocused || searching || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
                     val eligible = currentMessages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id }
                     layout.visibleItemsInfo.filter { item ->
@@ -389,7 +400,40 @@ fun ChatScreen(
         if (pendingVideoNotes.isNotEmpty()) listState.animateScrollToItem(0)
     }
     LaunchedEffect(chat.id, newest?.id) {
+        // A message sent while the chat opens drops the boundary: the list goes to the bottom and the boundary is not placed.
+        val arrived = scrollPosition.seenNewestId != 0L && newest != null && newest.id != scrollPosition.seenNewestId
+        scrollPosition.seenNewestId = newest?.id ?: 0L
+        if (chat.unreadCount > 0 && !scrollPosition.readBoundaryChecked) {
+            if (arrived && newest?.isOutgoing == true) scrollPosition.readBoundaryChecked = true
+            else return@LaunchedEffect
+        }
         if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) listState.animateScrollToItem(0)
+    }
+    // Открытие с непрочитанными: экран встаёт у разделителя «Непрочитанные», а не у последнего сообщения.
+    // Пока граница не зафиксирована, отметки прочтения не отправляются (см. сбор видимых сообщений выше), поэтому она не сдвигается.
+    LaunchedEffect(chat.id, history.isLoading, messages) {
+        if (scrollPosition.readBoundaryChecked || history.isLoading || messages.isEmpty()) return@LaunchedEffect
+        val boundary = history.lastReadInboxMessageId
+        when (val step = unreadOpenStep(chat.unreadCount, boundary, rawMessageItems, scrollPosition.readBoundaryWindowRequested)) {
+            UnreadOpenStep.Done -> scrollPosition.readBoundaryChecked = true
+            UnreadOpenStep.RequestWindow -> {
+                scrollPosition.readBoundaryWindowRequested = true
+                scope.launch { conversation.loadMessagesAround(chat.id, boundary).onFailure { scrollPosition.readBoundaryChecked = true } }
+            }
+            is UnreadOpenStep.Scroll -> {
+                // Scrolling by an offset needs the viewport height, which exists only after the first layout.
+                val viewportHeight = snapshotFlow { listState.layoutInfo.viewportSize.height }.first { it > 0 }
+                if (scrollPosition.readBoundaryId == null) {
+                    val itemsBefore = listState.layoutInfo.totalItemsCount
+                    scrollPosition.readBoundaryId = boundary
+                    // The separator is one more row: the index is applied only once the list has measured it.
+                    snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > itemsBefore }
+                }
+                // Negative offset lifts the separator above the bottom edge, so the unread messages below it fill the lower part of the screen.
+                listState.scrollToItem(step.index, -(viewportHeight * UNREAD_SEPARATOR_VIEWPORT_FRACTION).roundToInt())
+                scrollPosition.readBoundaryChecked = true
+            }
+        }
     }
     LaunchedEffect(pendingJumpId, messageListItems) {
         val target = pendingJumpId ?: return@LaunchedEffect
@@ -480,7 +524,7 @@ fun ChatScreen(
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
-        else ChatTopBar(chat, info, lastSeenStyle, onBack, onChatInfo, { searching = true }, observeFile, onDownloadFile)
+        else ChatTopBar(chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true }, observeFile, onDownloadFile)
         reactionOwner?.takeIf { !deleting }?.let { owner ->
             MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
                 setReaction(owner.id, option, addToRecent = true)
@@ -502,7 +546,9 @@ fun ChatScreen(
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = metrics.listPadding), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }) { listItem ->
-                if (listItem.pendingVideoNote != null) {
+                if (listItem.unreadSeparator) {
+                    UnreadMessagesSeparator()
+                } else if (listItem.pendingVideoNote != null) {
                     PendingVideoNoteBubble(listItem.pendingVideoNote)
                 } else if (listItem.mediaAlbumId != 0L) {
                     val latest = listItem.messages.maxByOrNull { it.id }
