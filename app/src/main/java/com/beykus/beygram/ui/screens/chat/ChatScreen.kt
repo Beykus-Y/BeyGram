@@ -445,9 +445,13 @@ fun ChatScreen(
         val target = pendingJumpId ?: return@LaunchedEffect
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == target } }
         if (index < 0) return@LaunchedEffect
-        listState.animateScrollToItem(index)
-        highlighted = target
-        settleFocusedOpening()
+        // A scroll cancelled by the user's touch still settles the opening, or read marks would stay held for the visit.
+        try {
+            listState.animateScrollToItem(index)
+            highlighted = target
+        } finally {
+            settleFocusedOpening()
+        }
         // Cleared last: changing the key earlier would cancel the scroll that is still running.
         pendingJumpId = null
     }
@@ -507,7 +511,7 @@ fun ChatScreen(
     }
     fun jumpToMessage(messageId: Long, failure: Int) {
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
-        if (index >= 0) { scope.launch { listState.animateScrollToItem(index); highlighted = messageId; settleFocusedOpening() }; return }
+        if (index >= 0) { scope.launch { try { listState.animateScrollToItem(index); highlighted = messageId } finally { settleFocusedOpening() } }; return }
         scope.launch {
             conversation.loadMessagesAround(chat.id, messageId)
                 .onSuccess { applied -> if (applied) pendingJumpId = messageId else settleFocusedOpening() }
