@@ -48,6 +48,7 @@ import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.playback.PlaybackSpeedMenu
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -232,6 +233,7 @@ internal fun VideoNoteBubble(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(duration(shownSeconds), color = palette.textSecondary, fontSize = 12.sp)
+            PlaybackSpeedMenu(Modifier.padding(start = 8.dp))
             if (time.isNotBlank()) {
                 Spacer(Modifier.width(12.dp))
                 Text(time, color = palette.textSecondary, fontSize = 12.sp)

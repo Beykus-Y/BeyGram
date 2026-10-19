@@ -33,6 +33,7 @@ import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.playback.PlaybackSpeedMenu
 
 private const val BAR_COUNT = 40
 
@@ -129,11 +130,14 @@ internal fun VoiceBubble(media: MessageMedia, file: MediaFileState, downloadFile
                 }
             }
             val failed = voiceDownloadFailed(path, file.error != null, waitingForVoice)
-            Text(
-                if (failed) stringResource(R.string.voice_download_failed) else duration(shownSeconds),
-                color = if (failed) palette.danger else palette.textSecondary, fontSize = 12.sp,
-                modifier = Modifier.padding(top = 2.dp).combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress)
-            )
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (failed) stringResource(R.string.voice_download_failed) else duration(shownSeconds),
+                    color = if (failed) palette.danger else palette.textSecondary, fontSize = 12.sp,
+                    modifier = Modifier.weight(1f).combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress)
+                )
+                PlaybackSpeedMenu(Modifier.padding(start = 4.dp))
+            }
         }
     }
 }

@@ -395,6 +395,23 @@ fun ChatScreen(
             }.debounce(350).distinctUntilChanged().collect { ids -> if (ids.isNotEmpty()) conversation.messagesVisible(chat.id, ids) }
         }
     }
+    // Reverse LazyColumn: larger visible indexes are OLDER messages. Prefetch when the user approaches
+    // the loaded edge, but wait for the unread/focused opening to settle, and stop on errors until retry.
+    // beginLoad() in the repository also prevents duplicate in-flight requests.
+    LaunchedEffect(chat.id, conversation, listState) {
+        snapshotFlow {
+            shouldAutoLoadOlderMessages(
+                lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: -1,
+                loadedItemCount = messageListItems.size,
+                hasOlderMessages = history.hasOlderMessages,
+                isLoading = history.isLoading,
+                hasError = history.error != null,
+                openingSettled = scrollPosition.readBoundaryChecked
+            )
+        }.distinctUntilChanged().collect { shouldLoad ->
+            if (shouldLoad) conversation.loadOlderMessages(chat.id)
+        }
+    }
     // Появление кружка в ленте прокручивает к низу, как и исходящее сообщение.
     LaunchedEffect(pendingVideoNotes.firstOrNull()?.sessionName) {
         if (pendingVideoNotes.isNotEmpty()) listState.animateScrollToItem(0)
@@ -580,10 +597,21 @@ fun ChatScreen(
                         onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
                 }
             }
-            history.error?.let { item(key = "history_error") { Text(it.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp)) } }
-            if (history.isLoading) item(key = "history_loading") { Text(stringResource(R.string.chat_history_loading), color = palette.textSecondary, modifier = Modifier.padding(8.dp)) }
-            else if (history.hasOlderMessages) item(key = "history_more") { TextButton(onClick = { conversation.loadOlderMessages(chat.id) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.chat_history_load_older)) } }
-            else if (messages.isEmpty() && history.error == null) item(key = "history_empty") { Text(stringResource(R.string.chat_history_empty), color = palette.textSecondary, modifier = Modifier.padding(8.dp)) }
+            if (history.error != null) item(key = "history_error") {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(history.error.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp))
+                    TextButton(onClick = { conversation.loadOlderMessages(chat.id) }) {
+                        Text(stringResource(R.string.common_retry))
+                    }
+                }
+            }
+            if (history.isLoading) item(key = "history_loading") {
+                Text(stringResource(R.string.chat_history_loading), color = palette.textSecondary,
+                    modifier = Modifier.fillMaxWidth().padding(8.dp), textAlign = TextAlign.Center)
+            }
+            else if (!history.hasOlderMessages && messages.isEmpty() && history.error == null) item(key = "history_empty") {
+                Text(stringResource(R.string.chat_history_empty), color = palette.textSecondary, modifier = Modifier.padding(8.dp))
+            }
         }
         if (!searching) FloatingMessageDate(listState, messageListItems, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
