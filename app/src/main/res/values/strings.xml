@@ -94,7 +94,10 @@
     <string name="chat_video_note_processing">Обработка</string>
     <string name="share_caption_placeholder">Подпись</string>
     <string name="share_preparing">Подготовка файлов…</string>
-    <string name="share_forum_unsupported">В чатах с темами пока нельзя отправить из других приложений. Выберите другой чат.</string>
+    <string name="share_loading">Загружаем темы…</string>
+    <string name="share_choose_topic">Выберите тему в «%1$s»</string>
+    <string name="share_no_topics">В этом чате пока нет тем</string>
+    <string name="share_topics_failed">Не удалось загрузить темы. Попробуйте ещё раз.</string>
     <string name="share_no_chats">Нет чатов, куда можно отправить</string>
     <string name="share_search">Поиск чатов</string>
     <string name="share_send">Отправить</string>

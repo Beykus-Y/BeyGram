@@ -19,6 +19,7 @@ import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
+import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.storage.StorageSettingsStore
@@ -509,14 +510,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationEffects.contentOpened(chatId, messageId)
     }
 
-    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
         leaveJumpWindow(chatId)
-        return conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities)
+        return conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId)
     }
 
-    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>): Result<Unit> {
+    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
         leaveJumpWindow(chatId)
-        return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities)
+        return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities, forumTopicId)
     }
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> =
         conversationActions.retryMessages(chatId, messageIds)
@@ -590,6 +591,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = conversationActions.isForum(chatId)
+
+    override suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = conversationActions.forumTopics(chatId)
 
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean): Result<Unit> {
         leaveJumpWindow(chatId)

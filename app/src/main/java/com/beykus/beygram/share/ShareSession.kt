@@ -66,15 +66,24 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         }
     }
 
-    /** Отправляет подготовленные файлы или текст. Отправка идёт в [scope], переживает поворот экрана и не запускается дважды. */
-    fun send(chatId: Long, scope: CoroutineScope, sendText: suspend (Long, String) -> Result<Unit>, sendMedia: suspend (Long, List<OutgoingMedia>, String) -> Result<Unit>) {
+    /**
+     * Отправляет подготовленные файлы или текст. [topicId] — тема группы с темами, 0 для остальных чатов.
+     * Отправка идёт в [scope], переживает поворот экрана и не запускается дважды.
+     */
+    fun send(
+        chatId: Long,
+        topicId: Long,
+        scope: CoroutineScope,
+        sendText: suspend (chatId: Long, topicId: Long, text: String) -> Result<Unit>,
+        sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>
+    ) {
         if (sending) return
         sending = true
         error = null
         scope.launch {
             try {
                 // Все файлы убраны пользователем — отправляем только текст.
-                val result = if (staged.isNotEmpty()) sendStaged(chatId, sendMedia) else sendText(chatId, draft.trim())
+                val result = if (staged.isNotEmpty()) sendStaged(chatId, topicId, sendMedia) else sendText(chatId, topicId, draft.trim())
                 result
                     .onSuccess { sentChatId = chatId; sent = true }
                     .onFailure {
@@ -90,11 +99,15 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     }
 
     // Файлы уходят по одному, а группы из 2–10 фото и видео — альбомом. Подпись уходит с первой отправленной частью.
-    private suspend fun sendStaged(chatId: Long, sendMedia: suspend (Long, List<OutgoingMedia>, String) -> Result<Unit>): Result<Unit> {
+    private suspend fun sendStaged(
+        chatId: Long,
+        topicId: Long,
+        sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>
+    ): Result<Unit> {
         val album = staged.size in 2..IncomingShareParser.MAX_FILES && staged.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video }
         val batches = if (album) listOf(staged) else staged.map { listOf(it) }
         for (batch in batches) {
-            val result = sendMedia(chatId, batch, draft.trim())
+            val result = sendMedia(chatId, topicId, batch, draft.trim())
             if (result.isFailure) return result
             staged = staged.filterNot { item -> batch.any { it.path == item.path } }
             draft = ""
