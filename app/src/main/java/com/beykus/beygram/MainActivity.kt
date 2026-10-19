@@ -25,6 +25,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import android.net.Uri
 import com.beykus.beygram.share.IncomingShare
 import com.beykus.beygram.share.IncomingShareParser
+import com.beykus.beygram.share.ShareSessions
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
@@ -80,7 +81,7 @@ class MainActivity : ComponentActivity() {
                             notificationRequest = notificationRequest,
                             onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
                             incomingShare = incomingShare,
-                            onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null },
+                            onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null; ShareSessions.release(this, it) },
                             appearance = config,
                             onAppearanceChange = appearance::save
                         )
