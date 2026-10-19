@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,9 +37,10 @@ import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.MessageContextDialog
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.StateFlow
 
 private const val SEARCH_DEBOUNCE_MILLIS = 400L
 
@@ -62,12 +62,19 @@ fun GlobalSearchScreen(
     var hits by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var nextOffset by remember { mutableStateOf("") }
     var loadingMore by remember { mutableStateOf(false) }
+    var moreFailed by remember { mutableStateOf(false) }
+    var pagingJob by remember { mutableStateOf<Job?>(null) }
     var searching by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     var opened by remember { mutableStateOf<ChatMessage?>(null) }
     BackHandler(onBack = onBack)
 
     LaunchedEffect(query) {
+        // Догрузка прошлого запроса не должна дописаться к выдаче нового.
+        pagingJob?.cancel()
+        pagingJob = null
+        loadingMore = false
+        moreFailed = false
         hits = emptyList()
         nextOffset = ""
         failed = false
@@ -104,7 +111,8 @@ fun GlobalSearchScreen(
                 Column(
                     Modifier.fillMaxWidth().clickable { opened = message }.padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
-                    Text(message.text, color = palette.textPrimary, fontSize = 15.sp, maxLines = 2)
+                    val preview = message.text.ifBlank { if (message.media != null) stringResource(R.string.global_search_attachment) else "" }
+                    Text(preview, color = palette.textPrimary, fontSize = 15.sp, maxLines = 2)
                     Text(message.time, color = palette.textSecondary, fontSize = 12.sp)
                 }
             }
@@ -114,18 +122,23 @@ fun GlobalSearchScreen(
                         onClick = {
                             if (loadingMore) return@TextButton
                             loadingMore = true
-                            scope.launch {
-                                conversation.searchGlobalMessages(query, nextOffset)
+                            moreFailed = false
+                            val requestedQuery = query
+                            pagingJob = scope.launch {
+                                conversation.searchGlobalMessages(requestedQuery, nextOffset)
                                     .onSuccess { page ->
                                         hits = appendDistinctBy(hits, page.messages) { it.chatId to it.id }
                                         nextOffset = page.nextOffset
                                     }
-                                    .onFailure { failed = true }
+                                    .onFailure { moreFailed = true }
                                 loadingMore = false
                             }
                         },
                         modifier = Modifier.padding(horizontal = 16.dp)
                     ) { Text(stringResource(R.string.global_search_more)) }
+                    if (moreFailed) {
+                        Text(stringResource(R.string.global_search_more_failed), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp))
+                    }
                 }
             }
         }

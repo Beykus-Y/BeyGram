@@ -395,6 +395,10 @@ private fun BeyGramAppContent(
                 onArchive = archiveChat,
                 archiveHidden = archiveHidden,
                 onArchiveHiddenChange = onArchiveHiddenChange,
+                onGlobalSearch = { typed ->
+                    globalSearchQuery = typed
+                    routeName = AppRoute.GlobalSearch.name
+                },
                 onChatClick = { chat ->
                     selectedChatId = chat.id
                     chatBackRouteName = AppRoute.Chats.name

@@ -141,6 +141,8 @@
     <string name="global_search_failed">Не удалось выполнить поиск. Попробуйте ещё раз</string>
     <string name="global_search_empty">Ничего не найдено</string>
     <string name="global_search_more">Показать ещё</string>
+    <string name="global_search_more_failed">Не удалось загрузить ещё. Нажмите «Показать ещё» снова</string>
+    <string name="global_search_attachment">Вложение без текста</string>
     <string name="chats_search_placeholder">Поиск сообщений и чатов</string>
     <string name="chats_section_all">ВСЕ ЧАТЫ</string>
     <string name="chats_section_pinned">ЗАКРЕПЛЁННЫЕ</string>
