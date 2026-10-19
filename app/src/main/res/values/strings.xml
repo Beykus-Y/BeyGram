@@ -102,6 +102,7 @@
     <string name="share_search">Поиск чатов</string>
     <string name="share_send">Отправить</string>
     <string name="share_send_failed">Не удалось отправить. Попробуйте ещё раз.</string>
+    <string name="share_partial_failed">Отправлено %1$d из %2$d. Остальные не ушли: их можно отправить ещё раз.</string>
     <string name="share_send_to">Отправить в «%1$s»</string>
     <string name="share_text_placeholder">Текст сообщения</string>
     <string name="share_text_too_long">Текст длиннее %1$d символов. Сократите его, чтобы отправить.</string>

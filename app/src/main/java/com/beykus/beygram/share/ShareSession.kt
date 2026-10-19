@@ -31,6 +31,8 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     var error by mutableStateOf<UiText?>(null)
     private var started = false
     private var released = false
+    /** Сколько файлов ушло из этого запроса за все попытки: нужно, чтобы честно сказать о частичном успехе. */
+    private var sentItems = 0
     private var importer: OutgoingMediaImporter? = null
 
     /** Копирует файлы в приватную папку один раз; вызов после поворота ничего не запускает повторно. */
@@ -87,7 +89,12 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
                 result
                     .onSuccess { sentChatId = chatId; sent = true }
                     .onFailure {
-                        error = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed)
+                        // Часть файлов уже в чате: показываем, сколько ушло, а не общую ошибку.
+                        error = if (sentItems > 0) {
+                            UiText.Res(R.string.share_partial_failed, listOf(sentItems, sentItems + staged.size))
+                        } else {
+                            (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed)
+                        }
                         // Экран уже закрыт: повторить отправку будет некому, копии не должны остаться в папке.
                         val leftover = staged
                         if (released) importer?.let { staging -> scope.launch { leftover.forEach { staging.discard(it) } } }
@@ -110,6 +117,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
             val result = sendMedia(chatId, topicId, batch, draft.trim())
             if (result.isFailure) return result
             staged = staged.filterNot { item -> batch.any { it.path == item.path } }
+            sentItems += batch.size
             draft = ""
         }
         return Result.success(Unit)
