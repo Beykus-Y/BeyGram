@@ -75,19 +75,21 @@ internal fun ProfilePhotoGallery(
     val latestLoader by rememberUpdatedState(loadPhotos)
     val scope = rememberCoroutineScope()
 
-    // One request at a time. Offset is based on raw TDLib items, not number of visible pages.
-    // When the active profile changes this effect is cancelled, so old responses cannot enter the new gallery.
-    LaunchedEffect(profileId, currentId, window.offset, selectedId, retry) {
-        val selectedIndex = window.photos.indexOfFirst { it.photoId == selectedId }.coerceAtLeast(0)
-        if (loading || error != null || !window.hasMore || selectedIndex < window.photos.size - 1 - PHOTOS_PREFETCH_DISTANCE) return@LaunchedEffect
-        loading = true
-        try {
-            latestLoader(profileId, window.offset, PHOTOS_PAGE_SIZE).fold(
-                onSuccess = { window = window.append(it) },
-                onFailure = { error = it.localizedMessage ?: it.message ?: "" }
-            )
-        } finally {
-            loading = false
+    // One sequential request loop per selected avatar. Incrementing the raw TDLib offset does not
+    // launch a competing coroutine; switching profile or photo cancels the previous request.
+    LaunchedEffect(profileId, currentId, selectedId, retry) {
+        while (window.hasMore && error == null) {
+            val selectedIndex = window.photos.indexOfFirst { it.photoId == selectedId }.coerceAtLeast(0)
+            if (selectedIndex < window.photos.size - 1 - PHOTOS_PREFETCH_DISTANCE) break
+            loading = true
+            try {
+                latestLoader(profileId, window.offset, PHOTOS_PAGE_SIZE).fold(
+                    onSuccess = { window = window.append(it) },
+                    onFailure = { error = it.localizedMessage ?: it.message ?: "" }
+                )
+            } finally {
+                loading = false
+            }
         }
     }
 
