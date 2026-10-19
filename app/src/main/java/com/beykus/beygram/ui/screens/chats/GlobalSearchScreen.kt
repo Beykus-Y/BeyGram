@@ -108,20 +108,20 @@ fun GlobalSearchScreen(
         SearchChips(
             options = SharedMediaKind.entries.map { it to stringResource(kindLabel(it)) },
             selected = filter.kind,
-            all = stringResource(R.string.global_search_filter_any),
+            all = stringResource(R.string.global_search_filter_all_types),
             onSelect = { filter = filter.copy(kind = it) }
         )
         SearchChips(
             options = GlobalChatType.entries.map { it to stringResource(chatTypeLabel(it)) },
             selected = filter.chatType,
-            all = stringResource(R.string.global_search_filter_any),
+            all = stringResource(R.string.global_search_filter_all_chats),
             onSelect = { filter = filter.copy(chatType = it) }
         )
         SearchChips(
             options = GlobalSearchPeriod.entries.filter { it != GlobalSearchPeriod.Any }
                 .map { it to stringResource(periodLabel(it)) },
             selected = filter.period.takeIf { it != GlobalSearchPeriod.Any },
-            all = stringResource(R.string.global_search_filter_any),
+            all = stringResource(R.string.global_search_filter_any_period),
             onSelect = { filter = filter.copy(period = it ?: GlobalSearchPeriod.Any) }
         )
         val empty = when {
@@ -214,7 +214,7 @@ private fun chatTypeLabel(type: GlobalChatType): Int = when (type) {
 }
 
 private fun periodLabel(period: GlobalSearchPeriod): Int = when (period) {
-    GlobalSearchPeriod.Any -> R.string.global_search_filter_any
+    GlobalSearchPeriod.Any -> R.string.global_search_filter_any_period
     GlobalSearchPeriod.Week -> R.string.global_search_filter_week
     GlobalSearchPeriod.Month -> R.string.global_search_filter_month
 }

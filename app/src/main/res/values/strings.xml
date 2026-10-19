@@ -143,7 +143,9 @@
     <string name="global_search_more">Показать ещё</string>
     <string name="global_search_more_failed">Не удалось загрузить ещё. Нажмите «Показать ещё» снова</string>
     <string name="global_search_attachment">Вложение без текста</string>
-    <string name="global_search_filter_any">Любой</string>
+    <string name="global_search_filter_all_types">Все типы</string>
+    <string name="global_search_filter_all_chats">Все чаты</string>
+    <string name="global_search_filter_any_period">Любой период</string>
     <string name="global_search_filter_media">Фото и видео</string>
     <string name="global_search_filter_files">Файлы</string>
     <string name="global_search_filter_links">Ссылки</string>
