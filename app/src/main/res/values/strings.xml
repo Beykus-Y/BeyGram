@@ -134,6 +134,13 @@
     <string name="chats_my_profile_description">Мой профиль</string>
     <string name="chats_notifications_description">Уведомления</string>
     <string name="chats_preview_sender">%1$s: </string>
+    <string name="chats_search_all">Искать «%1$s» во всех чатах</string>
+    <string name="global_search_title">Поиск по всем чатам</string>
+    <string name="global_search_idle">Введите текст, чтобы найти сообщения во всех чатах</string>
+    <string name="global_search_loading">Ищем…</string>
+    <string name="global_search_failed">Не удалось выполнить поиск. Попробуйте ещё раз</string>
+    <string name="global_search_empty">Ничего не найдено</string>
+    <string name="global_search_more">Показать ещё</string>
     <string name="chats_search_placeholder">Поиск сообщений и чатов</string>
     <string name="chats_section_all">ВСЕ ЧАТЫ</string>
     <string name="chats_section_pinned">ЗАКРЕПЛЁННЫЕ</string>

@@ -116,7 +116,8 @@ fun ChatsScreen(
     onArchive: suspend (ChatPreview) -> Boolean,
     archiveHidden: Boolean,
     onArchiveHiddenChange: (Boolean) -> Unit,
-    onChatClick: (ChatPreview) -> Unit
+    onChatClick: (ChatPreview) -> Unit,
+    onGlobalSearch: (String) -> Unit = {}
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedFilterName by rememberSaveable { mutableStateOf(ChatFilter.All.name) }
@@ -253,6 +254,16 @@ fun ChatsScreen(
                         onClick = { onChatClick(chat) },
                         read = readAction.copy(enabled = chat.unreadCount > 0),
                         primary = archiveAction
+                    )
+                }
+            }
+            if (query.isNotBlank()) {
+                item(key = "global_search") {
+                    Text(
+                        stringResource(R.string.chats_search_all, query),
+                        color = palette.accent,
+                        fontSize = 15.sp,
+                        modifier = Modifier.fillMaxWidth().clickable { onGlobalSearch(query) }.padding(horizontal = 20.dp, vertical = 14.dp)
                     )
                 }
             }
