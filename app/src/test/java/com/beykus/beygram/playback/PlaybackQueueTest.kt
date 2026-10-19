@@ -38,23 +38,34 @@ class PlaybackQueueTest {
         assertNull(nextInQueue(emptyList(), -1, first.key))
     }
 
+    private val chatA = PlaybackOrigin(1L, 10L)
+    private val chatB = PlaybackOrigin(2L, 20L)
+    private val voice = PlaybackItem("Voice:9", MediaKind.Voice, "/voice.ogg", "Voice", 5)
+
     @Test
     fun sameFileFromAnotherChatDropsTheOldQueue() {
         val previous = PlaybackQueue(queue, 0)
-        assertEquals(PlaybackQueue(), queueAfterReselect(previous, given = null, sameOrigin = false))
+        val playing = first.copy(origin = chatA)
+        assertEquals(PlaybackQueue(), queueAfterReselect(previous, playing.copy(origin = chatB), given = null, currentOrigin = chatA))
     }
 
     @Test
     fun sameFileFromTheSamePlaceKeepsTheQueue() {
         val previous = PlaybackQueue(queue, 0)
-        assertEquals(previous, queueAfterReselect(previous, given = null, sameOrigin = true))
+        assertEquals(previous, queueAfterReselect(previous, first.copy(origin = chatA), given = null, currentOrigin = chatA))
     }
 
     @Test
     fun givenQueueReplacesTheOldOne() {
         val previous = PlaybackQueue(queue, 0)
         val given = PlaybackQueue(listOf(third, first), 1)
-        assertEquals(given, queueAfterReselect(previous, given, sameOrigin = false))
+        assertEquals(given, queueAfterReselect(previous, first.copy(origin = chatB), given, currentOrigin = chatA))
+    }
+
+    @Test
+    fun voiceReselectedFromAnotherChatKeepsTheMusicQueue() {
+        val previous = PlaybackQueue(queue, 1)
+        assertEquals(previous, queueAfterReselect(previous, voice.copy(origin = chatB), given = null, currentOrigin = chatA))
     }
 
     @Test

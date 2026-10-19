@@ -24,7 +24,7 @@ class TdCustomEmojisTest {
             val emojis = TdCustomEmojis(
                 client = { error("the lookup is replaced in this test") },
                 scope = scope,
-                lookup = { if (online) emoji else null },
+                lookup = { if (online) CustomEmojiAnswer.Found(emoji) else CustomEmojiAnswer.Unanswered },
             )
             val observed = emojis.observe(emoji.customEmojiId)
 
@@ -50,7 +50,7 @@ class TdCustomEmojisTest {
                 scope = scope,
                 lookup = {
                     asks++
-                    emoji
+                    CustomEmojiAnswer.Found(emoji)
                 },
             )
             val first = emojis.observe(emoji.customEmojiId)
@@ -58,6 +58,30 @@ class TdCustomEmojisTest {
             assertEquals(emoji, first.value)
             assertEquals(emoji, emojis.observe(emoji.customEmojiId).value)
             assertEquals(1, asks)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun emptyAnswerIsAskedOnlyWithinTheRetryBudget() = runTest {
+        var asks = 0
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        try {
+            val emojis = TdCustomEmojis(
+                client = { error("the lookup is replaced in this test") },
+                scope = scope,
+                lookup = {
+                    asks++
+                    CustomEmojiAnswer.Missing
+                },
+            )
+            val observed = emojis.observe(emoji.customEmojiId)
+
+            // Первый запрос и четыре повтора по бюджету пауз: 2, 5, 15 и 30 с. Дольше пустой id не спрашивается.
+            advanceTimeBy(600_000L)
+            assertNull(observed.value)
+            assertEquals(5, asks)
         } finally {
             scope.cancel()
         }

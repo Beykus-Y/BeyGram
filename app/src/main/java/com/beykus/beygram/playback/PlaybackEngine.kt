@@ -91,11 +91,13 @@ internal fun nextInQueue(queue: List<PlaybackItem>, index: Int, currentKey: Stri
 internal data class PlaybackQueue(val items: List<PlaybackItem> = emptyList(), val index: Int = -1)
 
 /**
- * Очередь после повторного выбора файла, который уже играет. Переданная очередь заменяет прежнюю. Без неё прежняя остаётся,
- * только если файл выбран из того же места: очередь другого чата не должна играть дальше.
+ * Очередь после повторного выбора файла, который уже играет. Голосовое и кружок очередь не трогают. Музыка: переданная очередь
+ * заменяет прежнюю. Без неё прежняя остаётся, только если файл выбран из того же места: очередь другого чата не должна играть дальше.
  */
-internal fun queueAfterReselect(previous: PlaybackQueue, given: PlaybackQueue?, sameOrigin: Boolean): PlaybackQueue =
-    given ?: previous.takeIf { sameOrigin } ?: PlaybackQueue()
+internal fun queueAfterReselect(previous: PlaybackQueue, next: PlaybackItem, given: PlaybackQueue?, currentOrigin: PlaybackOrigin?): PlaybackQueue {
+    if (next.kind != MediaKind.Audio) return previous
+    return given ?: previous.takeIf { currentOrigin == next.origin } ?: PlaybackQueue()
+}
 
 /** Позиция, с которой продолжается файл [key]: прерванная музыка возвращается к своему месту, остальные файлы идут с начала. */
 internal fun resumePositionMs(waiting: InterruptedMusic?, key: String): Long = waiting?.takeIf { it.item.key == key }?.positionMs ?: 0L
@@ -200,13 +202,10 @@ object PlaybackEngine {
         if (exo != null && _state.value.item?.key == item.key) {
             // Файл, который играет без очереди, например из ленты чата, берёт очередь вкладки: после паузы и продолжения она пойдёт дальше.
             // Тот же музыкальный файл из другого сообщения или чата сбрасывает очередь прошлого места, иначе следующий трек пошёл бы из чужого чата.
-            // Голосовое и кружок очередь не трогают, как и при первом запуске.
-            if (item.kind == MediaKind.Audio) {
-                val given = if (items.isNotEmpty()) PlaybackQueue(items, index) else null
-                val next = queueAfterReselect(PlaybackQueue(queue, queueIndex), given, sameOrigin = _state.value.item?.origin == item.origin)
-                queue = next.items
-                queueIndex = next.index
-            }
+            val given = if (items.isNotEmpty()) PlaybackQueue(items, index) else null
+            val next = queueAfterReselect(PlaybackQueue(queue, queueIndex), item, given, currentOrigin = _state.value.item?.origin)
+            queue = next.items
+            queueIndex = next.index
             // «Показать в чате» ведёт к сообщению, с которого файл запустили последним.
             _state.update { it.copy(item = item) }
             togglePlayPause()
