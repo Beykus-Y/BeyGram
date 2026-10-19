@@ -95,6 +95,7 @@ fun NotificationSettingsScreen(
         Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(stringResource(R.string.notif_no_google_title), color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(stringResource(R.string.notif_no_google_body), color = palette.textSecondary)
+            Text(stringResource(R.string.settings_autosave_note), color = palette.textSecondary, fontSize = 13.sp)
             SettingToggle(stringResource(R.string.notif_toggle_messages), stringResource(R.string.notif_toggle_messages_hint), config.enabled) { runtime.preferences.update(config.copy(enabled = it)); runtime.refresh() }
             SettingToggle(stringResource(R.string.notif_toggle_background), stringResource(R.string.notif_toggle_background_hint), config.background, config.enabled) { runtime.preferences.update(config.copy(background = it)) }
             SettingToggle(stringResource(R.string.notif_toggle_previews), stringResource(R.string.notif_toggle_previews_hint), config.previews, config.enabled) { runtime.preferences.update(config.copy(previews = it)) }
