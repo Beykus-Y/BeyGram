@@ -20,10 +20,17 @@ class MessageDraftCodecTest {
         assertEquals(source, MessageDraftCodec.decode(MessageDraftCodec.encode(source)))
     }
 
+    @Test fun theSyncedFlagSurvivesARoundTrip() {
+        val source = StoredMessageDraft(MessageDraft("черновик"), 1720000000000L, synced = true)
+        assertEquals(source, MessageDraftCodec.decode(MessageDraftCodec.encode(source)))
+    }
+
     @Test fun unreadableOrUnknownFormatsDoNotCrash() {
         assertNull(MessageDraftCodec.decode(""))
         assertNull(MessageDraftCodec.decode("v2|0|0||"))
+        assertNull(MessageDraftCodec.decode("v2|0|0|x|YQ==|"))
         assertNull(MessageDraftCodec.decode("v1|wrong|0||"))
+        assertNull(MessageDraftCodec.decode("v1|1720000000000|0|YQ==|"))
     }
 
     @Test fun invalidEntityRangesAreDiscarded() {
