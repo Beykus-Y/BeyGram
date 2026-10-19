@@ -872,4 +872,17 @@
     <string name="updates_install">Установить</string>
     <string name="updates_failed">Ошибка: %1$s</string>
     <string name="updates_retry_download">Повторить загрузку</string>
+    <string name="settings_video_diagnostics_title">Диагностический режим видеосообщений</string>
+    <string name="settings_video_diagnostics_hint">Измерять фактический FPS до и после обработки кружков, записывать этапы CameraX, Media3 и TDLib</string>
+    <string name="settings_video_diagnostics_privacy">Выключено по умолчанию. Не сохраняет видео, аудио, переписки и пути к файлам. Последние 20 отчётов хранятся локально до 7 дней и не отправляются автоматически.</string>
+    <string name="settings_video_diagnostics_history">Отчёты (%1$d)</string>
+    <string name="settings_video_diagnostics_empty">Отчётов пока нет. Включите режим и запишите кружок.</string>
+    <string name="settings_video_diagnostics_raw_final">RAW %1$s / MP4 %2$s FPS</string>
+    <string name="settings_video_diagnostics_open">Открыть</string>
+    <string name="settings_video_diagnostics_report">Диагностика кружка</string>
+    <string name="settings_video_diagnostics_copy">Копировать</string>
+    <string name="settings_video_diagnostics_share">Поделиться отчётом</string>
+    <string name="settings_video_diagnostics_clear">Очистить</string>
+    <string name="settings_video_diagnostics_clear_confirm">Удалить все локальные диагностические отчёты по видеосообщениям?</string>
+    <string name="settings_video_diagnostics_cancel">Отмена</string>
 </resources>
