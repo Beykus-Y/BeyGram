@@ -48,6 +48,16 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         return AvatarPhoto(small.id, big.id)
     }
     fun putChat(chat: TdApi.Chat) = synchronized(lock) { chats[chat.id] = chat; publish() }
+    fun chat(chatId: Long): TdApi.Chat? = synchronized(lock) { chats[chatId] }
+    /** Uses the group membership status cached with the chat, so a chat whose group is not known yet keeps its composer. */
+    fun canPost(chat: TdApi.Chat): Boolean = synchronized(lock) {
+        val status = when (val type = chat.type) {
+            is TdApi.ChatTypeSupergroup -> supers[type.supergroupId]?.status
+            is TdApi.ChatTypeBasicGroup -> groups[type.basicGroupId]?.status
+            else -> null
+        }
+        chat.canPostMessages(status)
+    }
     fun observe(chatId: Long): StateFlow<ProfileState> = synchronized(lock) {
         details.getOrPut(chatId) { MutableStateFlow(ProfileState(info = chatInfo(chatId))) }.asStateFlow()
     }
@@ -65,6 +75,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             is TdApi.UpdateSupergroupFullInfo -> superFull[update.supergroupId] = update.supergroupFullInfo
             is TdApi.UpdateChatPhoto -> chats[update.chatId]?.photo = update.photo
             is TdApi.UpdateChatTitle -> chats[update.chatId]?.title = update.title
+            is TdApi.UpdateChatPermissions -> chats[update.chatId]?.permissions = update.permissions
             is TdApi.UpdateChatOnlineMemberCount -> onlineCounts[update.chatId] = update.onlineMemberCount
             is TdApi.UpdateChatAction -> { updateTyping(update); return@synchronized }
             is TdApi.UpdateOption -> if (update.name == "bio_length_max") (update.value as? TdApi.OptionValueInteger)?.let { _bioLimit.value = it.value.toInt().coerceIn(1, 4096) }

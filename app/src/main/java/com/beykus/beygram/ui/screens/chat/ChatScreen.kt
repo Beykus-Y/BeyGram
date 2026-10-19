@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -303,7 +304,7 @@ fun ChatScreen(
     val editMessage = messages.firstOrNull { it.id == editId }
     // A swipe reply needs an idle composer on screen: no search, deletion, edit, recording or open action menu, and no
     // send in flight, because a finished send clears the reply target it used.
-    val swipeReplyAllowed = !searching && !deleting && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
+    val swipeReplyAllowed = chat.canPost && !searching && !deleting && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
         !sending && !attachments.sending && !recordingQueueSending && pendingVideoNotes.isEmpty()
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) replyId = botKeyboard?.messageId }
@@ -583,7 +584,9 @@ fun ChatScreen(
         if (!deleting && !searching && typingNames.isNotEmpty()) TypingRow(typingNames)
         // Мини-плеер стоит над полем ввода и остаётся на месте при поиске и при выборе сообщений. Без поля ввода он внизу экрана, поэтому отступает от системной навигации.
         NowPlayingBar(bottomInset = deleting || searching)
-        if (!deleting && !searching) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        // Chats the user cannot write to get no composer, only a plain notice, as in Telegram.
+        if (!deleting && !searching && !chat.canPost) ReadOnlyChatBar()
+        if (!deleting && !searching && chat.canPost) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) AttachmentButton(attachments, enabled = !sending)
@@ -712,6 +715,14 @@ fun ChatScreen(
             onClose = { forwardId = null; forwardError = null })
     }
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }) }
+}
+
+@Composable
+private fun ReadOnlyChatBar() {
+    val palette = beyGramPalette()
+    Box(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
+        Text(stringResource(R.string.chat_read_only), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+    }
 }
 
 @Composable
