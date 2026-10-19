@@ -42,6 +42,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteDiagnosticReport
+import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.data.media.VideoFrameRatePriority
 import com.beykus.beygram.data.media.VideoQualityPreset
 import com.beykus.beygram.data.media.videoMirrorToggleSupported
@@ -174,7 +175,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
                         Column(Modifier.weight(1f)) {
                             Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(Date(report.startedAt)),
                                 color = palette.textPrimary, fontSize = 14.sp)
-                            Text(report.status + " · " + stringResource(R.string.settings_video_diagnostics_raw_final,
+                            Text(videoNoteStatusLabel(report.status) + " · " + stringResource(R.string.settings_video_diagnostics_raw_final,
                                 report.rawFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
                                 report.outputFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—"),
                                 color = palette.textSecondary, fontSize = 12.sp)
@@ -263,4 +264,17 @@ private fun ChoiceSection(title: String, values: List<Int>, selected: Int, label
             values.forEach { value -> FilterChip(selected == value, onClick = { onSelected(value) }, label = { Text(label(value)) }) }
         }
     }
+}
+
+@Composable
+private fun videoNoteStatusLabel(status: String): String = when (status) {
+    VideoNoteStatus.QUEUED -> stringResource(R.string.settings_video_diagnostics_status_queued)
+    VideoNoteStatus.PREVIEW -> stringResource(R.string.settings_video_diagnostics_status_preview)
+    VideoNoteStatus.READY -> stringResource(R.string.settings_video_diagnostics_status_ready)
+    VideoNoteStatus.PROCESSING_FAILED -> stringResource(R.string.settings_video_diagnostics_status_processing_failed)
+    VideoNoteStatus.SENDING -> stringResource(R.string.settings_video_diagnostics_status_sending)
+    VideoNoteStatus.SENT -> stringResource(R.string.settings_video_diagnostics_status_sent)
+    VideoNoteStatus.SEND_FAILED -> stringResource(R.string.settings_video_diagnostics_status_send_failed)
+    VideoNoteStatus.CANCELLED -> stringResource(R.string.settings_video_diagnostics_status_cancelled)
+    else -> status // Reports saved by an earlier build keep the text they were written with.
 }

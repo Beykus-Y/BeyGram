@@ -16,6 +16,18 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** Status keys saved in a report. The settings screen turns them into localized labels. */
+internal object VideoNoteStatus {
+    const val QUEUED = "queued"
+    const val PREVIEW = "preview"
+    const val READY = "ready"
+    const val PROCESSING_FAILED = "processing_failed"
+    const val SENDING = "sending"
+    const val SENT = "sent"
+    const val SEND_FAILED = "send_failed"
+    const val CANCELLED = "cancelled"
+}
+
 /**
  * On-device, opt-in video-note diagnostics. Never store media, message contents, chat IDs,
  * phone numbers or file paths. Reports live in noBackupFilesDir and are shared only by user action.
