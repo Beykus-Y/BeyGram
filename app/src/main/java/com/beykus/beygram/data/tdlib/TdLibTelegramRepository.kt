@@ -56,6 +56,9 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
@@ -839,6 +842,18 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun loadChatsWithNotificationScopes() {
         loadChats()
         chatListScope.launch { loadNotificationScopes() }
+        // Чаты приходят раньше GetMe, поэтому «Избранное» помечаем снова, когда аккаунт станет известен.
+        chatListScope.launch { profiles.me.map { it.info?.id }.filterNotNull().distinctUntilChanged().collect { markSavedMessages() } }
+    }
+
+    /** У личного чата id совпадает с id пользователя, так что чат с самим собой узнаётся без типа чата. */
+    private fun markSavedMessages() {
+        chatCache.keys.toList().forEach { chatId ->
+            val existing = chatCache[chatId] ?: return@forEach
+            if (existing.isSavedMessages || existing.isGroup || !profiles.isSelf(chatId)) return@forEach
+            chatCache[chatId] = existing.copy(isSavedMessages = true, title = appContext.getString(R.string.saved_messages_title))
+            publishChat(chatId)
+        }
     }
 
     /**
