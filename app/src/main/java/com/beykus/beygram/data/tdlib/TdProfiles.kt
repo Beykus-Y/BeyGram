@@ -95,6 +95,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 synchronized(lock) { myId = user.id; users[user.id] = user; publish() }
                 val full = request(TdApi.GetUserFullInfo(user.id))
                 synchronized(lock) { userFull[user.id] = full; publish() }
+                loadPersonalChatIfPresent(full.personalChatId)
                 val option = request(TdApi.GetOption("bio_length_max"))
                 if (option is TdApi.OptionValueInteger) _bioLimit.value = option.value.toInt().coerceIn(1, 4096)
             } }
@@ -223,6 +224,16 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         synchronized(lock) { users[id] = user; publish() }
         val full = request(TdApi.GetUserFullInfo(id))
         synchronized(lock) { userFull[id] = full }
+        loadPersonalChatIfPresent(full.personalChatId)
+    }
+
+    /** Missing/hidden linked channels are optional profile content and must not fail the profile refresh. */
+    private suspend fun loadPersonalChatIfPresent(chatId: Long) {
+        if (chatId <= 0L) return
+        val chat = try { request(TdApi.GetChat(chatId)) } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { return }
+        synchronized(lock) { chats[chat.id] = chat; publish() }
     }
 
     suspend fun edit(edit: ProfileEdit): Result<Unit> = runCatching {
@@ -305,6 +316,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             address = full?.businessInfo?.location?.address.orEmpty(),
             commonGroupCount = full?.groupInCommonCount?.takeIf { it > 0 && user.id != myId },
             personalChatId = full?.personalChatId?.toLong() ?: 0L,
+            personalChatTitle = full?.personalChatId?.let { chats[it]?.title }.orEmpty(),
             isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true
         )
     }

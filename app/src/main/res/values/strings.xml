@@ -880,5 +880,5 @@
     <string name="feature_action_failed">Не удалось выполнить действие</string>
     <string name="feature_confirm">Подтвердить</string>
     <string name="feature_more_actions">Дополнительные действия</string>
-    <string name="feature_linked_channel">Личный канал — открыть</string>
+    <string name="feature_linked_channel">Личный канал</string>
 </resources>

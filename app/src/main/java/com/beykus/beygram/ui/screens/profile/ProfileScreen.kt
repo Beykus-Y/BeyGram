@@ -127,7 +127,13 @@ fun ProfileScreen(
                 if (info.personalChatId > 0L) {
                     TextButton(onClick = { onOpenLinkedChannel(info.personalChatId) },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                        Text(stringResource(R.string.feature_linked_channel), color = palette.accentInk)
+                        Text(buildString {
+                            append(stringResource(R.string.feature_linked_channel))
+                            if (info.personalChatTitle.isNotBlank()) {
+                                append(": ")
+                                append(info.personalChatTitle)
+                            }
+                        }, color = palette.accentInk)
                     }
                 }
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)

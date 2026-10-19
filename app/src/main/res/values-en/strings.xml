@@ -72,5 +72,5 @@
     <string name="feature_action_failed">Action failed</string>
     <string name="feature_confirm">Confirm</string>
     <string name="feature_more_actions">More actions</string>
-    <string name="feature_linked_channel">Personal channel — open</string>
+    <string name="feature_linked_channel">Personal channel</string>
 </resources>
