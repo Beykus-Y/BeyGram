@@ -138,8 +138,6 @@ fun ResourcesScreen(onBack: () -> Unit) {
             }
         )
     }
-        )
-    }
 
     Column(
         Modifier.fillMaxSize().background(palette.screen)
