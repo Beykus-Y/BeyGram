@@ -38,7 +38,6 @@ import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
@@ -110,7 +109,6 @@ fun ChatsScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onMyProfile: () -> Unit,
-    onNotifications: () -> Unit,
     onArchiveClick: () -> Unit,
     onMarkRead: suspend (ChatPreview) -> Boolean,
     onArchive: suspend (ChatPreview) -> Boolean,
@@ -215,9 +213,6 @@ fun ChatsScreen(
                     androidx.compose.material3.IconButton(onClick = { onChatClick(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
                         Icon(Icons.Rounded.Bookmark, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                     }
-                }
-                androidx.compose.material3.IconButton(onClick = onNotifications, modifier = Modifier.semantics { contentDescription = context.getString(R.string.chats_notifications_description) }) {
-                    Icon(Icons.Rounded.Notifications, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                 }
                 Spacer(Modifier.width(4.dp))
                 TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 40.dp, myProfile?.photo, observeFile, downloadFile,

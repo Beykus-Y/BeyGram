@@ -394,7 +394,6 @@ private fun BeyGramAppContent(
                 chats = chats,
                 archivedChats = archivedChats,
                 myProfile = myProfile.info,
-                onNotifications = { openNotifications(AppRoute.Chats) },
                 observeFile = repository::observeFile,
                 downloadFile = repository::downloadFile,
                 onMyProfile = { routeName = AppRoute.MyProfile.name },
