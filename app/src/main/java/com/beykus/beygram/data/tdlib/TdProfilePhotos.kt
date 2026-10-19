@@ -5,7 +5,7 @@ import org.drinkless.tdlib.TdApi
 
 /** TDLib chatPhoto always contains JPEG sizes; its animation field is optional. */
 internal fun TdApi.ChatPhoto.toProfilePhotoMedia(register: (TdApi.File) -> Unit): ProfilePhotoMedia? {
-    val sizes = sizes.orEmpty().filter { it.photo != null && it.photo.id > 0 }
+    val sizes = this.sizes.orEmpty().filter { it.photo != null && it.photo.id > 0 }
         .sortedBy { it.width.toLong() * it.height }
     val small = sizes.firstOrNull()?.photo
     val big = sizes.lastOrNull()?.photo
