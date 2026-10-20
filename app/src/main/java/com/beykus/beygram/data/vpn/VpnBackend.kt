@@ -79,6 +79,8 @@ internal class VpnBackend private constructor(
     // All listener/TDLib route transitions and subscription profile writes share one gate.
     // Without this, an in-flight STARTING can be stopped by refresh while reported RUNNING.
     private val lifecycleMutex = Mutex()
+    /** Subscription network traffic must never block user-initiated TDLib route switches. */
+    private val subscriptionFetchMutex = Mutex()
     private val automaticActivation = AutomaticActivationGuard()
     private val restoreMutex = Mutex()
     private val _restoreFailed = MutableStateFlow(false)
@@ -359,7 +361,7 @@ internal class VpnBackend private constructor(
             val stopped = stopProxyUnserialized()
             if (stopped.isSuccess) {
                 automaticActivation.selectManualRoute()
-                settingsStore.update { it.copy(autoSelectEnabled = false) }
+                // Keep the preferred Auto node-selection mode for a future subscription connection.
                 _autoSelectEvents.value = null
             }
             stopped
@@ -402,7 +404,7 @@ internal class VpnBackend private constructor(
                 val changed = changeRoute()
                 if (changed.isFailure) return@withLock changed
                 automaticActivation.selectManualRoute()
-                settingsStore.update { it.copy(autoSelectEnabled = false) }
+                // Keep the preferred Auto node-selection mode for a future subscription connection.
                 _autoSelectEvents.value = null
                 // TDLib has already changed route. A listener cleanup problem is a
                 // warning, NOT a failed proxy selection; retrying AddProxy could create
@@ -437,23 +439,39 @@ internal class VpnBackend private constructor(
         withTimeout(10_000) { MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.STOPPED } }
     }
 
+    /**
+     * The network request is NOT under lifecycleMutex. Otherwise a hung subscription URL
+     * blocks a user trying to escape to Direct exactly when the connection fails.
+     * A separate tryLock rejects concurrent refreshes instead of queuing duplicates.
+     */
     suspend fun fetchSubscription(url: String = settings.value.subscriptionUrl): Result<List<MihomoConnection>> =
-        lifecycleMutex.withLock { fetchSubscriptionUnserialized(url) }
-
-    private suspend fun fetchSubscriptionUnserialized(url: String): Result<List<MihomoConnection>> =
         withContext(Dispatchers.IO) {
-            if (_busy.value) return@withContext Result.failure(UserMessageException(UiText.Res(R.string.err_vpn_subscription_busy)))
+            if (!subscriptionFetchMutex.tryLock())
+                return@withContext Result.failure(UserMessageException(UiText.Res(R.string.err_vpn_subscription_busy)))
+            try {
+                val trimmedUrl = url.trim()
+                VpnSubscriptionDiagnostics.event("fetch", "started")
+                val response = subscriptionClient.fetch(trimmedUrl)
+                VpnSubscriptionDiagnostics.event("fetch", "downloaded bodyChars=${response.configuration.length}")
+                // Only mutable listener/profile operations require exclusivity with start/stop.
+                lifecycleMutex.withLock { importFetchedSubscription(trimmedUrl, response.configuration) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                VpnSubscriptionDiagnostics.failure("fetch", error)
+                Result.failure(error)
+            } finally {
+                subscriptionFetchMutex.unlock()
+            }
+        }
+
+    private suspend fun importFetchedSubscription(
+        trimmedUrl: String, configuration: String
+    ): Result<List<MihomoConnection>> = withContext(Dispatchers.IO) {
             _busy.value = true
             try {
-                VpnSubscriptionDiagnostics.event("fetch", "started")
-                val trimmedUrl = url.trim()
-                val response = subscriptionClient.fetch(trimmedUrl)
-                VpnSubscriptionDiagnostics.event(
-                    "fetch",
-                    "downloaded bodyChars=${response.configuration.length}"
-                )
                 val proxyWasRunning = runtimeState.value.status == ProxyRuntimeStatus.RUNNING
-                val groupName = mihomo.importSubscription(response.configuration)
+                val groupName = mihomo.importSubscription(configuration)
                 mihomo.stopProxyListener()
                 if (proxyWasRunning) {
                     try {
