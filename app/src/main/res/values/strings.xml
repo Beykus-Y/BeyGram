@@ -956,4 +956,10 @@
     <string name="feature_confirm">Подтвердить</string>
     <string name="feature_more_actions">Дополнительные действия</string>
     <string name="feature_linked_channel">Личный канал</string>
+
+    <!-- Server-synced Telegram folder tabs -->
+    <string name="chat_folders_all">Все чаты</string>
+    <string name="chat_folder_empty">В этой папке пока нет чатов</string>
+    <string name="chat_folder_load_more">Загрузить ещё чаты</string>
+    <string name="chat_folder_load_failed">Не удалось загрузить папку. Повторите попытку.</string>
 </resources>
