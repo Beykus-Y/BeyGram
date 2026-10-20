@@ -32,6 +32,10 @@ import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.FolderChatPosition
+import com.beykus.beygram.domain.model.TelegramChatFolders
+import com.beykus.beygram.domain.model.TelegramFolderLoadState
+import com.beykus.beygram.domain.model.orderedTelegramFolderChats
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.orderedArchivedChats
 import com.beykus.beygram.domain.model.orderedMainChats
@@ -241,6 +245,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val _archivedChats = MutableStateFlow<List<ChatPreview>>(emptyList())
     override val archivedChats: StateFlow<List<ChatPreview>> = _archivedChats.asStateFlow()
 
+    private val _chatFolders = MutableStateFlow(TelegramChatFolders())
+    override val chatFolders: StateFlow<TelegramChatFolders> = _chatFolders.asStateFlow()
+    private val _folderChats = MutableStateFlow<Map<Int, List<ChatPreview>>>(emptyMap())
+    override val folderChats: StateFlow<Map<Int, List<ChatPreview>>> = _folderChats.asStateFlow()
+    private val _folderLoadStates = MutableStateFlow<Map<Int, TelegramFolderLoadState>>(emptyMap())
+    override val folderLoadStates: StateFlow<Map<Int, TelegramFolderLoadState>> = _folderLoadStates.asStateFlow()
+    /** Real server counts can arrive before updateChatFolders or before a folder is opened. */
+    private val folderUnreadCount = ConcurrentHashMap<Int, Int>()
+    private val folderPageLocks = ConcurrentHashMap<Int, Mutex>()
+
     private val _connectionState = MutableStateFlow(TelegramConnectionState.Unknown)
     override val connectionState: StateFlow<TelegramConnectionState> = _connectionState.asStateFlow()
 
@@ -279,6 +293,48 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = requestResult {
         val list: TdApi.ChatList = if (archived) TdApi.ChatListArchive() else TdApi.ChatListMain()
         TdRequests { client }(TdApi.AddChatToList(chatId, list)); Unit
+    }
+
+    /** Pinning in a folder must never modify the Main-list pinned order. */
+    override suspend fun setFolderChatPinned(folderId: Int, chatId: Long, pinned: Boolean): Result<Unit> = requestResult {
+        require(_chatFolders.value.folders.any { it.id == folderId }) { "Folder no longer exists" }
+        tdRequests(TdApi.ToggleChatIsPinned(TdApi.ChatListFolder(folderId), chatId, pinned))
+        Unit
+    }
+
+    /** TDLib is the cursor owner: each LoadChats call fetches the next server-backed page. */
+    override suspend fun loadMoreFolderChats(folderId: Int): Result<Unit> = requestResult {
+        require(folderId > 0 && _chatFolders.value.folders.any { it.id == folderId }) {
+            "Telegram folder no longer exists"
+        }
+        folderPageLocks.computeIfAbsent(folderId) { Mutex() }.withLock {
+            if (_folderLoadStates.value[folderId]?.hasMore == false ||
+                _chatFolders.value.folders.none { it.id == folderId }) return@withLock
+            setFolderLoading(folderId, TelegramFolderLoadState(loading = true))
+            try {
+                tdRequests(TdApi.LoadChats(TdApi.ChatListFolder(folderId), 100))
+                setFolderLoading(folderId, TelegramFolderLoadState(hasMore = true))
+            } catch (notFound: TdRequestError) {
+                if (notFound.code == 404) {
+                    setFolderLoading(folderId, TelegramFolderLoadState(hasMore = false))
+                } else {
+                    setFolderLoading(folderId, TelegramFolderLoadState(error = true))
+                    throw notFound
+                }
+            } catch (cancelled: CancellationException) {
+                setFolderLoading(folderId, TelegramFolderLoadState(error = true))
+                throw cancelled
+            } catch (error: Exception) {
+                setFolderLoading(folderId, TelegramFolderLoadState(error = true))
+                throw error
+            }
+        }
+    }
+
+    private fun setFolderLoading(folderId: Int, state: TelegramFolderLoadState) {
+        // Ignore a response for a folder removed remotely while a page was loading.
+        if (_chatFolders.value.folders.none { it.id == folderId }) return
+        _folderLoadStates.update { it + (folderId to state) }
     }
 
     override suspend fun setChatPinned(chatId: Long, pinned: Boolean): Result<Unit> = requestResult {
@@ -485,6 +541,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         val previews = chatCache.values.map { it.withMute() }
         _chats.value = orderedMainChats(previews)
         _archivedChats.value = orderedArchivedChats(previews)
+        val activeIds = _chatFolders.value.folders.map { it.id }
+        _folderChats.value = activeIds.associateWith { id -> orderedTelegramFolderChats(previews, id) }
     }
 
     /** Номер телефона, введённый пользователем — нужен для [WaitingForCode]. */
@@ -713,6 +771,19 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
+            is TdApi.UpdateChatFolders -> handleChatFolders(update)
+            is TdApi.UpdateUnreadChatCount -> {
+                val list = update.chatList
+                if (list is TdApi.ChatListFolder) {
+                    val id = list.chatFolderId
+                    folderUnreadCount[id] = update.unreadCount.coerceAtLeast(0)
+                    _chatFolders.update { previous ->
+                        previous.copy(folders = previous.folders.map {
+                            if (it.id == id) it.copy(unreadChats = update.unreadCount.coerceAtLeast(0)) else it
+                        })
+                    }
+                }
+            }
             is TdApi.UpdateChatLastMessage    -> handleChatLastMessage(update.chatId, update.lastMessage, update.positions)
             is TdApi.UpdateChatReplyMarkup -> botKeyboards.update(update.chatId, update.replyMarkupMessage)
             is TdApi.UpdateChatPosition -> handleChatPosition(update.chatId, update.position)
@@ -894,12 +965,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
+                clearFolderState()
                 messageDrafts.signedOut()
                 _authState.value = AuthState.WaitingForPhone
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
             }
             is TdApi.AuthorizationStateClosed -> {
+                clearFolderState()
                 _authState.value = AuthState.WaitingForPhone
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
@@ -974,6 +1047,56 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     /** Общая настройка меняет только звук: списки пересобираются с ним при публикации, а наблюдатели одного чата звук не показывают. */
     private fun handleScopeNotificationSettings(scope: NotificationScope, settings: TdApi.ScopeNotificationSettings) {
         if (muteState.updateScope(scope, settings).isNotEmpty()) chatListPublisher.request()
+    }
+
+    /** TDLib gives the same order as other clients. IDs aren't local categories. */
+    private fun handleChatFolders(update: TdApi.UpdateChatFolders) {
+        val oldIds = _chatFolders.value.folders.map { it.id }.toSet()
+        val folders = update.chatFolders.orEmpty().map {
+            it.toFolderOverview(folderUnreadCount[it.id])
+        }.distinctBy { it.id }
+        val active = folders.map { it.id }.toSet()
+        val removed = oldIds - active
+        removed.forEach {
+            folderUnreadCount.remove(it)
+            folderPageLocks.remove(it)
+        }
+        // Remove membership left by a deleted folder; do not keep showing stale folder-only chats.
+        if (removed.isNotEmpty()) {
+            chatCache.forEach { (chatId, preview) ->
+                if (preview.folderPositions.keys.any { it in removed }) {
+                    chatCache[chatId] = preview.copy(
+                        folderPositions = preview.folderPositions.filterKeys { it !in removed }
+                    )
+                }
+            }
+        }
+        _chatFolders.value = TelegramChatFolders(
+            initialized = true,
+            folders = folders,
+            mainChatListPosition = update.mainChatListPosition
+        )
+        _folderLoadStates.update { states ->
+            active.associateWith { id -> states[id] ?: TelegramFolderLoadState() }
+        }
+        chatListPublisher.request()
+        // Initial folder pages must be fetched from ChatListFolder, NOT filtered Main chats.
+        (active - oldIds).forEach { id ->
+            chatListScope.launch { loadMoreFolderChats(id) }
+        }
+    }
+
+    private fun clearFolderState() {
+        _chatFolders.value = TelegramChatFolders()
+        _folderChats.value = emptyMap()
+        _folderLoadStates.value = emptyMap()
+        folderUnreadCount.clear()
+        folderPageLocks.clear()
+        // No previous account's folder membership may remain visible after logout.
+        chatCache.clear()
+        _chats.value = emptyList()
+        _archivedChats.value = emptyList()
+        chatStates.values.forEach { it.value = null }
     }
 
     /** Переключатель возврата из архива показывает настройку аккаунта, поэтому читаем её при входе. */
@@ -1056,22 +1179,34 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         lastMessageSendState = message?.sendingState.toSendState()
     )
 
-    /** Позиции чата в основном списке и в архиве; нет позиции в списке — чат там не показывается. */
+    /** Positions include ALL TDLib folder lists, not just Main and Archive. */
     private fun ChatPreview.withPositions(positions: Array<TdApi.ChatPosition>): ChatPreview {
         val main = positions.firstOrNull { it.list is TdApi.ChatListMain }
         val archive = positions.firstOrNull { it.list is TdApi.ChatListArchive }
+        val folders = positions.mapNotNull { position ->
+            val list = position.list as? TdApi.ChatListFolder ?: return@mapNotNull null
+            if (position.order <= 0L) return@mapNotNull null
+            list.chatFolderId to FolderChatPosition(position.order, position.isPinned)
+        }.toMap()
         return copy(
             order = main?.order ?: 0L,
             isPinned = main?.isPinned == true,
-            archiveOrder = archive?.order ?: 0L
+            archiveOrder = archive?.order ?: 0L,
+            folderPositions = folders
         )
     }
 
     private fun handleChatPosition(chatId: Long, position: TdApi.ChatPosition) {
         val existing = chatCache[chatId] ?: return
-        chatCache[chatId] = when (position.list) {
+        chatCache[chatId] = when (val list = position.list) {
             is TdApi.ChatListMain -> existing.copy(order = position.order, isPinned = position.isPinned)
             is TdApi.ChatListArchive -> existing.copy(archiveOrder = position.order)
+            is TdApi.ChatListFolder -> {
+                val changed = existing.folderPositions.toMutableMap()
+                if (position.order <= 0L) changed.remove(list.chatFolderId)
+                else changed[list.chatFolderId] = FolderChatPosition(position.order, position.isPinned)
+                existing.copy(folderPositions = changed)
+            }
             else -> return
         }
         notificationFeed.chatPositionChanged(chatId)
@@ -1144,6 +1279,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         val chatTitle = if (saved) appContext.getString(R.string.saved_messages_title) else title.ifBlank { return null }
         val mainPosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListMain }
         val archivePosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListArchive }
+        val folderPositions = positions.orEmpty().mapNotNull { position ->
+            val list = position.list as? TdApi.ChatListFolder ?: return@mapNotNull null
+            if (position.order <= 0L) return@mapNotNull null
+            list.chatFolderId to FolderChatPosition(position.order, position.isPinned)
+        }.toMap()
         return ChatPreview(
             id = id,
             title = chatTitle,
@@ -1163,7 +1303,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             lastMessageSendState = lastMessage?.sendingState.toSendState(),
             lastReadOutboxMessageId = lastReadOutboxMessageId,
             canPost = profiles.canPost(this),
-            photo = profiles.photo(photo)
+            photo = profiles.photo(photo),
+            folderPositions = folderPositions
         )
     }
 
