@@ -33,5 +33,7 @@ enum class AppRoute {
     ThemeEditor,
     Language,
     Sessions,
+    NewChat,
+    CreateGroup,
     CreateChannel
 }
