@@ -53,7 +53,7 @@ internal object VideoNoteSyntheticSource {
                     }
                     else -> if (index >= 0) {
                         val encoded = codec.getOutputBuffer(index) ?: error("Missing encoded buffer")
-                        if (bufferInfo.size > 0) {
+                        if (bufferInfo.size > 0 && bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
                             check(muxerStarted && videoTrack >= 0) { "Muxer not started" }
                             encoded.position(bufferInfo.offset)
                             encoded.limit(bufferInfo.offset + bufferInfo.size)
@@ -98,7 +98,7 @@ internal object VideoNoteSyntheticSource {
             }
             codec.queueInputBuffer(eosInput, 0, 0, FRAMES * 1_000_000L / FPS, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
             drain(true)
-            check(endOfOutput && muxerStarted && file.length() > 0) { "Synthetic MP4 export incomplete" }
+            check(endOfOutput && muxerStarted) { "Synthetic MP4 export incomplete" }
         } catch (failure: Exception) {
             file.delete()
             throw failure
