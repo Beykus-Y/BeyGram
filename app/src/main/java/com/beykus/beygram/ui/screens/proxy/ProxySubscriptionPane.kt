@@ -115,7 +115,8 @@ internal fun ColumnScope.ProxySubscriptionPane(
         ProxySegmented(
             labels = listOf(stringResource(R.string.proxy_sub_auto), stringResource(R.string.proxy_sub_manual)),
             selectedIndex = if (settings.autoSelectEnabled) 0 else 1,
-            onSelect = { index -> if (!busy) vpnBackend.updateAutoSelect(index == 0) }
+            // Mode changes invalidate pending automatic work immediately, even while refresh is busy.
+            onSelect = { index -> vpnBackend.updateAutoSelect(index == 0) }
         )
 
         Row(
