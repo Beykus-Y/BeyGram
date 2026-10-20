@@ -203,6 +203,7 @@ internal object VideoNoteHighSpeedProbe {
                             override fun onClosed(camera: CameraDevice) { closed.complete(Unit) }
                         }, handler)
                     } catch (failure: Exception) {
+                        openRequested = false
                         if (cont.isActive) cont.resume(null)
                     }
                 }
