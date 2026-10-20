@@ -59,16 +59,16 @@ internal fun compareVideoNoteLoss(
         "Изменилось число кадров: ${yes(changedCount)} (${local.frameCount} → ${remote.frameCount})",
         yes(changedCount), local.frameCount, remote.frameCount))
     val fpsValue = if (changedFps) yes(true) else line(R.string.loss_not_known, "НЕТ / не определён")
-    appendLine(line(R.string.loss_compare_fps, "Изменился измеренный FPS: $"+"{fpsValue}", fpsValue))
+    appendLine(line(R.string.loss_compare_fps, "Изменился измеренный FPS: ${fpsValue}", fpsValue))
     val sha = when (sameSha256) {
         true -> yes(true)
         false -> yes(false)
         null -> line(R.string.loss_no_data, "нет данных")
     }
-    appendLine(line(R.string.loss_compare_sha, "Совпадение SHA-256: $"+"{sha}", sha))
+    appendLine(line(R.string.loss_compare_sha, "Совпадение SHA-256: ${sha}", sha))
     val verified = line(if (independent) R.string.loss_verified else R.string.loss_unverified,
         if (independent) "подтверждено" else "НЕ ПОДТВЕРЖДЕНО")
-    appendLine(line(R.string.loss_compare_remote, "Независимое скачивание: $"+"{verified}", verified))
+    appendLine(line(R.string.loss_compare_remote, "Независимое скачивание: ${verified}", verified))
     when {
         !independent -> appendLine(line(R.string.loss_compare_cached_warning,
             "Вывод ограничен: Telegram мог вернуть закэшированные байты. Нельзя доказать отсутствие изменений на сервере."))
@@ -161,15 +161,15 @@ internal class VideoNoteLossDiagnostics(
                 appendLine(context.getString(R.string.loss_report_heading))
                 appendLine(context.getString(R.string.loss_report_type))
                 appendLine(context.getString(R.string.loss_report_source, sourceStats.summary()))
-                appendLine("SHA-256 A: $"+"sourceHash")
+                appendLine("SHA-256 A: $sourceHash")
                 appendLine(context.getString(R.string.loss_report_export, exportStats.summary()))
-                appendLine("SHA-256 C: $"+"exportedHash")
+                appendLine("SHA-256 C: $exportedHash")
                 appendLine(context.getString(R.string.loss_report_sent, output.width, output.height, output.durationSeconds, exportedHash))
                 appendLine(context.getString(R.string.loss_report_confirmed, sent.declaredSide, sent.remoteFileBytes))
                 appendLine(context.getString(R.string.loss_report_evidence, sent.sourceEvidence))
                 appendLine(context.getString(R.string.loss_report_file, downloadedStats?.summary()
                     ?: context.getString(R.string.loss_report_unavailable)))
-                appendLine("SHA-256 F: $"+"{remoteSha ?: context.getString(R.string.loss_report_not_measured)}")
+                appendLine("SHA-256 F: ${remoteSha ?: context.getString(R.string.loss_report_not_measured)}")
                 appendLine()
                 appendLine(context.getString(R.string.loss_report_processing_changes,
                     sourceStats.width != exportStats.width, sourceStats.frameCount != exportStats.frameCount))
