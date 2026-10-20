@@ -342,19 +342,33 @@ internal fun MediaViewer(
     /** For profile galleries prefetch only thumbnails of adjacent pages, not full originals. */
     fullFileOnlyWhenActive: Boolean = false
 ) {
-    val selectedIndex = pages.indexOfFirst { it.messageId == selectedId }.coerceAtLeast(0)
-    val shown = pages[selectedIndex]
+    // The source can shrink asynchronously while LazyLayout still holds indices from the previous frame.
+    // Keep the count, keys and content aligned to the same immutable snapshot for this composition.
+    val currentPages = pages.toList()
+    if (currentPages.isEmpty()) {
+        LaunchedEffect(Unit) { onClose() }
+        return
+    }
+    val pageIds = currentPages.map { it.messageId }
+    val selectedIndex = mediaViewerSelectedIndex(pageIds, selectedId)
+    val shown = currentPages[selectedIndex]
     // A spoiler page stays hidden until the user reveals that page; swiping to a neighbour does not reveal it.
     var revealedSpoilers by remember { mutableStateOf(emptySet<Long>()) }
-    val pagerState = rememberPagerState(initialPage = selectedIndex) { pages.size }
-    // Лента может измениться (пришло или удалено сообщение), поэтому выбранное вложение держим по id, а не по индексу.
-    LaunchedEffect(selectedIndex) { if (pagerState.settledPage != selectedIndex) pagerState.scrollToPage(selectedIndex) }
-    LaunchedEffect(pagerState.settledPage) {
-        val settled = pages.getOrNull(pagerState.settledPage)?.messageId
-        if (settled != null && settled != selectedId) onSelect(settled)
+    val pagerState = rememberPagerState(initialPage = selectedIndex) { currentPages.size }
+    // Preserve the selected media by ID if the gallery is reordered. If it is deleted,
+    // pick a real neighbour instead of retaining an invalid page index.
+    LaunchedEffect(pageIds, selectedId) {
+        val target = mediaViewerSelectedIndex(pageIds, selectedId)
+        if (selectedId !in pageIds) onSelect(pageIds[target])
+        if (pagerState.currentPage != target) pagerState.scrollToPage(target)
     }
-    // Выбранное вложение догоняет свайп только после его окончания, поэтому защиту экрана берём с видимой страницы.
-    val settledMedia = pages.getOrNull(pagerState.settledPage)?.media ?: shown.media
+    LaunchedEffect(pagerState.settledPage, pageIds) {
+        val settled = pageIds.getOrNull(pagerState.settledPage)
+        if (settled != null && settled != selectedId && selectedId in pageIds) onSelect(settled)
+    }
+    val safeSettledPage = pagerState.settledPage.coerceIn(0, currentPages.lastIndex)
+    // The secure flag must correspond to the actually visible media, not to a stale position.
+    val settledMedia = currentPages[safeSettledPage].media
     val shownFile by remember(shown.media.fileId) { observeFile(shown.media.fileId) }.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -383,13 +397,16 @@ internal fun MediaViewer(
         // Панель действий и сообщения стоят под страницей, потому что поверх неё лежит управление видео и аудио.
         Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { pages[it].messageId }) { page ->
-                    val item = pages[page]
-                    MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == pagerState.settledPage,
-                        fullFileOnlyWhenActive = fullFileOnlyWhenActive,
-                        revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
-                        onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
-                        onDismiss = onClose, onToggleControls = { controlsVisible = !controlsVisible }, controlsVisible = controlsVisible)
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { index -> mediaViewerPageKey(pageIds, index) }) { page ->
+                    // Compose may request an index belonging to the preceding page count during an update.
+                    // Never index the backing list until this page exists in our current snapshot.
+                    currentPages.getOrNull(page)?.let { item ->
+                        MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == safeSettledPage,
+                            fullFileOnlyWhenActive = fullFileOnlyWhenActive,
+                            revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
+                            onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
+                            onDismiss = onClose, onToggleControls = { controlsVisible = !controlsVisible }, controlsVisible = controlsVisible)
+                    }
                 }
                 Row(
                     Modifier.fillMaxWidth().align(Alignment.TopCenter).background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent).padding(horizontal = 6.dp, vertical = 6.dp),
@@ -412,17 +429,17 @@ internal fun MediaViewer(
                     } else Spacer(Modifier.weight(1f))
                 }
                 // Кнопки листания нужны тем, кто не листает пальцем, например TalkBack. Кнопка у края неактивна, если соседней страницы нет.
-                if (pages.size > 1) {
+                if (currentPages.size > 1) {
                     IconButton(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.settledPage - 1) } },
-                        enabled = pagerState.settledPage > 0,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage - 1) } },
+                        enabled = safeSettledPage > 0,
                         modifier = Modifier.align(Alignment.CenterStart).padding(8.dp).background(Color(0x80070B10), CircleShape)
-                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (pagerState.settledPage > 0) 1f else 0.3f)) }
+                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (safeSettledPage > 0) 1f else 0.3f)) }
                     IconButton(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.settledPage + 1) } },
-                        enabled = pagerState.settledPage < pages.lastIndex,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage + 1) } },
+                        enabled = safeSettledPage < currentPages.lastIndex,
                         modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
-                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (pagerState.settledPage < pages.lastIndex) 1f else 0.3f)) }
+                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
                 }
             }
             // Строка всегда занимает место, где может появиться действие: иначе страница прыгает, когда докачанный файл добавляет «Сохранить».
