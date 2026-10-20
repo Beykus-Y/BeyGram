@@ -72,6 +72,9 @@ internal class VideoNoteLossDiagnostics(
         val original = File(folder, "source-reference.mp4")
         val remoteCopy = File(folder, "downloaded-after-telegram.mp4")
         try {
+            check(repository.authState.value == com.beykus.beygram.domain.model.AuthState.Ready) {
+                "Telegram account not authenticated"
+            }
             removeOldTempFiles()
             VideoNoteSyntheticSource.generate(source)
             source.copyTo(original)
@@ -95,8 +98,14 @@ internal class VideoNoteLossDiagnostics(
                 phase = "Анализ полученного файла", sentMessageId = sent.messageId,
                 independentDownload = sent.independentDownloadVerified
             )
-            val downloadedStats = sent.remoteCopyPath?.let { analyzeVideoNoteFrameSamples(File(it)) }
-            val remoteSha = sent.remoteCopyPath?.let { sha256(File(it)) }
+            // A corrupt or unreadable remote MP4 must be reported as inconclusive, not hide
+            // the confirmed send receipt or the optional exact-message deletion control.
+            val downloadedStats = sent.remoteCopyPath?.let { path ->
+                runCatching { analyzeVideoNoteFrameSamples(File(path)) }.getOrNull()
+            }
+            val remoteSha = sent.remoteCopyPath?.let { path ->
+                runCatching { sha256(File(path)) }.getOrNull()
+            }
             val report = buildString {
                 appendLine("BeyGram — диагностика потерь видеосообщений")
                 appendLine("Тип: синтетические кадры, без камеры и микрофона")
