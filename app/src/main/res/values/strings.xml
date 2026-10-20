@@ -1017,4 +1017,36 @@
         <item quantity="many">Группа создана. Не приглашены %d участников из-за ограничений Telegram.</item>
         <item quantity="other">Группа создана. Не приглашены %d участников из-за ограничений Telegram.</item>
     </plurals>
+    <!-- Localized reports for the optional synthetic video note check -->
+    <string name="loss_yes">ДА</string>
+    <string name="loss_no">НЕТ</string>
+    <string name="loss_not_known">НЕТ / не определён</string>
+    <string name="loss_no_data">нет данных</string>
+    <string name="loss_verified">подтверждено</string>
+    <string name="loss_unverified">НЕ ПОДТВЕРЖДЕНО</string>
+    <string name="loss_compare_missing">Повторное получение файла: не удалось. Состояние параметров неизвестно.</string>
+    <string name="loss_compare_size">Изменён размер кадра: %1$s (%2$s → %3$s)</string>
+    <string name="loss_compare_frames">Изменилось число кадров: %1$s (%2$d → %3$d)</string>
+    <string name="loss_compare_fps">Изменился измеренный FPS: %1$s</string>
+    <string name="loss_compare_sha">Совпадение SHA-256: %1$s</string>
+    <string name="loss_compare_remote">Независимое скачивание: %1$s</string>
+    <string name="loss_compare_cached_warning">Вывод ограничен: Telegram мог вернуть закэшированные байты. Нельзя доказать отсутствие изменений на сервере.</string>
+    <string name="loss_compare_transformed">Обнаружены изменения параметров между отправленным MP4 и повторно полученным файлом. Этап и инициатор перекодирования не доказаны.</string>
+    <string name="loss_compare_bytes_changed">Байты или контейнер изменились, но потери размера, FPS и числа кадров не обнаружены. Визуальная деградация НЕ доказана.</string>
+    <string name="loss_compare_identical">Байты исходного и независимо скачанного файлов совпадают.</string>
+    <string name="loss_compare_insufficient">Недостаточно данных для вывода.</string>
+    <string name="loss_report_heading">BeyGram — диагностика потерь видеосообщений</string>
+    <string name="loss_report_type">Тип: синтетические кадры, без камеры и микрофона</string>
+    <string name="loss_report_source">Исходный файл A: %1$s</string>
+    <string name="loss_report_export">Файл после обработки C: %1$s</string>
+    <string name="loss_report_sent">Отправленный файл D: %1$dx%2$d, %3$d с; SHA-256=%4$s</string>
+    <string name="loss_report_confirmed">Telegram подтвердил отправку E: длина %1$d с, объём %2$d байт</string>
+    <string name="loss_report_evidence">Подтверждение повторного получения F: %1$s</string>
+    <string name="loss_report_file">Скачанный файл F: %1$s</string>
+    <string name="loss_report_unavailable">недоступен</string>
+    <string name="loss_report_not_measured">не измерен</string>
+    <string name="loss_report_processing_changes">A→C: размер изменился=%1$b, число кадров изменилось=%2$b</string>
+    <string name="loss_report_local_hashed">C→D: локальный файл повторно прочитан и хэширован до передачи</string>
+    <string name="loss_report_camera_notice">Синтетический тест не измеряет FPS физической камеры и не доказывает визуальное качество.</string>
+    <string name="loss_report_private_notice">Идентификаторы сообщений, чатов и файлов Telegram не включены в отчёт.</string>
 </resources>
