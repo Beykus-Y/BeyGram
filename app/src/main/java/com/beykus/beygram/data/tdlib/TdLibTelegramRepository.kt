@@ -378,7 +378,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     groupCreationPrefs.edit().putBoolean("unconfirmed", false).apply()
                     _groupCreation.value = GroupCreationState.Created(
                         created.chatId,
-                        created.failedToAddMembers?.size ?: 0
+                        created.failedToAddMembers?.failedToAddMembers?.size ?: 0
                     )
                     runCatching { tdRequests(TdApi.GetChat(created.chatId)) }
                         .onSuccess(::handleNewChat)
