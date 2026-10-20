@@ -43,7 +43,14 @@ internal object VideoNoteFpsCheck {
         return true
     }
 
+    private val ADVERTISED_HIGH = setOf(ProbeModeStatus.PLANNED, ProbeModeStatus.SKIPPED_LIMIT, ProbeModeStatus.STREAM_TOO_SLOW)
+
     fun cancel() { job?.cancel() }
+
+    /** Recording must not compete with the check for a camera: starting a video note stops it. */
+    fun cancelForRecording() {
+        if (job?.isActive == true) job?.cancel()
+    }
 
     private suspend fun run(context: Context, lenses: ProbeScope, settings: VideoMessageSettings) {
         val probe = VideoNoteFpsProbe(context)
@@ -149,6 +156,10 @@ internal object VideoNoteFpsCheck {
             sixty.isNotEmpty() -> context.getString(R.string.fps_check_conclusion_60_yes,
                 sixty.joinToString { (mode, _) -> "${mode.cameraId} ${mode.size}" })
             tried60 -> context.getString(R.string.fps_check_conclusion_60_tried)
+            // Advertised 60 that failed to open, timed out, hit the limit or a too-slow stream
+            // is "not measured", never "not advertised".
+            rows.any { it.mode.targetFps >= 50 && it.mode.status in ADVERTISED_HIGH } ->
+                context.getString(R.string.fps_check_conclusion_60_unmeasured)
             measured.isEmpty() -> context.getString(R.string.fps_check_conclusion_nothing)
             else -> context.getString(R.string.fps_check_conclusion_60_not_advertised)
         }

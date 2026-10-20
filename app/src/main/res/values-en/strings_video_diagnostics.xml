@@ -84,6 +84,7 @@
     <string name="fps_check_conclusion_60_yes">Result: real 60 fps was reached on %1$s. This does not guarantee 60 when recording with sound; compare with normal recording above.</string>
     <string name="fps_check_conclusion_60_tried">Result: 60 fps was requested but not reached in any mode.</string>
     <string name="fps_check_conclusion_60_not_advertised">Result: none of the selected cameras advertises 60 fps in normal mode; 60 was not checked. High-speed modes are listed separately.</string>
+    <string name="fps_check_conclusion_60_unmeasured">Result: a camera advertises 60 fps in normal mode, but it could not be measured (see the rows above for the reason).</string>
     <string name="fps_check_conclusion_nothing">Result: no mode could be measured.</string>
     <string name="fps_check_report_notice">Account, chat and file identifiers are not included in the report.</string>
 

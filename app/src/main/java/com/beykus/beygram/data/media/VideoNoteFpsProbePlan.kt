@@ -145,8 +145,10 @@ internal fun measureProbeFrames(timestampsNs: List<Long>, exposuresNs: List<Long
         val gap = timestampsNs[i] - timestampsNs[i - 1]
         if (gap > 0) gaps += gap else nonIncreasing++
     }
-    val span = if (timestampsNs.size >= 2) timestampsNs.max() - timestampsNs.min() else 0L
-    val fps = if (span > 0) (timestampsNs.size - 1) * 1_000_000_000.0 / span else null
+    // Only increasing intervals count: a repeated or reordered timestamp must not inflate the rate
+    // (duplicated 30 FPS results would otherwise read as 60).
+    val span = gaps.sum()
+    val fps = if (span > 0) gaps.size * 1_000_000_000.0 / span else null
     val expectedNs = 1_000_000_000.0 / targetFps.coerceAtLeast(1)
     val sorted = gaps.sorted()
     fun pct(p: Double): Double? = if (sorted.isEmpty()) null

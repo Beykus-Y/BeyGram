@@ -69,6 +69,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteCameraSurvey
+import com.beykus.beygram.data.media.VideoNoteFpsCheck
 import com.beykus.beygram.data.media.VideoNoteFpsDecision
 import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.data.media.previewFrameRateFor
@@ -248,6 +249,8 @@ internal class VideoNoteRecorder(
             onError(context.getString(R.string.recorder_processing_busy))
             return
         }
+        // The opt-in camera FPS check may still hold a lens after leaving settings: recording wins.
+        VideoNoteFpsCheck.cancelForRecording()
         val settings = currentSettings()
         Log.i(TAG, "video_start_requested preset=${settings.preset} long=${settings.longRecordingEnabled}")
         maxDurationMs = if (settings.longRecordingEnabled) LONG_MAX_DURATION_MS else NORMAL_MAX_DURATION_MS

@@ -85,6 +85,7 @@
     <string name="fps_check_conclusion_60_yes">Итог: реальные 60 кадров/с получены на %1$s. Это не гарантирует 60 при записи со звуком; сравните с обычной записью выше.</string>
     <string name="fps_check_conclusion_60_tried">Итог: 60 кадров/с запрашивались, но не были получены ни в одном режиме.</string>
     <string name="fps_check_conclusion_60_not_advertised">Итог: ни одна выбранная камера не заявляет 60 кадров/с в обычном режиме; 60 не проверялись. Скоростные режимы перечислены отдельно.</string>
+    <string name="fps_check_conclusion_60_unmeasured">Итог: камера заявляет 60 кадров/с в обычном режиме, но измерить их не удалось (причина указана в строках выше).</string>
     <string name="fps_check_conclusion_nothing">Итог: ни один режим не удалось измерить.</string>
     <string name="fps_check_report_notice">Идентификаторы аккаунта, чатов и файлов в отчёт не входят.</string>
 

@@ -81,8 +81,10 @@ internal class VideoNoteFpsProbe(private val context: Context) {
         var device: CameraDevice? = null
         var session: CameraCaptureSession? = null
         val closed = CompletableDeferred<Unit>()
+        // Completes once the open request settles; true when a CameraDevice existed (and so will close).
+        val settled = CompletableDeferred<Boolean>()
         try {
-            device = when (val opened = open(mode.cameraId, handler, closed)) {
+            device = when (val opened = open(mode.cameraId, handler, closed, settled)) {
                 is OpenResult.Opened -> opened.device
                 is OpenResult.Failed -> return ProbeOutcome.OpenFailed(opened.reason)
             }
@@ -133,10 +135,17 @@ internal class VideoNoteFpsProbe(private val context: Context) {
         } finally {
             runCatching { session?.close() }
             val toClose = device
-            if (toClose != null) {
-                runCatching { toClose.close() }
-                // Never start the next mode while this camera is still releasing.
-                withContext(NonCancellable) { withTimeoutOrNull(CLOSE_TIMEOUT_MS) { closed.await() } }
+            withContext(NonCancellable) {
+                val hadDevice = if (toClose != null) {
+                    runCatching { toClose.close() }
+                    true
+                } else {
+                    // Cancelled or timed out while opening: keep the callback thread alive until the
+                    // request settles, so a late onOpened can still close the camera (it does so itself).
+                    withTimeoutOrNull(OPEN_SETTLE_TIMEOUT_MS) { settled.await() } ?: false
+                }
+                // Never start the next mode, or let recording start, while this camera is still releasing.
+                if (hadDevice) withTimeoutOrNull(CLOSE_TIMEOUT_MS) { closed.await() }
             }
             reader.close()
             thread.quitSafely()
@@ -149,23 +158,36 @@ internal class VideoNoteFpsProbe(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission") // Checked by hasPermission() before the run starts.
-    private suspend fun open(id: String, handler: Handler, closed: CompletableDeferred<Unit>): OpenResult =
-        suspendCancellableCoroutine { cont ->
+    private suspend fun open(
+        id: String,
+        handler: Handler,
+        closed: CompletableDeferred<Unit>,
+        settled: CompletableDeferred<Boolean>
+    ): OpenResult = suspendCancellableCoroutine { cont ->
+        try {
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
+                    // A late open after cancellation is closed here; the caller waits for onClosed.
                     if (cont.isActive) cont.resume(OpenResult.Opened(camera)) else camera.close()
+                    settled.complete(true)
                 }
                 override fun onDisconnected(camera: CameraDevice) {
                     camera.close()
+                    settled.complete(true)
                     if (cont.isActive) cont.resume(OpenResult.Failed("disconnected"))
                 }
                 override fun onError(camera: CameraDevice, error: Int) {
                     camera.close()
+                    settled.complete(true)
                     if (cont.isActive) cont.resume(OpenResult.Failed(openErrorName(error)))
                 }
                 override fun onClosed(camera: CameraDevice) { closed.complete(Unit) }
             }, handler)
+        } catch (failure: Exception) {
+            settled.complete(false)
+            throw failure
         }
+    }
 
     private suspend fun configure(device: CameraDevice, surface: Surface, executor: Executor): CameraCaptureSession? =
         suspendCancellableCoroutine { cont ->
@@ -191,6 +213,7 @@ internal class VideoNoteFpsProbe(private val context: Context) {
         const val MODE_TIMEOUT_MS = 8_000L
         const val RUN_TIMEOUT_MS = 150_000L
         private const val CLOSE_TIMEOUT_MS = 2_000L
+        private const val OPEN_SETTLE_TIMEOUT_MS = 5_000L
 
         fun openErrorName(error: Int): String = when (error) {
             CameraDevice.StateCallback.ERROR_CAMERA_IN_USE -> "in use"

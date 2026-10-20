@@ -100,6 +100,15 @@ class VideoNoteFpsProbePlanTest {
         assertEquals(ProbeVerdict.REACHED, classifyProbe(stats, 60, 0))
     }
 
+    @Test fun duplicatedTimestampsDoNotInflateTheRate() {
+        // A HAL repeating every 30 FPS timestamp once must not read as 60 FPS.
+        val ts = (0 until 60).flatMap { listOf(it * 33_333_333L, it * 33_333_333L) }
+        val stats = measureProbeFrames(ts, emptyList(), 60)
+        assertEquals(30.0, stats.measuredFps!!, 0.1)
+        assertEquals(60, stats.nonIncreasing)
+        assertEquals(ProbeVerdict.BELOW_UNEXPLAINED, classifyProbe(stats, 60, null))
+    }
+
     @Test fun thirtyDeliveredFor60WithLongExposureIsLowLight() {
         val ts = (0 until 60).map { it * 33_333_333L }
         val stats = measureProbeFrames(ts, List(60) { 33_000_000L }, 60)
