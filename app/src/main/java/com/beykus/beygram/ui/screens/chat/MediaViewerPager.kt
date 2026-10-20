@@ -14,3 +14,10 @@ internal fun mediaViewerSelectedIndex(pageIds: List<Long>, selectedId: Long): In
  */
 internal fun mediaViewerPageKey(pageIds: List<Long>, index: Int): Any =
     pageIds.getOrNull(index) ?: "unavailable-page-$index"
+
+/** A gallery update must never interrupt an in-progress gesture. */
+internal fun mediaViewerShouldScrollToSelection(
+    isScrollInProgress: Boolean,
+    settledPage: Int,
+    selectedIndex: Int
+): Boolean = !isScrollInProgress && settledPage != selectedIndex
