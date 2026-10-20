@@ -61,6 +61,7 @@ import com.beykus.beygram.data.media.videoMirrorToggleSupported
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import android.content.ClipData
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
 import android.content.ClipboardManager
@@ -555,20 +556,24 @@ private fun DiagnosticsReportActions(label: String, report: String) {
             runCatching { clipboard.setPrimaryClip(ClipData.newPlainText(label, report.take(REPORT_INLINE_SHARE_LIMIT * 4))) }
         }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
         TextButton(onClick = {
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, label)
-                if (report.length <= REPORT_INLINE_SHARE_LIMIT) {
-                    putExtra(Intent.EXTRA_TEXT, report)
-                } else {
-                    // Big reports exceed what the share sheet carries inline; send them as a file.
-                    val dir = File(context.cacheDir, "diagnostics").apply { mkdirs() }
-                    val file = File(dir, "beygram-report.txt").apply { writeText(report) }
-                    putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(context, "${context.packageName}.files", file))
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val sent = runCatching {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, label)
+                    if (report.length <= REPORT_INLINE_SHARE_LIMIT) {
+                        putExtra(Intent.EXTRA_TEXT, report)
+                    } else {
+                        // Big reports exceed what the share sheet carries inline; send them as a file.
+                        val dir = File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                        dir.listFiles { f -> f.name.startsWith("beygram-report-") }?.forEach { it.delete() }
+                        val file = File(dir, "beygram-report-${System.currentTimeMillis()}.txt").apply { writeText(report) }
+                        putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(context, "${context.packageName}.files", file))
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
                 }
-            }
-            runCatching { context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_video_diagnostics_share))) }
+                context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_video_diagnostics_share)))
+            }.isSuccess
+            if (!sent) Toast.makeText(context, R.string.diag_share_failed, Toast.LENGTH_LONG).show()
         }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
     }
 }

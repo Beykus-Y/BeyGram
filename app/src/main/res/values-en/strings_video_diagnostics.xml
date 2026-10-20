@@ -228,4 +228,5 @@
     <string name="diag_full_report_fps">=== Frame rate check ===</string>
     <string name="diag_full_report_telegram">=== Telegram check ===</string>
     <string name="diag_full_report_videos">=== Recent recordings ===</string>
+    <string name="diag_share_failed">Could not prepare the report for sharing. Try Copy instead.</string>
 </resources>
