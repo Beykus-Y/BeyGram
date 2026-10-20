@@ -202,7 +202,7 @@
     <string name="diag_center_f_detail">Sends the test to Saved Messages only, and only after you confirm.</string>
     <string name="diag_center_g_title">Full diagnostics</string>
     <string name="diag_center_g_detail">A safe sequence: capability survey, then the real FPS check.</string>
-    <string name="diag_full_plan">Order: A (survey, no camera), then B (real FPS check). No recording, sound or sending. You can stop at any time.</string>
+    <string name="diag_full_plan">Order: A (survey, no camera), then B (real FPS check). No recording, sound or sending. You can stop at any time. To get real-recording data (bitrate, audio, A/V sync) in the report, turn diagnostics mode on beforehand and record one video note: it appears under "Recent recordings".</string>
     <string name="diag_full_quick">Quick</string>
     <string name="diag_full_extended">Extended</string>
     <string name="diag_full_quick_cost">Quick: front camera only, the most important sizes. Usually under a minute, little heating.</string>
