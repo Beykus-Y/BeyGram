@@ -168,4 +168,20 @@
     <string name="camera_detail_profile_line">  %1$s: %2$dx%3$d, %4$d кадров/с, %5$d кбит/с</string>
     <string name="camera_detail_profiles_none">Профили записи для камеры %1$s не заявлены или недоступны.</string>
     <string name="vn_entry_export_result">Экспорт: кадров записано %1$d, кодировщик видео %2$s, звука %3$s, размер %4$d байт, видео ≈%5$d кбит/с, кадр %6$dx%7$d</string>
+    <string name="root_cause_line">Причина: %1$s (%2$s)</string>
+    <string name="root_confidence_established">подтверждено измерениями соседних этапов</string>
+    <string name="root_confidence_likely">вероятная, соседний этап не измерен</string>
+    <string name="root_confidence_none">вывод невозможен</string>
+    <string name="root_cause_none">ограничения частоты кадров не найдено</string>
+    <string name="root_cause_not_advertised">камера не заявляет 60 кадров/с в обычном режиме</string>
+    <string name="root_cause_session">камера не принимает такую комбинацию потоков</string>
+    <string name="root_cause_sensor">сенсор, автоэкспозиция или драйвер камеры отдают меньше кадров</string>
+    <string name="root_cause_usecase">сенсор даёт нужную частоту, но превью и запись вместе работают медленнее</string>
+    <string name="root_cause_recorder">кадры доходят до записи, но файл содержит меньше (запись или кодировщик)</string>
+    <string name="root_cause_raw">исходная запись ниже цели, этап не локализован</string>
+    <string name="root_cause_export">исходная запись в порядке, кадры потеряны при обработке</string>
+    <string name="root_cause_telegram">файл, скачанный независимо, отличается от отправленного</string>
+    <string name="root_cause_remote_unknown">независимой проверки на стороне Telegram нет, вывод о сервере невозможен</string>
+    <string name="root_cause_playback">файл в порядке, воспроизведение показывает меньше кадров</string>
+    <string name="root_cause_insufficient">недостаточно измерений</string>
 </resources>

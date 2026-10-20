@@ -167,4 +167,20 @@
     <string name="camera_detail_profile_line">  %1$s: %2$dx%3$d, %4$d fps, %5$d kbps</string>
     <string name="camera_detail_profiles_none">No recording profiles declared or available for camera %1$s.</string>
     <string name="vn_entry_export_result">Export: %1$d frames written, video encoder %2$s, audio %3$s, %4$d bytes, video ≈%5$d kbps, frame %6$dx%7$d</string>
+    <string name="root_cause_line">Cause: %1$s (%2$s)</string>
+    <string name="root_confidence_established">established by the neighbouring stages</string>
+    <string name="root_confidence_likely">likely, the neighbouring stage was not measured</string>
+    <string name="root_confidence_none">no conclusion possible</string>
+    <string name="root_cause_none">no frame-rate limit found</string>
+    <string name="root_cause_not_advertised">the camera does not advertise 60 fps in normal mode</string>
+    <string name="root_cause_session">the camera does not accept this combination of streams</string>
+    <string name="root_cause_sensor">the sensor, auto-exposure or camera driver delivers fewer frames</string>
+    <string name="root_cause_usecase">the sensor delivers the rate, but preview and recording together run slower</string>
+    <string name="root_cause_recorder">frames reach the recorder, but the file holds fewer (recorder or encoder)</string>
+    <string name="root_cause_raw">the original recording is below the target, stage not localized</string>
+    <string name="root_cause_export">the original recording is fine, frames were lost in processing</string>
+    <string name="root_cause_telegram">the independently downloaded file differs from the one sent</string>
+    <string name="root_cause_remote_unknown">no independent Telegram-side check, nothing can be said about the server</string>
+    <string name="root_cause_playback">the file is fine, playback shows fewer frames</string>
+    <string name="root_cause_insufficient">not enough measurements</string>
 </resources>
