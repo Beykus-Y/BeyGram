@@ -1049,4 +1049,6 @@
     <string name="loss_report_local_hashed">C→D: локальный файл повторно прочитан и хэширован до передачи</string>
     <string name="loss_report_camera_notice">Синтетический тест не измеряет FPS физической камеры и не доказывает визуальное качество.</string>
     <string name="loss_report_private_notice">Идентификаторы сообщений, чатов и файлов Telegram не включены в отчёт.</string>
+    <string name="loss_evidence_verified">Старая локальная копия очищена, подтверждено скачивание нового файла</string>
+    <string name="loss_evidence_unverified">Не удалось подтвердить, что файл скачан независимо от локального кэша</string>
 </resources>
