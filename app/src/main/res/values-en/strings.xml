@@ -77,4 +77,10 @@
     <string name="feature_confirm">Confirm</string>
     <string name="feature_more_actions">More actions</string>
     <string name="feature_linked_channel">Personal channel</string>
+
+    <!-- Server-synced Telegram folder tabs -->
+    <string name="chat_folders_all">All chats</string>
+    <string name="chat_folder_empty">This folder has no chats yet</string>
+    <string name="chat_folder_load_more">Load more chats</string>
+    <string name="chat_folder_load_failed">Couldn't load folder chats. Try again.</string>
 </resources>
