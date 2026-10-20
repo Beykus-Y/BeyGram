@@ -229,4 +229,21 @@
     <string name="diag_full_report_telegram">=== Telegram check ===</string>
     <string name="diag_full_report_videos">=== Recent recordings ===</string>
     <string name="diag_share_failed">Could not prepare the report for sharing. Try Copy instead.</string>
+    <string name="hs_heading">BeyGram: high-speed and unlisted range check</string>
+    <string name="hs_method">Method: a stream into an encoder that writes no file, with no sound and no pixels read; the rate comes from sensor timestamps after 0.8 s warm-up, 2 s window. The constrained high-speed mode and a request for an unlisted range are checked separately from normal recording. The result does not prove a circle with sound can be recorded in such a mode.</string>
+    <string name="hs_vendor">Vendor keys among the camera request keys (names only): %1$s</string>
+    <string name="hs_vendor_none">No vendor keys found among the camera request keys.</string>
+    <string name="hs_camera_none">High-speed capture is not advertised.</string>
+    <string name="hs_sizes">Advertised high-speed modes: %1$s</string>
+    <string name="hs_unlisted_measured">  normal session, %1$s, unlisted range %2$s requested — measured %3$s FPS (%4$d results), gap p50/p95/max %5$s/%6$s/%7$s ms</string>
+    <string name="hs_measured">  high-speed session, %1$s, range %2$s — measured %3$s FPS (%4$d results, burst of %5$d requests), gap p50/p95/max %6$s/%7$s/%8$s ms</string>
+    <string name="hs_mode_failed">  %1$s, range %2$s — failed: %3$s</string>
+    <string name="hs_conclusion_yes">Conclusion: 60 FPS or more was reached in a mode that is not among the normal ranges (see lines above). It is a separate mode that normal recording with sound does not use yet.</string>
+    <string name="hs_conclusion_no_hs">Conclusion: high-speed modes are advertised but this run did not reach 60 FPS. This is one measurement, not a ban.</string>
+    <string name="hs_conclusion_no">Conclusion: no high-speed modes and no working unlisted ranges were found.</string>
+    <string name="hs_audio_note">Sound: the Camera2 high-speed session description covers the video stream only; we know of no API rule against recording audio separately, but the app does not do it and has not tested joining such audio to this video.</string>
+    <string name="diag_center_i_title">High-speed capture (experiment)</string>
+    <string name="diag_center_i_detail">Checks the camera's high-speed mode and a request for a 60 range that is not listed. The camera opens for a few seconds per mode, with no sound and no recording.</string>
+    <string name="diag_full_report_highspeed">=== High-speed capture ===</string>
+    <string name="hs_running">High-speed check is running…</string>
 </resources>

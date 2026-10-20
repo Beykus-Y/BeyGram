@@ -50,6 +50,7 @@ import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteLossDiagnostics
 import com.beykus.beygram.data.media.VideoNoteCameraSurvey
 import com.beykus.beygram.data.media.VideoNoteFpsCheck
+import com.beykus.beygram.data.media.VideoNoteHighSpeedProbe
 import com.beykus.beygram.data.media.VideoNoteSyntheticSource
 import com.beykus.beygram.data.media.ProbeScope
 import com.beykus.beygram.domain.repository.TelegramRepository
@@ -103,6 +104,23 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     var fullExtended by remember { mutableStateOf(false) }
     var latestSurvey by remember { mutableStateOf<String?>(null) }
     var showFullReport by remember { mutableStateOf(false) }
+    var highSpeedReport by remember { mutableStateOf<String?>(null) }
+    var highSpeedBusy by remember { mutableStateOf(false) }
+    var showHighSpeed by remember { mutableStateOf(false) }
+    val runHighSpeed: () -> Unit = {
+        if (!highSpeedBusy) {
+            highSpeedBusy = true
+            showHighSpeed = true
+            scope.launch {
+                highSpeedReport = try { VideoNoteHighSpeedProbe.run(context.applicationContext) }
+                catch (failure: Exception) { context.getString(R.string.camera_report_failed, failure.javaClass.simpleName) }
+                finally { highSpeedBusy = false }
+            }
+        }
+    }
+    val highSpeedPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) runHighSpeed()
+    }
     var fullRunActive by remember { mutableStateOf(false) }
     var fullRunStarted by remember { mutableStateOf(false) }
     suspend fun surveyReport(): String {
@@ -131,6 +149,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             section(R.string.diag_full_report_survey, latestSurvey),
             section(R.string.diag_full_report_fps, fpsCheck.report),
             section(R.string.diag_full_report_telegram, lossState.report),
+            section(R.string.diag_full_report_highspeed, highSpeedReport),
             section(R.string.diag_full_report_videos, reports.take(5).joinToString("\n\n") { it.asText(context) { st -> videoNoteStatusText(context, st) } })
         ).joinToString("\n\n")
     }
@@ -234,6 +253,11 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 DiagnosticsCenterRow("E", R.string.diag_center_e_title, R.string.diag_center_e_detail, null, false) {}
                 DiagnosticsCenterRow("F", R.string.diag_center_f_title, R.string.diag_center_f_detail, R.string.diag_center_run, true) { showLossPanel = true }
                 DiagnosticsCenterRow("G", R.string.diag_center_g_title, R.string.diag_center_g_detail, R.string.diag_center_run, !fpsCheck.running && !cameraSurveyBusy) { showFullDiagnostics = true }
+                DiagnosticsCenterRow("I", R.string.diag_center_i_title, R.string.diag_center_i_detail,
+                    if (highSpeedBusy) R.string.fps_check_entry_running else R.string.diag_center_run, !highSpeedBusy && !fpsCheck.running) {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) runHighSpeed()
+                    else highSpeedPermission.launch(Manifest.permission.CAMERA)
+                }
                 DiagnosticsCenterRow("H", R.string.diag_center_h_title, R.string.diag_center_h_detail, R.string.diag_center_open, true) { showFullReport = true }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.settings_video_diagnostics_history, reports.size),
@@ -277,6 +301,18 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             } },
             confirmButton = { TextButton(onClick = { cameraSurvey = null }) { Text(stringResource(R.string.diagnostics_view_close)) } },
             dismissButton = { DiagnosticsReportActions("BeyGram Camera2 survey", report) }
+        )
+    }
+    if (showHighSpeed) {
+        AlertDialog(
+            onDismissRequest = { showHighSpeed = false },
+            title = { Text(stringResource(R.string.diag_center_i_title)) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (highSpeedBusy) Text(stringResource(R.string.hs_running), fontSize = 13.sp)
+                else Text(highSpeedReport.orEmpty(), fontSize = 12.sp, lineHeight = 17.sp)
+            } },
+            confirmButton = { TextButton(onClick = { showHighSpeed = false }) { Text(stringResource(R.string.diagnostics_view_close)) } },
+            dismissButton = { if (!highSpeedBusy && !highSpeedReport.isNullOrBlank()) DiagnosticsReportActions("BeyGram high-speed check", highSpeedReport.orEmpty()) }
         )
     }
     if (showFullReport) {
