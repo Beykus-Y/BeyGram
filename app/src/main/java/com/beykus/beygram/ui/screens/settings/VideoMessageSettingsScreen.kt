@@ -247,12 +247,12 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 DiagnosticsCenterRow("A", R.string.diag_center_a_title, R.string.diag_center_a_detail,
                     if (cameraSurveyBusy) R.string.loss_camera_survey_loading else R.string.diag_center_run, !cameraSurveyBusy) { runSurvey() }
                 DiagnosticsCenterRow("B", R.string.diag_center_b_title, R.string.diag_center_b_detail,
-                    if (fpsCheck.running) R.string.fps_check_entry_running else R.string.diag_center_run, true) { showFpsCheck = true }
+                    if (fpsCheck.running) R.string.fps_check_entry_running else R.string.diag_center_run, !highSpeedBusy) { showFpsCheck = true }
                 DiagnosticsCenterRow("C", R.string.diag_center_c_title, R.string.diag_center_c_detail, null, false) {}
                 DiagnosticsCenterRow("D", R.string.diag_center_d_title, R.string.diag_center_d_detail, null, false) {}
                 DiagnosticsCenterRow("E", R.string.diag_center_e_title, R.string.diag_center_e_detail, null, false) {}
                 DiagnosticsCenterRow("F", R.string.diag_center_f_title, R.string.diag_center_f_detail, R.string.diag_center_run, true) { showLossPanel = true }
-                DiagnosticsCenterRow("G", R.string.diag_center_g_title, R.string.diag_center_g_detail, R.string.diag_center_run, !fpsCheck.running && !cameraSurveyBusy) { showFullDiagnostics = true }
+                DiagnosticsCenterRow("G", R.string.diag_center_g_title, R.string.diag_center_g_detail, R.string.diag_center_run, !fpsCheck.running && !cameraSurveyBusy && !highSpeedBusy) { showFullDiagnostics = true }
                 DiagnosticsCenterRow("I", R.string.diag_center_i_title, R.string.diag_center_i_detail,
                     if (highSpeedBusy) R.string.fps_check_entry_running else R.string.diag_center_run, !highSpeedBusy && !fpsCheck.running) {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) runHighSpeed()
@@ -393,7 +393,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 if (fpsCheck.running) {
                     TextButton(onClick = { VideoNoteFpsCheck.cancel() }) { Text(stringResource(R.string.common_cancel)) }
                 } else {
-                    TextButton(onClick = {
+                    TextButton(enabled = !highSpeedBusy, onClick = {
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                             VideoNoteFpsCheck.start(context, fpsCheckScope, settings)
                         } else {

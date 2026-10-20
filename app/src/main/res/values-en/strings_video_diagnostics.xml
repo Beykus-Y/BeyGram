@@ -230,7 +230,7 @@
     <string name="diag_full_report_videos">=== Recent recordings ===</string>
     <string name="diag_share_failed">Could not prepare the report for sharing. Try Copy instead.</string>
     <string name="hs_heading">BeyGram: high-speed and unlisted range check</string>
-    <string name="hs_method">Method: a stream into an encoder that writes no file, with no sound and no pixels read; the rate comes from sensor timestamps after 0.8 s warm-up, 2 s window. The constrained high-speed mode and a request for an unlisted range are checked separately from normal recording. The result does not prove a circle with sound can be recorded in such a mode.</string>
+    <string name="hs_method">Method: the constrained high-speed mode streams into an encoder that writes no file, with no sound and no pixels read, while the unlisted-range request uses the camera check\'s image stream; the rate comes from sensor timestamps after 0.8 s warm-up, 2 s window. The constrained high-speed mode and a request for an unlisted range are checked separately from normal recording. The result does not prove a circle with sound can be recorded in such a mode.</string>
     <string name="hs_vendor">Vendor keys among the camera request keys (names only): %1$s</string>
     <string name="hs_vendor_none">No vendor keys found among the camera request keys.</string>
     <string name="hs_camera_none">High-speed capture is not advertised.</string>

@@ -47,9 +47,13 @@ internal object VideoNoteHighSpeedProbe {
     internal fun highSpeedCandidates(ranges: List<IntRange>): List<IntRange> {
         val reaching = ranges.filter { it.last in 60..120 }
         val lowest = reaching.filter { it.first < it.last }.minByOrNull { it.last }
-        val fixed = reaching.firstOrNull { it.first == it.last }
+        val fixed = reaching.filter { it.first == it.last }.maxByOrNull { it.last }
         return listOfNotNull(lowest, fixed).distinct()
     }
+
+    /** A rate counts only when the frames spread over most of the window: a short burst then a stall does not. */
+    internal fun sustained(stats: ProbeFrameStats, minFps: Double = 54.0): Boolean =
+        (stats.measuredFps ?: 0.0) >= minFps && stats.windowMs > 0 && stats.spanMs >= stats.windowMs * 0.8
 
     suspend fun run(context: Context): String = withContext(kotlinx.coroutines.Dispatchers.IO) {
         val manager = context.getSystemService(CameraManager::class.java)
@@ -80,7 +84,7 @@ internal object VideoNoteHighSpeedProbe {
                         val mode = ProbeMode(caps.cameraId, caps.facing, size, 60, range, ProbeModeStatus.PLANNED, null)
                         val outcome = probe.measureWithTimeout(mode)
                         sb.appendLine(unlistedText(context, size, range, outcome))
-                        if (outcome is ProbeOutcome.Measured && (outcome.stats.measuredFps ?: 0.0) >= 54.0) reached60 = true
+                        if (outcome is ProbeOutcome.Measured && sustained(outcome.stats)) reached60 = true
                         if (outcome is ProbeOutcome.StoppedHot) { sb.appendLine(context.getString(R.string.fps_check_stopped_hot)); return@withContext sb.toString() }
                     }
                 }
@@ -101,7 +105,7 @@ internal object VideoNoteHighSpeedProbe {
                     }
                     val result = measureHighSpeed(manager, caps.cameraId, size, range)
                     sb.appendLine(highSpeedText(context, size, range, result))
-                    if (result.fps != null && result.fps >= 54.0) reached60 = true
+                    if (result.sustained) reached60 = true
                     delay(300)
                 }
             }
@@ -147,7 +151,7 @@ internal object VideoNoteHighSpeedProbe {
             r.fps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "?", r.frames, r.burst,
             ms(r.p50), ms(r.p95), ms(r.max))
 
-    private class HighSpeedResult(val fps: Double?, val frames: Int, val burst: Int, val p50: Double?, val p95: Double?, val max: Double?, val error: String?)
+    private class HighSpeedResult(val fps: Double?, val frames: Int, val burst: Int, val p50: Double?, val p95: Double?, val max: Double?, val error: String?, val sustained: Boolean = false)
 
     private fun failed(reason: String) = HighSpeedResult(null, 0, 0, null, null, null, reason)
 
@@ -157,6 +161,9 @@ internal object VideoNoteHighSpeedProbe {
         val handler = Handler(thread.looper)
         val executor = Executor { handler.post(it) }
         var codec: MediaCodec? = null
+        var surface: Surface? = null
+        var openRequested = false
+        @Volatile var encoderFailed = false
         var device: CameraDevice? = null
         var session: CameraCaptureSession? = null
         val closed = CompletableDeferred<Unit>()
@@ -167,7 +174,6 @@ internal object VideoNoteHighSpeedProbe {
                 setInteger(MediaFormat.KEY_FRAME_RATE, range.last)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             }
-            val surface: Surface
             try {
                 val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
                 codec = enc
@@ -176,7 +182,7 @@ internal object VideoNoteHighSpeedProbe {
                     override fun onOutputBufferAvailable(c: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
                         runCatching { c.releaseOutputBuffer(index, false) }
                     }
-                    override fun onError(c: MediaCodec, e: MediaCodec.CodecException) {}
+                    override fun onError(c: MediaCodec, e: MediaCodec.CodecException) { encoderFailed = true }
                     override fun onOutputFormatChanged(c: MediaCodec, f: MediaFormat) {}
                 }, handler)
                 enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -185,6 +191,8 @@ internal object VideoNoteHighSpeedProbe {
             } catch (failure: Exception) {
                 return failed("encoder: " + failure.javaClass.simpleName)
             }
+            val target: Surface = surface ?: return failed("encoder: no surface")
+            openRequested = true
             val opened = withTimeoutOrNull(MODE_TIMEOUT_MS) {
                 suspendCancellableCoroutine<CameraDevice?> { cont ->
                     try {
@@ -205,7 +213,7 @@ internal object VideoNoteHighSpeedProbe {
                 suspendCancellableCoroutine<CameraCaptureSession?> { cont ->
                     try {
                         dev.createCaptureSession(SessionConfiguration(
-                            SessionConfiguration.SESSION_HIGH_SPEED, listOf(OutputConfiguration(surface)), executor,
+                            SessionConfiguration.SESSION_HIGH_SPEED, listOf(OutputConfiguration(target)), executor,
                             object : CameraCaptureSession.StateCallback() {
                                 override fun onConfigured(s: CameraCaptureSession) { if (cont.isActive) cont.resume(s) else s.close() }
                                 override fun onConfigureFailed(s: CameraCaptureSession) { if (cont.isActive) cont.resume(null) }
@@ -219,7 +227,7 @@ internal object VideoNoteHighSpeedProbe {
             val hs = configured as? CameraConstrainedHighSpeedCaptureSession ?: return failed("not a high-speed session")
             val builder = dev.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                 set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(range.first, range.last))
-                addTarget(surface)
+                addTarget(target)
             }
             val burst = hs.createHighSpeedRequestList(builder.build())
             val timestamps = ArrayList<Long>()
@@ -240,16 +248,19 @@ internal object VideoNoteHighSpeedProbe {
             delay((WARMUP_NS + PROBE_MEASURE_NS) / 1_000_000L + 400L)
             runCatching { hs.stopRepeating() }
             val stats = synchronized(timestamps) { measureProbeFrames(timestamps.toList(), exposures.toList(), range.last) }
-            return HighSpeedResult(stats.measuredFps, stats.frames, burst.size, stats.p50GapMs, stats.p95GapMs, stats.maxGapMs, null)
+            if (encoderFailed) return failed("encoder error")
+            return HighSpeedResult(stats.measuredFps, stats.frames, burst.size, stats.p50GapMs, stats.p95GapMs, stats.maxGapMs, null, sustained(stats))
         } catch (failure: Exception) {
             return failed(failure.javaClass.simpleName)
         } finally {
             withContext(NonCancellable) {
                 runCatching { session?.close() }
                 runCatching { device?.close() }
-                withTimeoutOrNull(2_000L) { if (device != null) closed.await() }
+                // A timed-out open can still complete later: that late onOpened closes the camera itself.
+                if (device != null || openRequested) withTimeoutOrNull(if (device != null) 2_000L else 5_000L) { closed.await() }
                 runCatching { codec?.stop() }
                 runCatching { codec?.release() }
+                runCatching { surface?.release() }
                 thread.quitSafely()
             }
         }
