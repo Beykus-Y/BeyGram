@@ -36,7 +36,7 @@ sealed interface TelegramFolderTab {
 
 fun orderedTelegramFolderTabs(state: TelegramChatFolders): List<TelegramFolderTab> {
     val folders: MutableList<TelegramFolderTab> =
-        state.folders.map { TelegramFolderTab.Folder(it.id) }.toMutableList()
+        state.folders.map<TelegramChatFolder, TelegramFolderTab> { TelegramFolderTab.Folder(it.id) }.toMutableList()
     val mainIndex = state.mainChatListPosition.coerceIn(0, folders.size)
     return folders.apply { add(mainIndex, TelegramFolderTab.Main) }
 }
