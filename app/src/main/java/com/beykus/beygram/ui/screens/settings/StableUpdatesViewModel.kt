@@ -43,10 +43,19 @@ internal object StableUpdateActionPolicy {
     }
 }
 
+internal enum class UpdateChannel { Stable, DevBeta }
+
+// DEV beta updates come from its own prereleases; every other install uses the Stable channel.
+internal fun updateChannelFor(packageName: String): UpdateChannel =
+    if (packageName == DEV_PACKAGE) UpdateChannel.DevBeta else UpdateChannel.Stable
+
 class StableUpdatesViewModel(application: Application) : AndroidViewModel(application) {
-    // DEV beta updates come from its own prereleases; every other install uses the Stable channel.
     private val repository: ApkUpdateSource = application.applicationContext.let { context ->
-        if (context.packageName == DEV_PACKAGE) DevUpdateRepository(context) else StableUpdateRepository(context)
+        if (updateChannelFor(context.packageName) == UpdateChannel.DevBeta) {
+            DevUpdateRepository(context)
+        } else {
+            StableUpdateRepository(context)
+        }
     }
     var status: UpdateStatus by mutableStateOf(UpdateStatus.Idle)
         private set
