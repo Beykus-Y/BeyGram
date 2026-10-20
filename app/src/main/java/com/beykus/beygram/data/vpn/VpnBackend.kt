@@ -230,8 +230,27 @@ internal class VpnBackend private constructor(
         _autoSelectEvents.value = null
         // Only an explicit Auto choice may activate an already imported profile; when no
         // profile exists, wait for exactly its first successful import.
-        automaticActivation.selectAuto(enabled, mihomo.profileExists())?.let { generation ->
+        // An imported profile can be valid but contain no supported selectable nodes.
+        // If the core has not populated connections yet, verify it under the lifecycle
+        // gate before consuming the explicit Auto intent.
+        val usable = mihomo.profileExists() && _connections.value.isNotEmpty()
+        automaticActivation.selectAuto(enabled, usable)?.let { generation ->
             requestAutomaticConnection("mode_selected", generation)
+        }
+        if (enabled && !usable && mihomo.profileExists()) {
+            scope.launch(Dispatchers.IO) {
+                lifecycleMutex.withLock {
+                    if (!settings.value.autoSelectEnabled) return@withLock
+                    val loaded = runCatching { mihomo.listConnections(settings.value.connectionGroup) }
+                        .getOrDefault(emptyList())
+                    _connections.value = loaded
+                    automaticActivation.afterImport(settings.value.autoSelectEnabled, loaded.isNotEmpty())
+                        ?.let { generation -> requestAutomaticConnection("profile_validated", generation) }
+                    if (loaded.isEmpty() && settings.value.autoSelectEnabled) {
+                        _autoSelectEvents.value = AutoSelectEvent.Failed(UiText.Res(R.string.err_vpn_server_select_failed))
+                    }
+                }
+            }
         }
     }
 
@@ -240,6 +259,14 @@ internal class VpnBackend private constructor(
         scope.launch(Dispatchers.IO) {
             lifecycleMutex.withLock {
                 if (!automaticActivation.permitsActivation(generation, settings.value.autoSelectEnabled, mihomo.profileExists())) {
+                    return@withLock
+                }
+                // Re-evaluate *after* profile import finishes, before routing TDLib through it.
+                val available = runCatching { mihomo.listConnections(settings.value.connectionGroup) }
+                    .getOrDefault(emptyList())
+                _connections.value = available
+                if (available.isEmpty()) {
+                    _autoSelectEvents.value = AutoSelectEvent.Failed(UiText.Res(R.string.err_vpn_server_select_failed))
                     return@withLock
                 }
                 MihomoRuntimeDiagnostics.event("backend", "automatic activation requested reason=$reason")
@@ -377,7 +404,16 @@ internal class VpnBackend private constructor(
                 automaticActivation.selectManualRoute()
                 settingsStore.update { it.copy(autoSelectEnabled = false) }
                 _autoSelectEvents.value = null
-                stopListenerUnserialized()
+                // TDLib has already changed route. A listener cleanup problem is a
+                // warning, NOT a failed proxy selection; retrying AddProxy could create
+                // a duplicate while Telegram is already connected through the new route.
+                stopListenerUnserialized().onFailure { failure ->
+                    MihomoRuntimeDiagnostics.failure("listener cleanup after manual route", failure)
+                    _autoSelectEvents.value = AutoSelectEvent.Failed(
+                        (failure as? UserMessageException)?.text ?: UiText.Res(R.string.err_vpn_stop_failed)
+                    )
+                }
+                Result.success(Unit)
             } finally {
                 _busy.value = false
             }
