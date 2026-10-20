@@ -187,4 +187,10 @@
     <string name="vn_entry_td_pending">Telegram: сообщение создано локально и ждёт загрузки (ещё не на сервере)</string>
     <string name="vn_entry_td_stored">Telegram: сервер подтвердил, что кружок сохранён</string>
     <string name="vn_entry_td_failed">Telegram: отправка не удалась, код %1$d</string>
+    <string name="vn_entry_av">Звук: %1$s Гц, каналов %2$s, %3$s кбит/с; смещение звука относительно видео в начале %4$s мс, в конце %5$s мс, уход %6$s мс: %7$s</string>
+    <string name="vn_entry_av_none">Звук: в файле нет звуковой дорожки</string>
+    <string name="vn_av_in_sync">синхронно</string>
+    <string name="vn_av_start_offset">звук сдвинут относительно видео с самого начала</string>
+    <string name="vn_av_drift">звук постепенно расходится с видео</string>
+    <string name="vn_entry_av_failed">Звук: не удалось прочитать временные метки звука (%1$s), синхронность не оценена</string>
 </resources>

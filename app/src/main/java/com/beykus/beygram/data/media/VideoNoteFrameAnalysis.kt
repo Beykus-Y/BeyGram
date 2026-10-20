@@ -30,7 +30,9 @@ internal data class VideoNoteFrameStats(
     val audioDurationUs: Long? = null,
     val videoDurationUs: Long? = null,
     val codecProfile: Int? = null,
-    val codecLevel: Int? = null
+    val codecLevel: Int? = null,
+    val firstVideoUs: Long = 0L,
+    val lastVideoUs: Long = 0L
 ) {
     /** Localized one-line summary for reports shown in the app. */
     fun summary(context: Context): String {
@@ -116,7 +118,9 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
             audioDurationUs = audioFormat?.takeIf { it.containsKey(MediaFormat.KEY_DURATION) }?.getLong(MediaFormat.KEY_DURATION),
             videoDurationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else null,
             codecProfile = if (format.containsKey(MediaFormat.KEY_PROFILE)) format.getInteger(MediaFormat.KEY_PROFILE) else null,
-            codecLevel = if (format.containsKey(MediaFormat.KEY_LEVEL)) format.getInteger(MediaFormat.KEY_LEVEL) else null
+            codecLevel = if (format.containsKey(MediaFormat.KEY_LEVEL)) format.getInteger(MediaFormat.KEY_LEVEL) else null,
+            firstVideoUs = if (count > 0) firstUs else 0L,
+            lastVideoUs = if (count > 0) lastUs else 0L
         )
     } finally {
         extractor.release()
