@@ -100,7 +100,10 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     val settings by store.settings.collectAsStateWithLifecycle()
     var showFullDiagnostics by remember { mutableStateOf(false) }
     var fullExtended by remember { mutableStateOf(false) }
-    var pendingSurvey by remember { mutableStateOf<String?>(null) }
+    var latestSurvey by remember { mutableStateOf<String?>(null) }
+    var showFullReport by remember { mutableStateOf(false) }
+    var fullRunActive by remember { mutableStateOf(false) }
+    var fullRunStarted by remember { mutableStateOf(false) }
     suspend fun surveyReport(): String {
         cameraSurveyBusy = true
         return try {
@@ -109,12 +112,26 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             context.getString(R.string.camera_report_failed, failure.javaClass.simpleName)
         } finally { cameraSurveyBusy = false }
     }
-    val runSurvey: () -> Unit = { scope.launch { cameraSurvey = surveyReport() } }
-    LaunchedEffect(showFpsCheck) {
-        if (!showFpsCheck && pendingSurvey != null) {
-            cameraSurvey = pendingSurvey
-            pendingSurvey = null
+    val runSurvey: () -> Unit = { scope.launch { val text = surveyReport(); latestSurvey = text; cameraSurvey = text } }
+    LaunchedEffect(fpsCheck.running) {
+        if (fpsCheck.running) {
+            fullRunStarted = true
+        } else if (fullRunActive && fullRunStarted && fpsCheck.report.isNotBlank()) {
+            fullRunActive = false
+            fullRunStarted = false
+            showFpsCheck = false
+            showFullReport = true
         }
+    }
+    fun buildFullReport(): String {
+        val none = context.getString(R.string.diag_full_report_not_run)
+        fun section(title: Int, body: String?) = context.getString(title) + "\n" + (body?.takeIf { it.isNotBlank() } ?: none)
+        return listOf(
+            section(R.string.diag_full_report_survey, latestSurvey),
+            section(R.string.diag_full_report_fps, fpsCheck.report),
+            section(R.string.diag_full_report_telegram, lossState.report),
+            section(R.string.diag_full_report_videos, reports.take(5).joinToString("\n\n") { it.asText(context) { st -> videoNoteStatusText(context, st) } })
+        ).joinToString("\n\n")
     }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -216,6 +233,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 DiagnosticsCenterRow("E", R.string.diag_center_e_title, R.string.diag_center_e_detail, null, false) {}
                 DiagnosticsCenterRow("F", R.string.diag_center_f_title, R.string.diag_center_f_detail, R.string.diag_center_run, true) { showLossPanel = true }
                 DiagnosticsCenterRow("G", R.string.diag_center_g_title, R.string.diag_center_g_detail, R.string.diag_center_run, !fpsCheck.running && !cameraSurveyBusy) { showFullDiagnostics = true }
+                DiagnosticsCenterRow("H", R.string.diag_center_h_title, R.string.diag_center_h_detail, R.string.diag_center_open, true) { showFullReport = true }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.settings_video_diagnostics_history, reports.size),
                         color = palette.textPrimary, modifier = Modifier.weight(1f), fontSize = 14.sp)
@@ -260,6 +278,18 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             dismissButton = { DiagnosticsReportActions("BeyGram Camera2 survey", report) }
         )
     }
+    if (showFullReport) {
+        val fullText = buildFullReport()
+        AlertDialog(
+            onDismissRequest = { showFullReport = false },
+            title = { Text(stringResource(R.string.diag_full_report_title)) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(fullText, fontSize = 12.sp, lineHeight = 17.sp)
+            } },
+            confirmButton = { TextButton(onClick = { showFullReport = false }) { Text(stringResource(R.string.diagnostics_view_close)) } },
+            dismissButton = { DiagnosticsReportActions("BeyGram full diagnostics", fullText) }
+        )
+    }
     if (showFullDiagnostics) {
         AlertDialog(
             onDismissRequest = { showFullDiagnostics = false },
@@ -280,7 +310,9 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     showFullDiagnostics = false
                     fpsCheckScope = if (fullExtended) ProbeScope.ALL else ProbeScope.FRONT
                     scope.launch {
-                        pendingSurvey = surveyReport()
+                        latestSurvey = surveyReport()
+                        fullRunActive = true
+                        fullRunStarted = false
                         showFpsCheck = true
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                             VideoNoteFpsCheck.start(context, fpsCheckScope, settings)

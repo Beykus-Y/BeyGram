@@ -219,4 +219,13 @@
     <string name="vn_av_start_offset">audio is shifted against video from the start</string>
     <string name="vn_av_drift">audio gradually drifts away from video</string>
     <string name="vn_entry_av_failed">Audio: could not read audio timestamps (%1$s), sync not assessed</string>
+    <string name="diag_center_h_title">Full report</string>
+    <string name="diag_center_h_detail">One report with everything collected: cameras, FPS, Telegram and recordings. Copy or share it as a whole.</string>
+    <string name="diag_center_open">Open</string>
+    <string name="diag_full_report_title">Full report</string>
+    <string name="diag_full_report_not_run">Not run.</string>
+    <string name="diag_full_report_survey">=== Camera capabilities ===</string>
+    <string name="diag_full_report_fps">=== Frame rate check ===</string>
+    <string name="diag_full_report_telegram">=== Telegram check ===</string>
+    <string name="diag_full_report_videos">=== Recent recordings ===</string>
 </resources>
