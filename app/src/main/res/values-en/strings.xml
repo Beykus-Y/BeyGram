@@ -170,4 +170,5 @@
     <string name="loss_report_private_notice">Telegram message, chat, and file IDs are not included in the report.</string>
     <string name="loss_evidence_verified">Old local copy removed and a fresh download verified</string>
     <string name="loss_evidence_unverified">Could not verify a fresh download independent of local cache</string>
+    <string name="loss_camera_report_heading">BeyGram — camera capability survey (without recording)</string>
 </resources>
