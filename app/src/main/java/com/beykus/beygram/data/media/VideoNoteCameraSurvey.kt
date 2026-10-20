@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.media
 
 import android.content.Context
+import com.beykus.beygram.R
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.MediaCodecList
@@ -25,7 +26,7 @@ internal object VideoNoteCameraSurvey {
     fun cameraId(info: CameraInfo): String? = runCatching { Camera2CameraInfo.from(info).cameraId }.getOrNull()
 
     fun report(context: Context): String = buildString {
-        appendLine("BeyGram — Camera2 capability survey (без записи камеры)")
+        appendLine(context.getString(R.string.loss_camera_report_heading))
         appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}, SDK=${Build.VERSION.SDK_INT}")
         appendLine("Camera2/CameraX advertised capabilities ≠ guaranteed frame rate while recording.")
         val manager = context.getSystemService(CameraManager::class.java)
