@@ -66,6 +66,14 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun blockPrivateChat(chatId: Long): Result<Unit>
     /** Create a Telegram broadcast channel; returns its new chat ID. */
     suspend fun createChannel(title: String, description: String): Result<Long>
+    /** Create a basic Telegram group with explicitly selected contact IDs. */
+    /** Process-owned creation; caller can be disposed without canceling TDLib's request. */
+    val groupCreation: StateFlow<com.beykus.beygram.domain.model.GroupCreationState>
+    fun beginGroupCreation(title: String, memberUserIds: List<Long>): Result<Unit>
+    fun acknowledgeGroupCreation()
+    /** Explicit acknowledgement after the app restarts with an unconfirmed request. */
+    fun acknowledgeUncertainGroupCreation()
+
     /** Current Telegram session and other authorized devices. */
     suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>>
     suspend fun terminateOtherSession(sessionId: Long): Result<Unit>
@@ -139,6 +147,11 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Route TDLib through BeyGram's local Mihomo SOCKS listener and restore the prior proxy on disable. */
     suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit>
+
+    /** Opt-in synthetic video-note round trip through the user's Saved Messages. */
+    suspend fun sendVideoNoteLossTest(media: OutgoingMedia, remoteCopy: java.io.File): Result<com.beykus.beygram.domain.model.VideoNoteLossRemoteResult>
+    /** Delete only a message previously sent by this diagnostic, after user confirmation. */
+    suspend fun deleteVideoNoteLossTest(messageId: Long): Result<Unit>
 
     fun observeFile(fileId: Int): StateFlow<MediaFileState>
     fun downloadFile(fileId: Int)

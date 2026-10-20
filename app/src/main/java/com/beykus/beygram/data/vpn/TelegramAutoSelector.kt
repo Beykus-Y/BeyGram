@@ -46,15 +46,13 @@ internal class TelegramAutoSelector(
                 AutoSelectInputs(connection, network, currentSettings, runtime)
             }.collectLatest { inputs ->
                 val settings = inputs.settings
-                if (!settings.autoSelectEnabled || !inputs.network.canReachInternetForTelegram() ||
-                    inputs.connection != TelegramConnectionState.Connecting || inputs.runtime.status != ProxyRuntimeStatus.RUNNING
+                if (!shouldProbeAutomaticRoute(settings.autoSelectEnabled,
+                        inputs.network.canReachInternetForTelegram(), inputs.connection, inputs.runtime.status)
                 ) return@collectLatest
 
                 delay(settings.handoverDelayMillis)
-                while (inputs.settings.autoSelectEnabled &&
-                    inputs.connection == TelegramConnectionState.Connecting &&
-                    inputs.runtime.status == ProxyRuntimeStatus.RUNNING &&
-                    inputs.network.canReachInternetForTelegram()
+                while (shouldProbeAutomaticRoute(inputs.settings.autoSelectEnabled,
+                        inputs.network.canReachInternetForTelegram(), inputs.connection, inputs.runtime.status)
                 ) {
                     if (checking.compareAndSet(false, true)) {
                         try {
@@ -136,6 +134,19 @@ internal class TelegramAutoSelector(
         private const val RETRY_INTERVAL_MS = 20_000L
     }
 }
+
+/**
+ * TDLib reports WaitingForNetwork even when Android has a validated route and a proxy
+ * node is unreachable. Auto recovery must probe in this state as well as Connecting.
+ */
+internal fun shouldProbeAutomaticRoute(
+    enabled: Boolean,
+    networkReady: Boolean,
+    telegramState: TelegramConnectionState,
+    proxyStatus: ProxyRuntimeStatus
+): Boolean = enabled && networkReady && proxyStatus == ProxyRuntimeStatus.RUNNING &&
+    (telegramState == TelegramConnectionState.Connecting ||
+        telegramState == TelegramConnectionState.WaitingForNetwork)
 
 sealed interface AutoSelectEvent {
     data class Probed(val result: com.beykus.beygram.domain.model.MihomoProbeResult) : AutoSelectEvent

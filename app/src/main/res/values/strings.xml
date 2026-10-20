@@ -962,4 +962,22 @@
     <string name="chat_folder_empty">В этой папке пока нет чатов</string>
     <string name="chat_folder_load_more">Загрузить ещё чаты</string>
     <string name="chat_folder_load_failed">Не удалось загрузить папку. Повторите попытку.</string>
+
+    <!-- New chat entry point and group creation (Issue #226) -->
+    <string name="new_chat_title">Новый чат</string>
+    <string name="new_chat_subtitle">Выберите контакт или создайте новый разговор.</string>
+    <string name="new_chat_contacts">КОНТАКТЫ</string>
+    <string name="new_chat_group">Создать группу</string>
+    <string name="new_chat_group_hint">Выберите участников и название</string>
+    <string name="new_chat_channel_hint">Новости, объявления и публикации</string>
+    <string name="new_chat_add_contact">Добавить контакт</string>
+    <string name="new_chat_group_name">Название группы</string>
+    <string name="new_chat_selected_count">Выбрано участников: %1$d</string>
+    <string name="new_chat_group_create">Создать группу</string>
+    <string name="new_chat_group_failed">Не удалось создать группу</string>
+    <string name="new_chat_contact_selected">Контакт выбран</string>
+
+    <string name="new_chat_group_unchanged_unknown">Запрос на создание группы мог выполниться. Проверьте список чатов Telegram перед повторной попыткой, иначе группа может продублироваться.</string>
+    <string name="new_chat_group_checked">Я проверил список чатов</string>
+    <string name="new_chat_partial_members">Группа создана, но %1$d участников не удалось пригласить из-за ограничений Telegram.</string>
 </resources>

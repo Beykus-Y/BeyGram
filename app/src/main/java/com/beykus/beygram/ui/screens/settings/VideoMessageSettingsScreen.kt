@@ -41,6 +41,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
+import com.beykus.beygram.data.media.VideoNoteLossDiagnostics
+import com.beykus.beygram.data.media.VideoNoteCameraSurvey
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.data.media.VideoNoteDiagnosticReport
 import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.data.media.VideoFrameRatePriority
@@ -52,17 +55,32 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
 import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> Unit) {
+fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: TelegramRepository, onBack: () -> Unit) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val diagnostics = remember(context) { VideoNoteDiagnostics.also { it.initialize(context) } }
     val reports by diagnostics.reports.collectAsStateWithLifecycle()
     var selectedReport by remember { mutableStateOf<VideoNoteDiagnosticReport?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+    var cameraSurvey by remember { mutableStateOf<String?>(null) }
+    var cameraSurveyBusy by remember { mutableStateOf(false) }
+    val lossDiagnostics = remember(context, repository) { VideoNoteLossDiagnostics(context.applicationContext, repository) }
+    val lossState by lossDiagnostics.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var showLossPanel by remember { mutableStateOf(false) }
+    var lossJob by remember { mutableStateOf<Job?>(null) }
+    var confirmLossSend by remember { mutableStateOf(false) }
+    var confirmLossDelete by remember { mutableStateOf(false) }
+    var lossDeleteError by remember { mutableStateOf<String?>(null) }
     val settings by store.settings.collectAsStateWithLifecycle()
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -154,6 +172,21 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
                     Switch(checked = settings.diagnosticsEnabled, onCheckedChange = null)
                 }
                 Text(stringResource(R.string.settings_video_diagnostics_privacy), color = palette.textSecondary, fontSize = 12.sp)
+                TextButton(onClick = {
+                    scope.launch {
+                        cameraSurveyBusy = true
+                        cameraSurvey = try {
+                            withContext(Dispatchers.IO) { VideoNoteCameraSurvey.report(context.applicationContext) }
+                        } catch (failure: Exception) {
+                            "Camera2 survey unavailable: ${failure.javaClass.simpleName}"
+                        } finally { cameraSurveyBusy = false }
+                    }
+                }, enabled = !cameraSurveyBusy) {
+                    Text(if (cameraSurveyBusy) "Опрос камер…" else "Опрос камер (Camera2, без съёмки)")
+                }
+                TextButton(onClick = { showLossPanel = true }) {
+                    Text("Диагностика потерь — Избранное → повторная загрузка")
+                }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.settings_video_diagnostics_history, reports.size),
                         color = palette.textPrimary, modifier = Modifier.weight(1f), fontSize = 14.sp)
@@ -187,6 +220,106 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
         }
     }
 
+    cameraSurvey?.let { report ->
+        AlertDialog(
+            onDismissRequest = { cameraSurvey = null },
+            title = { Text("Camera2 — возможности камер") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(report, fontSize = 12.sp, lineHeight = 17.sp)
+            } },
+            confirmButton = { TextButton(onClick = { cameraSurvey = null }) { Text(stringResource(R.string.diagnostics_view_close)) } },
+            dismissButton = {
+                TextButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram Camera2 survey", report))
+                }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
+            }
+        )
+    }
+    if (showLossPanel && !confirmLossSend && !confirmLossDelete) {
+        AlertDialog(
+            onDismissRequest = { if (!lossState.running) showLossPanel = false },
+            title = { Text("Диагностика потерь кружков") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Генерируется 3-секундный тестовый кружок без камеры и микрофона. " +
+                        "С отдельного подтверждения он отправится в ваше Избранное и будет загружен обратно. " +
+                        "Возможны расходы трафика. Синтетический тест не измеряет FPS камеры.",
+                        fontSize = 13.sp)
+                    Text("Состояние: ${lossState.phase}", fontWeight = FontWeight.SemiBold)
+                    if (lossState.running) {
+                        Text("Идёт проверка. Отмена не гарантирует отзыв уже принятой TDLib отправки.", fontSize = 13.sp)
+                        TextButton(onClick = { lossJob?.cancel() }) { Text("Отменить проверку") }
+                    }
+                    if (lossState.report.isNotBlank()) Text(lossState.report, fontSize = 12.sp, lineHeight = 17.sp)
+                    if (lossState.report.isNotBlank()) Row {
+                        TextButton(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram loss diagnostics", lossState.report))
+                        }) { Text("Скопировать") }
+                        TextButton(onClick = {
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, lossState.report)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Поделиться отчётом"))
+                        }) { Text("Поделиться") }
+                    }
+                    if (lossState.sentMessageId != null && !lossState.running) {
+                        TextButton(onClick = { confirmLossDelete = true }) {
+                            Text("Удалить тест из Избранного")
+                        }
+                    }
+                    if (lossState.localDirectory != null && !lossState.running) {
+                        TextButton(onClick = { lossDiagnostics.clearLocalFiles() }) {
+                            Text("Очистить локальные файлы теста")
+                        }
+                    }
+                    lossDeleteError?.let { Text(it, color = palette.danger, fontSize = 12.sp) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmLossSend = true }, enabled = !lossState.running) {
+                    Text("Запустить проверку")
+                }
+            },
+            dismissButton = { TextButton(onClick = { showLossPanel = false }) { Text("Закрыть") } }
+        )
+    }
+    if (confirmLossSend) {
+        AlertDialog(
+            onDismissRequest = { confirmLossSend = false },
+            title = { Text("Отправить тестовый кружок?") },
+            text = { Text("Будет создан локальный синтетический MP4 без лица/голоса. " +
+                "BeyGram отправит видеокружок в ваше «Избранное» и попробует скачать отдельную серверную копию. " +
+                "Сообщение останется в Избранном, пока вы явно не удалите его.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmLossSend = false
+                    lossDeleteError = null
+                    lossJob = scope.launch { lossDiagnostics.run() }
+                }) { Text("Согласен, отправить") }
+            },
+            dismissButton = { TextButton(onClick = { confirmLossSend = false }) { Text("Отмена") } }
+        )
+    }
+    if (confirmLossDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmLossDelete = false },
+            title = { Text("Удалить тест из Избранного?") },
+            text = { Text("Будет удалено только конкретное тестовое сообщение этого запуска, не другие сообщения.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmLossDelete = false
+                    scope.launch {
+                        lossDiagnostics.deleteTestMessage()
+                            .onFailure { lossDeleteError = "Не удалось удалить тест: ${it.javaClass.simpleName}" }
+                    }
+                }) { Text("Удалить") }
+            },
+            dismissButton = { TextButton(onClick = { confirmLossDelete = false }) { Text("Отмена") } }
+        )
+    }
     selectedReport?.let { report ->
         AlertDialog(
             onDismissRequest = { selectedReport = null },

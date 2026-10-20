@@ -83,4 +83,22 @@
     <string name="chat_folder_empty">This folder has no chats yet</string>
     <string name="chat_folder_load_more">Load more chats</string>
     <string name="chat_folder_load_failed">Unable to load folder chats. Try again.</string>
+
+    <!-- New chat entry point and group creation (Issue #226) -->
+    <string name="new_chat_title">New chat</string>
+    <string name="new_chat_subtitle">Choose a contact or start a new conversation.</string>
+    <string name="new_chat_contacts">CONTACTS</string>
+    <string name="new_chat_group">New group</string>
+    <string name="new_chat_group_hint">Select members and a group name</string>
+    <string name="new_chat_channel_hint">Updates, announcements and posts</string>
+    <string name="new_chat_add_contact">Add contact</string>
+    <string name="new_chat_group_name">Group name</string>
+    <string name="new_chat_selected_count">Selected members: %1$d</string>
+    <string name="new_chat_group_create">Create group</string>
+    <string name="new_chat_group_failed">Failed to create group</string>
+    <string name="new_chat_contact_selected">Contact selected</string>
+
+    <string name="new_chat_group_unchanged_unknown">Telegram may have already created this group. Check your chat list before trying again to avoid duplicates.</string>
+    <string name="new_chat_group_checked">I checked my chat list</string>
+    <string name="new_chat_partial_members">Group created, but %1$d members could not be invited due to Telegram restrictions.</string>
 </resources>
