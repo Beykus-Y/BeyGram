@@ -13,19 +13,23 @@ import kotlinx.coroutines.withContext
 /**
  * Produces a silent, circular 480x480 H.264/MP4 diagnostic clip from deterministic YUV
  * frames. Uses no CameraX, camera permission or microphone, and never embeds user data.
- * The 60 FPS variant (180 frames in 3 s) checks whether 60 FPS survives processing and Telegram;
+ * The 24/30/50/60 FPS variants (60 FPS = 180 frames in 3 s) checks whether 60 FPS survives processing and Telegram;
  * the 30 FPS clip cannot answer that.
  */
 internal object VideoNoteSyntheticSource {
     const val SIDE = 480
+    const val FPS_24 = 24
     const val FPS_30 = 30
+    const val FPS_50 = 50
     const val FPS_60 = 60
+    /** Rates of the synthetic lab (issue #234, §12). Every one yields rate x 3 distinct frames. */
+    val SUPPORTED_FPS = listOf(FPS_24, FPS_30, FPS_50, FPS_60)
     const val SECONDS = 3
 
     fun frameCount(fps: Int): Int = fps * SECONDS
 
     suspend fun generate(file: File, fps: Int = FPS_30) = withContext(Dispatchers.Default) {
-        require(fps == FPS_30 || fps == FPS_60) { "Unsupported synthetic frame rate" }
+        require(fps in SUPPORTED_FPS) { "Unsupported synthetic frame rate" }
         val frames = frameCount(fps)
         file.parentFile?.mkdirs()
         file.delete()
