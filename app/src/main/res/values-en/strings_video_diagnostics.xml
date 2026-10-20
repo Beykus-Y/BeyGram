@@ -190,4 +190,10 @@
     <string name="vn_entry_sensor_none">Sensor while recording: no results received (this does not mean the camera delivers no frames)</string>
     <string name="vn_entry_crop">Sensor crop region while recording: %1$s (position and size in pixels), zoom %2$s</string>
     <string name="vn_entry_sensor_truncated">The recording is longer than the sampling limit: only its first part is included</string>
+    <string name="vn_entry_av">Audio: %1$s Hz, %2$s channels, %3$s kbps; audio offset against video at start %4$s ms, at end %5$s ms, drift %6$s ms: %7$s</string>
+    <string name="vn_entry_av_none">Audio: the file has no audio track</string>
+    <string name="vn_av_in_sync">in sync</string>
+    <string name="vn_av_start_offset">audio is shifted against video from the start</string>
+    <string name="vn_av_drift">audio gradually drifts away from video</string>
+    <string name="vn_entry_av_failed">Audio: could not read audio timestamps (%1$s), sync not assessed</string>
 </resources>
