@@ -355,16 +355,28 @@ internal fun MediaViewer(
     // A spoiler page stays hidden until the user reveals that page; swiping to a neighbour does not reveal it.
     var revealedSpoilers by remember { mutableStateOf(emptySet<Long>()) }
     val pagerState = rememberPagerState(initialPage = selectedIndex) { currentPages.size }
-    // Preserve the selected media by ID if the gallery is reordered. If it is deleted,
-    // pick a real neighbour instead of retaining an invalid page index.
-    LaunchedEffect(pageIds, selectedId) {
-        val target = mediaViewerSelectedIndex(pageIds, selectedId)
-        if (selectedId !in pageIds) onSelect(pageIds[target])
-        if (pagerState.currentPage != target) pagerState.scrollToPage(target)
+    // Pager keys already preserve media identity across gallery page inserts/reorders.
+    // Never scroll on pageIds changes: currentPage can advance during a drag while
+    // selectedId still describes settledPage, and forcing it back cancels the gesture.
+    LaunchedEffect(pageIds) {
+        if (selectedId !in pageIds) {
+            val survivingId = pageIds.getOrNull(pagerState.settledPage) ?: pageIds.first()
+            onSelect(survivingId)
+        }
     }
-    LaunchedEffect(pagerState.settledPage, pageIds) {
-        val settled = pageIds.getOrNull(pagerState.settledPage)
-        if (settled != null && settled != selectedId && selectedId in pageIds) onSelect(settled)
+    // Only an actual selection change (e.g. opening a different thumbnail) may
+    // correct the page. Do not override an active user gesture.
+    LaunchedEffect(selectedId) {
+        val target = mediaViewerSelectedIndex(pageIds, selectedId)
+        if (mediaViewerShouldScrollToSelection(pagerState.isScrollInProgress, pagerState.settledPage, target)) {
+            pagerState.scrollToPage(target)
+        }
+    }
+    LaunchedEffect(pagerState.settledPage, pageIds, pagerState.isScrollInProgress) {
+        if (!pagerState.isScrollInProgress) {
+            val settled = pageIds.getOrNull(pagerState.settledPage)
+            if (settled != null && settled != selectedId && selectedId in pageIds) onSelect(settled)
+        }
     }
     val safeSettledPage = pagerState.settledPage.coerceIn(0, currentPages.lastIndex)
     // The secure flag must correspond to the actually visible media, not to a stale position.
