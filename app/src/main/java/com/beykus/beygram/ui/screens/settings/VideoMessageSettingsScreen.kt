@@ -55,6 +55,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import androidx.compose.runtime.rememberCoroutineScope
 import java.text.DateFormat
 import java.util.Date
@@ -71,6 +72,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     val lossState by lossDiagnostics.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var showLossPanel by remember { mutableStateOf(false) }
+    var lossJob by remember { mutableStateOf<Job?>(null) }
     var confirmLossSend by remember { mutableStateOf(false) }
     var confirmLossDelete by remember { mutableStateOf(false) }
     var lossDeleteError by remember { mutableStateOf<String?>(null) }
@@ -212,7 +214,10 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                         "Возможны расходы трафика. Синтетический тест не измеряет FPS камеры.",
                         fontSize = 13.sp)
                     Text("Состояние: ${lossState.phase}", fontWeight = FontWeight.SemiBold)
-                    if (lossState.running) Text("Идёт проверка; не закрывайте экран до завершения отправки.", fontSize = 13.sp)
+                    if (lossState.running) {
+                        Text("Идёт проверка. Отмена не гарантирует отзыв уже принятой TDLib отправки.", fontSize = 13.sp)
+                        TextButton(onClick = { lossJob?.cancel() }) { Text("Отменить проверку") }
+                    }
                     if (lossState.report.isNotBlank()) Text(lossState.report, fontSize = 12.sp, lineHeight = 17.sp)
                     if (lossState.report.isNotBlank()) Row {
                         TextButton(onClick = {
@@ -259,7 +264,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 TextButton(onClick = {
                     confirmLossSend = false
                     lossDeleteError = null
-                    scope.launch { lossDiagnostics.run() }
+                    lossJob = scope.launch { lossDiagnostics.run() }
                 }) { Text("Согласен, отправить") }
             },
             dismissButton = { TextButton(onClick = { confirmLossSend = false }) { Text("Отмена") } }
