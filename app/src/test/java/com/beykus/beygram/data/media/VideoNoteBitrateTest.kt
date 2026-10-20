@@ -9,7 +9,7 @@ class VideoNoteBitrateTest {
     fun `bitrate covers the whole clip including the last frame`() {
         // 31 frames at 30 FPS span 30 gaps = 1 s of timestamps, 31 frames of duration = 1.033 s
         val bps = measuredVideoBitrateBps(videoBytes = 125_000L, sampleCount = 31, earliestUs = 0L, latestUs = 1_000_000L)
-        assertEquals(968_000, bps!!, 1000)
+        assertEquals(968_000.0, bps!!.toDouble(), 1000.0)
     }
 
     @Test
