@@ -3,6 +3,9 @@ package com.beykus.beygram.data.media
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import java.io.File
+import java.nio.ByteBuffer
+
+private const val AUDIO_SAMPLE_BUFFER_BYTES = 512 * 1024
 
 /** Sample timing of the audio track; samples are never decoded. */
 internal data class VideoNoteAudioStats(
@@ -62,17 +65,20 @@ internal fun analyzeVideoNoteAudio(file: File): VideoNoteAudioStats? {
         var count = 0
         var first = Long.MAX_VALUE
         var last = Long.MIN_VALUE
+        // The end of the track is signalled by readSampleData, not by a negative time: an MP4 written with an
+        // edit list (the exported file) can start its audio before zero, and that must not read as "no audio".
+        val buffer = ByteBuffer.allocate(AUDIO_SAMPLE_BUFFER_BYTES)
         while (count < 1_000_000) {
+            if (extractor.readSampleData(buffer, 0) < 0) break
             val pts = extractor.sampleTime
-            if (pts < 0L) break
             first = minOf(first, pts)
             last = maxOf(last, pts)
             count++
             if (!extractor.advance()) break
         }
-        if (count == 0) return null
+        // A track that is present but yields no samples is reported as such, not as a missing track.
         return VideoNoteAudioStats(
-            sampleCount = count, firstUs = first, lastUs = last,
+            sampleCount = count, firstUs = if (count == 0) 0L else first, lastUs = if (count == 0) 0L else last,
             sampleRate = if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) format.getInteger(MediaFormat.KEY_SAMPLE_RATE) else null,
             channels = if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else null,
             bitrateBps = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) format.getInteger(MediaFormat.KEY_BIT_RATE) else null

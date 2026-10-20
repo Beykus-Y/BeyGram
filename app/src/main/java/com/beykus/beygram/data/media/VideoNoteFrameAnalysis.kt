@@ -52,6 +52,13 @@ internal fun measuredVideoFps(sampleCount: Int, earliestUs: Long, latestUs: Long
     if (sampleCount < 2 || latestUs <= earliestUs) null
     else (sampleCount - 1).toDouble() * 1_000_000.0 / (latestUs - earliestUs)
 
+/** Bitrate from the encoded sample sizes; containers rarely declare one, so "?" would hide a real number. */
+internal fun measuredVideoBitrateBps(videoBytes: Long, sampleCount: Int, earliestUs: Long, latestUs: Long): Int? {
+    if (sampleCount < 2 || latestUs <= earliestUs || videoBytes <= 0L) return null
+    val spanUs = (latestUs - earliestUs) * sampleCount.toDouble() / (sampleCount - 1)
+    return (videoBytes * 8.0 * 1_000_000.0 / spanUs).toLong().coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+}
+
 /** Timestamp interval percentiles use measured sample timing, not nominal metadata. */
 internal fun videoNoteGapPercentile(gapsUs: List<Long>, percentile: Double): Double? {
     if (gapsUs.isEmpty()) return null
@@ -77,6 +84,7 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
         var maxGapUs = 0L
         var gapsOver50Ms = 0
         var nonIncreasingPts = 0
+        var videoBytes = 0L
         val gaps = ArrayList<Long>()
         val frameBuckets = linkedMapOf<Long, Int>()
         val audioFormat = (0 until extractor.trackCount).firstOrNull { index ->
@@ -96,6 +104,7 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
             } else if (previousUs >= 0L) nonIncreasingPts++
             frameBuckets[ptsUs / 1_000_000L] = (frameBuckets[ptsUs / 1_000_000L] ?: 0) + 1
             previousUs = ptsUs
+            videoBytes += extractor.sampleSize.coerceAtLeast(0L)
             count++
             if (!extractor.advance()) break
         }
@@ -113,7 +122,8 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
             p95GapMs = videoNoteGapPercentile(gaps, 0.95),
             duplicateOrReorderedPts = nonIncreasingPts,
             fpsWindows = frameBuckets.values.take(12),
-            bitrateBps = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) format.getInteger(MediaFormat.KEY_BIT_RATE) else null,
+            bitrateBps = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) format.getInteger(MediaFormat.KEY_BIT_RATE)
+                else measuredVideoBitrateBps(videoBytes, count, firstUs, lastUs),
             audioCodec = audioFormat?.getString(MediaFormat.KEY_MIME),
             audioDurationUs = audioFormat?.takeIf { it.containsKey(MediaFormat.KEY_DURATION) }?.getLong(MediaFormat.KEY_DURATION),
             videoDurationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else null,
