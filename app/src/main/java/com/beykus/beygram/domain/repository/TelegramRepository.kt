@@ -57,6 +57,14 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun blockPrivateChat(chatId: Long): Result<Unit>
     /** Create a Telegram broadcast channel; returns its new chat ID. */
     suspend fun createChannel(title: String, description: String): Result<Long>
+    /** Create a basic Telegram group with explicitly selected contact IDs. */
+    /** Process-owned creation; caller can be disposed without canceling TDLib's request. */
+    val groupCreation: StateFlow<com.beykus.beygram.domain.model.GroupCreationState>
+    fun beginGroupCreation(title: String, memberUserIds: List<Long>): Result<Unit>
+    fun acknowledgeGroupCreation()
+    /** Explicit acknowledgement after the app restarts with an unconfirmed request. */
+    fun acknowledgeUncertainGroupCreation()
+
     /** Current Telegram session and other authorized devices. */
     suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>>
     suspend fun terminateOtherSession(sessionId: Long): Result<Unit>

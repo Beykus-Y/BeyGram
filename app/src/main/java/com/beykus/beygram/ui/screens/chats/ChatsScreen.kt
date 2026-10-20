@@ -37,10 +37,12 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.LocalContext
@@ -115,7 +117,7 @@ fun ChatsScreen(
     onPinChat: suspend (Long, Boolean) -> Result<Unit>,
     onMuteChat: suspend (Long, Boolean) -> Result<Unit>,
     onDeleteChat: suspend (Long) -> Result<Unit>,
-    onCreateChannel: () -> Unit,
+    onNewChat: () -> Unit,
     archiveHidden: Boolean,
     onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit,
@@ -197,17 +199,18 @@ fun ChatsScreen(
         if (!listState.isScrollInProgress) pullPx = 0f
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+    // The root Box is bounded by MainTabsScaffold above the bottom navigation and
+    // persistent player. Its FAB is never drawn under the system navigation bar.
+    Box(
+        modifier = Modifier.fillMaxSize().background(palette.screen)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
     ) {
+      Column(Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.app_name).uppercase(), color = palette.accent, style = MaterialTheme.typography.labelMedium, letterSpacing = 0.8.sp)
                     Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
-                }
-                androidx.compose.material3.TextButton(onClick = onCreateChannel) {
-                    Text(stringResource(R.string.feature_new_channel_short), color = palette.accentInk)
                 }
                 (chats + archivedChats).firstOrNull { it.isSavedMessages }?.let { saved ->
                     androidx.compose.material3.IconButton(onClick = { onChatClick(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
@@ -238,7 +241,8 @@ fun ChatsScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).nestedScroll(pullConnection),
-            contentPadding = PaddingValues(bottom = 20.dp)
+            // Keep the last conversation accessible above the overlay button.
+            contentPadding = PaddingValues(bottom = 104.dp)
         ) {
             if (archiveAvailable && !archiveHidden) {
                 item(key = "archive_row") { ArchiveRow(archivedChats, onClick = onArchiveClick, onHide = { onArchiveHiddenChange(true) }) }
@@ -294,6 +298,16 @@ fun ChatsScreen(
                 }
             }
         }
+      }
+      FloatingActionButton(
+          onClick = onNewChat,
+          modifier = Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 16.dp),
+          containerColor = palette.accent,
+          contentColor = palette.onAccent,
+          shape = RoundedCornerShape(20.dp)
+      ) {
+          Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.new_chat_title), modifier = Modifier.size(24.dp))
+      }
     }
     selectedActions?.let { selected ->
         ChatActionsSheet(

@@ -83,6 +83,11 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun setChatMuted(chatId: Long, muted: Boolean): Result<Unit> = unavailable()
     override suspend fun deleteChatForSelf(chatId: Long): Result<Unit> = unavailable()
     override suspend fun blockPrivateChat(chatId: Long): Result<Unit> = unavailable()
+    override val groupCreation: StateFlow<com.beykus.beygram.domain.model.GroupCreationState> =
+        MutableStateFlow<com.beykus.beygram.domain.model.GroupCreationState>(com.beykus.beygram.domain.model.GroupCreationState.Idle).asStateFlow()
+    override fun beginGroupCreation(title: String, memberUserIds: List<Long>): Result<Unit> = unavailable()
+    override fun acknowledgeGroupCreation() {}
+    override fun acknowledgeUncertainGroupCreation() {}
     override suspend fun createChannel(title: String, description: String): Result<Long> = unavailable()
     override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = unavailable()
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = unavailable()

@@ -32,6 +32,8 @@ import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.GroupCreationState
+import com.beykus.beygram.domain.model.mayBeginGroupCreation
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.orderedArchivedChats
 import com.beykus.beygram.domain.model.orderedMainChats
@@ -317,6 +319,108 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         if (profiles.isSelf(privateType.userId)) throw IllegalArgumentException("Cannot block your own account")
         tdRequests(TdApi.SetMessageSenderBlockList(TdApi.MessageSenderUser(privateType.userId), TdApi.BlockListMain()))
         Unit
+    }
+
+    /**
+     * Non-idempotent group creation lives with the TDLib client, not a Compose
+     * coroutine or 30-second TdRequests waiter. Even after activity recreation,
+     * repeated taps observe the same in-flight request rather than create a duplicate.
+     */
+    private val groupRequestLock = Any()
+    private val groupCreationPrefs = appContext.getSharedPreferences("pending_group_creation", Context.MODE_PRIVATE)
+    private val _groupCreation = MutableStateFlow<GroupCreationState>(
+        if (groupCreationPrefs.getBoolean("unconfirmed", false)) GroupCreationState.NeedsVerification
+        else GroupCreationState.Idle
+    )
+    override val groupCreation: StateFlow<GroupCreationState> = _groupCreation.asStateFlow()
+    private val groupRequestGeneration = java.util.concurrent.atomic.AtomicInteger()
+
+    override fun beginGroupCreation(title: String, memberUserIds: List<Long>): Result<Unit> {
+        val name = title.trim()
+        val participants = memberUserIds.distinct()
+        if (name.length !in 1..128 || participants.isEmpty() ||
+            participants.size > 200 || participants.any { it <= 0L }
+        ) return Result.failure(IllegalArgumentException("Invalid group title or selected users"))
+        synchronized(groupRequestLock) {
+            if (!mayBeginGroupCreation(_groupCreation.value)) {
+                return Result.failure(IllegalStateException("Group creation has not been confirmed yet"))
+            }
+            // Persist the uncertain intent before a remote creation can occur.
+            // After process death, user must check their chat list before explicitly
+            // acknowledging a new request; automatic retry would duplicate groups.
+            if (!groupCreationPrefs.edit().putBoolean("unconfirmed", true).commit()) {
+                return Result.failure(IllegalStateException("Cannot persist group creation intent"))
+            }
+            val generation = groupRequestGeneration.incrementAndGet()
+            _groupCreation.value = GroupCreationState.Pending(name)
+            authScope.launch(Dispatchers.IO) {
+                try {
+                    val created = suspendCancellableCoroutine<TdApi.CreatedBasicGroupChat> { continuation ->
+                        client.send(TdApi.CreateNewBasicGroupChat().apply {
+                            userIds = participants.toLongArray()
+                            this.title = name
+                            messageAutoDeleteTime = 0
+                        }, Client.ResultHandler { response ->
+                            if (!continuation.isActive) return@ResultHandler
+                            when (response) {
+                                is TdApi.CreatedBasicGroupChat -> continuation.resume(response)
+                                is TdApi.Error -> continuation.resumeWith(
+                                    Result.failure(TdRequestError(response.code, response.message))
+                                )
+                                else -> continuation.resumeWith(
+                                    Result.failure(IllegalStateException("Unexpected group creation result"))
+                                )
+                            }
+                        })
+                    }
+                    if (groupRequestGeneration.get() != generation) return@launch
+                    // CreatedBasicGroupChat is authoritative even if a subsequent
+                    // GetChat refresh is unavailable; report partial invitation failures.
+                    groupCreationPrefs.edit().putBoolean("unconfirmed", false).apply()
+                    _groupCreation.value = GroupCreationState.Created(
+                        created.chatId,
+                        created.failedToAddMembers?.failedToAddMembers?.size ?: 0
+                    )
+                    runCatching { tdRequests(TdApi.GetChat(created.chatId)) }
+                        .onSuccess(::handleNewChat)
+                } catch (cancelled: CancellationException) {
+                    // The server may have completed; preserve the persisted uncertain
+                    // status rather than turning an ambiguous outcome into retryable.
+                    if (groupRequestGeneration.get() == generation) {
+                        _groupCreation.value = GroupCreationState.NeedsVerification
+                    }
+                    throw cancelled
+                } catch (failure: Exception) {
+                    if (groupRequestGeneration.get() != generation) return@launch
+                    if (failure is TdRequestError) {
+                        // TDLib explicitly rejected the operation before creation.
+                        groupCreationPrefs.edit().putBoolean("unconfirmed", false).apply()
+                        _groupCreation.value = GroupCreationState.Failed
+                    } else {
+                        _groupCreation.value = GroupCreationState.NeedsVerification
+                    }
+                }
+            }
+            return Result.success(Unit)
+        }
+    }
+
+    override fun acknowledgeGroupCreation() {
+        synchronized(groupRequestLock) {
+            if (_groupCreation.value is GroupCreationState.Created ||
+                _groupCreation.value == GroupCreationState.Failed) {
+                _groupCreation.value = GroupCreationState.Idle
+            }
+        }
+    }
+
+    override fun acknowledgeUncertainGroupCreation() {
+        synchronized(groupRequestLock) {
+            if (_groupCreation.value == GroupCreationState.NeedsVerification) {
+                groupCreationPrefs.edit().putBoolean("unconfirmed", false).apply()
+                _groupCreation.value = GroupCreationState.Idle
+            }
+        }
     }
 
     override suspend fun createChannel(title: String, description: String): Result<Long> = requestResult {
@@ -903,6 +1007,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
+                groupRequestGeneration.incrementAndGet()
+                groupCreationPrefs.edit().remove("unconfirmed").apply()
+                _groupCreation.value = GroupCreationState.Idle
                 messageDrafts.signedOut()
                 _authState.value = AuthState.WaitingForPhone
                 conversationEffects.signedOut()
