@@ -22,7 +22,7 @@ internal fun selectedNewGroupMembers(selected: Collection<Long>, contacts: List<
     return selected.asSequence().filter { it in allowed }.distinct().take(200).toList().toLongArray()
 }
 
-internal fun toggledGroupMembers(current: List<Long>, id: Long, maximum: Int = 199): List<Long> = when {
+internal fun toggledGroupMembers(current: List<Long>, id: Long, maximum: Int = 200): List<Long> = when {
     id <= 0L -> current
     id in current -> current.filterNot { it == id }
     current.size >= maximum -> current
