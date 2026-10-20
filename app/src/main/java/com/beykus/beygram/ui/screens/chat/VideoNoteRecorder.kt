@@ -4,7 +4,11 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
+import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
 import android.os.StatFs
 import android.os.SystemClock
 import android.util.Range
@@ -12,6 +16,8 @@ import android.util.Rational
 import android.util.Log
 import android.view.Surface
 import android.view.ViewGroup
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.MirrorMode
@@ -62,6 +68,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.VideoNoteSensorTap
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
@@ -208,6 +215,8 @@ internal class VideoNoteRecorder(
             bind(cameraProvider, selector, current.settings, capture)
             preferFrontCamera = targetFront
             Log.i(TAG, "video_camera_switched front=$preferFrontCamera")
+            // Timestamps of different camera devices are not comparable: measure the new camera on its own.
+            if (sensorTap.isActive()) sensorTap.begin()
             VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_switched,
                 context.getString(if (preferFrontCamera) R.string.camera_facing_front else R.string.camera_facing_back),
                 previewFpsRange?.let { "${it.first}..${it.last}" } ?: context.getString(R.string.camera_report_range_default)))
@@ -396,6 +405,8 @@ internal class VideoNoteRecorder(
     private fun requestStop(current: VideoTake) {
         if (current.stopRequested) return
         current.stopRequested = true
+        // Results after this point belong to finalization, not to the recorded file.
+        sensorTap.stop()
         current.recording?.stop()
     }
 
@@ -443,6 +454,7 @@ internal class VideoNoteRecorder(
         captureBuilder.setMirrorMode(mirrorMode(settings))
         if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
         captureFpsRange = fpsRange
+        if (settings.diagnosticsEnabled) attachSensorTap(captureBuilder)
         return captureBuilder.build()
     }
 
@@ -503,6 +515,24 @@ internal class VideoNoteRecorder(
                 delay(100)
             }
         }
+    }
+
+    private val sensorTap = VideoNoteSensorTap()
+
+    /** Reads sensor timestamps from the capture results of the real session; the numbers never leave the report. */
+    @OptIn(ExperimentalCamera2Interop::class)
+    private fun attachSensorTap(builder: VideoCapture.Builder<Recorder>) {
+        Camera2Interop.Extender(builder).setSessionCaptureCallback(object : CameraCaptureSession.CaptureCallback() {
+            override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+                if (!sensorTap.isActive()) return
+                val crop = result.get(CaptureResult.SCALER_CROP_REGION)
+                sensorTap.record(
+                    result.get(CaptureResult.SENSOR_TIMESTAMP), result.get(CaptureResult.SENSOR_EXPOSURE_TIME),
+                    crop?.let { "${it.left},${it.top} ${it.width()}x${it.height()}" },
+                    if (android.os.Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null
+                )
+            }
+        })
     }
 
     private fun startRecording(settings: VideoMessageSettings) {
@@ -573,6 +603,7 @@ internal class VideoNoteRecorder(
                     started = true
                     startClock()
                     recordStarted()
+                    if (current.settings.diagnosticsEnabled) sensorTap.begin()
                     VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_recording_started))
                 }
                 if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
@@ -592,6 +623,11 @@ internal class VideoNoteRecorder(
             timer = null
         }
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
+        val sensor = sensorTap.finish(captureFpsRange?.upper ?: 30)
+        if (current.settings.diagnosticsEnabled) {
+            VideoNoteDiagnostics.recordCrop(current.sessionName, sensor?.crop, sensor?.zoom)
+            VideoNoteDiagnostics.recordSensor(current.sessionName, sensor?.stats, sensor?.truncated == true)
+        }
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
         val outcome = videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)
         VideoNoteDiagnostics.append(
