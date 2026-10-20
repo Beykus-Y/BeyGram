@@ -100,6 +100,11 @@ android {
         buildConfigField("String", "DIAGNOSTICS_API_BASE_URL", diagnosticsApiBaseUrl.asBuildConfigString())
         buildConfigField("String", "REPORT_BOT_USERNAME", reportBotUsername.asBuildConfigString())
         buildConfigField("long", "REPORT_BOT_USER_ID", "${reportBotUserId.toLong()}L")
+        // Shown in the video-note diagnostics so a report names the exact commit and library versions.
+        buildConfigField("String", "BUILD_GIT_SHA",
+            (providers.environmentVariable("GITHUB_SHA").orNull?.take(12) ?: "local").asBuildConfigString())
+        buildConfigField("String", "CAMERAX_VERSION", libs.versions.camerax.get().asBuildConfigString())
+        buildConfigField("String", "MEDIA3_VERSION", libs.versions.media3.get().asBuildConfigString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
