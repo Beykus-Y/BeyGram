@@ -29,32 +29,56 @@ internal data class VideoNoteLossState(
     val independentDownload: Boolean = false
 )
 
-/** Pure comparison: changed container bytes are NOT automatically a loss of visual quality. */
+/** Pure comparison: changed container bytes are NOT automatically a loss of visual quality.
+ * The optional context localizes the user-visible report; null keeps a stable text for JVM tests.
+ */
 internal fun compareVideoNoteLoss(
     local: VideoNoteFrameStats,
     remote: VideoNoteFrameStats?,
     sameSha256: Boolean?,
-    independent: Boolean
+    independent: Boolean,
+    context: Context? = null
 ): String = buildString {
+    fun line(id: Int, fallback: String, vararg args: Any): String =
+        context?.getString(id, *args) ?: fallback
+    fun yes(value: Boolean): String =
+        line(if (value) R.string.loss_yes else R.string.loss_no, if (value) "ДА" else "НЕТ")
     if (remote == null) {
-        appendLine("Повторное получение файла: не удалось. Состояние параметров неизвестно.")
+        appendLine(line(R.string.loss_compare_missing,
+            "Повторное получение файла: не удалось. Состояние параметров неизвестно."))
         return@buildString
     }
     val changedSize = local.width != remote.width || local.height != remote.height
     val changedCount = local.frameCount != remote.frameCount
     val changedFps = local.measuredFps != null && remote.measuredFps != null &&
         kotlin.math.abs(local.measuredFps - remote.measuredFps) > 1.0
-    appendLine("Изменён размер кадра: ${if (changedSize) "ДА" else "НЕТ"} (${local.width}x${local.height} → ${remote.width}x${remote.height})")
-    appendLine("Изменилось число кадров: ${if (changedCount) "ДА" else "НЕТ"} (${local.frameCount} → ${remote.frameCount})")
-    appendLine("Изменился измеренный FPS: ${if (changedFps) "ДА" else "НЕТ / не определён"}")
-    appendLine("Совпадение SHA-256: ${when (sameSha256) { true -> "ДА"; false -> "НЕТ"; null -> "нет данных" }}")
-    appendLine("Независимое скачивание: ${if (independent) "подтверждено" else "НЕ ПОДТВЕРЖДЕНО"}")
+    appendLine(line(R.string.loss_compare_size,
+        "Изменён размер кадра: ${yes(changedSize)} (${local.width}x${local.height} → ${remote.width}x${remote.height})",
+        yes(changedSize), "${local.width}x${local.height}", "${remote.width}x${remote.height}"))
+    appendLine(line(R.string.loss_compare_frames,
+        "Изменилось число кадров: ${yes(changedCount)} (${local.frameCount} → ${remote.frameCount})",
+        yes(changedCount), local.frameCount, remote.frameCount))
+    val fpsValue = if (changedFps) yes(true) else line(R.string.loss_not_known, "НЕТ / не определён")
+    appendLine(line(R.string.loss_compare_fps, "Изменился измеренный FPS: $"+"{fpsValue}", fpsValue))
+    val sha = when (sameSha256) {
+        true -> yes(true)
+        false -> yes(false)
+        null -> line(R.string.loss_no_data, "нет данных")
+    }
+    appendLine(line(R.string.loss_compare_sha, "Совпадение SHA-256: $"+"{sha}", sha))
+    val verified = line(if (independent) R.string.loss_verified else R.string.loss_unverified,
+        if (independent) "подтверждено" else "НЕ ПОДТВЕРЖДЕНО")
+    appendLine(line(R.string.loss_compare_remote, "Независимое скачивание: $"+"{verified}", verified))
     when {
-        !independent -> appendLine("Вывод ограничен: Telegram мог вернуть закэшированные байты. Нельзя доказать отсутствие изменений на сервере.")
-        changedSize || changedFps || changedCount -> appendLine("Изменение параметров обнаружено между локальным отправляемым MP4 и повторно полученным файлом. Этап и инициатор перекодирования не доказаны.")
-        sameSha256 == false -> appendLine("Изменились байты/контейнер, но потери размера/FPS/числа кадров не обнаружены. Визуальная деградация НЕ доказана.")
-        sameSha256 == true -> appendLine("Байты локального и независимо полученного файла совпадают.")
-        else -> appendLine("Недостаточно данных для вывода.")
+        !independent -> appendLine(line(R.string.loss_compare_cached_warning,
+            "Вывод ограничен: Telegram мог вернуть закэшированные байты. Нельзя доказать отсутствие изменений на сервере."))
+        changedSize || changedFps || changedCount -> appendLine(line(R.string.loss_compare_transformed,
+            "Изменение параметров обнаружено между локальным отправляемым MP4 и повторно полученным файлом. Этап и инициатор перекодирования не доказаны."))
+        sameSha256 == false -> appendLine(line(R.string.loss_compare_bytes_changed,
+            "Изменились байты/контейнер, но потери размера/FPS/числа кадров не обнаружены. Визуальная деградация НЕ доказана."))
+        sameSha256 == true -> appendLine(line(R.string.loss_compare_identical,
+            "Байты локального и независимо полученного файла совпадают."))
+        else -> appendLine(line(R.string.loss_compare_insufficient, "Недостаточно данных для вывода."))
     }
 }
 
@@ -134,23 +158,26 @@ internal class VideoNoteLossDiagnostics(
                 runCatching { sha256(File(path)) }.getOrNull()
             }
             val report = buildString {
-                appendLine("BeyGram — диагностика потерь видеосообщений")
-                appendLine("Тип: синтетические кадры, без камеры и микрофона")
-                appendLine("Источник A: ${sourceStats.summary()}")
-                appendLine("SHA-256 A: $sourceHash")
-                appendLine("Media3 C: ${exportStats.summary()}")
-                appendLine("SHA-256 C: $exportedHash")
-                appendLine("Telegram D: video note, ${output.width}x${output.height}, ${output.durationSeconds}s; SHA-256=$exportedHash")
-                appendLine("Telegram E: UpdateMessageSendSucceeded подтверждён; remote length=${sent.declaredSide}; remote bytes=${sent.remoteFileBytes}")
-                appendLine("Источник F: ${sent.sourceEvidence}")
-                appendLine("Файл F: ${downloadedStats?.summary() ?: "недоступен"}")
-                appendLine("SHA-256 F: ${remoteSha ?: "не измерен"}")
+                appendLine(context.getString(R.string.loss_report_heading))
+                appendLine(context.getString(R.string.loss_report_type))
+                appendLine(context.getString(R.string.loss_report_source, sourceStats.summary()))
+                appendLine("SHA-256 A: $"+"sourceHash")
+                appendLine(context.getString(R.string.loss_report_export, exportStats.summary()))
+                appendLine("SHA-256 C: $"+"exportedHash")
+                appendLine(context.getString(R.string.loss_report_sent, output.width, output.height, output.durationSeconds, exportedHash))
+                appendLine(context.getString(R.string.loss_report_confirmed, sent.declaredSide, sent.remoteFileBytes))
+                appendLine(context.getString(R.string.loss_report_evidence, sent.sourceEvidence))
+                appendLine(context.getString(R.string.loss_report_file, downloadedStats?.summary()
+                    ?: context.getString(R.string.loss_report_unavailable)))
+                appendLine("SHA-256 F: $"+"{remoteSha ?: context.getString(R.string.loss_report_not_measured)}")
                 appendLine()
-                appendLine("A→C: изменение разрешения=${sourceStats.width != exportStats.width}; кадров=${sourceStats.frameCount != exportStats.frameCount}")
-                appendLine("C→D: локальный файл перечитан и хэширован до передачи")
-                append(compareVideoNoteLoss(exportStats, downloadedStats, remoteSha?.let { it == exportedHash }, sent.independentDownloadVerified))
-                appendLine("Синтетический тест НЕ измеряет FPS физической камеры и не доказывает визуальное качество.")
-                appendLine("В отчёт не включены Telegram message ID, chat ID и идентификаторы файлов.")
+                appendLine(context.getString(R.string.loss_report_processing_changes,
+                    sourceStats.width != exportStats.width, sourceStats.frameCount != exportStats.frameCount))
+                appendLine(context.getString(R.string.loss_report_local_hashed))
+                append(compareVideoNoteLoss(exportStats, downloadedStats,
+                    remoteSha?.let { it == exportedHash }, sent.independentDownloadVerified, context))
+                appendLine(context.getString(R.string.loss_report_camera_notice))
+                appendLine(context.getString(R.string.loss_report_private_notice))
             }
             _state.value = _state.value.copy(
                 phaseRes = R.string.loss_phase_done, running = false, report = report, localDirectory = folder
