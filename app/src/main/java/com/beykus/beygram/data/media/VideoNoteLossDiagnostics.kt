@@ -166,7 +166,11 @@ internal class VideoNoteLossDiagnostics(
                 appendLine("SHA-256 C: $exportedHash")
                 appendLine(context.getString(R.string.loss_report_sent, output.width, output.height, output.durationSeconds, exportedHash))
                 appendLine(context.getString(R.string.loss_report_confirmed, sent.declaredSide, sent.remoteFileBytes))
-                appendLine(context.getString(R.string.loss_report_evidence, sent.sourceEvidence))
+                appendLine(context.getString(
+                    R.string.loss_report_evidence,
+                    context.getString(if (sent.independentDownloadVerified)
+                        R.string.loss_evidence_verified else R.string.loss_evidence_unverified)
+                ))
                 appendLine(context.getString(R.string.loss_report_file, downloadedStats?.summary()
                     ?: context.getString(R.string.loss_report_unavailable)))
                 appendLine("SHA-256 F: ${remoteSha ?: context.getString(R.string.loss_report_not_measured)}")
