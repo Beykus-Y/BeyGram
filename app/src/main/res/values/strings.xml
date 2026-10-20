@@ -1051,4 +1051,5 @@
     <string name="loss_report_private_notice">Идентификаторы сообщений, чатов и файлов Telegram не включены в отчёт.</string>
     <string name="loss_evidence_verified">Старая локальная копия очищена, подтверждено скачивание нового файла</string>
     <string name="loss_evidence_unverified">Не удалось подтвердить, что файл скачан независимо от локального кэша</string>
+    <string name="loss_camera_report_heading">BeyGram — опрос возможностей камер (без съёмки)</string>
 </resources>
