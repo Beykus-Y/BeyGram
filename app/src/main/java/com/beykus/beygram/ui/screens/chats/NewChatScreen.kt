@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.GroupCreationState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
@@ -201,15 +202,17 @@ internal fun NewChatScreen(
 @Composable
 internal fun CreateGroupScreen(
     loadContacts: suspend () -> Result<List<ContactPreview>>,
-    createGroup: suspend (String, List<Long>) -> Result<Long>,
+    creationState: GroupCreationState,
+    startGroupCreation: (String, List<Long>) -> Result<Unit>,
+    acknowledgeGroupCreation: () -> Unit,
+    acknowledgeUncertainGroupCreation: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onBack: () -> Unit,
-    onCreated: (Long) -> Unit
+    onCreated: (Long, Int) -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var title by rememberSaveable { mutableStateOf("") }
     var query by rememberSaveable { mutableStateOf("") }
     // An ArrayList of primitive IDs is Android-saveable; contact details are loaded from TDLib.
@@ -218,9 +221,16 @@ internal fun CreateGroupScreen(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var creationError by remember { mutableStateOf<String?>(null) }
-    var creating by remember { mutableStateOf(false) }
+    val creating = creationState is GroupCreationState.Pending
     var refreshToken by remember { mutableStateOf(0) }
-    BackHandler(creating) { /* Creating a remote Telegram group cannot safely be canceled midway. */ }
+    // A successful TDLib response may arrive while another activity instance owns
+    // this composable; shared repository state restores the final result.
+    LaunchedEffect(creationState) {
+        if (creationState is GroupCreationState.Created) {
+            acknowledgeGroupCreation()
+            onCreated(creationState.chatId, creationState.failedToAddMembers)
+        }
+    }
 
     LaunchedEffect(refreshToken) {
         loading = true
@@ -238,79 +248,99 @@ internal fun CreateGroupScreen(
 
     Column(
         Modifier.fillMaxSize().background(palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .imePadding()
     ) {
-        ProfileToolbar(stringResource(R.string.new_chat_group), { if (!creating) onBack() })
-        OutlinedTextField(
-            title, onValueChange = { title = it.take(128) },
-            label = { Text(stringResource(R.string.new_chat_group_name)) },
-            enabled = !creating,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
-        )
-        Text(
-            stringResource(R.string.new_chat_selected_count, memberIds.size),
-            color = palette.textSecondary,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
-        )
-        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-            SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.contacts_search_placeholder))
-        }
-        if (loading && contacts.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
-        when {
-            loading && contacts.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = palette.accent)
-            }
-            error != null && contacts.isEmpty() -> NewChatEmpty(
-                error.orEmpty(), modifier = Modifier.weight(1f), onRetry = { refreshToken++ }
-            )
-            visible.isEmpty() -> NewChatEmpty(
-                stringResource(if (contacts.isEmpty()) R.string.contacts_empty_none else R.string.contacts_empty_no_results),
-                modifier = Modifier.weight(1f)
-            )
-            else -> LazyColumn(
-                Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(bottom = 16.dp)
-            ) {
-                items(visible, key = { it.userId }) { contact ->
-                    NewChatContactRow(
-                        contact, observeFile, downloadFile,
-                        enabled = !creating,
-                        selected = contact.userId in selectedIds
-                    ) {
-                        selectedIds = ArrayList(toggledGroupMembers(selectedIds, contact.userId))
-                    }
-                }
-            }
-        }
-        creationError?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
-        Button(
-            enabled = canCreate,
-            onClick = {
-                // Never send IDs that are no longer in the most recently loaded contact book.
-                val participants = selectedNewGroupMembers(selectedIds, contacts).toList()
-                if (!canSubmitNewGroup(title, participants, creating)) return@Button
-                creating = true
-                creationError = null
-                scope.launch {
-                    try {
-                        createGroup(title.trim(), participants)
-                            .onSuccess(onCreated)
-                            .onFailure { creationError = it.userMessage(context, R.string.new_chat_group_failed) }
-                    } finally {
-                        creating = false
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
+        ProfileToolbar(stringResource(R.string.new_chat_group), onBack)
+        // A single scroll owner makes title, search, contacts, error and submit
+        // button reachable with the keyboard open, even in landscape/split screen.
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)
         ) {
-            if (creating) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), color = palette.onAccent, strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
+            item(key = "group_name") {
+                OutlinedTextField(
+                    title, onValueChange = { title = it.take(128) },
+                    label = { Text(stringResource(R.string.new_chat_group_name)) },
+                    enabled = !creating,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
+                )
             }
-            Text(stringResource(R.string.new_chat_group_create))
+            item(key = "selected_count") {
+                Text(
+                    stringResource(R.string.new_chat_selected_count, memberIds.size),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                )
+            }
+            item(key = "search") {
+                SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.contacts_search_placeholder))
+            }
+            if (loading) {
+                item(key = "loading") { LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent) }
+            }
+            if (error != null && contacts.isEmpty()) {
+                item(key = "load_error") {
+                    Text(error.orEmpty(), color = palette.danger)
+                    TextButton(onClick = { refreshToken++ }) { Text(stringResource(R.string.common_retry)) }
+                }
+            } else if (!loading && visible.isEmpty()) {
+                item(key = "empty") {
+                    Text(
+                        stringResource(if (contacts.isEmpty()) R.string.contacts_empty_none else R.string.contacts_empty_no_results),
+                        color = palette.textSecondary,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+            items(visible, key = { "member_${it.userId}" }) { contact ->
+                NewChatContactRow(
+                    contact, observeFile, downloadFile,
+                    enabled = !creating,
+                    selected = contact.userId in selectedIds
+                ) {
+                    selectedIds = ArrayList(toggledGroupMembers(selectedIds, contact.userId))
+                }
+            }
+            if (creationState is GroupCreationState.NeedsVerification) {
+                item(key = "uncertain") {
+                    Text(stringResource(R.string.new_chat_group_unchanged_unknown),
+                        color = palette.danger, fontSize = 13.sp,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
+                    TextButton(onClick = acknowledgeUncertainGroupCreation) {
+                        Text(stringResource(R.string.new_chat_group_checked))
+                    }
+                }
+            } else if (creationState == GroupCreationState.Failed) {
+                item(key = "create_failed") {
+                    Text(stringResource(R.string.new_chat_group_failed), color = palette.danger)
+                }
+            }
+            creationError?.let { text ->
+                item(key = "client_error") { Text(text, color = palette.danger, fontSize = 13.sp) }
+            }
+            item(key = "create_action") {
+                Button(
+                    enabled = canCreate && creationState !is GroupCreationState.NeedsVerification &&
+                        creationState !is GroupCreationState.Created,
+                    onClick = {
+                        val participants = selectedNewGroupMembers(selectedIds, contacts).toList()
+                        if (!canSubmitNewGroup(title, participants, creating)) return@Button
+                        creationError = null
+                        startGroupCreation(title.trim(), participants)
+                            .onFailure { creationError = it.userMessage(context, R.string.new_chat_group_failed) }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                ) {
+                    if (creating) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = palette.onAccent, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    Text(stringResource(if (creating) R.string.common_saving else R.string.new_chat_group_create))
+                }
+            }
         }
     }
 }
