@@ -1,6 +1,8 @@
 package com.beykus.beygram.data.media
 
 import android.content.Context
+import androidx.annotation.StringRes
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.repository.TelegramRepository
 import java.io.File
@@ -9,13 +11,17 @@ import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 internal data class VideoNoteLossState(
-    val phase: String = "Ожидание запуска",
+    @StringRes val phaseRes: Int = R.string.loss_phase_idle,
     val running: Boolean = false,
     val report: String = "",
     val sentMessageId: Long? = null,
@@ -44,7 +50,7 @@ internal fun compareVideoNoteLoss(
     appendLine("Совпадение SHA-256: ${when (sameSha256) { true -> "ДА"; false -> "НЕТ"; null -> "нет данных" }}")
     appendLine("Независимое скачивание: ${if (independent) "подтверждено" else "НЕ ПОДТВЕРЖДЕНО"}")
     when {
-        !independent -> appendLine("Вывод ограничен: TDLib мог вернуть закэшированные байты. Нельзя доказать отсутствие изменений на сервере.")
+        !independent -> appendLine("Вывод ограничен: Telegram мог вернуть закэшированные байты. Нельзя доказать отсутствие изменений на сервере.")
         changedSize || changedFps || changedCount -> appendLine("Изменение параметров обнаружено между локальным отправляемым MP4 и повторно полученным файлом. Этап и инициатор перекодирования не доказаны.")
         sameSha256 == false -> appendLine("Изменились байты/контейнер, но потери размера/FPS/числа кадров не обнаружены. Визуальная деградация НЕ доказана.")
         sameSha256 == true -> appendLine("Байты локального и независимо полученного файла совпадают.")
@@ -61,12 +67,33 @@ internal class VideoNoteLossDiagnostics(
     private val repository: TelegramRepository
 ) {
     private val root = File(context.noBackupFilesDir, "video-note-loss")
+    private val workScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var activeJob: Job? = null
+
+    companion object {
+        // Survives navigation and Activity recreation; repository identity prevents using
+        // another account's test state for deletion.
+        @Volatile private var instance: VideoNoteLossDiagnostics? = null
+        @Synchronized fun getInstance(context: Context, repository: TelegramRepository): VideoNoteLossDiagnostics {
+            val old = instance
+            if (old != null && old.repository === repository) return old
+            return VideoNoteLossDiagnostics(context.applicationContext, repository).also { instance = it }
+        }
+    }
+
+    @Synchronized fun start(): Boolean {
+        // Never lose a deletion handle by starting over an already-sent test message.
+        if (activeJob?.isActive == true || _state.value.running ||
+            _state.value.sentMessageId != null) return false
+        activeJob = workScope.launch { run() }
+        return true
+    }
     private val _state = MutableStateFlow(VideoNoteLossState())
     val state: StateFlow<VideoNoteLossState> = _state.asStateFlow()
 
-    suspend fun run() {
+    private suspend fun run() {
         if (_state.value.running) return
-        _state.value = VideoNoteLossState(phase = "Генерация локального теста", running = true)
+        _state.value = VideoNoteLossState(phaseRes = R.string.loss_phase_generate, running = true)
         val folder = File(root, UUID.randomUUID().toString()).apply { mkdirs() }
         val source = File(folder, "synthetic-input.mp4")
         val original = File(folder, "source-reference.mp4")
@@ -79,7 +106,7 @@ internal class VideoNoteLossDiagnostics(
             VideoNoteSyntheticSource.generate(source)
             source.copyTo(original)
             val sourceStats = analyzeVideoNoteFrameSamples(original)
-            _state.value = _state.value.copy(phase = "Экспорт через Media3")
+            _state.value = _state.value.copy(phaseRes = R.string.loss_phase_export)
             val exportDirectory = File(folder, "export")
             val output: OutgoingMedia = VideoNoteProcessor(context)
                 .process(source, VideoMessageSettings(preset = VideoQualityPreset.High), exportDirectory)
@@ -91,11 +118,11 @@ internal class VideoNoteLossDiagnostics(
             require(output.kind == com.beykus.beygram.domain.model.MediaKind.VideoNote)
             require(output.width == output.height && output.width in 1..640)
             require(output.durationSeconds in 1..60)
-            _state.value = _state.value.copy(phase = "TDLib: отправка кружка в Избранное")
+            _state.value = _state.value.copy(phaseRes = R.string.loss_phase_send)
             val sent = repository.sendVideoNoteLossTest(output, remoteCopy).getOrThrow()
             // Only after confirmed UpdateMessageSendSucceeded do we show the result as sent.
             _state.value = _state.value.copy(
-                phase = "Анализ полученного файла", sentMessageId = sent.messageId,
+                phaseRes = R.string.loss_phase_analyze, sentMessageId = sent.messageId,
                 independentDownload = sent.independentDownloadVerified
             )
             // A corrupt or unreadable remote MP4 must be reported as inconclusive, not hide
@@ -113,8 +140,8 @@ internal class VideoNoteLossDiagnostics(
                 appendLine("SHA-256 A: $sourceHash")
                 appendLine("Media3 C: ${exportStats.summary()}")
                 appendLine("SHA-256 C: $exportedHash")
-                appendLine("TDLib D: video note, ${output.width}x${output.height}, ${output.durationSeconds}s; SHA-256=$exportedHash")
-                appendLine("TDLib E: UpdateMessageSendSucceeded подтверждён; remote length=${sent.declaredSide}; remote bytes=${sent.remoteFileBytes}")
+                appendLine("Telegram D: video note, ${output.width}x${output.height}, ${output.durationSeconds}s; SHA-256=$exportedHash")
+                appendLine("Telegram E: UpdateMessageSendSucceeded подтверждён; remote length=${sent.declaredSide}; remote bytes=${sent.remoteFileBytes}")
                 appendLine("Источник F: ${sent.sourceEvidence}")
                 appendLine("Файл F: ${downloadedStats?.summary() ?: "недоступен"}")
                 appendLine("SHA-256 F: ${remoteSha ?: "не измерен"}")
@@ -126,24 +153,22 @@ internal class VideoNoteLossDiagnostics(
                 appendLine("В отчёт не включены Telegram message ID, chat ID и идентификаторы файлов.")
             }
             _state.value = _state.value.copy(
-                phase = "Проверка завершена", running = false, report = report, localDirectory = folder
+                phaseRes = R.string.loss_phase_done, running = false, report = report, localDirectory = folder
             )
         } catch (cancelled: CancellationException) {
-            _state.value = _state.value.copy(phase = "Проверка отменена", running = false, localDirectory = folder,
-                report = "Проверка отменена. Если тест уже отправлен, проверьте Избранное.")
+            _state.value = _state.value.copy(phaseRes = R.string.loss_phase_cancelled, running = false, localDirectory = folder,
+                report = context.getString(R.string.loss_report_cancelled))
             throw cancelled
         } catch (failure: Exception) {
-            _state.value = _state.value.copy(phase = "Ошибка проверки", running = false, localDirectory = folder,
-                report = "Ошибка диагностики: ${failure.javaClass.simpleName}. " +
-                    "Файл мог быть отправлен, если сбой произошёл после TDLib accepted. Проверьте Избранное. " +
-                    "Заключение об отсутствии потерь НЕ получено.")
+            _state.value = _state.value.copy(phaseRes = R.string.loss_phase_failed, running = false, localDirectory = folder,
+                report = context.getString(R.string.loss_report_failure, failure.javaClass.simpleName))
         }
     }
 
     suspend fun deleteTestMessage(): Result<Unit> {
         val id = _state.value.sentMessageId ?: return Result.failure(IllegalStateException("Нет подтверждённого тестового сообщения"))
         val result = repository.deleteVideoNoteLossTest(id)
-        if (result.isSuccess) _state.value = _state.value.copy(sentMessageId = null, phase = "Тест удалён из Избранного")
+        if (result.isSuccess) _state.value = _state.value.copy(sentMessageId = null, phaseRes = R.string.loss_phase_deleted)
         return result
     }
 
