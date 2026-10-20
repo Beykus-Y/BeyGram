@@ -23,6 +23,17 @@ class MediaViewerPagerTest {
         assertEquals("unavailable-page-0", mediaViewerPageKey(emptyList(), 0))
     }
 
+    @Test fun loadingMorePagesCannotResetInProgressSwipe() {
+        // currentPage has advanced to 2, but settledPage remains 1 until swipe finishes.
+        assertEquals(false, mediaViewerShouldScrollToSelection(true, 1, 1))
+        assertEquals(false, mediaViewerShouldScrollToSelection(true, 1, 2))
+        assertEquals(false, mediaViewerShouldScrollToSelection(false, 2, 2))
+    }
+
+    @Test fun explicitExternalSelectionCanMoveSettledPageWhenIdle() {
+        assertEquals(true, mediaViewerShouldScrollToSelection(false, 1, 3))
+    }
+
     @Test fun retainedIdsKeepSameKeysAcrossChanges() {
         assertEquals(mediaViewerPageKey(listOf(7L, 12L, 14L), 1), mediaViewerPageKey(listOf(12L), 0))
     }
