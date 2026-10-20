@@ -978,6 +978,43 @@
     <string name="new_chat_contact_selected">Контакт выбран</string>
 
     <string name="new_chat_group_unchanged_unknown">Запрос на создание группы мог выполниться. Проверьте список чатов Telegram перед повторной попыткой, иначе группа может продублироваться.</string>
-    <string name="new_chat_group_checked">Я проверил список чатов</string>
-    <string name="new_chat_partial_members">Группа создана, но %1$d участников не удалось пригласить из-за ограничений Telegram.</string>
+    <string name="new_chat_group_checked">Список чатов проверен</string>
+
+
+    <!-- User-visible camera and video-note loss diagnostics -->
+    <string name="loss_camera_survey_start">Опрос камер (без съёмки)</string>
+    <string name="loss_camera_survey_loading">Опрос камер…</string>
+    <string name="loss_camera_survey_title">Возможности камер</string>
+    <string name="loss_entry">Диагностика потерь — проверка через Избранное</string>
+    <string name="loss_dialog_title">Диагностика потерь кружков</string>
+    <string name="loss_dialog_description">BeyGram создаст трёхсекундный тестовый кружок без камеры и микрофона. После отдельного подтверждения он будет отправлен в Избранное и загружен обратно. Используется интернет-трафик. Тест не измеряет FPS камеры.</string>
+    <string name="loss_status">Состояние: %1$s</string>
+    <string name="loss_running_background">Проверка продолжается, даже если закрыть экран. Отправленное сообщение не отзывается при выходе.</string>
+    <string name="loss_delete_test">Удалить тест из Избранного</string>
+    <string name="loss_clear_local">Очистить локальные файлы теста</string>
+    <string name="loss_start_test">Запустить проверку</string>
+    <string name="loss_send_confirm_title">Отправить тестовый кружок?</string>
+    <string name="loss_send_confirm_body">Будет создан синтетический MP4 без лица и голоса. BeyGram отправит кружок в ваше Избранное и скачает полученную копию. Сообщение останется в Избранном, пока вы сами не удалите его.</string>
+    <string name="loss_send_confirm_button">Согласен, отправить</string>
+    <string name="loss_delete_confirm_title">Удалить тест из Избранного?</string>
+    <string name="loss_delete_confirm_body">Будет удалено только тестовое сообщение, созданное этой проверкой. Другие сообщения не затрагиваются.</string>
+    <string name="loss_delete_failed">Не удалось удалить тест: %1$s</string>
+    <string name="loss_phase_idle">Ожидание запуска</string>
+    <string name="loss_phase_generate">Генерация тестового видео</string>
+    <string name="loss_phase_export">Подготовка видеосообщения</string>
+    <string name="loss_phase_send">Отправка в Избранное</string>
+    <string name="loss_phase_analyze">Анализ скачанного файла</string>
+    <string name="loss_phase_done">Проверка завершена</string>
+    <string name="loss_phase_cancelled">Проверка прервана</string>
+    <string name="loss_phase_failed">Ошибка проверки</string>
+    <string name="loss_phase_deleted">Тест удалён из Избранного</string>
+    <string name="loss_report_cancelled">Проверка прервана. Если тест уже отправлен, проверьте Избранное.</string>
+    <string name="loss_report_failure">Ошибка диагностики: %1$s. Сообщение могло быть отправлено до сбоя. Проверьте Избранное. Вывод о потерях получить не удалось.</string>
+    <string name="loss_previous_test_hint">Чтобы запустить новый тест, сначала удалите предыдущее тестовое сообщение из Избранного.</string>
+    <plurals name="new_chat_partial_members">
+        <item quantity="one">Группа создана. Не приглашён %d участник из-за ограничений Telegram.</item>
+        <item quantity="few">Группа создана. Не приглашены %d участника из-за ограничений Telegram.</item>
+        <item quantity="many">Группа создана. Не приглашены %d участников из-за ограничений Telegram.</item>
+        <item quantity="other">Группа создана. Не приглашены %d участников из-за ограничений Telegram.</item>
+    </plurals>
 </resources>
