@@ -53,6 +53,12 @@
     <string name="feature_language">App language</string>
     <string name="feature_language_system">Follow system</string>
     <string name="feature_language_hint">Language changes immediately. Some untranslated labels are still shown in Russian.</string>
+    <string name="sessions_intro">See where you're signed in to Telegram. Terminating other sessions won't sign out this device.</string>
+    <string name="sessions_current">Current session</string>
+    <string name="sessions_other_count">Other devices (%1$d)</string>
+    <string name="sessions_empty">No session details available</string>
+    <string name="sessions_unknown_device">Unknown device</string>
+    <string name="sessions_last_active">Last active: %1$s</string>
     <string name="feature_sessions">Devices and sessions</string>
     <string name="feature_current_device">This device</string>
     <string name="feature_terminate_session">Terminate session</string>
