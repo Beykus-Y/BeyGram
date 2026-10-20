@@ -332,8 +332,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             this.title = name
             messageAutoDeleteTime = 0
         })
-        val chat = tdRequests(TdApi.GetChat(created.chatId))
-        handleNewChat(chat)
+        // Group creation has already succeeded. A secondary GetChat lookup must not
+        // turn it into a false failure: users could then press Create again and duplicate
+        // the group. TDLib updates will populate chatCache if this lookup fails.
+        try {
+            handleNewChat(tdRequests(TdApi.GetChat(created.chatId)))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // The new chat will be resolved when it is opened or via UpdateNewChat.
+        }
         created.chatId
     }
 
