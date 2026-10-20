@@ -171,19 +171,21 @@ object VideoNoteDiagnostics {
         if (!hasReport(id)) return
         // Run after the camera/Transformer has finalized the MP4; only encoded sample PTS are read.
         val result = withContext(Dispatchers.IO) { runCatching { analyzeVideoNoteFrameSamples(file) } }
-        val audio = withContext(Dispatchers.IO) { runCatching { analyzeVideoNoteAudio(file) }.getOrNull() }
+        val audioResult = withContext(Dispatchers.IO) { runCatching { analyzeVideoNoteAudio(file) } }
+        val audio = audioResult.getOrNull()
         result.fold(
             onSuccess = { data ->
-                val avLine = avSyncOf(data.firstVideoUs, data.lastVideoUs, audio)?.let { sync ->
+                fun orUnknown(v: Number?, divisor: Int = 1) = v?.let { (it.toLong() / divisor).toString() } ?: "?"
+                val avLine = if (audioResult.isFailure) text(R.string.vn_entry_av_failed, audioResult.exceptionOrNull()?.javaClass?.simpleName ?: "?")
+                else avSyncOf(data.firstVideoUs, data.lastVideoUs, audio)?.let { sync ->
                     if (sync.verdict == AvSyncVerdict.NO_AUDIO) text(R.string.vn_entry_av_none)
-                    else text(R.string.vn_entry_av, audio?.sampleRate ?: 0, audio?.channels ?: 0,
-                        (audio?.bitrateBps ?: 0) / 1000, String.format(Locale.US, "%.0f", sync.startOffsetMs),
+                    else text(R.string.vn_entry_av, orUnknown(audio?.sampleRate), orUnknown(audio?.channels),
+                        orUnknown(audio?.bitrateBps, 1000), String.format(Locale.US, "%.0f", sync.startOffsetMs),
                         String.format(Locale.US, "%.0f", sync.endOffsetMs), String.format(Locale.US, "%.0f", sync.driftMs),
                         text(when (sync.verdict) {
-                            AvSyncVerdict.IN_SYNC -> R.string.vn_av_in_sync
+                            AvSyncVerdict.IN_SYNC, AvSyncVerdict.NO_AUDIO -> R.string.vn_av_in_sync
                             AvSyncVerdict.START_OFFSET -> R.string.vn_av_start_offset
                             AvSyncVerdict.DRIFT -> R.string.vn_av_drift
-                            AvSyncVerdict.NO_AUDIO -> R.string.vn_av_in_sync
                         }))
                 }
                 modify(id) { old ->

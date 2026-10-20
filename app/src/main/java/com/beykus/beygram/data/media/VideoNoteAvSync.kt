@@ -28,6 +28,9 @@ internal enum class AvSyncVerdict { IN_SYNC, START_OFFSET, DRIFT, NO_AUDIO }
 /** Tolerance for a clip to count as in sync: about three frames at 30 FPS. */
 internal const val AV_SYNC_TOLERANCE_MS = 100.0
 
+/** Below this clip length the start and end offsets differ only by audio frame granularity, so drift is not judged. */
+internal const val AV_DRIFT_MIN_CLIP_US = 1_000_000L
+
 /**
  * Compares first and last sample times. A drift check needs a clip of at least a second, otherwise
  * the offsets are within one audio frame of each other by construction and tell nothing.
@@ -40,7 +43,7 @@ internal fun avSyncOf(videoFirstUs: Long, videoLastUs: Long, audio: VideoNoteAud
     val drift = end - start
     val verdict = when {
         kotlin.math.abs(start) > AV_SYNC_TOLERANCE_MS -> AvSyncVerdict.START_OFFSET
-        kotlin.math.abs(drift) > AV_SYNC_TOLERANCE_MS -> AvSyncVerdict.DRIFT
+        videoLastUs - videoFirstUs >= AV_DRIFT_MIN_CLIP_US && kotlin.math.abs(drift) > AV_SYNC_TOLERANCE_MS -> AvSyncVerdict.DRIFT
         else -> AvSyncVerdict.IN_SYNC
     }
     return VideoNoteAvSync(start, end, drift, verdict)

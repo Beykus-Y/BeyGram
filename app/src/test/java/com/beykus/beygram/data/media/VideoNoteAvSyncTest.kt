@@ -25,6 +25,11 @@ class VideoNoteAvSyncTest {
         assertEquals(-300.0, sync.driftMs, 0.01)
     }
 
+    @Test fun shortClipIsNotJudgedForDrift() {
+        val sync = avSyncOf(0L, 500_000L, audio(0L, 300_000L))!!
+        assertEquals(AvSyncVerdict.IN_SYNC, sync.verdict)
+    }
+
     @Test fun missingAudioIsReportedNotJudged() {
         assertEquals(AvSyncVerdict.NO_AUDIO, avSyncOf(0L, 1_000_000L, null)!!.verdict)
     }
