@@ -28,6 +28,15 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Архивные чаты. Не входят в [chats]; обновляются так же реактивно. */
     val archivedChats: StateFlow<List<ChatPreview>>
 
+    /** Authoritative server folder metadata and its Main tab position (TDLib UpdateChatFolders). */
+    val chatFolders: StateFlow<com.beykus.beygram.domain.model.TelegramChatFolders>
+
+    /** Separately loaded TDLib ChatListFolder chats: includes chats absent from Main. */
+    val folderChats: StateFlow<Map<Int, List<ChatPreview>>>
+    val folderLoadStates: StateFlow<Map<Int, com.beykus.beygram.domain.model.TelegramFolderLoadState>>
+    suspend fun loadMoreFolderChats(folderId: Int): Result<Unit>
+    suspend fun setFolderChatPinned(folderId: Int, chatId: Long, pinned: Boolean): Result<Unit>
+
     val connectionState: StateFlow<TelegramConnectionState>
     val myProfile: StateFlow<ProfileState>
     val bioLengthLimit: StateFlow<Int>
