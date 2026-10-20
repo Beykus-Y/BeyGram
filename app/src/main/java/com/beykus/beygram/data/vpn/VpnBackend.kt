@@ -210,6 +210,28 @@ internal class VpnBackend private constructor(
 
     fun updateAutoSelect(enabled: Boolean) {
         settingsStore.update { it.copy(autoSelectEnabled = enabled) }
+        if (!enabled) {
+            _autoSelectEvents.value = null
+            return
+        }
+        // Auto is an actionable connection mode, not merely a setting for the next manual Connect.
+        // Do not start without an imported profile; importing it later completes the activation.
+        if (mihomo.profileExists()) requestAutomaticConnection("mode_selected")
+    }
+
+    /** Activate the listener AND the TDLib proxy; choosing a node alone never routes Telegram traffic. */
+    private fun requestAutomaticConnection(reason: String) {
+        scope.launch(Dispatchers.IO) {
+            if (!settings.value.autoSelectEnabled || !mihomo.profileExists()) return@launch
+            // A saved manual/direct selection must not be overwritten just because the app restarted.
+            // Only explicit Auto selection or a subscription import reaches this path.
+            MihomoRuntimeDiagnostics.event("backend", "automatic activation requested reason=$reason")
+            startProxy().onFailure { error ->
+                val text = (error as? UserMessageException)?.text ?: UiText.Res(R.string.err_vpn_start_failed)
+                _autoSelectEvents.value = AutoSelectEvent.Failed(text)
+                MihomoRuntimeDiagnostics.event("backend", "automatic activation failed type=${error.javaClass.simpleName}")
+            }
+        }
     }
 
     fun updateSubscriptionUrl(url: String) {
@@ -354,6 +376,11 @@ internal class VpnBackend private constructor(
                 _connections.value = loaded
                 _probes.value = emptyMap()
                 VpnSubscriptionDiagnostics.event("fetch", "completed connectionCount=${loaded.size}")
+                // Auto selected before the first subscription import must connect without a second tap.
+                // Existing running sessions retain their listener and TDLib setting.
+                if (settings.value.autoSelectEnabled && !proxyWasRunning && loaded.isNotEmpty()) {
+                    requestAutomaticConnection("profile_imported")
+                }
                 Result.success(loaded)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
