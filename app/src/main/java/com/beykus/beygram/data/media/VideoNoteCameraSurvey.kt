@@ -6,7 +6,6 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
 import android.media.MediaCodecList
 import android.media.MediaRecorder
-import android.os.Build
 import android.os.PowerManager
 import android.util.Size
 import androidx.camera.camera2.interop.Camera2CameraInfo
@@ -70,9 +69,9 @@ internal object VideoNoteCameraSurvey {
             }
     }.getOrDefault(emptyList())
 
-    fun report(context: Context, settings: VideoMessageSettings): String = buildString {
+    fun report(context: Context, settings: VideoMessageSettings): String = VideoNoteReportRedactor.redact(buildString {
         appendLine(context.getString(R.string.loss_camera_report_heading))
-        appendLine(context.getString(R.string.camera_report_device, Build.MANUFACTURER, Build.MODEL, Build.VERSION.SDK_INT))
+        append(VideoNoteEnvironment.snapshot(context))
         appendLine(context.getString(R.string.camera_report_advertised_notice))
         appendLine()
         append(recordingDecisionsReport(context, settings))
@@ -81,13 +80,14 @@ internal object VideoNoteCameraSurvey {
             appendLine()
             appendLine(context.getString(R.string.camera_report_camera_id, id))
             appendLine(describeCamera(context, manager, id))
+            appendLine(VideoNoteCameraDetails.describe(context, manager, id))
         }
         appendLine()
         appendLine(context.getString(R.string.camera_report_encoders))
         appendLine(encoderReport(context))
         thermalLine(context)?.let(::appendLine)
         appendLine(context.getString(R.string.camera_report_high_speed_notice))
-    }
+    })
 
     /** "Why does normal recording pick this range" for front and back, with the current settings. */
     fun recordingDecisionsReport(context: Context, settings: VideoMessageSettings): String = buildString {

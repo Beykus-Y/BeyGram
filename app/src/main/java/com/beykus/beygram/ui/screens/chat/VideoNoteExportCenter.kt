@@ -9,6 +9,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteProcessor
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
+import com.beykus.beygram.data.media.VideoNoteSendTracking
 import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
@@ -169,8 +170,10 @@ internal object VideoNoteExportCenter {
             var reply = replyId
             try {
                 for (index in initial.nextIndex until initial.media.size) {
+                    VideoNoteSendTracking.tracker.expect(chatId, sessionName)
                     val sent = sender(initial.media[index], reply)
                     if (sent.isFailure) {
+                        VideoNoteSendTracking.tracker.forget(sessionName)
                         VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, sent.exceptionOrNull()?.javaClass?.simpleName ?: "?"), VideoNoteStatus.SEND_FAILED)
                         updateResult(sessionName) { it.markSendFailed() }
                         return@launch
@@ -187,6 +190,7 @@ internal object VideoNoteExportCenter {
                 throw cancelled
             } catch (failure: Exception) {
                 Log.e(TAG, "video_note_send_failed session=" + sessionName, failure)
+                VideoNoteSendTracking.tracker.forget(sessionName)
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, failure.javaClass.simpleName), VideoNoteStatus.SEND_FAILED)
                 recordAppEvent(EventKind.OTHER, "video_note_send_failed", "Кружок: отправка прервалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
                 updateResult(sessionName) { it.markSendFailed() }

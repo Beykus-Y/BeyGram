@@ -62,6 +62,10 @@ data class VideoNoteDiagnosticReport(
         appendLine(context.getString(R.string.vn_report_final, fps(outputFps)))
         appendLine(context.getString(R.string.vn_report_stage,
             fpsLimitStageText(context, videoNoteFpsLimitStage(targetFps, attemptedMaxFps, rawFps, outputFps))))
+        if (rawFps != null || outputFps != null) {
+            appendLine(rootCauseText(context, diagnoseVideoNoteFps(VideoNoteStageEvidence(
+                targetFps = targetFps, rawFps = rawFps, exportedFps = outputFps))))
+        }
         appendLine()
         entries.forEach { appendLine(it) }
     }
