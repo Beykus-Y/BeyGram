@@ -372,8 +372,15 @@ internal fun MediaViewer(
             pagerState.scrollToPage(target)
         }
     }
-    LaunchedEffect(pagerState.settledPage, pageIds, pagerState.isScrollInProgress) {
-        if (!pagerState.isScrollInProgress) {
+    // Changes to pageIds are *not* user selection events: older media may prepend
+    // pages while the pager is still restoring its anchor by stable item key.
+    // Publish a new selection only after an actual scrolling session ends.
+    var wasScrolling by remember { mutableStateOf(false) }
+    LaunchedEffect(pagerState.isScrollInProgress) {
+        if (pagerState.isScrollInProgress) {
+            wasScrolling = true
+        } else if (wasScrolling) {
+            wasScrolling = false
             val settled = pageIds.getOrNull(pagerState.settledPage)
             if (settled != null && settled != selectedId && selectedId in pageIds) onSelect(settled)
         }
