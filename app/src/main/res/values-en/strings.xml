@@ -91,4 +91,8 @@
     <string name="new_chat_group_create">Create group</string>
     <string name="new_chat_group_failed">Failed to create group</string>
     <string name="new_chat_contact_selected">Contact selected</string>
+
+    <string name="new_chat_group_unchanged_unknown">Telegram may have already created this group. Check your chat list before trying again to avoid duplicates.</string>
+    <string name="new_chat_group_checked">I checked my chat list</string>
+    <string name="new_chat_partial_members">Group created, but %1$d members could not be invited due to Telegram restrictions.</string>
 </resources>
