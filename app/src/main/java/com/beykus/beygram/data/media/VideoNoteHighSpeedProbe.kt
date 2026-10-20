@@ -163,7 +163,7 @@ internal object VideoNoteHighSpeedProbe {
         var codec: MediaCodec? = null
         var surface: Surface? = null
         var openRequested = false
-        @Volatile var encoderFailed = false
+        val encoderFailed = java.util.concurrent.atomic.AtomicBoolean(false)
         var device: CameraDevice? = null
         var session: CameraCaptureSession? = null
         val closed = CompletableDeferred<Unit>()
@@ -182,7 +182,7 @@ internal object VideoNoteHighSpeedProbe {
                     override fun onOutputBufferAvailable(c: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
                         runCatching { c.releaseOutputBuffer(index, false) }
                     }
-                    override fun onError(c: MediaCodec, e: MediaCodec.CodecException) { encoderFailed = true }
+                    override fun onError(c: MediaCodec, e: MediaCodec.CodecException) { encoderFailed.set(true) }
                     override fun onOutputFormatChanged(c: MediaCodec, f: MediaFormat) {}
                 }, handler)
                 enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -248,7 +248,7 @@ internal object VideoNoteHighSpeedProbe {
             delay((WARMUP_NS + PROBE_MEASURE_NS) / 1_000_000L + 400L)
             runCatching { hs.stopRepeating() }
             val stats = synchronized(timestamps) { measureProbeFrames(timestamps.toList(), exposures.toList(), range.last) }
-            if (encoderFailed) return failed("encoder error")
+            if (encoderFailed.get()) return failed("encoder error")
             return HighSpeedResult(stats.measuredFps, stats.frames, burst.size, stats.p50GapMs, stats.p95GapMs, stats.maxGapMs, null, sustained(stats))
         } catch (failure: Exception) {
             return failed(failure.javaClass.simpleName)
