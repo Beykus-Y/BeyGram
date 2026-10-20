@@ -114,7 +114,10 @@ internal fun safeVideoNoteFpsSelection(
     val available = if (requested.last >= 50 && !can60) regular.filter { it.last <= 30 }
         .ifEmpty { regular.filter { it.last < 50 } }
     else regular
-    val picked = chooseSupportedFrameRateRange(if (can60) requested else 30..30, available)
+    // Preserve Custom 24 FPS and the lower bound used for low-light capture.
+    // Only lower the maximum when a requested 60 FPS cannot be confirmed.
+    val target = if (requested.last >= 50 && !can60) requested.first.coerceAtMost(30)..30 else requested
+    val picked = chooseSupportedFrameRateRange(target, available)
     val reason = when {
         picked == null -> "No compatible normal FPS range advertised; CameraX default (verify actual RAW FPS)"
         requested.last >= 50 && !can60 -> "60 FPS not confirmed for normal CameraX video + H.264; fallback to ${picked.last} FPS"
