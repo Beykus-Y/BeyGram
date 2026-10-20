@@ -171,7 +171,7 @@ object VideoNoteDiagnostics {
     }
 
     /** Sensor results seen during the recording itself; a null [stats] is logged as "no results", not "no frames". */
-    internal fun recordSensor(id: String, stats: ProbeFrameStats?) {
+    internal fun recordSensor(id: String, stats: ProbeFrameStats?, truncated: Boolean = false) {
         if (!hasReport(id)) return
         if (stats == null) {
             append(id, text(R.string.vn_entry_sensor_none))
@@ -184,7 +184,9 @@ object VideoNoteDiagnostics {
                 entries = (old.entries + stamp(text(R.string.vn_entry_sensor, stats.frames,
                     stats.measuredFps?.let { String.format(Locale.US, "%.2f", it) } ?: "?",
                     ms(stats.p50GapMs), ms(stats.p95GapMs), ms(stats.maxGapMs), stats.longGaps,
-                    ms(stats.medianExposureMs), (stats.coverage * 100).toInt()))).takeLast(MAX_ENTRIES)
+                    ms(stats.medianExposureMs), (stats.coverage * 100).toInt()))) .let { rows ->
+                    if (truncated) rows + stamp(text(R.string.vn_entry_sensor_truncated)) else rows
+                }.takeLast(MAX_ENTRIES)
             )
         }
     }

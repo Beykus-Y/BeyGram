@@ -215,6 +215,8 @@ internal class VideoNoteRecorder(
             bind(cameraProvider, selector, current.settings, capture)
             preferFrontCamera = targetFront
             Log.i(TAG, "video_camera_switched front=$preferFrontCamera")
+            // Timestamps of different camera devices are not comparable: measure the new camera on its own.
+            if (sensorTap.isActive()) sensorTap.begin()
             VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_switched,
                 context.getString(if (preferFrontCamera) R.string.camera_facing_front else R.string.camera_facing_back),
                 previewFpsRange?.let { "${it.first}..${it.last}" } ?: context.getString(R.string.camera_report_range_default)))
@@ -403,6 +405,8 @@ internal class VideoNoteRecorder(
     private fun requestStop(current: VideoTake) {
         if (current.stopRequested) return
         current.stopRequested = true
+        // Results after this point belong to finalization, not to the recorded file.
+        sensorTap.stop()
         current.recording?.stop()
     }
 
@@ -450,7 +454,7 @@ internal class VideoNoteRecorder(
         captureBuilder.setMirrorMode(mirrorMode(settings))
         if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
         captureFpsRange = fpsRange
-        attachSensorTap(captureBuilder)
+        if (settings.diagnosticsEnabled) attachSensorTap(captureBuilder)
         return captureBuilder.build()
     }
 
@@ -520,6 +524,7 @@ internal class VideoNoteRecorder(
     private fun attachSensorTap(builder: VideoCapture.Builder<Recorder>) {
         Camera2Interop.Extender(builder).setSessionCaptureCallback(object : CameraCaptureSession.CaptureCallback() {
             override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+                if (!sensorTap.isActive()) return
                 val crop = result.get(CaptureResult.SCALER_CROP_REGION)
                 sensorTap.record(
                     result.get(CaptureResult.SENSOR_TIMESTAMP), result.get(CaptureResult.SENSOR_EXPOSURE_TIME),
@@ -598,7 +603,7 @@ internal class VideoNoteRecorder(
                     started = true
                     startClock()
                     recordStarted()
-                    sensorTap.begin()
+                    if (current.settings.diagnosticsEnabled) sensorTap.begin()
                     VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_recording_started))
                 }
                 if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
@@ -618,8 +623,11 @@ internal class VideoNoteRecorder(
             timer = null
         }
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
-        sensorTap.lastCrop().let { (crop, zoom) -> VideoNoteDiagnostics.recordCrop(current.sessionName, crop, zoom) }
-        VideoNoteDiagnostics.recordSensor(current.sessionName, sensorTap.finish(captureFpsRange?.upper ?: 30))
+        val sensor = sensorTap.finish(captureFpsRange?.upper ?: 30)
+        if (current.settings.diagnosticsEnabled) {
+            VideoNoteDiagnostics.recordCrop(current.sessionName, sensor?.crop, sensor?.zoom)
+            VideoNoteDiagnostics.recordSensor(current.sessionName, sensor?.stats, sensor?.truncated == true)
+        }
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
         val outcome = videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)
         VideoNoteDiagnostics.append(
