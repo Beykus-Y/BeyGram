@@ -109,18 +109,22 @@ internal class TdVideoNoteLossTransport(private val request: TdRequests) {
                 remotePath.isNotBlank() && remotePath != media.path && remotePath != file.local?.path.orEmpty() &&
                 File(remotePath).isFile && File(remotePath).length() > 0
             val existingCopy = File(remotePath).takeIf { it.isFile && it.length() > 0 }
-            if (existingCopy != null) {
+            // A disk-copy failure happens AFTER the send receipt: retain the message ID
+            // so the user can still delete precisely this test from Saved Messages.
+            val copied = existingCopy != null && runCatching {
                 destination.parentFile?.mkdirs()
                 existingCopy.copyTo(destination, overwrite = true)
-            }
+                destination.isFile && destination.length() > 0
+            }.getOrDefault(false)
+            val verified = independent && copied
             VideoNoteLossRemoteResult(
                 messageId = sent.id,
-                remoteCopyPath = destination.takeIf { it.isFile && it.length() > 0 }?.absolutePath,
+                remoteCopyPath = destination.takeIf { copied }?.absolutePath,
                 declaredSide = videoNote.length,
                 remoteFileBytes = file.size.toLong(),
-                sourceEvidence = if (independent) "TDLib cache evicted → GetRemoteFile → synchronous DownloadFile (new local bytes)"
-                    else "Independent remote read NOT proven (cache/eviction/source ambiguity)",
-                independentDownloadVerified = independent
+                sourceEvidence = if (verified) "TDLib cache evicted → GetRemoteFile → synchronous DownloadFile (new local bytes)"
+                    else "Independent remote read NOT proven (cache/eviction/source/copy ambiguity)",
+                independentDownloadVerified = verified
             )
         } finally {
             synchronized(this) { watcher = null }
