@@ -171,8 +171,21 @@ object VideoNoteDiagnostics {
         if (!hasReport(id)) return
         // Run after the camera/Transformer has finalized the MP4; only encoded sample PTS are read.
         val result = withContext(Dispatchers.IO) { runCatching { analyzeVideoNoteFrameSamples(file) } }
+        val audio = withContext(Dispatchers.IO) { runCatching { analyzeVideoNoteAudio(file) }.getOrNull() }
         result.fold(
             onSuccess = { data ->
+                val avLine = avSyncOf(data.firstVideoUs, data.lastVideoUs, audio)?.let { sync ->
+                    if (sync.verdict == AvSyncVerdict.NO_AUDIO) text(R.string.vn_entry_av_none)
+                    else text(R.string.vn_entry_av, audio?.sampleRate ?: 0, audio?.channels ?: 0,
+                        (audio?.bitrateBps ?: 0) / 1000, String.format(Locale.US, "%.0f", sync.startOffsetMs),
+                        String.format(Locale.US, "%.0f", sync.endOffsetMs), String.format(Locale.US, "%.0f", sync.driftMs),
+                        text(when (sync.verdict) {
+                            AvSyncVerdict.IN_SYNC -> R.string.vn_av_in_sync
+                            AvSyncVerdict.START_OFFSET -> R.string.vn_av_start_offset
+                            AvSyncVerdict.DRIFT -> R.string.vn_av_drift
+                            AvSyncVerdict.NO_AUDIO -> R.string.vn_av_in_sync
+                        }))
+                }
                 modify(id) { old ->
                     val raw = if (output) old.rawFps else data.measuredFps
                     val final = if (output) data.measuredFps else old.outputFps
@@ -181,6 +194,7 @@ object VideoNoteDiagnostics {
                         rawFps = raw,
                         outputFps = final,
                         entries = (old.entries + stamp("$stage: ${appContext?.let(data::summary) ?: data.frameCount}") +
+                            listOfNotNull(avLine?.let(::stamp)) +
                             listOfNotNull(finding?.let { stamp(text(R.string.vn_entry_finding, stageText(it))) })).takeLast(MAX_ENTRIES)
                     )
                 }
