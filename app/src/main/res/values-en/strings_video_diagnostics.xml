@@ -188,4 +188,5 @@
     <string name="vn_entry_td_failed">Telegram: sending failed, code %1$d</string>
     <string name="vn_entry_sensor">Sensor while recording: %1$d results, %2$s fps, intervals p50/p95/max %3$s/%4$s/%5$s ms, long pauses %6$d, exposure %7$s ms, window coverage %8$d%%</string>
     <string name="vn_entry_sensor_none">Sensor while recording: no results received (this does not mean the camera delivers no frames)</string>
+    <string name="vn_entry_crop">Sensor crop region while recording: %1$s (position and size in pixels), zoom %2$s</string>
 </resources>

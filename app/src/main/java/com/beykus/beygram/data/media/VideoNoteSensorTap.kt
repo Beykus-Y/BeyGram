@@ -10,19 +10,28 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
     private val timestamps = ArrayList<Long>()
     private val exposures = ArrayList<Long>()
     private var active = false
+    private var crop: String? = null
+    private var zoom: Float? = null
 
     /** Starts a fresh window; results before this call (preview only) are ignored. */
     @Synchronized fun begin() {
         timestamps.clear()
         exposures.clear()
+        crop = null
+        zoom = null
         active = true
     }
 
-    @Synchronized fun record(sensorTimestampNs: Long?, exposureNs: Long?) {
+    @Synchronized fun record(sensorTimestampNs: Long?, exposureNs: Long?, cropRegion: String? = null, zoomRatio: Float? = null) {
         if (!active || sensorTimestampNs == null || timestamps.size >= capacity) return
+        if (cropRegion != null) crop = cropRegion
+        if (zoomRatio != null) zoom = zoomRatio
         timestamps += sensorTimestampNs
         exposureNs?.let { exposures += it }
     }
+
+    /** Last crop region and zoom the camera reported for the recording, for field-of-view comparisons. */
+    @Synchronized fun lastCrop(): Pair<String?, Float?> = crop to zoom
 
     /** Stops collecting and returns the statistics for the recorded window, or null if nothing arrived. */
     @Synchronized fun finish(targetFps: Int): ProbeFrameStats? {

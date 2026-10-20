@@ -520,7 +520,12 @@ internal class VideoNoteRecorder(
     private fun attachSensorTap(builder: VideoCapture.Builder<Recorder>) {
         Camera2Interop.Extender(builder).setSessionCaptureCallback(object : CameraCaptureSession.CaptureCallback() {
             override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
-                sensorTap.record(result.get(CaptureResult.SENSOR_TIMESTAMP), result.get(CaptureResult.SENSOR_EXPOSURE_TIME))
+                val crop = result.get(CaptureResult.SCALER_CROP_REGION)
+                sensorTap.record(
+                    result.get(CaptureResult.SENSOR_TIMESTAMP), result.get(CaptureResult.SENSOR_EXPOSURE_TIME),
+                    crop?.let { "${it.left},${it.top} ${it.width()}x${it.height()}" },
+                    if (android.os.Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null
+                )
             }
         })
     }
@@ -613,6 +618,7 @@ internal class VideoNoteRecorder(
             timer = null
         }
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
+        sensorTap.lastCrop().let { (crop, zoom) -> VideoNoteDiagnostics.recordCrop(current.sessionName, crop, zoom) }
         VideoNoteDiagnostics.recordSensor(current.sessionName, sensorTap.finish(captureFpsRange?.upper ?: 30))
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
         val outcome = videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)

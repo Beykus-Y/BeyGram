@@ -189,6 +189,12 @@ object VideoNoteDiagnostics {
         }
     }
 
+    /** Crop region and zoom the camera applied: input for comparing the field of view between sizes. */
+    fun recordCrop(id: String, crop: String?, zoom: Float?) {
+        if (crop == null) return
+        append(id, text(R.string.vn_entry_crop, crop, zoom?.let { String.format(Locale.US, "%.2f", it) } ?: "?"))
+    }
+
     suspend fun inspect(id: String, stage: String, file: File, output: Boolean = false) {
         if (!hasReport(id)) return
         // Run after the camera/Transformer has finalized the MP4; only encoded sample PTS are read.
