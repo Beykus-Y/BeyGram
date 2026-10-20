@@ -136,4 +136,36 @@
         <item quantity="one">Group created, but %d member could not be invited due to Telegram restrictions.</item>
         <item quantity="other">Group created, but %d members could not be invited due to Telegram restrictions.</item>
     </plurals>
+    <!-- Localized reports for the optional synthetic video note check -->
+    <string name="loss_yes">YES</string>
+    <string name="loss_no">NO</string>
+    <string name="loss_not_known">NO / unknown</string>
+    <string name="loss_no_data">no data</string>
+    <string name="loss_verified">verified</string>
+    <string name="loss_unverified">NOT VERIFIED</string>
+    <string name="loss_compare_missing">Could not download the file again. Parameter changes are unknown.</string>
+    <string name="loss_compare_size">Frame dimensions changed: %1$s (%2$s → %3$s)</string>
+    <string name="loss_compare_frames">Frame count changed: %1$s (%2$d → %3$d)</string>
+    <string name="loss_compare_fps">Measured FPS changed: %1$s</string>
+    <string name="loss_compare_sha">SHA-256 match: %1$s</string>
+    <string name="loss_compare_remote">Independent download: %1$s</string>
+    <string name="loss_compare_cached_warning">Inconclusive: Telegram may have returned cached bytes. Unchanged content on the server cannot be proven.</string>
+    <string name="loss_compare_transformed">Frame parameters differ between the sent MP4 and the downloaded copy. The stage and cause of transcoding cannot be determined.</string>
+    <string name="loss_compare_bytes_changed">Bytes or container changed, but there is no detected loss of dimensions, FPS or frame count. Visual degradation is NOT proven.</string>
+    <string name="loss_compare_identical">The original and independently downloaded files match byte-for-byte.</string>
+    <string name="loss_compare_insufficient">Insufficient data for a conclusion.</string>
+    <string name="loss_report_heading">BeyGram — video note loss diagnostics</string>
+    <string name="loss_report_type">Type: synthetic frames, without camera or microphone</string>
+    <string name="loss_report_source">Original file A: %1$s</string>
+    <string name="loss_report_export">Processed file C: %1$s</string>
+    <string name="loss_report_sent">Sent file D: %1$dx%2$d, %3$d s; SHA-256=%4$s</string>
+    <string name="loss_report_confirmed">Telegram confirmed sending E: length %1$d s, size %2$d bytes</string>
+    <string name="loss_report_evidence">Download evidence F: %1$s</string>
+    <string name="loss_report_file">Downloaded file F: %1$s</string>
+    <string name="loss_report_unavailable">unavailable</string>
+    <string name="loss_report_not_measured">not measured</string>
+    <string name="loss_report_processing_changes">A→C: dimensions changed=%1$b, frame count changed=%2$b</string>
+    <string name="loss_report_local_hashed">C→D: the local file was read and hashed again before sending</string>
+    <string name="loss_report_camera_notice">This synthetic test does not measure physical camera FPS or prove visual quality.</string>
+    <string name="loss_report_private_notice">Telegram message, chat, and file IDs are not included in the report.</string>
 </resources>
