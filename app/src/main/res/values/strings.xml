@@ -970,4 +970,8 @@
     <string name="new_chat_group_create">Создать группу</string>
     <string name="new_chat_group_failed">Не удалось создать группу</string>
     <string name="new_chat_contact_selected">Контакт выбран</string>
+
+    <string name="new_chat_group_unchanged_unknown">Запрос на создание группы мог выполниться. Проверьте список чатов Telegram перед повторной попыткой, иначе группа может продублироваться.</string>
+    <string name="new_chat_group_checked">Я проверил список чатов</string>
+    <string name="new_chat_partial_members">Группа создана, но %1$d участников не удалось пригласить из-за ограничений Telegram.</string>
 </resources>
