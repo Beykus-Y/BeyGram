@@ -31,7 +31,7 @@ class NewChatSelectionTest {
     @Test fun selectionStopsAtBoundAndNeverDropsPreviousMembers() {
         val selected = (1L..200L).toList()
         assertEquals(selected, toggledGroupMembers(selected, 201L))
-        assertEquals(198, toggledGroupMembers(selected, 199L).size)
+        assertEquals(199, toggledGroupMembers(selected, 200L).size)
     }
 
     @Test fun staleAndDuplicateIdsAreNotSentToTdlib() {
