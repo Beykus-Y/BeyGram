@@ -20,6 +20,17 @@ class VideoNoteSyntheticSourceTest {
         assertEquals(90, VideoNoteSyntheticSource.frameCount(VideoNoteSyntheticSource.FPS_30))
     }
 
+    @Test fun everyLabRateGivesDistinctIncreasingFramesOverThreeSeconds() {
+        assertEquals(listOf(24, 30, 50, 60), VideoNoteSyntheticSource.SUPPORTED_FPS)
+        VideoNoteSyntheticSource.SUPPORTED_FPS.forEach { fps ->
+            val frames = VideoNoteSyntheticSource.frameCount(fps)
+            assertEquals(fps * 3, frames)
+            val pts = (0 until frames).map { syntheticFramePtsUs(it, fps) }
+            assertTrue(pts.zipWithNext().all { (a, b) -> b > a })
+            assertEquals(fps.toDouble(), measuredVideoFps(frames, pts.first(), pts.last())!!, 0.05)
+        }
+    }
+
     @Test fun fpsKeptNeedsAMeasurement() {
         assertEquals(true, syntheticFpsKept(60, 59.9))
         assertFalse(syntheticFpsKept(60, 30.0)!!)

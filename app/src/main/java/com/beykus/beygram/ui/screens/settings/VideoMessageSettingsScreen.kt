@@ -316,8 +316,8 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     Text(stringResource(R.string.loss_dialog_description), fontSize = 13.sp)
                     if (!lossState.running && lossState.sentMessageId == null) {
                         Text(stringResource(R.string.loss_fps_choice), fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(VideoNoteSyntheticSource.FPS_30, VideoNoteSyntheticSource.FPS_60).forEach { value ->
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            VideoNoteSyntheticSource.SUPPORTED_FPS.forEach { value ->
                                 FilterChip(lossFps == value, onClick = { lossFps = value },
                                     label = { Text(stringResource(R.string.loss_fps_option, value, value * VideoNoteSyntheticSource.SECONDS)) })
                             }
