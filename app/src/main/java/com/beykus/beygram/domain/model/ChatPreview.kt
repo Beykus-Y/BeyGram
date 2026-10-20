@@ -29,7 +29,9 @@ data class ChatPreview(
     val lastMessageSendState: MessageSendState = MessageSendState.Sent,
     /** Last outgoing message the other side has read; zero when unknown. */
     val lastReadOutboxMessageId: Long = 0L,
-    val photo: AvatarPhoto? = null
+    val photo: AvatarPhoto? = null,
+    /** TDLib ChatListFolder positions, keyed by server folder ID; independent of Main/Archive. */
+    val folderPositions: Map<Int, FolderChatPosition> = emptyMap()
 )
 
 fun orderedMainChats(chats: Collection<ChatPreview>): List<ChatPreview> =
