@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chats
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -27,6 +28,7 @@ fun CreateChannelScreen(onBack: () -> Unit, create: suspend (String, String) -> 
     var description by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    BackHandler(busy) { /* Keep creation request visible until the server responds. */ }
     // This full-screen route is outside MainTabsScaffold. Account for the system cutout,
     // gesture navigation and IME instead of relying on padding provided by the tab bar.
     Column(
