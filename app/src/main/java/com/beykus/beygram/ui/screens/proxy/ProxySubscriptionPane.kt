@@ -43,9 +43,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.vpn.VpnBackend
+import com.beykus.beygram.data.vpn.AutoSelectEvent
 import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 
@@ -71,6 +73,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
     val probes by vpnBackend.probes.collectAsStateWithLifecycle()
     val progress by vpnBackend.probeProgress.collectAsStateWithLifecycle()
     val busy by vpnBackend.busy.collectAsStateWithLifecycle()
+    val autoEvent by vpnBackend.autoSelectEvents.collectAsStateWithLifecycle()
     var actionMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { vpnBackend.refreshConnections() }
@@ -112,6 +115,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
         ProxySegmented(
             labels = listOf(stringResource(R.string.proxy_sub_auto), stringResource(R.string.proxy_sub_manual)),
             selectedIndex = if (settings.autoSelectEnabled) 0 else 1,
+            // Mode changes invalidate pending automatic work immediately, even while refresh is busy.
             onSelect = { index -> vpnBackend.updateAutoSelect(index == 0) }
         )
 
@@ -191,6 +195,14 @@ internal fun ColumnScope.ProxySubscriptionPane(
             )
         }
 
+        (autoEvent as? AutoSelectEvent.Failed)?.let { event ->
+            Text(
+                event.message.resolve(),
+                color = palette.danger,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
         (progress?.let { stringResource(R.string.proxy_sub_probing_progress, it.completed, it.total) } ?: actionMessage)?.let {
             Text(it, color = palette.accent, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
         }
