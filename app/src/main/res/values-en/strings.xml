@@ -78,6 +78,12 @@
     <string name="feature_more_actions">More actions</string>
     <string name="feature_linked_channel">Personal channel</string>
 
+    <!-- Server-synced Telegram folder tabs -->
+    <string name="chat_folders_all">All chats</string>
+    <string name="chat_folder_empty">This folder has no chats yet</string>
+    <string name="chat_folder_load_more">Load more chats</string>
+    <string name="chat_folder_load_failed">Unable to load folder chats. Try again.</string>
+
     <!-- New chat entry point and group creation (Issue #226) -->
     <string name="new_chat_title">New chat</string>
     <string name="new_chat_subtitle">Choose a contact or start a new conversation.</string>

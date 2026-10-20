@@ -60,6 +60,14 @@ class UnavailableTelegramRepository : TelegramRepository {
     override val authState: StateFlow<AuthState> = MutableStateFlow<AuthState>(AuthState.Idle).asStateFlow()
     override val chats: StateFlow<List<ChatPreview>> = noChats
     override val archivedChats: StateFlow<List<ChatPreview>> = noChats
+    override val chatFolders: StateFlow<com.beykus.beygram.domain.model.TelegramChatFolders> =
+        MutableStateFlow(com.beykus.beygram.domain.model.TelegramChatFolders()).asStateFlow()
+    override val folderChats: StateFlow<Map<Int, List<ChatPreview>>> =
+        MutableStateFlow<Map<Int, List<ChatPreview>>>(emptyMap()).asStateFlow()
+    override val folderLoadStates: StateFlow<Map<Int, com.beykus.beygram.domain.model.TelegramFolderLoadState>> =
+        MutableStateFlow<Map<Int, com.beykus.beygram.domain.model.TelegramFolderLoadState>>(emptyMap()).asStateFlow()
+    override suspend fun loadMoreFolderChats(folderId: Int): Result<Unit> = unavailable()
+    override suspend fun setFolderChatPinned(folderId: Int, chatId: Long, pinned: Boolean): Result<Unit> = unavailable()
     override val connectionState: StateFlow<TelegramConnectionState> = MutableStateFlow(TelegramConnectionState.Unknown).asStateFlow()
     override val myProfile: StateFlow<ProfileState> = noProfile
     override val bioLengthLimit: StateFlow<Int> = MutableStateFlow(70).asStateFlow()

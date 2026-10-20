@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chats
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -23,6 +26,8 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -42,6 +47,8 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +61,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -81,6 +89,11 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.TelegramChatFolders
+import com.beykus.beygram.domain.model.TelegramFolderLoadState
+import com.beykus.beygram.domain.model.TelegramFolderTab
+import com.beykus.beygram.domain.model.orderedTelegramFolderTabs
+import com.beykus.beygram.domain.model.validTelegramFolderSelection
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
@@ -92,6 +105,7 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.russianPlural
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -107,6 +121,12 @@ private val archivePullThreshold = 104.dp
 fun ChatsScreen(
     chats: List<ChatPreview>,
     archivedChats: List<ChatPreview>,
+    /** Per-account TDLib server folders and their own ordered content. */
+    folderSnapshot: TelegramChatFolders,
+    folderChats: Map<Int, List<ChatPreview>>,
+    folderLoadStates: Map<Int, TelegramFolderLoadState>,
+    onFolderLoadMore: (Int) -> Unit,
+    onPinFolderChat: suspend (Int, Long, Boolean) -> Result<Unit>,
     myProfile: ProfileInfo?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
@@ -126,6 +146,14 @@ fun ChatsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var selectedFilterName by rememberSaveable { mutableStateOf(ChatFilter.All.name) }
     val selectedFilter = ChatFilter.valueOf(selectedFilterName)
+    // A folder is selected by server ID, never by its mutable index or local category name.
+    var selectedFolderId by rememberSaveable(myProfile?.id) { mutableIntStateOf(0) }
+    val activeFolderId = validTelegramFolderSelection(folderSnapshot, selectedFolderId.takeIf { it > 0 })
+    LaunchedEffect(folderSnapshot.initialized, folderSnapshot.folders.map { it.id }) {
+        if (folderSnapshot.initialized && selectedFolderId != 0 && activeFolderId == null) selectedFolderId = 0
+    }
+    val displayedChats = activeFolderId?.let { folderChats[it].orEmpty() } ?: chats
+    val folderLoad = activeFolderId?.let { folderLoadStates[it] } ?: TelegramFolderLoadState(hasMore = false)
     val palette = beyGramPalette()
     val context = LocalContext.current
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
@@ -138,8 +166,8 @@ fun ChatsScreen(
         label = stringResource(R.string.chats_action_archive), icon = Icons.Rounded.Archive, container = palette.accent, content = palette.onAccent,
         enabled = true, perform = onArchive
     )
-    val filteredChats = remember(query, chats, selectedFilter) {
-        chats.filter { chat ->
+    val filteredChats = remember(query, displayedChats, selectedFilter) {
+        displayedChats.filter { chat ->
             val matchesQuery = query.isBlank() || chat.title.contains(query, true) || (chat.lastMessage as? UiText.Raw)?.text?.contains(query, true) == true
             val matchesFilter = when (selectedFilter) {
                 ChatFilter.All -> true
@@ -154,11 +182,11 @@ fun ChatsScreen(
         if (selectedFilter == ChatFilter.All && query.isBlank()) filteredChats.filter { it.isPinned } else emptyList()
     }
     val regularChats = remember(filteredChats, pinnedChats) { filteredChats.filterNot { it in pinnedChats } }
-    val unreadTotal = remember(chats) { chats.sumOf { it.unreadCount } }
+    val unreadTotal = remember(displayedChats) { displayedChats.sumOf { it.unreadCount } }
     val showAllHeader = pinnedChats.isNotEmpty() || (selectedFilter == ChatFilter.All && query.isBlank())
-    val archiveAvailable = archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
+    val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
-    val listState = rememberLazyListState()
+    val listState = rememberSaveable(activeFolderId, saver = LazyListState.Saver) { LazyListState() }
     val archivePullThresholdPx = with(density) { archivePullThreshold.toPx() }
     // Сколько протянуто вниз, пока архив скрыт. Подсказка растёт до порога, а за порогом архив возвращается при отпускании.
     var pullPx by remember { mutableFloatStateOf(0f) }
@@ -225,6 +253,41 @@ fun ChatsScreen(
             Spacer(Modifier.height(14.dp))
             SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
             Spacer(Modifier.height(12.dp))
+            // Server folders are a distinct navigation level from local People/Groups/Unread chips.
+            if (folderSnapshot.initialized && folderSnapshot.folders.isNotEmpty()) {
+                val serverTabs = orderedTelegramFolderTabs(folderSnapshot)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 0.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(serverTabs, key = { tab ->
+                        when (tab) {
+                            TelegramFolderTab.Main -> "server_main"
+                            is TelegramFolderTab.Folder -> "server_folder_${tab.id}"
+                        }
+                    }) { tab ->
+                        when (tab) {
+                            TelegramFolderTab.Main -> ServerFolderChip(
+                                title = stringResource(R.string.chat_folders_all),
+                                selected = activeFolderId == null,
+                                unreadCount = null,
+                                onClick = { selectedFolderId = 0 }
+                            )
+                            is TelegramFolderTab.Folder -> {
+                                val folder = folderSnapshot.folders.firstOrNull { it.id == tab.id }
+                                if (folder != null) ServerFolderChip(
+                                    title = folder.title,
+                                    selected = activeFolderId == folder.id,
+                                    unreadCount = folder.unreadChats,
+                                    onClick = { selectedFolderId = folder.id }
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
             Row(modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ChatFilter.entries.forEach { filter ->
                     FilterChip(
@@ -276,7 +339,17 @@ fun ChatsScreen(
                 }
             }
             if (regularChats.isEmpty() && pinnedChats.isEmpty()) {
-                item(key = "empty_state") { EmptyState(selectedFilter, query) }
+                item(key = "empty_state") {
+                    when {
+                        activeFolderId != null && folderLoad.loading -> Box(Modifier.fillMaxWidth().padding(36.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = palette.accent)
+                        }
+                        activeFolderId != null && query.isBlank() && selectedFilter == ChatFilter.All ->
+                            Text(stringResource(R.string.chat_folder_empty), color = palette.textSecondary,
+                                modifier = Modifier.fillMaxWidth().padding(32.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        else -> EmptyState(selectedFilter, query)
+                    }
+                }
             } else {
                 if (showAllHeader && regularChats.isNotEmpty()) {
                     item(key = "all_header") {
@@ -297,6 +370,21 @@ fun ChatsScreen(
                     )
                 }
             }
+            if (activeFolderId != null) {
+                item(key = "server_folder_load_more") {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (folderLoad.loading) CircularProgressIndicator(color = palette.accent, modifier = Modifier.size(26.dp))
+                        if (folderLoad.error) Text(stringResource(R.string.chat_folder_load_failed),
+                            color = palette.danger, fontSize = 13.sp)
+                        if (folderLoad.hasMore && !folderLoad.loading) {
+                            TextButton(onClick = { onFolderLoadMore(activeFolderId) }) {
+                                Text(stringResource(if (folderLoad.error) R.string.common_retry else R.string.chat_folder_load_more))
+                            }
+                        }
+                    }
+                }
+            }
         }
       }
       FloatingActionButton(
@@ -313,7 +401,10 @@ fun ChatsScreen(
         ChatActionsSheet(
             chat = selected,
             onClose = { selectedActions = null },
-            setPinned = { onPinChat(selected.id, it) },
+            setPinned = { pinned ->
+                if (activeFolderId != null) onPinFolderChat(activeFolderId, selected.id, pinned)
+                else onPinChat(selected.id, pinned)
+            },
             setMuted = { onMuteChat(selected.id, it) },
             delete = { onDeleteChat(selected.id) }
         )
@@ -397,6 +488,38 @@ private fun ArchivePullHint(heightDp: Dp) {
         }
         Spacer(Modifier.height(6.dp))
         Text(stringResource(R.string.chats_archive_pull_hint), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
+@Composable
+private fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(16.dp))
+            .background(if (selected) palette.accent else palette.surface2)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            title,
+            color = if (selected) palette.onAccent else palette.textPrimary,
+            fontSize = 14.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            modifier = Modifier.widthIn(max = 144.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (unreadCount != null && unreadCount > 0) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                unreadCount.toString(),
+                color = if (selected) palette.onAccent else palette.accent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 

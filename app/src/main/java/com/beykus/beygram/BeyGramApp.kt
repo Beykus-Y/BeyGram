@@ -403,10 +403,20 @@ private fun BeyGramAppContent(
     val chatsTab: @Composable () -> Unit = {
         val chats by repository.chats.collectAsStateWithLifecycle()
         val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        val folders by repository.chatFolders.collectAsStateWithLifecycle()
+        val folderLists by repository.folderChats.collectAsStateWithLifecycle()
+        val folderLoading by repository.folderLoadStates.collectAsStateWithLifecycle()
         MainTabsScaffold(MainTab.Chats.route.name, MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
             ChatsScreen(
                 chats = chats,
                 archivedChats = archivedChats,
+                folderSnapshot = folders,
+                folderChats = folderLists,
+                folderLoadStates = folderLoading,
+                onFolderLoadMore = { id ->
+                    archiveSettingsScope.launch { repository.loadMoreFolderChats(id) }
+                },
+                onPinFolderChat = repository::setFolderChatPinned,
                 myProfile = myProfile.info,
                 observeFile = repository::observeFile,
                 downloadFile = repository::downloadFile,
