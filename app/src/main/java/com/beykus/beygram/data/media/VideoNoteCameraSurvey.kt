@@ -85,7 +85,7 @@ internal object VideoNoteCameraSurvey {
             .filter { info -> info.supportedTypes.any { it.equals("video/avc", ignoreCase = true) } }
         if (encoders.isEmpty()) return@runCatching false
         encoders.any { info -> runCatching {
-            info.getCapabilitiesForType("video/avc").videoCapabilities.areSizeAndRateSupported(width, height, fps.toDouble())
+            info.getCapabilitiesForType("video/avc").videoCapabilities?.areSizeAndRateSupported(width, height, fps.toDouble()) == true
         }.getOrDefault(false) }
     }.getOrNull()
 
