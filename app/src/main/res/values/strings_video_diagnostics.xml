@@ -187,4 +187,27 @@
     <string name="vn_entry_td_pending">Telegram: сообщение создано локально и ждёт загрузки (ещё не на сервере)</string>
     <string name="vn_entry_td_stored">Telegram: сервер подтвердил, что кружок сохранён</string>
     <string name="vn_entry_td_failed">Telegram: отправка не удалась, код %1$d</string>
+    <string name="diag_center_title">Диагностический центр</string>
+    <string name="diag_center_run">Запустить</string>
+    <string name="diag_center_a_title">Опрос возможностей</string>
+    <string name="diag_center_a_detail">Читает заявленные возможности камер и кодировщиков. Камера не включается.</string>
+    <string name="diag_center_b_title">Проверка реальных FPS камер</string>
+    <string name="diag_center_b_detail">Включает камеру на несколько секунд на режим, ничего не записывает и не берёт звук.</string>
+    <string name="diag_center_c_title">Тест записи</string>
+    <string name="diag_center_c_detail">Запишите кружок в чате при включённой диагностике: отчёт появится в списке ниже. Нужны камера и микрофон.</string>
+    <string name="diag_center_d_title">Сравнение файлов до и после обработки</string>
+    <string name="diag_center_d_detail">Сравнивает кадры и контрольные суммы исходного и обработанного файла. Камера не нужна.</string>
+    <string name="diag_center_e_title">Синтетический тест 24/30/50/60</string>
+    <string name="diag_center_e_detail">Делает тестовое видео из искусственных кадров без камеры и звука.</string>
+    <string name="diag_center_f_title">Проверка через Telegram</string>
+    <string name="diag_center_f_detail">Отправляет тест только в Избранное и только после вашего подтверждения.</string>
+    <string name="diag_center_g_title">Полная диагностика</string>
+    <string name="diag_center_g_detail">Безопасная последовательность: опрос возможностей, затем проверка реальных FPS.</string>
+    <string name="diag_full_plan">Порядок: A (опрос без камеры), затем B (проверка реальных FPS). Запись, звук и отправка не выполняются. Остановить можно в любой момент.</string>
+    <string name="diag_full_quick">Быстрый</string>
+    <string name="diag_full_extended">Расширенный</string>
+    <string name="diag_full_quick_cost">Быстрый: только фронтальная камера, самые важные размеры. Обычно до минуты, телефон нагревается слабо.</string>
+    <string name="diag_full_extended_cost">Расширенный: все камеры. До 2,5 минут, телефон может заметно нагреться; проверка остановится при сильном нагреве.</string>
+    <string name="diag_full_consent">Камера включится на несколько секунд на каждый режим. Продолжить?</string>
+    <string name="diag_full_start">Начать</string>
 </resources>
