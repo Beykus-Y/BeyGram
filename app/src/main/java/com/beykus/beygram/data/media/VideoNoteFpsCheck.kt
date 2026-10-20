@@ -135,16 +135,36 @@ internal object VideoNoteFpsCheck {
             fun f(v: Double?) = v?.let { String.format(Locale.US, "%.1f", it) } ?: "?"
             context.getString(R.string.fps_check_row_measured, f(s.measuredFps), s.frames, f(s.p50GapMs), f(s.p95GapMs),
                 f(s.maxGapMs), s.longGaps, f(s.medianExposureMs), outcome.failedCaptures) + "; " +
-                verdictText(context, outcome.verdict, target)
+                verdictText(context, outcome, target) + "\n    " + detailsText(context, outcome)
         }
     }
 
-    private fun verdictText(context: Context, verdict: ProbeVerdict, target: Int): String = when (verdict) {
+    private fun verdictText(context: Context, outcome: ProbeOutcome.Measured, target: Int): String = when (outcome.verdict) {
         ProbeVerdict.REACHED -> context.getString(R.string.fps_verdict_reached, target)
         ProbeVerdict.LOW_LIGHT -> context.getString(R.string.fps_verdict_low_light)
         ProbeVerdict.THERMAL -> context.getString(R.string.fps_verdict_thermal)
         ProbeVerdict.BELOW_UNEXPLAINED -> context.getString(R.string.fps_verdict_unexplained)
-        ProbeVerdict.NO_FRAMES -> context.getString(R.string.fps_verdict_no_frames)
+        ProbeVerdict.STALLED -> context.getString(R.string.fps_verdict_stalled)
+        // Zero results at all and results that stopped before the window are different failures.
+        ProbeVerdict.NO_FRAMES -> if (outcome.counters.results == 0) context.getString(R.string.fps_verdict_no_results)
+            else context.getString(R.string.fps_verdict_no_frames)
+    }
+
+    /** Raw counters of the mode, so a stalled or empty stream can be told apart on a device report. */
+    private fun detailsText(context: Context, outcome: ProbeOutcome.Measured): String {
+        val c = outcome.counters
+        val s = outcome.stats
+        val text = context.getString(R.string.fps_check_row_details,
+            String.format(Locale.US, "%.0f", s.coverage * 100), s.expectedFrames,
+            String.format(Locale.US, "%.0f", s.spanMs), String.format(Locale.US, "%.0f", s.windowMs),
+            c.firstResultDelayMs?.toString() ?: "—", c.captureStarted, c.results,
+            c.imagesAvailable, c.imagesAcquired, c.acquireErrors, c.buffersLost,
+            c.cleanupMs?.toString() ?: "—")
+        val extra = buildList {
+            c.firstAcquireError?.let { add(context.getString(R.string.fps_check_row_acquire_error, it)) }
+            if (c.sequenceAborted) add(context.getString(R.string.fps_check_row_aborted))
+        }
+        return (listOf(text) + extra).joinToString("; ")
     }
 
     /** One-line answer to "did any lens really deliver 60 FPS here". */

@@ -91,7 +91,7 @@ class VideoNoteFpsProbePlanTest {
         val ts = (0 until 60).map { it * interval }.toMutableList()
         ts.removeAt(30) // one dropped frame -> one double-length gap
         ts.add(ts.last()) // a repeated timestamp
-        val stats = measureProbeFrames(ts, List(ts.size) { 8_000_000L }, 60)
+        val stats = measureProbeFrames(ts, List(ts.size) { 8_000_000L }, 60, windowNs = 1_000_000_000L)
         assertEquals(1, stats.longGaps)
         assertEquals(1, stats.nonIncreasing)
         assertEquals(16.7, stats.p50GapMs!!, 0.1)
@@ -126,6 +126,56 @@ class VideoNoteFpsProbePlanTest {
 
     @Test fun noFramesIsNotReportedAsZeroFps() {
         assertEquals(ProbeVerdict.NO_FRAMES, classifyProbe(measureProbeFrames(emptyList(), emptyList(), 30), 30, 0))
-        assertEquals(ProbeVerdict.NO_FRAMES, classifyProbe(measureProbeFrames(listOf(1L, 2L), emptyList(), 30), 30, 0))
+    }
+
+    @Test fun fiveFramesAtThirtyInATwoSecondWindowAreAStallNotReached() {
+        // The M21 report: 5 frames 33.3 ms apart look like 30 FPS but cover 4% of the window.
+        val ts = (0 until 5).map { it * 33_333_333L }
+        val stats = measureProbeFrames(ts, emptyList(), 30)
+        assertEquals(30.0, stats.measuredFps!!, 0.1)
+        assertEquals(60, stats.expectedFrames)
+        assertTrue(stats.coverage < 0.1)
+        assertEquals(ProbeVerdict.STALLED, classifyProbe(stats, 30, 0))
+    }
+
+    @Test fun twoFramesAreAStall() {
+        assertEquals(ProbeVerdict.STALLED, classifyProbe(measureProbeFrames(listOf(1L, 2L), emptyList(), 30), 30, 0))
+        assertEquals(ProbeVerdict.STALLED, classifyProbe(measureProbeFrames(listOf(5L), emptyList(), 30), 30, 0))
+    }
+
+    @Test fun fullWindowAtThirtyIsReached() {
+        val ts = (0 until 60).map { it * 33_333_333L }
+        val stats = measureProbeFrames(ts, List(60) { 10_000_000L }, 30)
+        assertEquals(1.0, stats.coverage, 0.001)
+        assertEquals(ProbeVerdict.REACHED, classifyProbe(stats, 30, 0))
+    }
+
+    @Test fun streamThatStopsHalfwayIsAStall() {
+        // 30 FPS for 1.2 s, then nothing: the rate looks right but the stream died.
+        val ts = (0 until 36).map { it * 33_333_333L }
+        val stats = measureProbeFrames(ts, emptyList(), 30)
+        assertTrue(stats.coverage < 0.8)
+        assertEquals(ProbeVerdict.STALLED, classifyProbe(stats, 30, 0))
+    }
+
+    @Test fun lateFirstFrameIsAStall() {
+        // Frames only in the last 0.5 s of the window.
+        val ts = (0 until 15).map { 1_500_000_000L + it * 33_333_333L }
+        assertEquals(ProbeVerdict.STALLED, classifyProbe(measureProbeFrames(ts, emptyList(), 30), 30, 0))
+    }
+
+    @Test fun longPauseInTheMiddleIsAStallNotLowLight() {
+        val first = (0 until 15).map { it * 33_333_333L }
+        val second = (0 until 15).map { 1_500_000_000L + it * 33_333_333L }
+        val stats = measureProbeFrames(first + second, List(30) { 33_000_000L }, 30)
+        assertTrue(stats.maxGapMs!! > 1000.0)
+        assertEquals(ProbeVerdict.STALLED, classifyProbe(stats, 30, 0))
+    }
+
+    @Test fun slowButSteadyDarkStreamIsStillLowLight() {
+        // 15 FPS across the whole window with exposure filling the interval: low light, not a stall.
+        val ts = (0 until 30).map { it * 66_666_667L }
+        val stats = measureProbeFrames(ts, List(30) { 66_000_000L }, 30)
+        assertEquals(ProbeVerdict.LOW_LIGHT, classifyProbe(stats, 30, 0))
     }
 }

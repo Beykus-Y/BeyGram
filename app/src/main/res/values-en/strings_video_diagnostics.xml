@@ -64,7 +64,7 @@
     <string name="fps_check_stopped_timeout">Check stopped by the overall time limit.</string>
     <string name="fps_check_stopped_cancel">Check cancelled.</string>
     <string name="fps_check_report_heading">BeyGram: real camera frame-rate check</string>
-    <string name="fps_check_report_method">Method: one stream without recording or sound; the rate is computed from sensor frame timestamps after a 0.8 s warm-up, 2 s of measurement per mode.</string>
+    <string name="fps_check_report_method">Method: one uncompressed stream without recording or sound (frames are released at once, pixels are never read); the rate is computed from sensor frame timestamps after a 0.8 s warm-up, 2 s of measurement per mode. A target counts as reached only when at least 80% of the expected frames arrived.</string>
     <string name="fps_check_camera_heading">Camera %1$s (%2$s):</string>
     <string name="fps_check_row_head">%1$s, target %2$d fps, range %3$s, stream ceiling ≈%4$s</string>
     <string name="fps_check_row_not_advertised">not advertised in normal mode, not checked</string>
@@ -80,7 +80,12 @@
     <string name="fps_verdict_low_light">below target: exposure is close to the frame interval, low light</string>
     <string name="fps_verdict_thermal">below target: the phone is very hot</string>
     <string name="fps_verdict_unexplained">below target, reason not established</string>
-    <string name="fps_verdict_no_frames">no frames received</string>
+    <string name="fps_verdict_no_frames">no frames in the measurement window (the camera answered only during warm-up); this does not prove the mode is unsupported</string>
+    <string name="fps_verdict_no_results">the camera opened but produced no frames; this does not prove the mode is unsupported</string>
+    <string name="fps_verdict_stalled">the stream stopped: too few frames to judge this mode</string>
+    <string name="fps_check_row_details">coverage %1$s%% of %2$d expected frames, frames spanned %3$s of %4$s ms; first frame after %5$s ms; captures started %6$d, results %7$d; images available/taken %8$d/%9$d, take errors %10$d, buffers lost %11$d; camera close %12$s ms</string>
+    <string name="fps_check_row_acquire_error">first frame-take error: %1$s</string>
+    <string name="fps_check_row_aborted">the camera aborted the capture sequence</string>
     <string name="fps_check_conclusion_60_yes">Result: real 60 fps was reached on %1$s. This does not guarantee 60 when recording with sound; compare with normal recording above.</string>
     <string name="fps_check_conclusion_60_tried">Result: 60 fps was requested but not reached in any mode.</string>
     <string name="fps_check_conclusion_60_not_advertised">Result: none of the selected cameras advertises 60 fps in normal mode; 60 was not checked. High-speed modes are listed separately.</string>
