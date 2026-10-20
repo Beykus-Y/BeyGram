@@ -89,6 +89,6 @@
     <string name="new_chat_group_name">Group name</string>
     <string name="new_chat_selected_count">Selected members: %1$d</string>
     <string name="new_chat_group_create">Create group</string>
-    <string name="new_chat_group_failed">Couldn't create group</string>
+    <string name="new_chat_group_failed">Failed to create group</string>
     <string name="new_chat_contact_selected">Contact selected</string>
 </resources>
