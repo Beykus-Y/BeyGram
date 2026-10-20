@@ -22,6 +22,7 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +41,7 @@ class VideoNoteProcessor(private val context: Context) {
      * При сбое сегмента уже готовые сегменты и RAW сохраняются: долгую запись нельзя терять из-за одной ошибки.
      */
     suspend fun process(source: File, settings: VideoMessageSettings, outputDirectory: File, diagnosticId: String? = null): List<OutgoingMedia> {
-        if (diagnosticId != null) VideoNoteDiagnostics.inspect(diagnosticId, "RAW from CameraX", source)
+        if (diagnosticId != null) VideoNoteDiagnostics.inspect(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_stage_raw), source)
         val sourceInfo = withContext(Dispatchers.IO) { metadata(source) }
         val sourceDurationMs = sourceInfo.durationMs
         require(sourceDurationMs > 0L) { "Не удалось прочитать длительность записи" }
@@ -52,12 +53,12 @@ class VideoNoteProcessor(private val context: Context) {
             val (startMs, endMs) = segment
             val output = File(outputDirectory, "video-note-${index + 1}.mp4")
             try {
-                if (diagnosticId != null) VideoNoteDiagnostics.append(diagnosticId, "Media3 export segment ${index + 1}: target=${target.side}x${target.side}, videoBitrate=${target.videoBitrate}, audioBitrate=${target.audioBitrate}")
+                if (diagnosticId != null) VideoNoteDiagnostics.append(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_entry_export_segment, index + 1, target.side, target.side, target.videoBitrate, target.audioBitrate))
                 val exportStartMs = android.os.SystemClock.elapsedRealtime()
                 transform(source, output, startMs, endMs, target.side, target.videoBitrate, target.audioBitrate)
                 if (diagnosticId != null) {
-                    VideoNoteDiagnostics.append(diagnosticId, "Media3 export finished in ${android.os.SystemClock.elapsedRealtime() - exportStartMs}ms")
-                    VideoNoteDiagnostics.inspect(diagnosticId, "Final MP4 segment ${index + 1}", output, output = true)
+                    VideoNoteDiagnostics.append(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_entry_export_finished, android.os.SystemClock.elapsedRealtime() - exportStartMs))
+                    VideoNoteDiagnostics.inspect(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_stage_final, index + 1), output, output = true)
                 }
                 val info = withContext(Dispatchers.IO) { metadata(output) }
                 require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }

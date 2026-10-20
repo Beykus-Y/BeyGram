@@ -155,11 +155,9 @@
     <string name="loss_compare_identical">The original and independently downloaded files match byte-for-byte.</string>
     <string name="loss_compare_insufficient">Insufficient data for a conclusion.</string>
     <string name="loss_report_heading">BeyGram — video note loss diagnostics</string>
-    <string name="loss_report_type">Type: synthetic frames, without camera or microphone</string>
     <string name="loss_report_source">Original file A: %1$s</string>
     <string name="loss_report_export">Processed file C: %1$s</string>
     <string name="loss_report_sent">Sent file D: %1$dx%2$d, %3$d s; SHA-256=%4$s</string>
-    <string name="loss_report_confirmed">Telegram confirmed sending E: length %1$d s, size %2$d bytes</string>
     <string name="loss_report_evidence">Download evidence F: %1$s</string>
     <string name="loss_report_file">Downloaded file F: %1$s</string>
     <string name="loss_report_unavailable">unavailable</string>

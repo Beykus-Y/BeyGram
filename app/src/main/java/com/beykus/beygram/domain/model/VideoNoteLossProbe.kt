@@ -7,7 +7,10 @@ package com.beykus.beygram.domain.model
 data class VideoNoteLossRemoteResult(
     val messageId: Long,
     val remoteCopyPath: String?,
+    /** TDLib `videoNote.length`: the square side in pixels, NOT a duration. */
     val declaredSide: Int,
+    /** TDLib `videoNote.duration` in seconds. */
+    val declaredDurationSeconds: Int,
     val remoteFileBytes: Long,
     val sourceEvidence: String,
     val independentDownloadVerified: Boolean
