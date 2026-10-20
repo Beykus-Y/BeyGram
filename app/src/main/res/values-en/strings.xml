@@ -168,4 +168,6 @@
     <string name="loss_report_local_hashed">C→D: the local file was read and hashed again before sending</string>
     <string name="loss_report_camera_notice">This synthetic test does not measure physical camera FPS or prove visual quality.</string>
     <string name="loss_report_private_notice">Telegram message, chat, and file IDs are not included in the report.</string>
+    <string name="loss_evidence_verified">Old local copy removed and a fresh download verified</string>
+    <string name="loss_evidence_unverified">Could not verify a fresh download independent of local cache</string>
 </resources>
