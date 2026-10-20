@@ -318,6 +318,25 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         Unit
     }
 
+    override suspend fun createGroup(title: String, memberUserIds: List<Long>): Result<Long> = requestResult {
+        val name = title.trim()
+        require(name.length in 1..128) { "Group title must contain 1–128 characters" }
+        val participants = memberUserIds.distinct()
+        require(participants.isNotEmpty() && participants.size <= 199 && participants.all { it > 0L }) {
+            "Select 1–199 valid group members"
+        }
+        // TDLib creates the group and invites the selected members in the same request.
+        // Never create an empty group after an invalid member selection.
+        val created = tdRequests(TdApi.CreateNewBasicGroupChat().apply {
+            userIds = participants.toLongArray()
+            this.title = name
+            messageAutoDeleteTime = 0
+        })
+        val chat = tdRequests(TdApi.GetChat(created.chatId))
+        handleNewChat(chat)
+        created.chatId
+    }
+
     override suspend fun createChannel(title: String, description: String): Result<Long> = requestResult {
         val name = title.trim()
         require(name.length in 1..128) { "Channel title must contain 1–128 characters" }
