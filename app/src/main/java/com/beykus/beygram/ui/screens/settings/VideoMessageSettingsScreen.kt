@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
+import com.beykus.beygram.data.media.VideoNoteCameraSurvey
 import com.beykus.beygram.data.media.VideoNoteDiagnosticReport
 import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.data.media.VideoFrameRatePriority
@@ -52,6 +53,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
 import java.text.DateFormat
 import java.util.Date
 
@@ -63,6 +68,9 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
     val reports by diagnostics.reports.collectAsStateWithLifecycle()
     var selectedReport by remember { mutableStateOf<VideoNoteDiagnosticReport?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+    var cameraSurvey by remember { mutableStateOf<String?>(null) }
+    var cameraSurveyBusy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val settings by store.settings.collectAsStateWithLifecycle()
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -154,6 +162,18 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
                     Switch(checked = settings.diagnosticsEnabled, onCheckedChange = null)
                 }
                 Text(stringResource(R.string.settings_video_diagnostics_privacy), color = palette.textSecondary, fontSize = 12.sp)
+                TextButton(onClick = {
+                    scope.launch {
+                        cameraSurveyBusy = true
+                        cameraSurvey = try {
+                            withContext(Dispatchers.IO) { VideoNoteCameraSurvey.report(context.applicationContext) }
+                        } catch (failure: Exception) {
+                            "Camera2 survey unavailable: ${failure.javaClass.simpleName}"
+                        } finally { cameraSurveyBusy = false }
+                    }
+                }, enabled = !cameraSurveyBusy) {
+                    Text(if (cameraSurveyBusy) "Опрос камер…" else "Опрос камер (Camera2, без съёмки)")
+                }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.settings_video_diagnostics_history, reports.size),
                         color = palette.textPrimary, modifier = Modifier.weight(1f), fontSize = 14.sp)
@@ -187,6 +207,22 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, onBack: () -> U
         }
     }
 
+    cameraSurvey?.let { report ->
+        AlertDialog(
+            onDismissRequest = { cameraSurvey = null },
+            title = { Text("Camera2 — возможности камер") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(report, fontSize = 12.sp, lineHeight = 17.sp)
+            } },
+            confirmButton = { TextButton(onClick = { cameraSurvey = null }) { Text(stringResource(R.string.diagnostics_view_close)) } },
+            dismissButton = {
+                TextButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram Camera2 survey", report))
+                }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
+            }
+        )
+    }
     selectedReport?.let { report ->
         AlertDialog(
             onDismissRequest = { selectedReport = null },
