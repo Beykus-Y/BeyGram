@@ -262,6 +262,9 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                         }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
                     }
                     if (lossState.sentMessageId != null && !lossState.running) {
+                        Text(stringResource(R.string.loss_previous_test_hint), fontSize = 13.sp)
+                    }
+                    if (lossState.sentMessageId != null && !lossState.running) {
                         TextButton(onClick = { confirmLossDelete = true }) {
                             Text(stringResource(R.string.loss_delete_test))
                         }
