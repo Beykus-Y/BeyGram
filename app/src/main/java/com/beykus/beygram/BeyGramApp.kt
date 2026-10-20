@@ -396,7 +396,11 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.NewChat) { routeName = AppRoute.Chats.name }
-    BackHandler(enabled = route == AppRoute.CreateChannel || route == AppRoute.CreateGroup) { routeName = AppRoute.NewChat.name }
+    BackHandler(enabled = route == AppRoute.CreateChannel) { routeName = AppRoute.NewChat.name }
+    BackHandler(enabled = route == AppRoute.CreateGroup) {
+        repository.acknowledgeGroupCreation() // clear an earlier explicit failure when leaving
+        routeName = AppRoute.NewChat.name
+    }
     BackHandler(enabled = route == AppRoute.Diagnostics || route == AppRoute.ReportProblem) { routeName = AppRoute.Settings.name }
 
     // Потоки собирает сам раздел, которому они нужны: обновление списка чатов перерисовывает только открытый раздел, а не всё приложение.
@@ -739,13 +743,20 @@ private fun BeyGramAppContent(
                         acknowledgeUncertainGroupCreation = repository::acknowledgeUncertainGroupCreation,
                         observeFile = repository::observeFile,
                         downloadFile = repository::downloadFile,
-                        onBack = { routeName = AppRoute.NewChat.name },
+                        onBack = {
+                            repository.acknowledgeGroupCreation()
+                            routeName = AppRoute.NewChat.name
+                        },
                         onCreated = { chatId, failedInvitations ->
                             selectedChatId = chatId
                             chatBackRouteName = AppRoute.Chats.name
                             routeName = AppRoute.Chat.name
                             if (failedInvitations > 0) {
-                                noticeError = UiText.Res(R.string.new_chat_partial_members, listOf(failedInvitations))
+                                noticeError = UiText.Raw(
+                                    context.resources.getQuantityString(
+                                        R.plurals.new_chat_partial_members, failedInvitations, failedInvitations
+                                    )
+                                )
                             }
                         }
                     )
