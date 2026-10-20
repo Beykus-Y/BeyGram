@@ -55,8 +55,11 @@ class VideoNoteProcessor(private val context: Context) {
             try {
                 if (diagnosticId != null) VideoNoteDiagnostics.append(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_entry_export_segment, index + 1, target.side, target.side, target.videoBitrate, target.audioBitrate))
                 val exportStartMs = android.os.SystemClock.elapsedRealtime()
-                transform(source, output, startMs, endMs, target.side, target.videoBitrate, target.audioBitrate)
+                val exported = transform(source, output, startMs, endMs, target.side, target.videoBitrate, target.audioBitrate)
                 if (diagnosticId != null) {
+                    VideoNoteDiagnostics.append(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_entry_export_result,
+                        exported.videoFrameCount, exported.videoEncoderName ?: "?", exported.audioEncoderName ?: "?",
+                        exported.fileSizeBytes, exported.averageVideoBitrate.coerceAtLeast(0) / 1000, exported.width, exported.height))
                     VideoNoteDiagnostics.append(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_entry_export_finished, android.os.SystemClock.elapsedRealtime() - exportStartMs))
                     VideoNoteDiagnostics.inspect(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_stage_final, index + 1), output, output = true)
                 }
@@ -105,8 +108,8 @@ class VideoNoteProcessor(private val context: Context) {
         }.getOrNull().also { if (it == null) output.delete() }
     }
 
-    private suspend fun transform(input: File, output: File, startMs: Long, endMs: Long, side: Int, videoBitrate: Int, audioBitrate: Int) {
-        withContext(Dispatchers.Main.immediate) {
+    private suspend fun transform(input: File, output: File, startMs: Long, endMs: Long, side: Int, videoBitrate: Int, audioBitrate: Int): ExportResult {
+        return withContext(Dispatchers.Main.immediate) {
             output.delete()
             val mediaItem = MediaItem.Builder()
                 .setUri(Uri.fromFile(input))
@@ -124,7 +127,7 @@ class VideoNoteProcessor(private val context: Context) {
                     OverlayEffect(listOf(BitmapOverlay.createStaticBitmapOverlay(circularMask(side))))
                 )))
                 .build()
-            suspendCancellableCoroutine { continuation ->
+            val exported = suspendCancellableCoroutine<ExportResult> { continuation ->
                 val transformer = Transformer.Builder(context)
                     .setVideoMimeType(MimeTypes.VIDEO_H264)
                     .setAudioMimeType(MimeTypes.AUDIO_AAC)
@@ -134,7 +137,7 @@ class VideoNoteProcessor(private val context: Context) {
                         .build())
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: androidx.media3.transformer.Composition, exportResult: ExportResult) {
-                            if (continuation.isActive) continuation.resume(Unit)
+                            if (continuation.isActive) continuation.resume(exportResult)
                         }
 
                         override fun onError(
@@ -154,6 +157,7 @@ class VideoNoteProcessor(private val context: Context) {
                 }
             }
             check(output.isFile && output.length() > 0L) { "Пустой результат обработки" }
+            exported
         }
     }
 

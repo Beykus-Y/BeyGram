@@ -167,4 +167,5 @@
     <string name="camera_detail_profiles_heading">Заявленные профили записи (не результат съёмки):</string>
     <string name="camera_detail_profile_line">  %1$s: %2$dx%3$d, %4$d кадров/с, %5$d кбит/с</string>
     <string name="camera_detail_profiles_none">Профили записи для камеры %1$s не заявлены или недоступны.</string>
+    <string name="vn_entry_export_result">Экспорт: кадров записано %1$d, кодировщик видео %2$s, звука %3$s, размер %4$d байт, видео ≈%5$d кбит/с, кадр %6$dx%7$d</string>
 </resources>

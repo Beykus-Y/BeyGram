@@ -166,4 +166,5 @@
     <string name="camera_detail_profiles_heading">Declared recording profiles (not a capture result):</string>
     <string name="camera_detail_profile_line">  %1$s: %2$dx%3$d, %4$d fps, %5$d kbps</string>
     <string name="camera_detail_profiles_none">No recording profiles declared or available for camera %1$s.</string>
+    <string name="vn_entry_export_result">Export: %1$d frames written, video encoder %2$s, audio %3$s, %4$d bytes, video ≈%5$d kbps, frame %6$dx%7$d</string>
 </resources>
