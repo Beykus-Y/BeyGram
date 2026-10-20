@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.os.StatFs
 import android.os.SystemClock
 import android.util.Range
@@ -67,6 +69,8 @@ import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
+import com.beykus.beygram.data.media.VideoNoteCameraSurvey
+import com.beykus.beygram.data.media.safeVideoNoteFpsSelection
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoQualityPreset
 import com.beykus.beygram.data.media.requestedFrameRateRange
@@ -145,6 +149,8 @@ internal class VideoNoteRecorder(
     private var camera: Camera? = null
     /** Диапазон FPS, зашитый в текущий VideoCapture на этапе создания: пересоздать его без обрыва записи нельзя. */
     private var captureFpsRange: Range<Int>? = null
+    private var captureFpsReason: String = "not selected"
+    private var captureCameraId: String? = null
     /** Persistent-запись не отвязывается от VideoCapture при перепривязке камеры. Если устройство её не умеет, переключение скрывается. */
     private var persistentSupported = true
     private var take: VideoTake? = null
@@ -410,14 +416,25 @@ internal class VideoNoteRecorder(
         val quality = if (side > 480) Quality.HD else Quality.SD
         val requestedFps = settings.requestedFrameRateRange()
         val supportedFps = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges
-        val chosenFps = chooseSupportedFrameRateRange(
-            requestedFps,
-            supportedFps.map { it.lower..it.upper }
+        val manager = context.getSystemService(CameraManager::class.java)
+        captureCameraId = VideoNoteCameraSurvey.cameraId(cameraProvider.getCameraInfo(selector))
+        val normalRanges = captureCameraId?.let { id -> runCatching {
+            manager.getCameraCharacteristics(id).get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+                ?.map { it.lower..it.upper }
+        }.getOrNull() }
+        // For maximum profile CameraX usually selects HD (1280x720); for others SD (640x480).
+        // Camera2 normal ranges and H.264 capabilities constrain claims, but cannot guarantee
+        // Preview+VideoCapture session combinations or low-light exposure behaviour.
+        val sourceSize = if (quality == Quality.HD) 1280 to 720 else 640 to 480
+        val encoder60 = if (requestedFps.last >= 50) {
+            VideoNoteCameraSurvey.encoderSupportsAvc(sourceSize.first, sourceSize.second, 60)
+        } else null
+        val (chosenFps, reason) = safeVideoNoteFpsSelection(
+            requestedFps, supportedFps.map { it.lower..it.upper }, normalRanges, encoder60
         )
         val fpsRange = chosenFps?.let { Range(it.first, it.last) }
-        // An exact 24–60 / 35–60 / 55–60 AE range is often unavailable.
-        // Use a camera-advertised range; CameraX still makes the final session decision.
-        Log.i(TAG, "video_fps requested=$requestedFps selected=$chosenFps available=$supportedFps")
+        captureFpsReason = reason
+        Log.i(TAG, "video_fps requested=$requestedFps selected=$chosenFps reason=$reason")
         val qualitySelector = QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(quality))
         val captureBuilder = VideoCapture.Builder(
             Recorder.Builder()
@@ -506,6 +523,18 @@ internal class VideoNoteRecorder(
             supportedRanges = camera?.cameraInfo?.supportedFrameRateRanges?.joinToString() ?: "unavailable",
             captureBitrate = videoCameraBitrate(settings)
         )
+        if (settings.diagnosticsEnabled) {
+            VideoNoteDiagnostics.append(sessionName, "Camera ID: ${captureCameraId ?: "unavailable"}, CameraX FPS decision: $captureFpsReason")
+            VideoNoteDiagnostics.append(sessionName, "UseCases: Preview + VideoCapture, 1:1 ViewPort FILL_CENTER; chosen CameraX Quality: ${if (settings.preset == VideoQualityPreset.Maximum || (settings.preset == VideoQualityPreset.Custom && settings.customSide > 480)) "HD" else "SD"}")
+            val manager = context.getSystemService(CameraManager::class.java)
+            captureCameraId?.let { id ->
+                VideoNoteDiagnostics.append(sessionName, VideoNoteCameraSurvey.describeCamera(manager, id).take(2600))
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val thermal = context.getSystemService(android.os.PowerManager::class.java)?.currentThermalStatus
+                VideoNoteDiagnostics.append(sessionName, "Thermal status at start: ${thermal ?: "unknown"}")
+            }
+        }
         try {
             current.recording = prepare(current, persistent = persistentSupported)
             Log.i(TAG, "video_recording_started session=$sessionName persistent=$persistentSupported")

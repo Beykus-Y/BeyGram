@@ -111,6 +111,9 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun resetError() {}
     override fun reconnect() {}
 
+    override suspend fun sendVideoNoteLossTest(media: OutgoingMedia, remoteCopy: java.io.File): Result<com.beykus.beygram.domain.model.VideoNoteLossRemoteResult> = unavailable()
+    override suspend fun deleteVideoNoteLossTest(messageId: Long): Result<Unit> = unavailable()
+
     override suspend fun loadSavedProxies(): Result<List<SavedTelegramProxy>> = Result.success(emptyList())
     override suspend fun addProxy(draft: TelegramProxyDraft, enable: Boolean): Result<Unit> = unavailable()
     override suspend fun enableProxy(id: Int): Result<Unit> = unavailable()

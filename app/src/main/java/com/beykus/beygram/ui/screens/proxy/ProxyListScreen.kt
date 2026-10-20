@@ -97,16 +97,14 @@ internal fun ProxyListScreen(
 
     val selectSaved: (SavedTelegramProxy) -> Unit = { proxy ->
         scope.launch {
-            repository.enableProxy(proxy.id)
-                .onSuccess { vpnBackend.stopListener() }
+            vpnBackend.selectNonSubscriptionRoute { repository.enableProxy(proxy.id) }
                 .onFailure { message = it.userMessage(context, R.string.proxy_list_switch_failed) }
             reload()
         }
     }
     val selectDirect: () -> Unit = {
         scope.launch {
-            repository.disableProxy()
-                .onSuccess { vpnBackend.stopListener() }
+            vpnBackend.selectNonSubscriptionRoute { repository.disableProxy() }
                 .onFailure { message = it.userMessage(context, R.string.proxy_list_switch_failed) }
             reload()
         }

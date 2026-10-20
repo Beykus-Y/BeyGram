@@ -769,7 +769,7 @@ private fun BeyGramAppContent(
                     connectionState = connectionState,
                     onBack = { routeName = AppRoute.Diagnostics.name }
                 )
-                AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings) { routeName = AppRoute.Settings.name }
+                AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings, repository) { routeName = AppRoute.Settings.name }
                 AppRoute.StorageSettings -> StorageSettingsScreen(repository = repository, onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.NavigationSettings -> NavigationSettingsScreen(
                     visibility = tabVisibility,

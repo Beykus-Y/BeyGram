@@ -102,6 +102,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences("mihomo_tdlib_proxy", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
+    private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
     private val messageDrafts = TdChatDrafts(appContext) { client }
 
     // ---- Прокси Telegram -----------------------------------------------------
@@ -710,6 +711,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         conversationEffects.contentOpened(chatId, messageId)
     }
 
+    override suspend fun sendVideoNoteLossTest(media: OutgoingMedia, remoteCopy: File): Result<com.beykus.beygram.domain.model.VideoNoteLossRemoteResult> =
+        requestResult { videoNoteLossTransport.sendAndFetchOwnTest(media, remoteCopy) }
+
+    override suspend fun deleteVideoNoteLossTest(messageId: Long): Result<Unit> =
+        videoNoteLossTransport.deleteOwnTest(messageId)
+
     override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
         leaveJumpWindow(chatId)
         return conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId)
@@ -866,6 +873,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             }
             is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
             is TdApi.UpdateMessageSendSucceeded -> {
+                videoNoteLossTransport.onSendSucceeded(update)
                 reportBotChannel.onSendSucceeded(update)
                 cleanupSentUploads(update.message)
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
@@ -873,6 +881,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateMessageSendFailed -> {
+                videoNoteLossTransport.onSendFailed(update)
                 reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
                 android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} code=${sendError?.code} error=${sendError?.message}")

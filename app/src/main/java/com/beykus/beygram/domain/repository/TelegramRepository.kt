@@ -139,6 +139,11 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Route TDLib through BeyGram's local Mihomo SOCKS listener and restore the prior proxy on disable. */
     suspend fun setMihomoProxyEnabled(enabled: Boolean): Result<Unit>
 
+    /** Opt-in synthetic video-note round trip through the user's Saved Messages. */
+    suspend fun sendVideoNoteLossTest(media: OutgoingMedia, remoteCopy: java.io.File): Result<com.beykus.beygram.domain.model.VideoNoteLossRemoteResult>
+    /** Delete only a message previously sent by this diagnostic, after user confirmation. */
+    suspend fun deleteVideoNoteLossTest(messageId: Long): Result<Unit>
+
     fun observeFile(fileId: Int): StateFlow<MediaFileState>
     fun downloadFile(fileId: Int)
 }
