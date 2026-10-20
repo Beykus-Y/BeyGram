@@ -30,6 +30,27 @@ class VideoNoteCameraSurveyPolicyTest {
         assertEquals(30..30, range)
     }
 
+    @Test fun custom24DoesNotBecomeFixed30() {
+        val (range, _) = safeVideoNoteFpsSelection(
+            24..24, listOf(15..24, 24..24, 30..30), listOf(15..24, 24..24, 30..30), true
+        )
+        assertEquals(24..24, range)
+    }
+
+    @Test fun lowLightMinimumSurvives30FpsSelection() {
+        val (range, _) = safeVideoNoteFpsSelection(
+            15..30, listOf(15..30, 30..30), listOf(15..30, 30..30), true
+        )
+        assertEquals(15..30, range)
+    }
+
+    @Test fun unsupported60FallsBackWithoutRaisingMinimum() {
+        val (range, _) = safeVideoNoteFpsSelection(
+            15..60, listOf(15..30, 30..30), listOf(15..30, 30..30), false
+        )
+        assertEquals(15..30, range)
+    }
+
     @Test fun missingCompatibleRangeReportsUncertainty() {
         val (range, reason) = safeVideoNoteFpsSelection(55..60, emptyList(), emptyList(), null)
         assertNull(range)
