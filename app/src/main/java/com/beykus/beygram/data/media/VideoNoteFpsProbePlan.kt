@@ -126,6 +126,7 @@ internal fun probeTargets(normalRanges: List<IntRange>): List<Pair<Int, IntRange
 }
 
 internal data class ProbeFrameStats(
+    /** Results received inside the measurement window, including repeated timestamps. */
     val frames: Int,
     val measuredFps: Double?,
     val p50GapMs: Double?,
@@ -134,11 +135,30 @@ internal data class ProbeFrameStats(
     /** Gaps longer than 1.5× the expected interval: frames the sensor skipped or delivered late. */
     val longGaps: Int,
     val nonIncreasing: Int,
-    val medianExposureMs: Double?
+    val medianExposureMs: Double?,
+    /** Frames the target rate would deliver in the window. */
+    val expectedFrames: Int = 0,
+    /** Usable (increasing) frames divided by [expectedFrames]. */
+    val coverage: Double = 0.0,
+    /** Time between the first and the last usable frame, and the window it should fill. */
+    val spanMs: Double = 0.0,
+    val windowMs: Double = 0.0
 )
 
-/** Sensor timestamps (ns) of delivered frames, in arrival order, plus exposure times when the camera reports them. */
-internal fun measureProbeFrames(timestampsNs: List<Long>, exposuresNs: List<Long>, targetFps: Int): ProbeFrameStats {
+/** Default measurement window of one mode. */
+internal const val PROBE_MEASURE_NS = 2_000_000_000L
+
+/**
+ * Sensor timestamps (ns) of frames delivered inside the measurement window, in arrival order, plus
+ * exposure times when the camera reports them. Rate alone is not enough: five frames 33 ms apart
+ * look like 30 FPS, so the stats also record how much of the window the frames actually covered.
+ */
+internal fun measureProbeFrames(
+    timestampsNs: List<Long>,
+    exposuresNs: List<Long>,
+    targetFps: Int,
+    windowNs: Long = PROBE_MEASURE_NS
+): ProbeFrameStats {
     val gaps = ArrayList<Long>()
     var nonIncreasing = 0
     for (i in 1 until timestampsNs.size) {
@@ -150,6 +170,8 @@ internal fun measureProbeFrames(timestampsNs: List<Long>, exposuresNs: List<Long
     val span = gaps.sum()
     val fps = if (span > 0) gaps.size * 1_000_000_000.0 / span else null
     val expectedNs = 1_000_000_000.0 / targetFps.coerceAtLeast(1)
+    val expectedFrames = (windowNs / expectedNs).toInt().coerceAtLeast(1)
+    val usable = if (timestampsNs.isEmpty()) 0 else gaps.size + 1
     val sorted = gaps.sorted()
     fun pct(p: Double): Double? = if (sorted.isEmpty()) null
         else sorted[ceil((sorted.size - 1) * p).toInt()] / 1_000_000.0
@@ -162,12 +184,16 @@ internal fun measureProbeFrames(timestampsNs: List<Long>, exposuresNs: List<Long
         maxGapMs = sorted.lastOrNull()?.let { it / 1_000_000.0 },
         longGaps = gaps.count { it > expectedNs * 1.5 },
         nonIncreasing = nonIncreasing,
-        medianExposureMs = exposures.getOrNull(exposures.size / 2)?.let { it / 1_000_000.0 }
+        medianExposureMs = exposures.getOrNull(exposures.size / 2)?.let { it / 1_000_000.0 },
+        expectedFrames = expectedFrames,
+        coverage = usable.toDouble() / expectedFrames,
+        spanMs = span / 1_000_000.0,
+        windowMs = windowNs / 1_000_000.0
     )
 }
 
 internal enum class ProbeVerdict {
-    /** At least 90% of the target rate was delivered. */
+    /** At least 90% of the target rate, sustained over at least 80% of the window's frames. */
     REACHED,
     /** Exposure time is about as long as a frame interval: dim light caps the rate. */
     LOW_LIGHT,
@@ -175,17 +201,27 @@ internal enum class ProbeVerdict {
     THERMAL,
     /** Fewer frames than asked for and no measured reason. Reported as "cause not established". */
     BELOW_UNEXPLAINED,
-    /** The camera opened but delivered no usable frames. */
+    /** Frames stopped or paused inside the window (or covered too little of it) to judge the mode. */
+    STALLED,
+    /** The camera opened but delivered no frames in the window. Not proof the mode is unsupported. */
     NO_FRAMES
 }
+
+/** A gap this long is a stopped stream: even 4 FPS in the dark keeps gaps shorter. */
+internal const val PROBE_STALL_GAP_MS = 250.0
 
 /** Android PowerManager.THERMAL_STATUS_SEVERE. */
 internal const val PROBE_THERMAL_SEVERE = 3
 
 internal fun classifyProbe(stats: ProbeFrameStats, targetFps: Int, thermalStatus: Int?): ProbeVerdict {
-    val fps = stats.measuredFps ?: return ProbeVerdict.NO_FRAMES
-    if (stats.frames < 3) return ProbeVerdict.NO_FRAMES
-    if (fps >= targetFps * 0.9) return ProbeVerdict.REACHED
+    if (stats.frames == 0) return ProbeVerdict.NO_FRAMES
+    val fps = stats.measuredFps ?: return ProbeVerdict.STALLED
+    // A stream that stopped after a few frames is a stall, never "target reached".
+    if (stats.frames < 3 || stats.spanMs < stats.windowMs * 0.5) return ProbeVerdict.STALLED
+    if (fps >= targetFps * 0.9 && stats.coverage >= 0.8) return ProbeVerdict.REACHED
+    // A pause far longer than any exposure, or a good rate over too few frames, means the stream
+    // stopped for a while: that is a stall, not a slow sensor.
+    if ((stats.maxGapMs ?: 0.0) >= PROBE_STALL_GAP_MS || fps >= targetFps * 0.9) return ProbeVerdict.STALLED
     val intervalMs = 1000.0 / targetFps
     val exposure = stats.medianExposureMs
     return when {
@@ -194,3 +230,23 @@ internal fun classifyProbe(stats: ProbeFrameStats, targetFps: Int, thermalStatus
         else -> ProbeVerdict.BELOW_UNEXPLAINED
     }
 }
+
+/**
+ * What happened inside one mode, beyond the timestamps: lets a report tell "the camera never
+ * produced a frame" apart from "frames were produced but buffers were never returned".
+ */
+internal data class ProbeCounters(
+    val captureStarted: Int = 0,
+    /** All capture results, warm-up included. */
+    val results: Int = 0,
+    val failed: Int = 0,
+    val buffersLost: Int = 0,
+    val imagesAvailable: Int = 0,
+    val imagesAcquired: Int = 0,
+    val acquireErrors: Int = 0,
+    val firstAcquireError: String? = null,
+    /** From the repeating request to the first capture result. */
+    val firstResultDelayMs: Long? = null,
+    val sequenceAborted: Boolean = false,
+    val cleanupMs: Long? = null
+)

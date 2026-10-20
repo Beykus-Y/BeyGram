@@ -65,7 +65,7 @@
     <string name="fps_check_stopped_timeout">Проверка остановлена по общему лимиту времени.</string>
     <string name="fps_check_stopped_cancel">Проверка отменена.</string>
     <string name="fps_check_report_heading">BeyGram: проверка реальной частоты кадров камер</string>
-    <string name="fps_check_report_method">Метод: один поток без записи и звука; частота считается по меткам времени кадров с датчика после 0,8 с прогрева, 2 с замера на режим.</string>
+    <string name="fps_check_report_method">Метод: один несжатый поток без записи и звука (кадры сразу освобождаются, изображение не читается); частота считается по меткам времени кадров с датчика после 0,8 с прогрева, 2 с замера на режим. «Цель достигнута» засчитывается, только если пришло не меньше 80% ожидаемых кадров.</string>
     <string name="fps_check_camera_heading">Камера %1$s (%2$s):</string>
     <string name="fps_check_row_head">%1$s, цель %2$d кадров/с, диапазон %3$s, потолок потока ≈%4$s</string>
     <string name="fps_check_row_not_advertised">не заявлено камерой в обычном режиме, не проверялось</string>
@@ -81,7 +81,12 @@
     <string name="fps_verdict_low_light">ниже цели: выдержка почти равна интервалу кадра, мало света</string>
     <string name="fps_verdict_thermal">ниже цели: телефон сильно нагрет</string>
     <string name="fps_verdict_unexplained">ниже цели, причина не установлена</string>
-    <string name="fps_verdict_no_frames">кадров не получено</string>
+    <string name="fps_verdict_no_frames">в окне замера кадров не было (камера отвечала только во время прогрева); это не доказывает, что режим не поддерживается</string>
+    <string name="fps_verdict_no_results">камера открылась, но не выдала ни одного кадра; это не доказывает, что режим не поддерживается</string>
+    <string name="fps_verdict_stalled">поток остановился: кадров слишком мало, чтобы судить о режиме</string>
+    <string name="fps_check_row_details">покрытие %1$s%% из %2$d ожидаемых кадров, кадры заняли %3$s из %4$s мс; первый кадр через %5$s мс; начато снимков %6$d, результатов %7$d; изображений пришло/взято %8$d/%9$d, ошибок взятия %10$d, потеряно буферов %11$d; закрытие камеры %12$s мс</string>
+    <string name="fps_check_row_acquire_error">первая ошибка взятия кадра: %1$s</string>
+    <string name="fps_check_row_aborted">камера прервала серию снимков</string>
     <string name="fps_check_conclusion_60_yes">Итог: реальные 60 кадров/с получены на %1$s. Это не гарантирует 60 при записи со звуком; сравните с обычной записью выше.</string>
     <string name="fps_check_conclusion_60_tried">Итог: 60 кадров/с запрашивались, но не были получены ни в одном режиме.</string>
     <string name="fps_check_conclusion_60_not_advertised">Итог: ни одна выбранная камера не заявляет 60 кадров/с в обычном режиме; 60 не проверялись. Скоростные режимы перечислены отдельно.</string>
