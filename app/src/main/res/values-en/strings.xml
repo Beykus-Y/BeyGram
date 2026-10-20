@@ -77,4 +77,98 @@
     <string name="feature_confirm">Confirm</string>
     <string name="feature_more_actions">More actions</string>
     <string name="feature_linked_channel">Personal channel</string>
+
+    <!-- Server-synced Telegram folder tabs -->
+    <string name="chat_folders_all">All chats</string>
+    <string name="chat_folder_empty">This folder has no chats yet</string>
+    <string name="chat_folder_load_more">Load more chats</string>
+    <string name="chat_folder_load_failed">Unable to load folder chats. Try again.</string>
+
+    <!-- New chat entry point and group creation (Issue #226) -->
+    <string name="new_chat_title">New chat</string>
+    <string name="new_chat_subtitle">Choose a contact or start a new conversation.</string>
+    <string name="new_chat_contacts">CONTACTS</string>
+    <string name="new_chat_group">New group</string>
+    <string name="new_chat_group_hint">Select members and a group name</string>
+    <string name="new_chat_channel_hint">Updates, announcements and posts</string>
+    <string name="new_chat_add_contact">Add contact</string>
+    <string name="new_chat_group_name">Group name</string>
+    <string name="new_chat_selected_count">Selected members: %1$d</string>
+    <string name="new_chat_group_create">Create group</string>
+    <string name="new_chat_group_failed">Failed to create group</string>
+    <string name="new_chat_contact_selected">Contact selected</string>
+
+    <string name="new_chat_group_unchanged_unknown">Telegram may have already created this group. Check your chat list before trying again to avoid duplicates.</string>
+    <string name="new_chat_group_checked">I checked my chat list</string>
+
+
+    <!-- User-visible camera and video-note loss diagnostics -->
+    <string name="loss_camera_survey_start">Survey cameras (without recording)</string>
+    <string name="loss_camera_survey_loading">Surveying cameras…</string>
+    <string name="loss_camera_survey_title">Camera capabilities</string>
+    <string name="loss_entry">Video note loss diagnostics — Saved Messages check</string>
+    <string name="loss_dialog_title">Video note loss diagnostics</string>
+    <string name="loss_dialog_description">BeyGram creates a three-second sample without accessing your camera or microphone. With separate confirmation, it is sent to Saved Messages and downloaded again. This uses network data. The test does not measure camera FPS.</string>
+    <string name="loss_status">Status: %1$s</string>
+    <string name="loss_running_background">The test continues if you leave this screen. Closing the screen does not recall a sent message.</string>
+    <string name="loss_delete_test">Delete test from Saved Messages</string>
+    <string name="loss_clear_local">Delete local test files</string>
+    <string name="loss_start_test">Start test</string>
+    <string name="loss_send_confirm_title">Send a test video note?</string>
+    <string name="loss_send_confirm_body">A synthetic MP4 without a face or voice will be created. BeyGram will send the video note to your Saved Messages and download a copy. The message will remain there until you delete it yourself.</string>
+    <string name="loss_send_confirm_button">Agree and send</string>
+    <string name="loss_delete_confirm_title">Delete the test from Saved Messages?</string>
+    <string name="loss_delete_confirm_body">Only the test message created during this check will be deleted. Other messages are not affected.</string>
+    <string name="loss_delete_failed">Could not delete the test: %1$s</string>
+    <string name="loss_phase_idle">Ready</string>
+    <string name="loss_phase_generate">Generating sample video</string>
+    <string name="loss_phase_export">Preparing video note</string>
+    <string name="loss_phase_send">Sending to Saved Messages</string>
+    <string name="loss_phase_analyze">Analyzing downloaded file</string>
+    <string name="loss_phase_done">Test complete</string>
+    <string name="loss_phase_cancelled">Test interrupted</string>
+    <string name="loss_phase_failed">Test failed</string>
+    <string name="loss_phase_deleted">Test deleted from Saved Messages</string>
+    <string name="loss_report_cancelled">The test was interrupted. If the video note was already sent, check Saved Messages.</string>
+    <string name="loss_report_failure">Diagnostics failed: %1$s. The message may have been sent before the error. Check Saved Messages. No conclusion about quality loss is available.</string>
+    <string name="loss_previous_test_hint">Delete the previous test message from Saved Messages before starting another test.</string>
+    <plurals name="new_chat_partial_members">
+        <item quantity="one">Group created, but %d member could not be invited due to Telegram restrictions.</item>
+        <item quantity="other">Group created, but %d members could not be invited due to Telegram restrictions.</item>
+    </plurals>
+    <!-- Localized reports for the optional synthetic video note check -->
+    <string name="loss_yes">YES</string>
+    <string name="loss_no">NO</string>
+    <string name="loss_not_known">NO / unknown</string>
+    <string name="loss_no_data">no data</string>
+    <string name="loss_verified">verified</string>
+    <string name="loss_unverified">NOT VERIFIED</string>
+    <string name="loss_compare_missing">Could not download the file again. Parameter changes are unknown.</string>
+    <string name="loss_compare_size">Frame dimensions changed: %1$s (%2$s → %3$s)</string>
+    <string name="loss_compare_frames">Frame count changed: %1$s (%2$d → %3$d)</string>
+    <string name="loss_compare_fps">Measured FPS changed: %1$s</string>
+    <string name="loss_compare_sha">SHA-256 match: %1$s</string>
+    <string name="loss_compare_remote">Independent download: %1$s</string>
+    <string name="loss_compare_cached_warning">Inconclusive: Telegram may have returned cached bytes. Unchanged content on the server cannot be proven.</string>
+    <string name="loss_compare_transformed">Frame parameters differ between the sent MP4 and the downloaded copy. The stage and cause of transcoding cannot be determined.</string>
+    <string name="loss_compare_bytes_changed">Bytes or container changed, but there is no detected loss of dimensions, FPS or frame count. Visual degradation is NOT proven.</string>
+    <string name="loss_compare_identical">The original and independently downloaded files match byte-for-byte.</string>
+    <string name="loss_compare_insufficient">Insufficient data for a conclusion.</string>
+    <string name="loss_report_heading">BeyGram — video note loss diagnostics</string>
+    <string name="loss_report_type">Type: synthetic frames, without camera or microphone</string>
+    <string name="loss_report_source">Original file A: %1$s</string>
+    <string name="loss_report_export">Processed file C: %1$s</string>
+    <string name="loss_report_sent">Sent file D: %1$dx%2$d, %3$d s; SHA-256=%4$s</string>
+    <string name="loss_report_confirmed">Telegram confirmed sending E: length %1$d s, size %2$d bytes</string>
+    <string name="loss_report_evidence">Download evidence F: %1$s</string>
+    <string name="loss_report_file">Downloaded file F: %1$s</string>
+    <string name="loss_report_unavailable">unavailable</string>
+    <string name="loss_report_not_measured">not measured</string>
+    <string name="loss_report_processing_changes">A→C: dimensions changed=%1$b, frame count changed=%2$b</string>
+    <string name="loss_report_local_hashed">C→D: the local file was read and hashed again before sending</string>
+    <string name="loss_report_camera_notice">This synthetic test does not measure physical camera FPS or prove visual quality.</string>
+    <string name="loss_report_private_notice">Telegram message, chat, and file IDs are not included in the report.</string>
+    <string name="loss_evidence_verified">Old local copy removed and a fresh download verified</string>
+    <string name="loss_evidence_unverified">Could not verify a fresh download independent of local cache</string>
+    <string name="loss_camera_report_heading">BeyGram — camera capability survey (without recording)</string>
 </resources>

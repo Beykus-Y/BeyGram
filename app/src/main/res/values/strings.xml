@@ -956,4 +956,100 @@
     <string name="feature_confirm">Подтвердить</string>
     <string name="feature_more_actions">Дополнительные действия</string>
     <string name="feature_linked_channel">Личный канал</string>
+
+    <!-- Server-synced Telegram folder tabs -->
+    <string name="chat_folders_all">Все чаты</string>
+    <string name="chat_folder_empty">В этой папке пока нет чатов</string>
+    <string name="chat_folder_load_more">Загрузить ещё чаты</string>
+    <string name="chat_folder_load_failed">Не удалось загрузить папку. Повторите попытку.</string>
+
+    <!-- New chat entry point and group creation (Issue #226) -->
+    <string name="new_chat_title">Новый чат</string>
+    <string name="new_chat_subtitle">Выберите контакт или создайте новый разговор.</string>
+    <string name="new_chat_contacts">КОНТАКТЫ</string>
+    <string name="new_chat_group">Создать группу</string>
+    <string name="new_chat_group_hint">Выберите участников и название</string>
+    <string name="new_chat_channel_hint">Новости, объявления и публикации</string>
+    <string name="new_chat_add_contact">Добавить контакт</string>
+    <string name="new_chat_group_name">Название группы</string>
+    <string name="new_chat_selected_count">Выбрано участников: %1$d</string>
+    <string name="new_chat_group_create">Создать группу</string>
+    <string name="new_chat_group_failed">Не удалось создать группу</string>
+    <string name="new_chat_contact_selected">Контакт выбран</string>
+
+    <string name="new_chat_group_unchanged_unknown">Запрос на создание группы мог выполниться. Проверьте список чатов Telegram перед повторной попыткой, иначе группа может продублироваться.</string>
+    <string name="new_chat_group_checked">Список чатов проверен</string>
+
+
+    <!-- User-visible camera and video-note loss diagnostics -->
+    <string name="loss_camera_survey_start">Опрос камер (без съёмки)</string>
+    <string name="loss_camera_survey_loading">Опрос камер…</string>
+    <string name="loss_camera_survey_title">Возможности камер</string>
+    <string name="loss_entry">Диагностика потерь — проверка через Избранное</string>
+    <string name="loss_dialog_title">Диагностика потерь кружков</string>
+    <string name="loss_dialog_description">BeyGram создаст трёхсекундный тестовый кружок без камеры и микрофона. После отдельного подтверждения он будет отправлен в Избранное и загружен обратно. Используется интернет-трафик. Тест не измеряет FPS камеры.</string>
+    <string name="loss_status">Состояние: %1$s</string>
+    <string name="loss_running_background">Проверка продолжается, даже если закрыть экран. Отправленное сообщение не отзывается при выходе.</string>
+    <string name="loss_delete_test">Удалить тест из Избранного</string>
+    <string name="loss_clear_local">Очистить локальные файлы теста</string>
+    <string name="loss_start_test">Запустить проверку</string>
+    <string name="loss_send_confirm_title">Отправить тестовый кружок?</string>
+    <string name="loss_send_confirm_body">Будет создан синтетический MP4 без лица и голоса. BeyGram отправит кружок в ваше Избранное и скачает полученную копию. Сообщение останется в Избранном, пока вы сами не удалите его.</string>
+    <string name="loss_send_confirm_button">Согласен, отправить</string>
+    <string name="loss_delete_confirm_title">Удалить тест из Избранного?</string>
+    <string name="loss_delete_confirm_body">Будет удалено только тестовое сообщение, созданное этой проверкой. Другие сообщения не затрагиваются.</string>
+    <string name="loss_delete_failed">Не удалось удалить тест: %1$s</string>
+    <string name="loss_phase_idle">Ожидание запуска</string>
+    <string name="loss_phase_generate">Генерация тестового видео</string>
+    <string name="loss_phase_export">Подготовка видеосообщения</string>
+    <string name="loss_phase_send">Отправка в Избранное</string>
+    <string name="loss_phase_analyze">Анализ скачанного файла</string>
+    <string name="loss_phase_done">Проверка завершена</string>
+    <string name="loss_phase_cancelled">Проверка прервана</string>
+    <string name="loss_phase_failed">Ошибка проверки</string>
+    <string name="loss_phase_deleted">Тест удалён из Избранного</string>
+    <string name="loss_report_cancelled">Проверка прервана. Если тест уже отправлен, проверьте Избранное.</string>
+    <string name="loss_report_failure">Ошибка диагностики: %1$s. Сообщение могло быть отправлено до сбоя. Проверьте Избранное. Вывод о потерях получить не удалось.</string>
+    <string name="loss_previous_test_hint">Чтобы запустить новый тест, сначала удалите предыдущее тестовое сообщение из Избранного.</string>
+    <plurals name="new_chat_partial_members">
+        <item quantity="one">Группа создана. Не приглашён %d участник из-за ограничений Telegram.</item>
+        <item quantity="few">Группа создана. Не приглашены %d участника из-за ограничений Telegram.</item>
+        <item quantity="many">Группа создана. Не приглашены %d участников из-за ограничений Telegram.</item>
+        <item quantity="other">Группа создана. Не приглашены %d участников из-за ограничений Telegram.</item>
+    </plurals>
+    <!-- Localized reports for the optional synthetic video note check -->
+    <string name="loss_yes">ДА</string>
+    <string name="loss_no">НЕТ</string>
+    <string name="loss_not_known">НЕТ / не определён</string>
+    <string name="loss_no_data">нет данных</string>
+    <string name="loss_verified">подтверждено</string>
+    <string name="loss_unverified">НЕ ПОДТВЕРЖДЕНО</string>
+    <string name="loss_compare_missing">Повторное получение файла: не удалось. Состояние параметров неизвестно.</string>
+    <string name="loss_compare_size">Изменён размер кадра: %1$s (%2$s → %3$s)</string>
+    <string name="loss_compare_frames">Изменилось число кадров: %1$s (%2$d → %3$d)</string>
+    <string name="loss_compare_fps">Изменился измеренный FPS: %1$s</string>
+    <string name="loss_compare_sha">Совпадение SHA-256: %1$s</string>
+    <string name="loss_compare_remote">Независимое скачивание: %1$s</string>
+    <string name="loss_compare_cached_warning">Вывод ограничен: Telegram мог вернуть закэшированные байты. Нельзя доказать отсутствие изменений на сервере.</string>
+    <string name="loss_compare_transformed">Обнаружены изменения параметров между отправленным MP4 и повторно полученным файлом. Этап и инициатор перекодирования не доказаны.</string>
+    <string name="loss_compare_bytes_changed">Байты или контейнер изменились, но потери размера, FPS и числа кадров не обнаружены. Визуальная деградация НЕ доказана.</string>
+    <string name="loss_compare_identical">Байты исходного и независимо скачанного файлов совпадают.</string>
+    <string name="loss_compare_insufficient">Недостаточно данных для вывода.</string>
+    <string name="loss_report_heading">BeyGram — диагностика потерь видеосообщений</string>
+    <string name="loss_report_type">Тип: синтетические кадры, без камеры и микрофона</string>
+    <string name="loss_report_source">Исходный файл A: %1$s</string>
+    <string name="loss_report_export">Файл после обработки C: %1$s</string>
+    <string name="loss_report_sent">Отправленный файл D: %1$dx%2$d, %3$d с; SHA-256=%4$s</string>
+    <string name="loss_report_confirmed">Telegram подтвердил отправку E: длина %1$d с, объём %2$d байт</string>
+    <string name="loss_report_evidence">Подтверждение повторного получения F: %1$s</string>
+    <string name="loss_report_file">Скачанный файл F: %1$s</string>
+    <string name="loss_report_unavailable">недоступен</string>
+    <string name="loss_report_not_measured">не измерен</string>
+    <string name="loss_report_processing_changes">A→C: размер изменился=%1$b, число кадров изменилось=%2$b</string>
+    <string name="loss_report_local_hashed">C→D: локальный файл повторно прочитан и хэширован до передачи</string>
+    <string name="loss_report_camera_notice">Синтетический тест не измеряет FPS физической камеры и не доказывает визуальное качество.</string>
+    <string name="loss_report_private_notice">Идентификаторы сообщений, чатов и файлов Telegram не включены в отчёт.</string>
+    <string name="loss_evidence_verified">Старая локальная копия очищена, подтверждено скачивание нового файла</string>
+    <string name="loss_evidence_unverified">Не удалось подтвердить, что файл скачан независимо от локального кэша</string>
+    <string name="loss_camera_report_heading">BeyGram — опрос возможностей камер (без съёмки)</string>
 </resources>

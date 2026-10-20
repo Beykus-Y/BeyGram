@@ -48,6 +48,8 @@ import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.chats.CreateChannelScreen
+import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
+import com.beykus.beygram.ui.screens.chats.NewChatScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ConnectionDiagnosticsScreen
@@ -393,17 +395,32 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
-    BackHandler(enabled = route == AppRoute.CreateChannel) { routeName = AppRoute.Chats.name }
+    BackHandler(enabled = route == AppRoute.NewChat) { routeName = AppRoute.Chats.name }
+    BackHandler(enabled = route == AppRoute.CreateChannel) { routeName = AppRoute.NewChat.name }
+    BackHandler(enabled = route == AppRoute.CreateGroup) {
+        repository.acknowledgeGroupCreation() // clear an earlier explicit failure when leaving
+        routeName = AppRoute.NewChat.name
+    }
     BackHandler(enabled = route == AppRoute.Diagnostics || route == AppRoute.ReportProblem) { routeName = AppRoute.Settings.name }
 
     // Потоки собирает сам раздел, которому они нужны: обновление списка чатов перерисовывает только открытый раздел, а не всё приложение.
     val chatsTab: @Composable () -> Unit = {
         val chats by repository.chats.collectAsStateWithLifecycle()
         val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        val folders by repository.chatFolders.collectAsStateWithLifecycle()
+        val folderLists by repository.folderChats.collectAsStateWithLifecycle()
+        val folderLoading by repository.folderLoadStates.collectAsStateWithLifecycle()
         MainTabsScaffold(MainTab.Chats.route.name, MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
             ChatsScreen(
                 chats = chats,
                 archivedChats = archivedChats,
+                folderSnapshot = folders,
+                folderChats = folderLists,
+                folderLoadStates = folderLoading,
+                onFolderLoadMore = { id ->
+                    archiveSettingsScope.launch { repository.loadMoreFolderChats(id) }
+                },
+                onPinFolderChat = repository::setFolderChatPinned,
                 myProfile = myProfile.info,
                 observeFile = repository::observeFile,
                 downloadFile = repository::downloadFile,
@@ -414,7 +431,7 @@ private fun BeyGramAppContent(
                 onPinChat = repository::setChatPinned,
                 onMuteChat = repository::setChatMuted,
                 onDeleteChat = repository::deleteChatForSelf,
-                onCreateChannel = { routeName = AppRoute.CreateChannel.name },
+                onNewChat = { routeName = AppRoute.NewChat.name },
                 archiveHidden = archiveHidden,
                 onArchiveHiddenChange = onArchiveHiddenChange,
                 onGlobalSearch = { typed ->
@@ -701,8 +718,51 @@ private fun BeyGramAppContent(
                     terminate = repository::terminateOtherSession,
                     terminateAll = repository::terminateAllOtherSessions
                 )
-                AppRoute.CreateChannel -> CreateChannelScreen(
+                AppRoute.NewChat -> NewChatScreen(
+                    loadContacts = repository::loadContacts,
+                    openPrivateChat = repository::openPrivateChat,
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile,
                     onBack = { routeName = AppRoute.Chats.name },
+                    onNewGroup = { routeName = AppRoute.CreateGroup.name },
+                    onNewChannel = { routeName = AppRoute.CreateChannel.name },
+                    onAddContact = { openTab(MainTab.Contacts, AppRoute.NewChat) },
+                    onChatOpened = { chatId ->
+                        selectedChatId = chatId
+                        chatBackRouteName = AppRoute.Chats.name
+                        routeName = AppRoute.Chat.name
+                    }
+                )
+                AppRoute.CreateGroup -> {
+                    val groupCreation by repository.groupCreation.collectAsStateWithLifecycle()
+                    CreateGroupScreen(
+                        loadContacts = repository::loadContacts,
+                        creationState = groupCreation,
+                        startGroupCreation = repository::beginGroupCreation,
+                        acknowledgeGroupCreation = repository::acknowledgeGroupCreation,
+                        acknowledgeUncertainGroupCreation = repository::acknowledgeUncertainGroupCreation,
+                        observeFile = repository::observeFile,
+                        downloadFile = repository::downloadFile,
+                        onBack = {
+                            repository.acknowledgeGroupCreation()
+                            routeName = AppRoute.NewChat.name
+                        },
+                        onCreated = { chatId, failedInvitations ->
+                            selectedChatId = chatId
+                            chatBackRouteName = AppRoute.Chats.name
+                            routeName = AppRoute.Chat.name
+                            if (failedInvitations > 0) {
+                                noticeError = UiText.Raw(
+                                    context.resources.getQuantityString(
+                                        R.plurals.new_chat_partial_members, failedInvitations, failedInvitations
+                                    )
+                                )
+                            }
+                        }
+                    )
+                }
+                AppRoute.CreateChannel -> CreateChannelScreen(
+                    onBack = { routeName = AppRoute.NewChat.name },
                     create = repository::createChannel,
                     onCreated = { chatId ->
                         selectedChatId = chatId
@@ -730,7 +790,7 @@ private fun BeyGramAppContent(
                     connectionState = connectionState,
                     onBack = { routeName = AppRoute.Diagnostics.name }
                 )
-                AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings) { routeName = AppRoute.Settings.name }
+                AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings, repository) { routeName = AppRoute.Settings.name }
                 AppRoute.StorageSettings -> StorageSettingsScreen(repository = repository, onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.NavigationSettings -> NavigationSettingsScreen(
                     visibility = tabVisibility,

@@ -76,6 +76,12 @@ internal class VpnBackend private constructor(
     private val _probeProgress = MutableStateFlow<ProbeProgress?>(null)
     val probeProgress: StateFlow<ProbeProgress?> = _probeProgress.asStateFlow()
 
+    // All listener/TDLib route transitions and subscription profile writes share one gate.
+    // Without this, an in-flight STARTING can be stopped by refresh while reported RUNNING.
+    private val lifecycleMutex = Mutex()
+    /** Subscription network traffic must never block user-initiated TDLib route switches. */
+    private val subscriptionFetchMutex = Mutex()
+    private val automaticActivation = AutomaticActivationGuard()
     private val restoreMutex = Mutex()
     private val _restoreFailed = MutableStateFlow(false)
     /** True when the automatic restore failed on every try. The user then decides: try again or turn the proxy off. */
@@ -167,7 +173,7 @@ internal class VpnBackend private constructor(
                         MihomoRuntimeDiagnostics.event("backend", "restore stopped; proxy turned off meanwhile")
                         return@retryUntilSuccess true
                     }
-                    startProxy()
+                    startProxyForRestore()
                         .onSuccess { refreshConnections() }
                         .onFailure { MihomoRuntimeDiagnostics.event("backend", "restore attempt $attempt failed") }
                         .isSuccess
@@ -192,14 +198,27 @@ internal class VpnBackend private constructor(
         return null
     }
 
-    /** Loads the core, so the saved node list works, while the listener stays down because TDLib does not use it. */
+    /** Re-check TDLib *inside* the route lock: an earlier restore probe may now be stale. */
+    private suspend fun startProxyForRestore(): Result<Unit> = lifecycleMutex.withLock {
+        when (isTdLibProxyEnabled().getOrNull()) {
+            false -> Result.success(Unit) // The user chose Direct/another proxy while restore waited.
+            null -> Result.failure(IllegalStateException("TDLib proxy state unavailable during restore"))
+            true -> {
+                _busy.value = true
+                try { startProxyUnserialized() } finally { _busy.value = false }
+            }
+        }
+    }
+
+    /** Loads the core without racing a foreground service start or a subscription refresh. */
     private suspend fun prepareCoreWithoutListener() {
-        runCatching {
-            mihomo.ensureInitialized()
-            // Loading the core takes a while, and a start may have begun meanwhile. Then the listener belongs to that start.
-            if (listenerInUse()) return@runCatching
-            mihomo.stopProxyListener()
-        }.onSuccess { refreshConnections() }
+        lifecycleMutex.withLock {
+            runCatching {
+                mihomo.ensureInitialized()
+                if (listenerInUse()) return@runCatching
+                mihomo.stopProxyListener()
+            }.onSuccess { refreshConnections() }
+        }
     }
 
     /** True while the listener is up or changing. A start or stop under way owns it, so a restore must leave it alone. */
@@ -210,13 +229,74 @@ internal class VpnBackend private constructor(
 
     fun updateAutoSelect(enabled: Boolean) {
         settingsStore.update { it.copy(autoSelectEnabled = enabled) }
+        _autoSelectEvents.value = null
+        // Only an explicit Auto choice may activate an already imported profile; when no
+        // profile exists, wait for exactly its first successful import.
+        // An imported profile can be valid but contain no supported selectable nodes.
+        // If the core has not populated connections yet, verify it under the lifecycle
+        // gate before consuming the explicit Auto intent.
+        val usable = mihomo.profileExists() && _connections.value.isNotEmpty()
+        automaticActivation.selectAuto(enabled, usable)?.let { generation ->
+            requestAutomaticConnection("mode_selected", generation)
+        }
+        if (enabled && !usable && mihomo.profileExists()) {
+            scope.launch(Dispatchers.IO) {
+                lifecycleMutex.withLock {
+                    if (!settings.value.autoSelectEnabled) return@withLock
+                    val loaded = runCatching { mihomo.listConnections(settings.value.connectionGroup) }
+                        .getOrDefault(emptyList())
+                    _connections.value = loaded
+                    automaticActivation.afterImport(settings.value.autoSelectEnabled, loaded.isNotEmpty())
+                        ?.let { generation -> requestAutomaticConnection("profile_validated", generation) }
+                    if (loaded.isEmpty() && settings.value.autoSelectEnabled) {
+                        _autoSelectEvents.value = AutoSelectEvent.Failed(UiText.Res(R.string.err_vpn_server_select_failed))
+                    }
+                }
+            }
+        }
+    }
+
+    /** Check intent AFTER acquiring the same lock used by manual route changes and refreshes. */
+    private fun requestAutomaticConnection(reason: String, generation: Int) {
+        scope.launch(Dispatchers.IO) {
+            lifecycleMutex.withLock {
+                if (!automaticActivation.permitsActivation(generation, settings.value.autoSelectEnabled, mihomo.profileExists())) {
+                    return@withLock
+                }
+                // Re-evaluate *after* profile import finishes, before routing TDLib through it.
+                val available = runCatching { mihomo.listConnections(settings.value.connectionGroup) }
+                    .getOrDefault(emptyList())
+                _connections.value = available
+                if (available.isEmpty()) {
+                    _autoSelectEvents.value = AutoSelectEvent.Failed(UiText.Res(R.string.err_vpn_server_select_failed))
+                    return@withLock
+                }
+                MihomoRuntimeDiagnostics.event("backend", "automatic activation requested reason=$reason")
+                _autoSelectEvents.value = null
+                _busy.value = true
+                try {
+                    startProxyUnserialized().onFailure { error ->
+                        val text = (error as? UserMessageException)?.text ?: UiText.Res(R.string.err_vpn_start_failed)
+                        _autoSelectEvents.value = AutoSelectEvent.Failed(text)
+                        MihomoRuntimeDiagnostics.event("backend", "automatic activation failed type=${error.javaClass.simpleName}")
+                    }
+                } finally {
+                    _busy.value = false
+                }
+            }
+        }
     }
 
     fun updateSubscriptionUrl(url: String) {
         settingsStore.update { it.copy(subscriptionUrl = url.trim()) }
     }
 
-    suspend fun startProxy(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun startProxy(): Result<Unit> = lifecycleMutex.withLock {
+        _busy.value = true
+        try { startProxyUnserialized() } finally { _busy.value = false }
+    }
+
+    private suspend fun startProxyUnserialized(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy start requested")
             if (!mihomo.profileExists()) throw UserMessageException(UiText.Res(R.string.err_vpn_no_profile), IllegalStateException("Сначала загрузите подписку"))
@@ -275,7 +355,20 @@ internal class VpnBackend private constructor(
     }
 
     /** Turns the subscription proxy off: TDLib returns to the proxy it used before, then the listener stops. */
-    suspend fun stopProxy(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun stopProxy(): Result<Unit> = lifecycleMutex.withLock {
+        _busy.value = true
+        try {
+            val stopped = stopProxyUnserialized()
+            if (stopped.isSuccess) {
+                automaticActivation.selectManualRoute()
+                // Keep the preferred Auto node-selection mode for a future subscription connection.
+                _autoSelectEvents.value = null
+            }
+            stopped
+        } finally { _busy.value = false }
+    }
+
+    private suspend fun stopProxyUnserialized(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             MihomoRuntimeDiagnostics.event("backend", "proxy stop requested")
             routeProbeGeneration.incrementAndGet()
@@ -297,7 +390,38 @@ internal class VpnBackend private constructor(
      * Stops only the local listener and leaves TDLib's proxy alone. Used when the user picks a saved proxy:
      * TDLib no longer points at the listener, so keeping it running would only hold a foreground notification.
      */
-    suspend fun stopListener(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun stopListener(): Result<Unit> = lifecycleMutex.withLock { stopListenerUnserialized() }
+
+    /**
+     * Switch Telegram to a manually selected Direct/MTProto/SOCKS route and tear down Mihomo
+     * atomically with respect to pending Auto starts and subscription imports.
+     * Only successful manual route changes invalidate Auto mode.
+     */
+    suspend fun selectNonSubscriptionRoute(changeRoute: suspend () -> Result<Unit>): Result<Unit> =
+        lifecycleMutex.withLock {
+            _busy.value = true
+            try {
+                val changed = changeRoute()
+                if (changed.isFailure) return@withLock changed
+                automaticActivation.selectManualRoute()
+                // Keep the preferred Auto node-selection mode for a future subscription connection.
+                _autoSelectEvents.value = null
+                // TDLib has already changed route. A listener cleanup problem is a
+                // warning, NOT a failed proxy selection; retrying AddProxy could create
+                // a duplicate while Telegram is already connected through the new route.
+                stopListenerUnserialized().onFailure { failure ->
+                    MihomoRuntimeDiagnostics.failure("listener cleanup after manual route", failure)
+                    _autoSelectEvents.value = AutoSelectEvent.Failed(
+                        (failure as? UserMessageException)?.text ?: UiText.Res(R.string.err_vpn_stop_failed)
+                    )
+                }
+                Result.success(Unit)
+            } finally {
+                _busy.value = false
+            }
+        }
+
+    private suspend fun stopListenerUnserialized(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             stopListenerNow()
             Result.success(Unit)
@@ -315,20 +439,39 @@ internal class VpnBackend private constructor(
         withTimeout(10_000) { MihomoProxyService.runtimeState.first { it.status == ProxyRuntimeStatus.STOPPED } }
     }
 
+    /**
+     * The network request is NOT under lifecycleMutex. Otherwise a hung subscription URL
+     * blocks a user trying to escape to Direct exactly when the connection fails.
+     * A separate tryLock rejects concurrent refreshes instead of queuing duplicates.
+     */
     suspend fun fetchSubscription(url: String = settings.value.subscriptionUrl): Result<List<MihomoConnection>> =
         withContext(Dispatchers.IO) {
-            if (_busy.value) return@withContext Result.failure(UserMessageException(UiText.Res(R.string.err_vpn_subscription_busy)))
+            if (!subscriptionFetchMutex.tryLock())
+                return@withContext Result.failure(UserMessageException(UiText.Res(R.string.err_vpn_subscription_busy)))
+            try {
+                val trimmedUrl = url.trim()
+                VpnSubscriptionDiagnostics.event("fetch", "started")
+                val response = subscriptionClient.fetch(trimmedUrl)
+                VpnSubscriptionDiagnostics.event("fetch", "downloaded bodyChars=${response.configuration.length}")
+                // Only mutable listener/profile operations require exclusivity with start/stop.
+                lifecycleMutex.withLock { importFetchedSubscription(trimmedUrl, response.configuration) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                VpnSubscriptionDiagnostics.failure("fetch", error)
+                Result.failure(error)
+            } finally {
+                subscriptionFetchMutex.unlock()
+            }
+        }
+
+    private suspend fun importFetchedSubscription(
+        trimmedUrl: String, configuration: String
+    ): Result<List<MihomoConnection>> = withContext(Dispatchers.IO) {
             _busy.value = true
             try {
-                VpnSubscriptionDiagnostics.event("fetch", "started")
-                val trimmedUrl = url.trim()
-                val response = subscriptionClient.fetch(trimmedUrl)
-                VpnSubscriptionDiagnostics.event(
-                    "fetch",
-                    "downloaded bodyChars=${response.configuration.length}"
-                )
                 val proxyWasRunning = runtimeState.value.status == ProxyRuntimeStatus.RUNNING
-                val groupName = mihomo.importSubscription(response.configuration)
+                val groupName = mihomo.importSubscription(configuration)
                 mihomo.stopProxyListener()
                 if (proxyWasRunning) {
                     try {
@@ -354,6 +497,12 @@ internal class VpnBackend private constructor(
                 _connections.value = loaded
                 _probes.value = emptyMap()
                 VpnSubscriptionDiagnostics.event("fetch", "completed connectionCount=${loaded.size}")
+                // Auto selected before the first subscription import must connect without a second tap.
+                // Existing running sessions retain their listener and TDLib setting.
+                if (!proxyWasRunning) {
+                    automaticActivation.afterImport(settings.value.autoSelectEnabled, loaded.isNotEmpty())
+                        ?.let { requestAutomaticConnection("profile_imported", it) }
+                }
                 Result.success(loaded)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error

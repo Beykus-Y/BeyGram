@@ -60,6 +60,14 @@ class UnavailableTelegramRepository : TelegramRepository {
     override val authState: StateFlow<AuthState> = MutableStateFlow<AuthState>(AuthState.Idle).asStateFlow()
     override val chats: StateFlow<List<ChatPreview>> = noChats
     override val archivedChats: StateFlow<List<ChatPreview>> = noChats
+    override val chatFolders: StateFlow<com.beykus.beygram.domain.model.TelegramChatFolders> =
+        MutableStateFlow(com.beykus.beygram.domain.model.TelegramChatFolders()).asStateFlow()
+    override val folderChats: StateFlow<Map<Int, List<ChatPreview>>> =
+        MutableStateFlow<Map<Int, List<ChatPreview>>>(emptyMap()).asStateFlow()
+    override val folderLoadStates: StateFlow<Map<Int, com.beykus.beygram.domain.model.TelegramFolderLoadState>> =
+        MutableStateFlow<Map<Int, com.beykus.beygram.domain.model.TelegramFolderLoadState>>(emptyMap()).asStateFlow()
+    override suspend fun loadMoreFolderChats(folderId: Int): Result<Unit> = unavailable()
+    override suspend fun setFolderChatPinned(folderId: Int, chatId: Long, pinned: Boolean): Result<Unit> = unavailable()
     override val connectionState: StateFlow<TelegramConnectionState> = MutableStateFlow(TelegramConnectionState.Unknown).asStateFlow()
     override val myProfile: StateFlow<ProfileState> = noProfile
     override val bioLengthLimit: StateFlow<Int> = MutableStateFlow(70).asStateFlow()
@@ -83,6 +91,11 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun setChatMuted(chatId: Long, muted: Boolean): Result<Unit> = unavailable()
     override suspend fun deleteChatForSelf(chatId: Long): Result<Unit> = unavailable()
     override suspend fun blockPrivateChat(chatId: Long): Result<Unit> = unavailable()
+    override val groupCreation: StateFlow<com.beykus.beygram.domain.model.GroupCreationState> =
+        MutableStateFlow<com.beykus.beygram.domain.model.GroupCreationState>(com.beykus.beygram.domain.model.GroupCreationState.Idle).asStateFlow()
+    override fun beginGroupCreation(title: String, memberUserIds: List<Long>): Result<Unit> = unavailable()
+    override fun acknowledgeGroupCreation() {}
+    override fun acknowledgeUncertainGroupCreation() {}
     override suspend fun createChannel(title: String, description: String): Result<Long> = unavailable()
     override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = unavailable()
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = unavailable()
@@ -105,6 +118,9 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun submitPassword(password: String) {}
     override fun resetError() {}
     override fun reconnect() {}
+
+    override suspend fun sendVideoNoteLossTest(media: OutgoingMedia, remoteCopy: java.io.File): Result<com.beykus.beygram.domain.model.VideoNoteLossRemoteResult> = unavailable()
+    override suspend fun deleteVideoNoteLossTest(messageId: Long): Result<Unit> = unavailable()
 
     override suspend fun loadSavedProxies(): Result<List<SavedTelegramProxy>> = Result.success(emptyList())
     override suspend fun addProxy(draft: TelegramProxyDraft, enable: Boolean): Result<Unit> = unavailable()

@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chats
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -26,9 +28,19 @@ fun CreateChannelScreen(onBack: () -> Unit, create: suspend (String, String) -> 
     var description by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    Column {
-        ProfileToolbar(stringResource(R.string.feature_create_channel), onBack)
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    BackHandler(busy) { /* Keep creation request visible until the server responds. */ }
+    // This full-screen route is outside MainTabsScaffold. Account for the system cutout,
+    // gesture navigation and IME instead of relying on padding provided by the tab bar.
+    Column(
+        Modifier.fillMaxSize().background(palette.screen)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .imePadding()
+    ) {
+        ProfileToolbar(stringResource(R.string.feature_create_channel), { if (!busy) onBack() })
+        Column(
+            Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
             OutlinedTextField(title, { title = it.take(128) }, label = { Text(stringResource(R.string.feature_channel_name)) },
                 singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy)
             OutlinedTextField(description, { description = it.take(255) }, label = { Text(stringResource(R.string.feature_channel_description)) },
