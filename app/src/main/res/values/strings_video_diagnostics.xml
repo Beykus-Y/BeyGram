@@ -220,4 +220,14 @@
     <string name="vn_av_start_offset">звук сдвинут относительно видео с самого начала</string>
     <string name="vn_av_drift">звук постепенно расходится с видео</string>
     <string name="vn_entry_av_failed">Звук: не удалось прочитать временные метки звука (%1$s), синхронность не оценена</string>
+    <string name="diag_center_h_title">Полный отчёт</string>
+    <string name="diag_center_h_detail">Один отчёт со всем собранным: камеры, FPS, Telegram и записи. Его можно скопировать или отправить целиком.</string>
+    <string name="diag_center_open">Открыть</string>
+    <string name="diag_full_report_title">Полный отчёт</string>
+    <string name="diag_full_report_not_run">Не запускалось.</string>
+    <string name="diag_full_report_survey">=== Возможности камер ===</string>
+    <string name="diag_full_report_fps">=== Проверка частоты кадров ===</string>
+    <string name="diag_full_report_telegram">=== Проверка через Telegram ===</string>
+    <string name="diag_full_report_videos">=== Последние записи ===</string>
+    <string name="diag_share_failed">Не удалось подготовить отчёт для отправки. Попробуйте «Копировать».</string>
 </resources>

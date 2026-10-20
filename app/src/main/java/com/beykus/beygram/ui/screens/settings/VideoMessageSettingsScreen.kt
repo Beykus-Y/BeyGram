@@ -61,6 +61,9 @@ import com.beykus.beygram.data.media.videoMirrorToggleSupported
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import android.content.ClipData
+import android.widget.Toast
+import androidx.core.content.FileProvider
+import java.io.File
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -98,7 +101,10 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     val settings by store.settings.collectAsStateWithLifecycle()
     var showFullDiagnostics by remember { mutableStateOf(false) }
     var fullExtended by remember { mutableStateOf(false) }
-    var pendingSurvey by remember { mutableStateOf<String?>(null) }
+    var latestSurvey by remember { mutableStateOf<String?>(null) }
+    var showFullReport by remember { mutableStateOf(false) }
+    var fullRunActive by remember { mutableStateOf(false) }
+    var fullRunStarted by remember { mutableStateOf(false) }
     suspend fun surveyReport(): String {
         cameraSurveyBusy = true
         return try {
@@ -107,12 +113,26 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             context.getString(R.string.camera_report_failed, failure.javaClass.simpleName)
         } finally { cameraSurveyBusy = false }
     }
-    val runSurvey: () -> Unit = { scope.launch { cameraSurvey = surveyReport() } }
-    LaunchedEffect(showFpsCheck) {
-        if (!showFpsCheck && pendingSurvey != null) {
-            cameraSurvey = pendingSurvey
-            pendingSurvey = null
+    val runSurvey: () -> Unit = { scope.launch { val text = surveyReport(); latestSurvey = text; cameraSurvey = text } }
+    LaunchedEffect(fpsCheck.running) {
+        if (fpsCheck.running) {
+            fullRunStarted = true
+        } else if (fullRunActive && fullRunStarted && fpsCheck.report.isNotBlank()) {
+            fullRunActive = false
+            fullRunStarted = false
+            showFpsCheck = false
+            showFullReport = true
         }
+    }
+    fun buildFullReport(): String {
+        val none = context.getString(R.string.diag_full_report_not_run)
+        fun section(title: Int, body: String?) = context.getString(title) + "\n" + (body?.takeIf { it.isNotBlank() } ?: none)
+        return listOf(
+            section(R.string.diag_full_report_survey, latestSurvey),
+            section(R.string.diag_full_report_fps, fpsCheck.report),
+            section(R.string.diag_full_report_telegram, lossState.report),
+            section(R.string.diag_full_report_videos, reports.take(5).joinToString("\n\n") { it.asText(context) { st -> videoNoteStatusText(context, st) } })
+        ).joinToString("\n\n")
     }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -214,6 +234,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 DiagnosticsCenterRow("E", R.string.diag_center_e_title, R.string.diag_center_e_detail, null, false) {}
                 DiagnosticsCenterRow("F", R.string.diag_center_f_title, R.string.diag_center_f_detail, R.string.diag_center_run, true) { showLossPanel = true }
                 DiagnosticsCenterRow("G", R.string.diag_center_g_title, R.string.diag_center_g_detail, R.string.diag_center_run, !fpsCheck.running && !cameraSurveyBusy) { showFullDiagnostics = true }
+                DiagnosticsCenterRow("H", R.string.diag_center_h_title, R.string.diag_center_h_detail, R.string.diag_center_open, true) { showFullReport = true }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.settings_video_diagnostics_history, reports.size),
                         color = palette.textPrimary, modifier = Modifier.weight(1f), fontSize = 14.sp)
@@ -255,12 +276,19 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 Text(report, fontSize = 12.sp, lineHeight = 17.sp)
             } },
             confirmButton = { TextButton(onClick = { cameraSurvey = null }) { Text(stringResource(R.string.diagnostics_view_close)) } },
-            dismissButton = {
-                TextButton(onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram Camera2 survey", report))
-                }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
-            }
+            dismissButton = { DiagnosticsReportActions("BeyGram Camera2 survey", report) }
+        )
+    }
+    if (showFullReport) {
+        val fullText = buildFullReport()
+        AlertDialog(
+            onDismissRequest = { showFullReport = false },
+            title = { Text(stringResource(R.string.diag_full_report_title)) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(fullText, fontSize = 12.sp, lineHeight = 17.sp)
+            } },
+            confirmButton = { TextButton(onClick = { showFullReport = false }) { Text(stringResource(R.string.diagnostics_view_close)) } },
+            dismissButton = { DiagnosticsReportActions("BeyGram full diagnostics", fullText) }
         )
     }
     if (showFullDiagnostics) {
@@ -283,7 +311,9 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     showFullDiagnostics = false
                     fpsCheckScope = if (fullExtended) ProbeScope.ALL else ProbeScope.FRONT
                     scope.launch {
-                        pendingSurvey = surveyReport()
+                        latestSurvey = surveyReport()
+                        fullRunActive = true
+                        fullRunStarted = false
                         showFpsCheck = true
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                             VideoNoteFpsCheck.start(context, fpsCheckScope, settings)
@@ -319,19 +349,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     }
                     if (fpsCheck.report.isNotBlank()) {
                         Text(fpsCheck.report, fontSize = 12.sp, lineHeight = 17.sp)
-                        Row {
-                            TextButton(onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram FPS check", fpsCheck.report))
-                            }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
-                            TextButton(onClick = {
-                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, fpsCheck.report)
-                                }
-                                context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_video_diagnostics_share)))
-                            }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
-                        }
+                        DiagnosticsReportActions("BeyGram FPS check", fpsCheck.report)
                     }
                 }
             },
@@ -374,19 +392,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                         Text(stringResource(R.string.loss_running_background), fontSize = 13.sp)
                     }
                     if (lossState.report.isNotBlank()) Text(lossState.report, fontSize = 12.sp, lineHeight = 17.sp)
-                    if (lossState.report.isNotBlank()) Row {
-                        TextButton(onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram loss diagnostics", lossState.report))
-                        }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
-                        TextButton(onClick = {
-                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, lossState.report)
-                            }
-                            context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_video_diagnostics_share)))
-                        }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
-                    }
+                    if (lossState.report.isNotBlank()) DiagnosticsReportActions("BeyGram loss diagnostics", lossState.report)
                     if (lossState.sentMessageId != null && !lossState.running) {
                         Text(stringResource(R.string.loss_previous_test_hint), fontSize = 13.sp)
                     }
@@ -454,20 +460,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 TextButton(onClick = { selectedReport = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
             },
             dismissButton = {
-                Row {
-                    TextButton(onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram video diagnostics", report.asText(context) { videoNoteStatusText(context, it) }))
-                    }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
-                    TextButton(onClick = {
-                        val share = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.settings_video_diagnostics_report))
-                            putExtra(Intent.EXTRA_TEXT, report.asText(context) { videoNoteStatusText(context, it) })
-                        }
-                        context.startActivity(Intent.createChooser(share, context.getString(R.string.settings_video_diagnostics_share)))
-                    }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
-                }
+                DiagnosticsReportActions("BeyGram video diagnostics", report.asText(context) { videoNoteStatusText(context, it) })
             }
         )
     }
@@ -549,5 +542,38 @@ private fun DiagnosticsCenterRow(letter: String, title: Int, detail: Int, button
             Text(stringResource(detail), color = palette.textSecondary, fontSize = 12.sp)
         }
         if (button != null) TextButton(onClick = onClick, enabled = enabled) { Text(stringResource(button)) }
+    }
+}
+
+private const val REPORT_INLINE_SHARE_LIMIT = 60_000
+
+@Composable
+private fun DiagnosticsReportActions(label: String, report: String) {
+    val context = LocalContext.current
+    Row {
+        TextButton(onClick = {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            runCatching { clipboard.setPrimaryClip(ClipData.newPlainText(label, report.take(REPORT_INLINE_SHARE_LIMIT * 4))) }
+        }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
+        TextButton(onClick = {
+            val sent = runCatching {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, label)
+                    if (report.length <= REPORT_INLINE_SHARE_LIMIT) {
+                        putExtra(Intent.EXTRA_TEXT, report)
+                    } else {
+                        // Big reports exceed what the share sheet carries inline; send them as a file.
+                        val dir = File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                        dir.listFiles { f -> f.name.startsWith("beygram-report-") }?.forEach { it.delete() }
+                        val file = File(dir, "beygram-report-${System.currentTimeMillis()}.txt").apply { writeText(report) }
+                        putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(context, "${context.packageName}.files", file))
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                }
+                context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_video_diagnostics_share)))
+            }.isSuccess
+            if (!sent) Toast.makeText(context, R.string.diag_share_failed, Toast.LENGTH_LONG).show()
+        }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
     }
 }
