@@ -1036,11 +1036,9 @@
     <string name="loss_compare_identical">Байты исходного и независимо скачанного файлов совпадают.</string>
     <string name="loss_compare_insufficient">Недостаточно данных для вывода.</string>
     <string name="loss_report_heading">BeyGram — диагностика потерь видеосообщений</string>
-    <string name="loss_report_type">Тип: синтетические кадры, без камеры и микрофона</string>
     <string name="loss_report_source">Исходный файл A: %1$s</string>
     <string name="loss_report_export">Файл после обработки C: %1$s</string>
     <string name="loss_report_sent">Отправленный файл D: %1$dx%2$d, %3$d с; SHA-256=%4$s</string>
-    <string name="loss_report_confirmed">Telegram подтвердил отправку E: длина %1$d с, объём %2$d байт</string>
     <string name="loss_report_evidence">Подтверждение повторного получения F: %1$s</string>
     <string name="loss_report_file">Скачанный файл F: %1$s</string>
     <string name="loss_report_unavailable">недоступен</string>

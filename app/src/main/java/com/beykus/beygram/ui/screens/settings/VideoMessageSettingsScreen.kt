@@ -1,6 +1,11 @@
 package com.beykus.beygram.ui.screens.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -43,6 +48,9 @@ import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteLossDiagnostics
 import com.beykus.beygram.data.media.VideoNoteCameraSurvey
+import com.beykus.beygram.data.media.VideoNoteFpsCheck
+import com.beykus.beygram.data.media.VideoNoteSyntheticSource
+import com.beykus.beygram.data.media.ProbeScope
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.data.media.VideoNoteDiagnosticReport
 import com.beykus.beygram.data.media.VideoNoteStatus
@@ -72,6 +80,13 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     var confirmClear by remember { mutableStateOf(false) }
     var cameraSurvey by remember { mutableStateOf<String?>(null) }
     var cameraSurveyBusy by remember { mutableStateOf(false) }
+    val fpsCheck by VideoNoteFpsCheck.state.collectAsStateWithLifecycle()
+    var showFpsCheck by remember { mutableStateOf(false) }
+    var fpsCheckScope by remember { mutableStateOf(ProbeScope.FRONT) }
+    var lossFps by remember { mutableStateOf(VideoNoteSyntheticSource.FPS_30) }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) VideoNoteFpsCheck.start(context, fpsCheckScope, store.settings.value)
+    }
     val lossDiagnostics = remember(repository) { VideoNoteLossDiagnostics.getInstance(context.applicationContext, repository) }
     val lossState by lossDiagnostics.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -174,13 +189,16 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     scope.launch {
                         cameraSurveyBusy = true
                         cameraSurvey = try {
-                            withContext(Dispatchers.IO) { VideoNoteCameraSurvey.report(context.applicationContext) }
+                            withContext(Dispatchers.IO) { VideoNoteCameraSurvey.report(context.applicationContext, settings) }
                         } catch (failure: Exception) {
-                            "Camera2 survey unavailable: ${failure.javaClass.simpleName}"
+                            context.getString(R.string.camera_report_failed, failure.javaClass.simpleName)
                         } finally { cameraSurveyBusy = false }
                     }
                 }, enabled = !cameraSurveyBusy) {
                     Text(stringResource(if (cameraSurveyBusy) R.string.loss_camera_survey_loading else R.string.loss_camera_survey_start))
+                }
+                TextButton(onClick = { showFpsCheck = true }) {
+                    Text(stringResource(if (fpsCheck.running) R.string.fps_check_entry_running else R.string.fps_check_entry))
                 }
                 TextButton(onClick = { showLossPanel = true }) {
                     Text(stringResource(R.string.loss_entry))
@@ -206,7 +224,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                         Column(Modifier.weight(1f)) {
                             Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(Date(report.startedAt)),
                                 color = palette.textPrimary, fontSize = 14.sp)
-                            Text(videoNoteStatusLabel(report.status) + " · " + stringResource(R.string.settings_video_diagnostics_raw_final,
+                            Text(videoNoteStatusText(context, report.status) + " · " + stringResource(R.string.settings_video_diagnostics_raw_final,
                                 report.rawFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
                                 report.outputFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—"),
                                 color = palette.textSecondary, fontSize = 12.sp)
@@ -234,6 +252,61 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             }
         )
     }
+    if (showFpsCheck) {
+        AlertDialog(
+            onDismissRequest = { showFpsCheck = false },
+            title = { Text(stringResource(R.string.fps_check_title)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.fps_check_description), fontSize = 13.sp)
+                    if (!fpsCheck.running) {
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                ProbeScope.FRONT to R.string.fps_check_scope_front,
+                                ProbeScope.BACK to R.string.fps_check_scope_back,
+                                ProbeScope.ALL to R.string.fps_check_scope_all
+                            ).forEach { (value, label) ->
+                                FilterChip(fpsCheckScope == value, onClick = { fpsCheckScope = value }, label = { Text(stringResource(label)) })
+                            }
+                        }
+                    } else {
+                        Text(stringResource(R.string.fps_check_progress, fpsCheck.done, fpsCheck.total), fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.fps_check_running_hint), fontSize = 13.sp)
+                    }
+                    if (fpsCheck.report.isNotBlank()) {
+                        Text(fpsCheck.report, fontSize = 12.sp, lineHeight = 17.sp)
+                        Row {
+                            TextButton(onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram FPS check", fpsCheck.report))
+                            }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
+                            TextButton(onClick = {
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, fpsCheck.report)
+                                }
+                                context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_video_diagnostics_share)))
+                            }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (fpsCheck.running) {
+                    TextButton(onClick = { VideoNoteFpsCheck.cancel() }) { Text(stringResource(R.string.common_cancel)) }
+                } else {
+                    TextButton(onClick = {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                            VideoNoteFpsCheck.start(context, fpsCheckScope, settings)
+                        } else {
+                            cameraPermission.launch(Manifest.permission.CAMERA)
+                        }
+                    }) { Text(stringResource(R.string.fps_check_start)) }
+                }
+            },
+            dismissButton = { TextButton(onClick = { showFpsCheck = false }) { Text(stringResource(R.string.common_close)) } }
+        )
+    }
     if (showLossPanel && !confirmLossSend && !confirmLossDelete) {
         AlertDialog(
             onDismissRequest = { showLossPanel = false },
@@ -241,6 +314,15 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.loss_dialog_description), fontSize = 13.sp)
+                    if (!lossState.running && lossState.sentMessageId == null) {
+                        Text(stringResource(R.string.loss_fps_choice), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(VideoNoteSyntheticSource.FPS_30, VideoNoteSyntheticSource.FPS_60).forEach { value ->
+                                FilterChip(lossFps == value, onClick = { lossFps = value },
+                                    label = { Text(stringResource(R.string.loss_fps_option, value, value * VideoNoteSyntheticSource.SECONDS)) })
+                            }
+                        }
+                    }
                     Text(stringResource(R.string.loss_status, stringResource(lossState.phaseRes)), fontWeight = FontWeight.SemiBold)
                     if (lossState.running) {
                         // A send already accepted by Telegram cannot be recalled by
@@ -294,7 +376,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 TextButton(onClick = {
                     confirmLossSend = false
                     lossDeleteError = null
-                    lossDiagnostics.start()
+                    lossDiagnostics.start(lossFps)
                 }) { Text(stringResource(R.string.loss_send_confirm_button)) }
             },
             dismissButton = { TextButton(onClick = { confirmLossSend = false }) { Text(stringResource(R.string.common_cancel)) } }
@@ -322,7 +404,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             onDismissRequest = { selectedReport = null },
             title = { Text(stringResource(R.string.settings_video_diagnostics_report)) },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(report.asText(), fontSize = 12.sp, lineHeight = 17.sp)
+                Text(report.asText(context) { videoNoteStatusText(context, it) }, fontSize = 12.sp, lineHeight = 17.sp)
             } },
             confirmButton = {
                 TextButton(onClick = { selectedReport = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
@@ -331,13 +413,13 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 Row {
                     TextButton(onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram video diagnostics", report.asText()))
+                        clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram video diagnostics", report.asText(context) { videoNoteStatusText(context, it) }))
                     }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
                     TextButton(onClick = {
                         val share = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.settings_video_diagnostics_report))
-                            putExtra(Intent.EXTRA_TEXT, report.asText())
+                            putExtra(Intent.EXTRA_TEXT, report.asText(context) { videoNoteStatusText(context, it) })
                         }
                         context.startActivity(Intent.createChooser(share, context.getString(R.string.settings_video_diagnostics_share)))
                     }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
@@ -396,15 +478,18 @@ private fun ChoiceSection(title: String, values: List<Int>, selected: Int, label
     }
 }
 
-@Composable
-private fun videoNoteStatusLabel(status: String): String = when (status) {
-    VideoNoteStatus.QUEUED -> stringResource(R.string.settings_video_diagnostics_status_queued)
-    VideoNoteStatus.PREVIEW -> stringResource(R.string.settings_video_diagnostics_status_preview)
-    VideoNoteStatus.READY -> stringResource(R.string.settings_video_diagnostics_status_ready)
-    VideoNoteStatus.PROCESSING_FAILED -> stringResource(R.string.settings_video_diagnostics_status_processing_failed)
-    VideoNoteStatus.SENDING -> stringResource(R.string.settings_video_diagnostics_status_sending)
-    VideoNoteStatus.SENT -> stringResource(R.string.settings_video_diagnostics_status_sent)
-    VideoNoteStatus.SEND_FAILED -> stringResource(R.string.settings_video_diagnostics_status_send_failed)
-    VideoNoteStatus.CANCELLED -> stringResource(R.string.settings_video_diagnostics_status_cancelled)
+private fun videoNoteStatusText(context: Context, status: String): String = when (status) {
+    VideoNoteStatus.RECORDING -> context.getString(R.string.settings_video_diagnostics_status_recording)
+    VideoNoteStatus.PROCESSING -> context.getString(R.string.settings_video_diagnostics_status_processing)
+    VideoNoteStatus.RECORDING_FAILED -> context.getString(R.string.settings_video_diagnostics_status_recording_failed)
+    VideoNoteStatus.DISCARDED -> context.getString(R.string.settings_video_diagnostics_status_discarded)
+    VideoNoteStatus.QUEUED -> context.getString(R.string.settings_video_diagnostics_status_queued)
+    VideoNoteStatus.PREVIEW -> context.getString(R.string.settings_video_diagnostics_status_preview)
+    VideoNoteStatus.READY -> context.getString(R.string.settings_video_diagnostics_status_ready)
+    VideoNoteStatus.PROCESSING_FAILED -> context.getString(R.string.settings_video_diagnostics_status_processing_failed)
+    VideoNoteStatus.SENDING -> context.getString(R.string.settings_video_diagnostics_status_sending)
+    VideoNoteStatus.SENT -> context.getString(R.string.settings_video_diagnostics_status_sent)
+    VideoNoteStatus.SEND_FAILED -> context.getString(R.string.settings_video_diagnostics_status_send_failed)
+    VideoNoteStatus.CANCELLED -> context.getString(R.string.settings_video_diagnostics_status_cancelled)
     else -> status // Reports saved by an earlier build keep the text they were written with.
 }

@@ -82,6 +82,18 @@ internal fun compareVideoNoteLoss(
     }
 }
 
+/** Did the requested synthetic frame rate survive each stage? Null measurements stay "unknown". */
+internal fun syntheticFpsKept(target: Int, measured: Double?): Boolean? = measured?.let { it >= target * 0.95 }
+
+private fun syntheticFpsVerdict(context: Context, target: Int, source: Double?, export: Double?, remote: Double?): String {
+    fun mark(value: Double?) = when (syntheticFpsKept(target, value)) {
+        true -> context.getString(R.string.loss_yes)
+        false -> context.getString(R.string.loss_no)
+        null -> context.getString(R.string.loss_no_data)
+    }
+    return "A=${mark(source)}, C=${mark(export)}, F=${mark(remote)}"
+}
+
 /**
  * Explicitly triggered by the user after the confirmation dialog. Synthetic frames never
  * access the camera or microphone. All media stays in noBackup and is not added to crash reports.
@@ -105,17 +117,17 @@ internal class VideoNoteLossDiagnostics(
         }
     }
 
-    @Synchronized fun start(): Boolean {
+    @Synchronized fun start(fps: Int = VideoNoteSyntheticSource.FPS_30): Boolean {
         // Never lose a deletion handle by starting over an already-sent test message.
         if (activeJob?.isActive == true || _state.value.running ||
             _state.value.sentMessageId != null) return false
-        activeJob = workScope.launch { run() }
+        activeJob = workScope.launch { run(fps) }
         return true
     }
     private val _state = MutableStateFlow(VideoNoteLossState())
     val state: StateFlow<VideoNoteLossState> = _state.asStateFlow()
 
-    private suspend fun run() {
+    private suspend fun run(fps: Int) {
         if (_state.value.running) return
         _state.value = VideoNoteLossState(phaseRes = R.string.loss_phase_generate, running = true)
         val folder = File(root, UUID.randomUUID().toString()).apply { mkdirs() }
@@ -127,7 +139,7 @@ internal class VideoNoteLossDiagnostics(
                 "Telegram account not authenticated"
             }
             removeOldTempFiles()
-            VideoNoteSyntheticSource.generate(source)
+            VideoNoteSyntheticSource.generate(source, fps)
             source.copyTo(original)
             val sourceStats = analyzeVideoNoteFrameSamples(original)
             _state.value = _state.value.copy(phaseRes = R.string.loss_phase_export)
@@ -159,24 +171,28 @@ internal class VideoNoteLossDiagnostics(
             }
             val report = buildString {
                 appendLine(context.getString(R.string.loss_report_heading))
-                appendLine(context.getString(R.string.loss_report_type))
-                appendLine(context.getString(R.string.loss_report_source, sourceStats.summary()))
+                appendLine(context.getString(R.string.loss_report_type_fps, fps, VideoNoteSyntheticSource.frameCount(fps),
+                    VideoNoteSyntheticSource.SECONDS))
+                appendLine(context.getString(R.string.loss_report_source, sourceStats.summary(context)))
                 appendLine("SHA-256 A: $sourceHash")
-                appendLine(context.getString(R.string.loss_report_export, exportStats.summary()))
+                appendLine(context.getString(R.string.loss_report_export, exportStats.summary(context)))
                 appendLine("SHA-256 C: $exportedHash")
                 appendLine(context.getString(R.string.loss_report_sent, output.width, output.height, output.durationSeconds, exportedHash))
-                appendLine(context.getString(R.string.loss_report_confirmed, sent.declaredSide, sent.remoteFileBytes))
+                appendLine(context.getString(R.string.loss_report_confirmed_shape, sent.declaredSide, sent.declaredSide,
+                    sent.declaredDurationSeconds, sent.remoteFileBytes))
                 appendLine(context.getString(
                     R.string.loss_report_evidence,
                     context.getString(if (sent.independentDownloadVerified)
                         R.string.loss_evidence_verified else R.string.loss_evidence_unverified)
                 ))
-                appendLine(context.getString(R.string.loss_report_file, downloadedStats?.summary()
+                appendLine(context.getString(R.string.loss_report_file, downloadedStats?.summary(context)
                     ?: context.getString(R.string.loss_report_unavailable)))
                 appendLine("SHA-256 F: ${remoteSha ?: context.getString(R.string.loss_report_not_measured)}")
                 appendLine()
                 appendLine(context.getString(R.string.loss_report_processing_changes,
                     sourceStats.width != exportStats.width, sourceStats.frameCount != exportStats.frameCount))
+                appendLine(context.getString(R.string.loss_report_fps_kept,
+                    syntheticFpsVerdict(context, fps, sourceStats.measuredFps, exportStats.measuredFps, downloadedStats?.measuredFps)))
                 appendLine(context.getString(R.string.loss_report_local_hashed))
                 append(compareVideoNoteLoss(exportStats, downloadedStats,
                     remoteSha?.let { it == exportedHash }, sent.independentDownloadVerified, context))
