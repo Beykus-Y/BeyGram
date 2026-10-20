@@ -195,9 +195,9 @@
     <string name="diag_center_c_title">Recording test</string>
     <string name="diag_center_c_detail">Record a video note in a chat with diagnostics on: the report appears in the list below. Needs camera and microphone.</string>
     <string name="diag_center_d_title">Compare files before and after processing</string>
-    <string name="diag_center_d_detail">Compares frames and checksums of the original and the processed file. No camera needed.</string>
+    <string name="diag_center_d_detail">Compares frames and checksums of the original and the processed file. No camera needed. Runs as part of the Telegram check (F).</string>
     <string name="diag_center_e_title">Synthetic test 24/30/50/60</string>
-    <string name="diag_center_e_detail">Builds a test video from artificial frames, with no camera or sound.</string>
+    <string name="diag_center_e_detail">Builds a test video from artificial frames, with no camera or sound. Runs as part of the Telegram check (F).</string>
     <string name="diag_center_f_title">Check through Telegram</string>
     <string name="diag_center_f_detail">Sends the test to Saved Messages only, and only after you confirm.</string>
     <string name="diag_center_g_title">Full diagnostics</string>

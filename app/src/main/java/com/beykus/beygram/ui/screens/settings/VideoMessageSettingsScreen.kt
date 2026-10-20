@@ -27,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,14 +98,20 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     val settings by store.settings.collectAsStateWithLifecycle()
     var showFullDiagnostics by remember { mutableStateOf(false) }
     var fullExtended by remember { mutableStateOf(false) }
-    val runSurvey: () -> Unit = {
-        scope.launch {
-            cameraSurveyBusy = true
-            cameraSurvey = try {
-                withContext(Dispatchers.IO) { VideoNoteCameraSurvey.report(context.applicationContext, settings) }
-            } catch (failure: Exception) {
-                context.getString(R.string.camera_report_failed, failure.javaClass.simpleName)
-            } finally { cameraSurveyBusy = false }
+    var pendingSurvey by remember { mutableStateOf<String?>(null) }
+    suspend fun surveyReport(): String {
+        cameraSurveyBusy = true
+        return try {
+            withContext(Dispatchers.IO) { VideoNoteCameraSurvey.report(context.applicationContext, settings) }
+        } catch (failure: Exception) {
+            context.getString(R.string.camera_report_failed, failure.javaClass.simpleName)
+        } finally { cameraSurveyBusy = false }
+    }
+    val runSurvey: () -> Unit = { scope.launch { cameraSurvey = surveyReport() } }
+    LaunchedEffect(showFpsCheck) {
+        if (!showFpsCheck && pendingSurvey != null) {
+            cameraSurvey = pendingSurvey
+            pendingSurvey = null
         }
     }
     BackHandler(onBack = onBack)
@@ -203,8 +210,8 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 DiagnosticsCenterRow("B", R.string.diag_center_b_title, R.string.diag_center_b_detail,
                     if (fpsCheck.running) R.string.fps_check_entry_running else R.string.diag_center_run, true) { showFpsCheck = true }
                 DiagnosticsCenterRow("C", R.string.diag_center_c_title, R.string.diag_center_c_detail, null, false) {}
-                DiagnosticsCenterRow("D", R.string.diag_center_d_title, R.string.diag_center_d_detail, R.string.diag_center_run, true) { showLossPanel = true }
-                DiagnosticsCenterRow("E", R.string.diag_center_e_title, R.string.diag_center_e_detail, R.string.diag_center_run, true) { showLossPanel = true }
+                DiagnosticsCenterRow("D", R.string.diag_center_d_title, R.string.diag_center_d_detail, null, false) {}
+                DiagnosticsCenterRow("E", R.string.diag_center_e_title, R.string.diag_center_e_detail, null, false) {}
                 DiagnosticsCenterRow("F", R.string.diag_center_f_title, R.string.diag_center_f_detail, R.string.diag_center_run, true) { showLossPanel = true }
                 DiagnosticsCenterRow("G", R.string.diag_center_g_title, R.string.diag_center_g_detail, R.string.diag_center_run, !fpsCheck.running && !cameraSurveyBusy) { showFullDiagnostics = true }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -275,12 +282,14 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 TextButton(onClick = {
                     showFullDiagnostics = false
                     fpsCheckScope = if (fullExtended) ProbeScope.ALL else ProbeScope.FRONT
-                    runSurvey()
-                    showFpsCheck = true
-                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                        VideoNoteFpsCheck.start(context, fpsCheckScope, settings)
-                    } else {
-                        cameraPermission.launch(Manifest.permission.CAMERA)
+                    scope.launch {
+                        pendingSurvey = surveyReport()
+                        showFpsCheck = true
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                            VideoNoteFpsCheck.start(context, fpsCheckScope, settings)
+                        } else {
+                            cameraPermission.launch(Manifest.permission.CAMERA)
+                        }
                     }
                 }) { Text(stringResource(R.string.diag_full_start)) }
             },

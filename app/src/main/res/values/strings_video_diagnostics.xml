@@ -196,9 +196,9 @@
     <string name="diag_center_c_title">Тест записи</string>
     <string name="diag_center_c_detail">Запишите кружок в чате при включённой диагностике: отчёт появится в списке ниже. Нужны камера и микрофон.</string>
     <string name="diag_center_d_title">Сравнение файлов до и после обработки</string>
-    <string name="diag_center_d_detail">Сравнивает кадры и контрольные суммы исходного и обработанного файла. Камера не нужна.</string>
+    <string name="diag_center_d_detail">Сравнивает кадры и контрольные суммы исходного и обработанного файла. Камера не нужна. Выполняется как часть проверки через Telegram (F).</string>
     <string name="diag_center_e_title">Синтетический тест 24/30/50/60</string>
-    <string name="diag_center_e_detail">Делает тестовое видео из искусственных кадров без камеры и звука.</string>
+    <string name="diag_center_e_detail">Делает тестовое видео из искусственных кадров без камеры и звука. Выполняется как часть проверки через Telegram (F).</string>
     <string name="diag_center_f_title">Проверка через Telegram</string>
     <string name="diag_center_f_detail">Отправляет тест только в Избранное и только после вашего подтверждения.</string>
     <string name="diag_center_g_title">Полная диагностика</string>
