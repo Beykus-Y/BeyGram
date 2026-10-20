@@ -184,4 +184,7 @@
     <string name="root_cause_remote_unknown">независимой проверки на стороне Telegram нет, вывод о сервере невозможен</string>
     <string name="root_cause_playback">файл в порядке, воспроизведение показывает меньше кадров</string>
     <string name="root_cause_insufficient">недостаточно измерений</string>
+    <string name="vn_entry_td_pending">Telegram: сообщение создано локально и ждёт загрузки (ещё не на сервере)</string>
+    <string name="vn_entry_td_stored">Telegram: сервер подтвердил, что кружок сохранён</string>
+    <string name="vn_entry_td_failed">Telegram: отправка не удалась, код %1$d</string>
 </resources>

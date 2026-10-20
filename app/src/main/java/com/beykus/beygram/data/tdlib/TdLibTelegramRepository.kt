@@ -23,6 +23,7 @@ import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.data.media.VideoNoteSendTracking
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.storage.StorageSettingsStore
 import com.beykus.beygram.domain.model.CachePolicy
@@ -941,10 +942,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 reportBotChannel.onNewMessage(update.message)
                 handleNewMessage(update.message)
                 conversationEffects.uploadStarted(update.message)
+                if (update.message.isOutgoing && update.message.content is TdApi.MessageVideoNote &&
+                    update.message.sendingState is TdApi.MessageSendingStatePending) {
+                    VideoNoteSendTracking.tracker.onPending(update.message.chatId, update.message.id)
+                }
             }
             is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
             is TdApi.UpdateMessageSendSucceeded -> {
                 videoNoteLossTransport.onSendSucceeded(update)
+                VideoNoteSendTracking.tracker.onSucceeded(update.message.chatId, update.oldMessageId)
                 reportBotChannel.onSendSucceeded(update)
                 cleanupSentUploads(update.message)
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
@@ -955,6 +961,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 videoNoteLossTransport.onSendFailed(update)
                 reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
+                VideoNoteSendTracking.tracker.onFailed(update.message.chatId, update.oldMessageId, sendError?.code ?: 0)
                 android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} code=${sendError?.code} error=${sendError?.message}")
                 recordAppEvent(
                     kind = EventKind.TDLIB,
