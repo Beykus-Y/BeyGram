@@ -314,7 +314,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     }
                 }) { Text(stringResource(R.string.common_delete)) }
             },
-            dismissButton = { TextButton(onClick = { confirmLossDelete = false }) { Text("Отмена") } }
+            dismissButton = { TextButton(onClick = { confirmLossDelete = false }) { Text(stringResource(R.string.common_cancel)) } }
         )
     }
     selectedReport?.let { report ->
