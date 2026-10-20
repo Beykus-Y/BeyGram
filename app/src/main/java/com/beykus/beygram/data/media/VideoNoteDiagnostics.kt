@@ -171,7 +171,7 @@ object VideoNoteDiagnostics {
     }
 
     /** Sensor results seen during the recording itself; a null [stats] is logged as "no results", not "no frames". */
-    fun recordSensor(id: String, stats: ProbeFrameStats?) {
+    internal fun recordSensor(id: String, stats: ProbeFrameStats?) {
         if (!hasReport(id)) return
         if (stats == null) {
             append(id, text(R.string.vn_entry_sensor_none))
