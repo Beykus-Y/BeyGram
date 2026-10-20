@@ -956,6 +956,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.AuthorizationStateReady -> {
                 _authState.value = AuthState.Ready
                 loadChatsWithNotificationScopes()
+                // Folder metadata can arrive while TDLib is still authorizing. Re-attempt
+                // first-page loads that failed before Ready; the per-folder mutex deduplicates.
+                _chatFolders.value.folders.forEach { folder ->
+                    val status = _folderLoadStates.value[folder.id]
+                    if (status?.hasMore != false && status?.loading != true) {
+                        chatListScope.launch { loadMoreFolderChats(folder.id) }
+                    }
+                }
                 syncArchiveReturnSetting()
                 profiles.refreshMe()
                 conversationActions.initialize()
