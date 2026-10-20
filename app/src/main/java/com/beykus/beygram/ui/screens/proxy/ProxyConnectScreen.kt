@@ -132,12 +132,8 @@ internal fun ProxyConnectScreen(
             val request = draft
             if (request != null) {
                 sending = true
-                repository.addProxy(request, enable = true)
-                    .onSuccess {
-                        // Прокси TDLib теперь свой, слушатель подписки больше не нужен.
-                        vpnBackend.stopListener()
-                        onBack()
-                    }
+                vpnBackend.selectNonSubscriptionRoute { repository.addProxy(request, enable = true) }
+                    .onSuccess { onBack() }
                     .onFailure { error = it.userMessage(context, R.string.proxy_connect_add_failed) }
                 sending = false
             } else {
