@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chats
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -102,6 +103,7 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.russianPlural
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -482,7 +484,7 @@ private fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?
     Row(
         Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(16.dp))
             .background(if (selected) palette.accent else palette.surface2)
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
