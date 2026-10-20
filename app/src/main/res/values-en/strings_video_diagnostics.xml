@@ -246,4 +246,5 @@
     <string name="diag_center_i_detail">Checks the camera's high-speed mode and a request for a 60 range that is not listed. The camera opens for a few seconds per mode, with no sound and no recording.</string>
     <string name="diag_full_report_highspeed">=== High-speed capture ===</string>
     <string name="hs_running">High-speed check is running…</string>
+    <string name="vn_entry_av_unreadable">The file has an audio track but its samples could not be read: a limit of this check, not proof that there is no sound.</string>
 </resources>
