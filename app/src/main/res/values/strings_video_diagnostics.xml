@@ -187,4 +187,6 @@
     <string name="vn_entry_td_pending">Telegram: сообщение создано локально и ждёт загрузки (ещё не на сервере)</string>
     <string name="vn_entry_td_stored">Telegram: сервер подтвердил, что кружок сохранён</string>
     <string name="vn_entry_td_failed">Telegram: отправка не удалась, код %1$d</string>
+    <string name="vn_entry_sensor">Сенсор во время записи: %1$d результатов, %2$s кадров/с, интервалы p50/p95/макс %3$s/%4$s/%5$s мс, длинных пауз %6$d, выдержка %7$s мс, охват окна %8$d%%</string>
+    <string name="vn_entry_sensor_none">Сенсор во время записи: результатов не получено (это не значит, что камера не отдаёт кадры)</string>
 </resources>

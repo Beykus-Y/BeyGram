@@ -46,7 +46,9 @@ data class VideoNoteDiagnosticReport(
     val rawFps: Double? = null,
     val outputFps: Double? = null,
     /** Upper bound of the range actually handed to the camera; null = camera default. */
-    val attemptedMaxFps: Int? = null
+    val attemptedMaxFps: Int? = null,
+    /** Frame rate of the sensor results received while recording; null = not collected. */
+    val sensorFps: Double? = null
 ) {
     /** [statusLabel] turns a [VideoNoteStatus] key into the localized label shown in the list. */
     fun asText(context: Context, statusLabel: (String) -> String): String = buildString {
@@ -62,9 +64,9 @@ data class VideoNoteDiagnosticReport(
         appendLine(context.getString(R.string.vn_report_final, fps(outputFps)))
         appendLine(context.getString(R.string.vn_report_stage,
             fpsLimitStageText(context, videoNoteFpsLimitStage(targetFps, attemptedMaxFps, rawFps, outputFps))))
-        if (rawFps != null || outputFps != null) {
+        if (sensorFps != null || rawFps != null || outputFps != null) {
             appendLine(rootCauseText(context, diagnoseVideoNoteFps(VideoNoteStageEvidence(
-                targetFps = targetFps, rawFps = rawFps, exportedFps = outputFps))))
+                targetFps = attemptedMaxFps ?: targetFps, sensorFps = sensorFps, rawFps = rawFps, exportedFps = outputFps))))
         }
         appendLine()
         entries.forEach { appendLine(it) }
@@ -107,7 +109,8 @@ object VideoNoteDiagnostics {
                     entries = (0 until rows.length()).map { rows.optString(it) },
                     rawFps = if (json.has("rawFps")) json.getDouble("rawFps") else null,
                     outputFps = if (json.has("outputFps")) json.getDouble("outputFps") else null,
-                    attemptedMaxFps = if (json.has("attemptedMaxFps")) json.getInt("attemptedMaxFps") else null
+                    attemptedMaxFps = if (json.has("attemptedMaxFps")) json.getInt("attemptedMaxFps") else null,
+                    sensorFps = if (json.has("sensorFps")) json.getDouble("sensorFps") else null
                 )
             }
         }.onFailure { Log.w(TAG, "Cannot read stored video diagnostics: ${it.javaClass.simpleName}") }
@@ -167,6 +170,25 @@ object VideoNoteDiagnostics {
         }
     }
 
+    /** Sensor results seen during the recording itself; a null [stats] is logged as "no results", not "no frames". */
+    fun recordSensor(id: String, stats: ProbeFrameStats?) {
+        if (!hasReport(id)) return
+        if (stats == null) {
+            append(id, text(R.string.vn_entry_sensor_none))
+            return
+        }
+        fun ms(v: Double?) = v?.let { String.format(Locale.US, "%.1f", it) } ?: "?"
+        modify(id) { old ->
+            old.copy(
+                sensorFps = stats.measuredFps,
+                entries = (old.entries + stamp(text(R.string.vn_entry_sensor, stats.frames,
+                    stats.measuredFps?.let { String.format(Locale.US, "%.2f", it) } ?: "?",
+                    ms(stats.p50GapMs), ms(stats.p95GapMs), ms(stats.maxGapMs), stats.longGaps,
+                    ms(stats.medianExposureMs), (stats.coverage * 100).toInt()))).takeLast(MAX_ENTRIES)
+            )
+        }
+    }
+
     suspend fun inspect(id: String, stage: String, file: File, output: Boolean = false) {
         if (!hasReport(id)) return
         // Run after the camera/Transformer has finalized the MP4; only encoded sample PTS are read.
@@ -219,6 +241,7 @@ object VideoNoteDiagnostics {
                     report.rawFps?.let { put("rawFps", it) }
                     report.outputFps?.let { put("outputFps", it) }
                     report.attemptedMaxFps?.let { put("attemptedMaxFps", it) }
+                    report.sensorFps?.let { put("sensorFps", it) }
                 })
             }
             val bytes = array.toString().toByteArray(Charsets.UTF_8)
