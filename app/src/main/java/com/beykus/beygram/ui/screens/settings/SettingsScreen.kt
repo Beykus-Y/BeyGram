@@ -42,7 +42,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
-import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Настройки приложения: нижнее меню, уведомления и диагностика. */
@@ -80,10 +79,8 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsLink(Icons.Rounded.Storage, stringResource(R.string.settings_storage_title), onStorage)
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             SettingsLink(Icons.Rounded.BugReport, stringResource(R.string.diagnostics_title), onDiagnostics)
-            if (BuildConfig.APPLICATION_ID == "com.beykus.beygram") {
-                HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
-                SettingsLink(Icons.Rounded.SystemUpdate, stringResource(R.string.updates_title), onUpdates)
-            }
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsLink(Icons.Rounded.SystemUpdate, stringResource(R.string.updates_title), onUpdates)
         }
     }
 }

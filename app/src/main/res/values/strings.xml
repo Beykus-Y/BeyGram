@@ -890,6 +890,8 @@
     <string name="updates_stable_only">Канал: Stable · Проверка только по вашему запросу</string>
     <string name="updates_check">Проверить обновления</string>
     <string name="updates_manual_hint">Нажмите кнопку, чтобы проверить новый Stable-релиз на GitHub.</string>
+    <string name="updates_dev_channel">Канал: DEV Beta · Проверка только по вашему запросу</string>
+    <string name="updates_dev_manual_hint">Нажмите кнопку, чтобы проверить новую DEV Beta сборку.</string>
     <string name="updates_checking">Проверяем GitHub Releases…</string>
     <string name="updates_current">Установлена актуальная версия.</string>
     <string name="updates_available">Доступен BeyGram %1$s</string>
