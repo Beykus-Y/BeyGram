@@ -27,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -95,6 +96,24 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     var confirmLossDelete by remember { mutableStateOf(false) }
     var lossDeleteError by remember { mutableStateOf<String?>(null) }
     val settings by store.settings.collectAsStateWithLifecycle()
+    var showFullDiagnostics by remember { mutableStateOf(false) }
+    var fullExtended by remember { mutableStateOf(false) }
+    var pendingSurvey by remember { mutableStateOf<String?>(null) }
+    suspend fun surveyReport(): String {
+        cameraSurveyBusy = true
+        return try {
+            withContext(Dispatchers.IO) { VideoNoteCameraSurvey.report(context.applicationContext, settings) }
+        } catch (failure: Exception) {
+            context.getString(R.string.camera_report_failed, failure.javaClass.simpleName)
+        } finally { cameraSurveyBusy = false }
+    }
+    val runSurvey: () -> Unit = { scope.launch { cameraSurvey = surveyReport() } }
+    LaunchedEffect(showFpsCheck) {
+        if (!showFpsCheck && pendingSurvey != null) {
+            cameraSurvey = pendingSurvey
+            pendingSurvey = null
+        }
+    }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.settings_video_recording_title), onBack)
@@ -185,24 +204,16 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     Switch(checked = settings.diagnosticsEnabled, onCheckedChange = null)
                 }
                 Text(stringResource(R.string.settings_video_diagnostics_privacy), color = palette.textSecondary, fontSize = 12.sp)
-                TextButton(onClick = {
-                    scope.launch {
-                        cameraSurveyBusy = true
-                        cameraSurvey = try {
-                            withContext(Dispatchers.IO) { VideoNoteCameraSurvey.report(context.applicationContext, settings) }
-                        } catch (failure: Exception) {
-                            context.getString(R.string.camera_report_failed, failure.javaClass.simpleName)
-                        } finally { cameraSurveyBusy = false }
-                    }
-                }, enabled = !cameraSurveyBusy) {
-                    Text(stringResource(if (cameraSurveyBusy) R.string.loss_camera_survey_loading else R.string.loss_camera_survey_start))
-                }
-                TextButton(onClick = { showFpsCheck = true }) {
-                    Text(stringResource(if (fpsCheck.running) R.string.fps_check_entry_running else R.string.fps_check_entry))
-                }
-                TextButton(onClick = { showLossPanel = true }) {
-                    Text(stringResource(R.string.loss_entry))
-                }
+                Text(stringResource(R.string.diag_center_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                DiagnosticsCenterRow("A", R.string.diag_center_a_title, R.string.diag_center_a_detail,
+                    if (cameraSurveyBusy) R.string.loss_camera_survey_loading else R.string.diag_center_run, !cameraSurveyBusy) { runSurvey() }
+                DiagnosticsCenterRow("B", R.string.diag_center_b_title, R.string.diag_center_b_detail,
+                    if (fpsCheck.running) R.string.fps_check_entry_running else R.string.diag_center_run, true) { showFpsCheck = true }
+                DiagnosticsCenterRow("C", R.string.diag_center_c_title, R.string.diag_center_c_detail, null, false) {}
+                DiagnosticsCenterRow("D", R.string.diag_center_d_title, R.string.diag_center_d_detail, null, false) {}
+                DiagnosticsCenterRow("E", R.string.diag_center_e_title, R.string.diag_center_e_detail, null, false) {}
+                DiagnosticsCenterRow("F", R.string.diag_center_f_title, R.string.diag_center_f_detail, R.string.diag_center_run, true) { showLossPanel = true }
+                DiagnosticsCenterRow("G", R.string.diag_center_g_title, R.string.diag_center_g_detail, R.string.diag_center_run, !fpsCheck.running && !cameraSurveyBusy) { showFullDiagnostics = true }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.settings_video_diagnostics_history, reports.size),
                         color = palette.textPrimary, modifier = Modifier.weight(1f), fontSize = 14.sp)
@@ -250,6 +261,39 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     clipboard.setPrimaryClip(ClipData.newPlainText("BeyGram Camera2 survey", report))
                 }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
             }
+        )
+    }
+    if (showFullDiagnostics) {
+        AlertDialog(
+            onDismissRequest = { showFullDiagnostics = false },
+            title = { Text(stringResource(R.string.diag_center_g_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.diag_full_plan), fontSize = 13.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(!fullExtended, onClick = { fullExtended = false }, label = { Text(stringResource(R.string.diag_full_quick)) })
+                        FilterChip(fullExtended, onClick = { fullExtended = true }, label = { Text(stringResource(R.string.diag_full_extended)) })
+                    }
+                    Text(stringResource(if (fullExtended) R.string.diag_full_extended_cost else R.string.diag_full_quick_cost), fontSize = 13.sp)
+                    Text(stringResource(R.string.diag_full_consent), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showFullDiagnostics = false
+                    fpsCheckScope = if (fullExtended) ProbeScope.ALL else ProbeScope.FRONT
+                    scope.launch {
+                        pendingSurvey = surveyReport()
+                        showFpsCheck = true
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                            VideoNoteFpsCheck.start(context, fpsCheckScope, settings)
+                        } else {
+                            cameraPermission.launch(Manifest.permission.CAMERA)
+                        }
+                    }
+                }) { Text(stringResource(R.string.diag_full_start)) }
+            },
+            dismissButton = { TextButton(onClick = { showFullDiagnostics = false }) { Text(stringResource(R.string.common_cancel)) } }
         )
     }
     if (showFpsCheck) {
@@ -492,4 +536,18 @@ private fun videoNoteStatusText(context: Context, status: String): String = when
     VideoNoteStatus.SEND_FAILED -> context.getString(R.string.settings_video_diagnostics_status_send_failed)
     VideoNoteStatus.CANCELLED -> context.getString(R.string.settings_video_diagnostics_status_cancelled)
     else -> status // Reports saved by an earlier build keep the text they were written with.
+}
+
+/** One action of the diagnostics centre: a letter, what it does and what it costs, and a start button if it has one. */
+@Composable
+private fun DiagnosticsCenterRow(letter: String, title: Int, detail: Int, button: Int?, enabled: Boolean, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(letter, color = palette.accent, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(end = 10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(title), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(stringResource(detail), color = palette.textSecondary, fontSize = 12.sp)
+        }
+        if (button != null) TextButton(onClick = onClick, enabled = enabled) { Text(stringResource(button)) }
+    }
 }
