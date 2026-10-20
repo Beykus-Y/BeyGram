@@ -35,9 +35,10 @@ sealed interface TelegramFolderTab {
 }
 
 fun orderedTelegramFolderTabs(state: TelegramChatFolders): List<TelegramFolderTab> {
-    val folders = state.folders.map { TelegramFolderTab.Folder(it.id) }
+    val folders: MutableList<TelegramFolderTab> =
+        state.folders.map { TelegramFolderTab.Folder(it.id) }.toMutableList()
     val mainIndex = state.mainChatListPosition.coerceIn(0, folders.size)
-    return folders.toMutableList<TelegramFolderTab>().apply { add(mainIndex, TelegramFolderTab.Main) }
+    return folders.apply { add(mainIndex, TelegramFolderTab.Main) }
 }
 
 /** A removed/renamed folder must never leave the UI stuck on an invalid selection. */
