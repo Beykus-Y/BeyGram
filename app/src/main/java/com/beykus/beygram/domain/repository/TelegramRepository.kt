@@ -57,6 +57,9 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun blockPrivateChat(chatId: Long): Result<Unit>
     /** Create a Telegram broadcast channel; returns its new chat ID. */
     suspend fun createChannel(title: String, description: String): Result<Long>
+    /** Create a basic Telegram group with explicitly selected contact IDs. */
+    suspend fun createGroup(title: String, memberUserIds: List<Long>): Result<Long>
+
     /** Current Telegram session and other authorized devices. */
     suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>>
     suspend fun terminateOtherSession(sessionId: Long): Result<Unit>
