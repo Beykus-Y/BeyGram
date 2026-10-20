@@ -171,7 +171,7 @@ internal class VpnBackend private constructor(
                         MihomoRuntimeDiagnostics.event("backend", "restore stopped; proxy turned off meanwhile")
                         return@retryUntilSuccess true
                     }
-                    startProxy()
+                    startProxyForRestore()
                         .onSuccess { refreshConnections() }
                         .onFailure { MihomoRuntimeDiagnostics.event("backend", "restore attempt $attempt failed") }
                         .isSuccess
@@ -196,14 +196,27 @@ internal class VpnBackend private constructor(
         return null
     }
 
-    /** Loads the core, so the saved node list works, while the listener stays down because TDLib does not use it. */
+    /** Re-check TDLib *inside* the route lock: an earlier restore probe may now be stale. */
+    private suspend fun startProxyForRestore(): Result<Unit> = lifecycleMutex.withLock {
+        when (isTdLibProxyEnabled().getOrNull()) {
+            false -> Result.success(Unit) // The user chose Direct/another proxy while restore waited.
+            null -> Result.failure(IllegalStateException("TDLib proxy state unavailable during restore"))
+            true -> {
+                _busy.value = true
+                try { startProxyUnserialized() } finally { _busy.value = false }
+            }
+        }
+    }
+
+    /** Loads the core without racing a foreground service start or a subscription refresh. */
     private suspend fun prepareCoreWithoutListener() {
-        runCatching {
-            mihomo.ensureInitialized()
-            // Loading the core takes a while, and a start may have begun meanwhile. Then the listener belongs to that start.
-            if (listenerInUse()) return@runCatching
-            mihomo.stopProxyListener()
-        }.onSuccess { refreshConnections() }
+        lifecycleMutex.withLock {
+            runCatching {
+                mihomo.ensureInitialized()
+                if (listenerInUse()) return@runCatching
+                mihomo.stopProxyListener()
+            }.onSuccess { refreshConnections() }
+        }
     }
 
     /** True while the listener is up or changing. A start or stop under way owns it, so a restore must leave it alone. */
