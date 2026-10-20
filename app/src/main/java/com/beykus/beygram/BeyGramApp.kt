@@ -719,18 +719,27 @@ private fun BeyGramAppContent(
                         routeName = AppRoute.Chat.name
                     }
                 )
-                AppRoute.CreateGroup -> CreateGroupScreen(
-                    loadContacts = repository::loadContacts,
-                    createGroup = repository::createGroup,
-                    observeFile = repository::observeFile,
-                    downloadFile = repository::downloadFile,
-                    onBack = { routeName = AppRoute.NewChat.name },
-                    onCreated = { chatId ->
-                        selectedChatId = chatId
-                        chatBackRouteName = AppRoute.Chats.name
-                        routeName = AppRoute.Chat.name
-                    }
-                )
+                AppRoute.CreateGroup -> {
+                    val groupCreation by repository.groupCreation.collectAsStateWithLifecycle()
+                    CreateGroupScreen(
+                        loadContacts = repository::loadContacts,
+                        creationState = groupCreation,
+                        startGroupCreation = repository::beginGroupCreation,
+                        acknowledgeGroupCreation = repository::acknowledgeGroupCreation,
+                        acknowledgeUncertainGroupCreation = repository::acknowledgeUncertainGroupCreation,
+                        observeFile = repository::observeFile,
+                        downloadFile = repository::downloadFile,
+                        onBack = { routeName = AppRoute.NewChat.name },
+                        onCreated = { chatId, failedInvitations ->
+                            selectedChatId = chatId
+                            chatBackRouteName = AppRoute.Chats.name
+                            routeName = AppRoute.Chat.name
+                            if (failedInvitations > 0) {
+                                noticeError = UiText.Res(R.string.new_chat_partial_members, listOf(failedInvitations))
+                            }
+                        }
+                    )
+                }
                 AppRoute.CreateChannel -> CreateChannelScreen(
                     onBack = { routeName = AppRoute.NewChat.name },
                     create = repository::createChannel,
