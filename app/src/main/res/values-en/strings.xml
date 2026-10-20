@@ -100,5 +100,40 @@
 
     <string name="new_chat_group_unchanged_unknown">Telegram may have already created this group. Check your chat list before trying again to avoid duplicates.</string>
     <string name="new_chat_group_checked">I checked my chat list</string>
-    <string name="new_chat_partial_members">Group created, but %1$d members could not be invited due to Telegram restrictions.</string>
+
+
+    <!-- User-visible camera and video-note loss diagnostics -->
+    <string name="loss_camera_survey_start">Survey cameras (without recording)</string>
+    <string name="loss_camera_survey_loading">Surveying cameras…</string>
+    <string name="loss_camera_survey_title">Camera capabilities</string>
+    <string name="loss_entry">Video note loss diagnostics — Saved Messages check</string>
+    <string name="loss_dialog_title">Video note loss diagnostics</string>
+    <string name="loss_dialog_description">BeyGram creates a three-second sample without accessing your camera or microphone. With separate confirmation, it is sent to Saved Messages and downloaded again. This uses network data. The test does not measure camera FPS.</string>
+    <string name="loss_status">Status: %1$s</string>
+    <string name="loss_running_background">The test continues if you leave this screen. Closing the screen does not recall a sent message.</string>
+    <string name="loss_delete_test">Delete test from Saved Messages</string>
+    <string name="loss_clear_local">Delete local test files</string>
+    <string name="loss_start_test">Start test</string>
+    <string name="loss_send_confirm_title">Send a test video note?</string>
+    <string name="loss_send_confirm_body">A synthetic MP4 without a face or voice will be created. BeyGram will send the video note to your Saved Messages and download a copy. The message will remain there until you delete it yourself.</string>
+    <string name="loss_send_confirm_button">Agree and send</string>
+    <string name="loss_delete_confirm_title">Delete the test from Saved Messages?</string>
+    <string name="loss_delete_confirm_body">Only the test message created during this check will be deleted. Other messages are not affected.</string>
+    <string name="loss_delete_failed">Could not delete the test: %1$s</string>
+    <string name="loss_phase_idle">Ready</string>
+    <string name="loss_phase_generate">Generating sample video</string>
+    <string name="loss_phase_export">Preparing video note</string>
+    <string name="loss_phase_send">Sending to Saved Messages</string>
+    <string name="loss_phase_analyze">Analyzing downloaded file</string>
+    <string name="loss_phase_done">Test complete</string>
+    <string name="loss_phase_cancelled">Test interrupted</string>
+    <string name="loss_phase_failed">Test failed</string>
+    <string name="loss_phase_deleted">Test deleted from Saved Messages</string>
+    <string name="loss_report_cancelled">The test was interrupted. If the video note was already sent, check Saved Messages.</string>
+    <string name="loss_report_failure">Diagnostics failed: %1$s. The message may have been sent before the error. Check Saved Messages. No conclusion about quality loss is available.</string>
+    <string name="loss_previous_test_hint">Delete the previous test message from Saved Messages before starting another test.</string>
+    <plurals name="new_chat_partial_members">
+        <item quantity="one">Group created, but %d member could not be invited due to Telegram restrictions.</item>
+        <item quantity="other">Group created, but %d members could not be invited due to Telegram restrictions.</item>
+    </plurals>
 </resources>
