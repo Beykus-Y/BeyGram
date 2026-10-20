@@ -19,7 +19,7 @@ internal fun filterNewChatContacts(contacts: List<ContactPreview>, query: String
 /** Only server-provided contact IDs can be passed to group creation. */
 internal fun selectedNewGroupMembers(selected: Collection<Long>, contacts: List<ContactPreview>): LongArray {
     val allowed = contacts.asSequence().map { it.userId }.filter { it > 0L }.toSet()
-    return selected.asSequence().filter { it in allowed }.distinct().take(199).toList().toLongArray()
+    return selected.asSequence().filter { it in allowed }.distinct().take(200).toList().toLongArray()
 }
 
 internal fun toggledGroupMembers(current: List<Long>, id: Long, maximum: Int = 199): List<Long> = when {
