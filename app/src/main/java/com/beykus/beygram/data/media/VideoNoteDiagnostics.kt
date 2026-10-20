@@ -208,7 +208,8 @@ object VideoNoteDiagnostics {
                 fun orUnknown(v: Number?, divisor: Int = 1) = v?.let { (it.toLong() / divisor).toString() } ?: "?"
                 val avLine = if (audioResult.isFailure) text(R.string.vn_entry_av_failed, audioResult.exceptionOrNull()?.javaClass?.simpleName ?: "?")
                 else avSyncOf(data.firstVideoUs, data.lastVideoUs, audio)?.let { sync ->
-                    if (sync.verdict == AvSyncVerdict.NO_AUDIO) text(R.string.vn_entry_av_none)
+                    if (audio != null && audio.sampleCount == 0) text(R.string.vn_entry_av_unreadable)
+                    else if (sync.verdict == AvSyncVerdict.NO_AUDIO) text(R.string.vn_entry_av_none)
                     else text(R.string.vn_entry_av, orUnknown(audio?.sampleRate), orUnknown(audio?.channels),
                         orUnknown(audio?.bitrateBps, 1000), String.format(Locale.US, "%.0f", sync.startOffsetMs),
                         String.format(Locale.US, "%.0f", sync.endOffsetMs), String.format(Locale.US, "%.0f", sync.driftMs),
