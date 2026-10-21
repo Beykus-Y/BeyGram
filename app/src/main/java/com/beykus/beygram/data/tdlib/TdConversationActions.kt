@@ -363,6 +363,7 @@ internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(t
 
 internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L) = TdApi.SearchChatMessages().apply {
     this.chatId = chatId
+    topicId = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
     query = ""
     this.fromMessageId = fromMessageId
     limit = 50
