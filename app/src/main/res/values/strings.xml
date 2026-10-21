@@ -934,6 +934,12 @@
     <string name="feature_language">Язык приложения</string>
     <string name="feature_language_system">Как в системе</string>
     <string name="feature_language_hint">Язык меняется сразу. Непереведённые строки пока отображаются по-русски.</string>
+    <string name="sessions_intro">Проверяйте, где открыт ваш Telegram. Это устройство не затрагивается при завершении остальных сеансов.</string>
+    <string name="sessions_current">Текущий сеанс</string>
+    <string name="sessions_other_count">Другие устройства (%1$d)</string>
+    <string name="sessions_empty">Нет данных о сеансах</string>
+    <string name="sessions_unknown_device">Неизвестное устройство</string>
+    <string name="sessions_last_active">Активность: %1$s</string>
     <string name="feature_sessions">Устройства и сеансы</string>
     <string name="feature_current_device">Это устройство</string>
     <string name="feature_terminate_session">Завершить сеанс</string>
