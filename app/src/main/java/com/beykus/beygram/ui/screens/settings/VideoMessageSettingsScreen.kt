@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -100,6 +101,10 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     var confirmLossDelete by remember { mutableStateOf(false) }
     var lossDeleteError by remember { mutableStateOf<String?>(null) }
     val settings by store.settings.collectAsStateWithLifecycle()
+    var diagnosticsPage by rememberSaveable { mutableStateOf(false) }
+    val settingsScroll = rememberScrollState()
+    val diagnosticsScroll = rememberScrollState()
+    LaunchedEffect(diagnosticsPage) { if (diagnosticsPage) diagnosticsScroll.scrollTo(0) }
     var showFullDiagnostics by remember { mutableStateOf(false) }
     var fullExtended by remember { mutableStateOf(false) }
     var latestSurvey by remember { mutableStateOf<String?>(null) }
@@ -153,10 +158,15 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             section(R.string.diag_full_report_videos, reports.take(5).joinToString("\n\n") { it.asText(context) { st -> videoNoteStatusText(context, st) } })
         ).joinToString("\n\n")
     }
-    BackHandler(onBack = onBack)
+    val goBack = { if (diagnosticsPage) diagnosticsPage = false else onBack() }
+    BackHandler(onBack = goBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.settings_video_recording_title), onBack)
-        Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ProfileToolbar(
+            stringResource(if (diagnosticsPage) R.string.video_diagnostics_center_screen_title else R.string.settings_video_recording_title),
+            goBack
+        )
+        Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(if (diagnosticsPage) diagnosticsScroll else settingsScroll).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (!diagnosticsPage) {
             Text(stringResource(R.string.settings_autosave_note), color = palette.textSecondary, fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 4.dp))
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(vertical = 4.dp)) {
@@ -226,6 +236,18 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 }
             }
 
+            TextButton(
+                onClick = { diagnosticsPage = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.video_diagnostics_center_open), fontSize = 15.sp)
+            }
+            } else {
+            Text(
+                stringResource(R.string.video_diagnostics_center_intro),
+                color = palette.textSecondary, fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -248,9 +270,6 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     if (cameraSurveyBusy) R.string.loss_camera_survey_loading else R.string.diag_center_run, !cameraSurveyBusy) { runSurvey() }
                 DiagnosticsCenterRow("B", R.string.diag_center_b_title, R.string.diag_center_b_detail,
                     if (fpsCheck.running) R.string.fps_check_entry_running else R.string.diag_center_run, !highSpeedBusy) { showFpsCheck = true }
-                DiagnosticsCenterRow("C", R.string.diag_center_c_title, R.string.diag_center_c_detail, null, false) {}
-                DiagnosticsCenterRow("D", R.string.diag_center_d_title, R.string.diag_center_d_detail, null, false) {}
-                DiagnosticsCenterRow("E", R.string.diag_center_e_title, R.string.diag_center_e_detail, null, false) {}
                 DiagnosticsCenterRow("F", R.string.diag_center_f_title, R.string.diag_center_f_detail, R.string.diag_center_run, true) { showLossPanel = true }
                 DiagnosticsCenterRow("G", R.string.diag_center_g_title, R.string.diag_center_g_detail, R.string.diag_center_run, !fpsCheck.running && !cameraSurveyBusy && !highSpeedBusy) { showFullDiagnostics = true }
                 DiagnosticsCenterRow("I", R.string.diag_center_i_title, R.string.diag_center_i_detail,
@@ -289,9 +308,13 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     }
                 }
             }
+            }
         }
     }
 
+    // Results from asynchronous checks remain available upon returning to the center,
+    // but must never open dialogs on top of the everyday recording-settings page.
+    if (diagnosticsPage) {
     cameraSurvey?.let { report ->
         AlertDialog(
             onDismissRequest = { cameraSurvey = null },
@@ -513,6 +536,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             } }
         )
     }
+    } // diagnostics-page-only dialogs
 }
 
 @Composable
