@@ -86,7 +86,9 @@ internal object VideoNoteCameraSurvey {
         } else if (originalWidth <= 640) VideoNoteSourceQuality.SD else VideoNoteSourceQuality.HD
         val (width, height) = if (quality == VideoNoteSourceQuality.SD) 640 to 480
             else originalWidth to originalHeight
-        val encoder = if (quality == VideoNoteSourceQuality.SD) true else hdEncoder
+        // A *fallback* to SD already checked its encoder; a native SD profile
+        // must still check the encoder rather than assuming it supports 60.
+        val encoder = if (quality == VideoNoteSourceQuality.SD && originalWidth > 640) true else hdEncoder
         // Camera2 stream ceiling is a filter, not a guarantee Preview + capture will sustain 60.
         val stream60 = if (high) sourceSupports60(characteristics, width, height) else null
         val selected = safeVideoNoteFpsSelection(
