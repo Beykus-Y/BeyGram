@@ -568,7 +568,9 @@ private fun BeyGramAppContent(
                     }
                 }
                 topics != null && activeTopicId == 0L -> ForumTopicsScreen(
+                    chatId = selectedChatId,
                     chatTitle = chat.title,
+                    loadPreview = { topicId -> repository.latestForumTopicPreview(selectedChatId, topicId) },
                     topics = topics,
                     canCreate = canCreateTopic,
                     busy = forumBusy,
