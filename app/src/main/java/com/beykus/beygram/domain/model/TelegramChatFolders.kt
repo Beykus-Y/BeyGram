@@ -22,6 +22,43 @@ data class TelegramChatFolders(
     val mainChatListPosition: Int = 0
 )
 
+/**
+ * Editable server folder configuration. No locally-defined fake chat folders are stored.
+ * Chat IDs refer to real TDLib chats, and rules apply to Telegram across all devices.
+ */
+data class TelegramFolderDraft(
+    val id: Int? = null,
+    val title: String = "",
+    val includeContacts: Boolean = false,
+    val includeNonContacts: Boolean = false,
+    val includeBots: Boolean = false,
+    val includeGroups: Boolean = false,
+    val includeChannels: Boolean = false,
+    val excludeMuted: Boolean = false,
+    val excludeRead: Boolean = false,
+    val excludeArchived: Boolean = false,
+    val includedChatIds: Set<Long> = emptySet(),
+    val excludedChatIds: Set<Long> = emptySet()
+) {
+    fun valid(): Boolean {
+        val clean = title.trim()
+        return clean.isNotEmpty() && '\n' !in clean && '\r' !in clean &&
+            clean.codePointCount(0, clean.length) <= 12 &&
+            (includeContacts || includeNonContacts || includeBots || includeGroups || includeChannels || includedChatIds.isNotEmpty()) &&
+            includedChatIds.intersect(excludedChatIds).isEmpty()
+    }
+}
+
+/** Reorder only real server folder IDs while keeping Main's TDLib-defined position unchanged. */
+fun movedTelegramFolderIds(state: TelegramChatFolders, id: Int, delta: Int): List<Int>? {
+    val ids = state.folders.map { it.id }.toMutableList()
+    val from = ids.indexOf(id)
+    val to = from + delta
+    if (from < 0 || to !in ids.indices || delta !in -1..1 || delta == 0) return null
+    ids.add(to, ids.removeAt(from))
+    return ids
+}
+
 data class TelegramFolderLoadState(
     val loading: Boolean = false,
     val hasMore: Boolean = true,
