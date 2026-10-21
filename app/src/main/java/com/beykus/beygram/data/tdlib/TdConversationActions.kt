@@ -91,15 +91,24 @@ internal class TdConversationActions(
         var pages = 0
         while (true) {
             val page = request(TdApi.GetForumTopics(chatId, "", offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
-            page.topics.filter { !it.info.isClosed || it.info.isOutgoing || manageTopics }
-                .mapTo(topics) { ForumTopic(it.info.forumTopicId.toLong(), it.info.name) }
+            page.topics.filter { !it.info.isHidden }
+                .mapTo(topics) {
+                    ForumTopic(
+                        id = it.info.forumTopicId.toLong(),
+                        title = it.info.name,
+                        unreadCount = it.unreadCount,
+                        isPinned = it.isPinned,
+                        isClosed = it.info.isClosed,
+                        lastMessagePreview = (it.lastMessage?.content as? TdApi.MessageText)?.text?.text.orEmpty()
+                    )
+                }
             pages++
             if (page.topics.isEmpty() || page.nextOffsetForumTopicId == 0 || pages == MAX_FORUM_TOPIC_PAGES) break
             offsetDate = page.nextOffsetDate
             offsetMessageId = page.nextOffsetMessageId
             offsetTopicId = page.nextOffsetForumTopicId
         }
-        topics
+        topics.sortedWith(compareByDescending<ForumTopic> { it.isPinned }.thenByDescending { it.unreadCount > 0 })
     }
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {
@@ -297,8 +306,9 @@ internal class TdConversationActions(
     }
 
     /** Поиск по тексту внутри одного чата: TDLib отдаёт новые сообщения первыми, дальше страницы идут через nextFromMessageId. */
-    suspend fun search(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
-        val found = request(TdApi.SearchChatMessages(chatId, null, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
+    suspend fun search(chatId: Long, query: String, fromMessageId: Long, forumTopicId: Long = 0L): Result<MessageSearchPage> = requestResult {
+        val topic = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
+        val found = request(TdApi.SearchChatMessages(chatId, topic, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
         MessageSearchPage(found.messages.orEmpty().map(map), found.nextFromMessageId)
     }
 
