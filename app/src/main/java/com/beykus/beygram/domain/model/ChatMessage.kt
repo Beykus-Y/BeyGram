@@ -18,7 +18,9 @@ data class ChatMessage(
     val entities: List<MessageTextEntity> = emptyList(),
     val inlineKeyboard: List<List<BotButton>> = emptyList(),
     val isEdited: Boolean = false,
-    val reactions: List<MessageReaction> = emptyList()
+    val reactions: List<MessageReaction> = emptyList(),
+    /** Text of a Telegram service event; unlike a regular chat message it renders as a centered event chip. */
+    val serviceText: String? = null
 )
 
 /**

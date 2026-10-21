@@ -608,7 +608,8 @@ fun ChatScreen(
                         onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
                 } else {
                     val message = listItem.messages.single()
-                    MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
+                    if (message.serviceText != null) ServiceMessageChip(message.serviceText)
+                    else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                         highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                         onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                         onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
@@ -927,5 +928,24 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
             )
         }
         MessageReactionChips(message.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(message.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
+    }
+}
+
+
+/** Telegram service actions have no sender bubble, read checks or swipe-to-reply affordances. */
+@Composable
+internal fun ServiceMessageChip(text: String) {
+    val palette = beyGramPalette()
+    Box(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
+        Text(
+            text = text,
+            textAlign = TextAlign.Center,
+            color = palette.textSecondary,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            modifier = Modifier.clip(RoundedCornerShape(14.dp))
+                .background(palette.surface.copy(alpha = 0.87f))
+                .padding(horizontal = 13.dp, vertical = 7.dp)
+        )
     }
 }

@@ -280,6 +280,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val messageHistory = MessageHistoryStore()
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
+    private val serviceMessages = TdServiceMessageMapper(appContext)
     private val profiles = TdProfiles({ client }, mediaFiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
     private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
@@ -1009,7 +1010,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             }
             is TdApi.UpdateMessageContent -> messageHistory.update(update.chatId, update.messageId) { message ->
                 val attachment = mediaMapper.media(update.newContent)
-                message.copy(text = contentText(update.newContent, attachment != null), entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
+                message.copy(text = serviceMessages.text(update.newContent) ?: contentText(update.newContent, attachment != null), serviceText = serviceMessages.text(update.newContent), entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
             }
             is TdApi.UpdateMessageContentOpened -> messageHistory.update(update.chatId, update.messageId) { message ->
                 message.copy(media = message.media?.copy(isViewed = true))
@@ -1462,10 +1463,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun TdApi.Message.toChatMessage(): ChatMessage {
         val attachment = mediaMapper.media(content)
+        val service = serviceMessages.text(content)
         return ChatMessage(
         id = id,
         chatId = chatId,
-        text = contentText(content, attachment != null),
+        text = service ?: contentText(content, attachment != null),
         time = toTimeString(),
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
@@ -1477,6 +1479,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),
         reactions = messageReactions(interactionInfo),
+        serviceText = service,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
@@ -1548,7 +1551,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun TdApi.Message.toTextPreview(): UiText = previewText(content)
 
     private fun previewText(c: TdApi.MessageContent): UiText =
-        when (c) {
+        serviceMessages.text(c)?.let(UiText::Raw) ?: when (c) {
             is TdApi.MessageText      -> UiText.Raw(c.text.text)
             is TdApi.MessagePhoto     -> UiText.Res(R.string.chat_preview_photo)
             is TdApi.MessageVideo     -> UiText.Res(R.string.chat_preview_video)

@@ -1097,4 +1097,22 @@
     <string name="folder_shareable_hint">Это общая папка Telegram. Для неё недоступны фильтры по категориям, исключение прочитанных, архивных и отдельных чатов.</string>
     <string name="folder_create_unconfirmed">Не удалось подтвердить создание. Папка могла появиться в Telegram. Проверьте список папок перед новой попыткой.</string>
     <string name="folder_changed_while_editing">Папка была изменена на другом устройстве. Вернитесь к списку и откройте её заново, чтобы не потерять изменения.</string>
+    <string name="service_group_created">Группа создана</string>
+    <string name="service_supergroup_created">Супергруппа создана</string>
+    <string name="service_title_changed">Название группы изменено: %1$s</string>
+    <string name="service_photo_changed">Фотография группы изменена</string>
+    <string name="service_photo_deleted">Фотография группы удалена</string>
+    <string name="service_members_added">В группу добавлены участники</string>
+    <string name="service_member_removed">Участник удалён из группы</string>
+    <string name="service_join_link">Участник присоединился по ссылке</string>
+    <string name="service_join_request">Одобрена заявка на вступление</string>
+    <string name="service_message_pinned">Сообщение закреплено</string>
+    <string name="service_topic_created">Создана тема «%1$s»</string>
+    <string name="service_topic_edited">Тема изменена</string>
+    <string name="service_topic_closed_changed">Изменён статус темы</string>
+    <string name="service_topic_hidden_changed">Изменена видимость темы</string>
+    <string name="service_videochat_started">Видеочат начался</string>
+    <string name="service_videochat_ended">Видеочат завершён</string>
+    <string name="service_autodelete_changed">Изменён срок автоудаления сообщений</string>
+    <string name="service_background_changed">Фон чата изменён</string>
 </resources>
