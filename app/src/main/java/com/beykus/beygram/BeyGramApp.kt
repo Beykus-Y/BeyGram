@@ -57,6 +57,7 @@ import com.beykus.beygram.ui.screens.chats.CreateChannelScreen
 import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
 import com.beykus.beygram.ui.screens.chats.NewChatScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchScreen
+import com.beykus.beygram.ui.screens.chats.GlobalSearchSession
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ConnectionDiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.DiagnosticsScreen
@@ -191,6 +192,8 @@ private fun BeyGramAppContent(
     // ---- Локальный UI-state --------------------------------------------------
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     var globalSearchQuery by rememberSaveable { mutableStateOf("") }
+    val globalSearchSession = remember(repository) { GlobalSearchSession(globalSearchQuery) }
+    val globalSearchNavScope = rememberCoroutineScope()
     // The choice made on the theme screen but not applied yet, so the editor starts from it.
     // One draft shared across the palette screen and its editor; neither navigation, cancel nor Activity recreation loses pending choices.
     var appearanceDraft by rememberSaveable(stateSaver = AppearanceDraftSaver) { mutableStateOf<AppearanceConfig?>(null) }
@@ -457,6 +460,7 @@ private fun BeyGramAppContent(
                 onArchiveHiddenChange = onArchiveHiddenChange,
                 onGlobalSearch = { typed ->
                     globalSearchQuery = typed
+                    globalSearchSession.reset(typed)
                     routeName = AppRoute.GlobalSearch.name
                 },
                 onChatClick = { chat ->
@@ -507,7 +511,12 @@ private fun BeyGramAppContent(
             // A removed topic or a forum turned into a regular group must fall back to the parent chat.
             val activeTopicId = if (
                 selectedTopicChatId == selectedChatId &&
-                topicsResult?.getOrNull()?.any { it.id == selectedForumTopicId } == true
+                (
+                    topicsResult?.getOrNull()?.any { it.id == selectedForumTopicId } == true ||
+                        // A hidden General topic may not appear in the visible topics list;
+                        // its message ID from global search is still an authoritative target.
+                        chatBackRouteName == AppRoute.GlobalSearch.name && selectedForumTopicId > 0L
+                )
             ) selectedForumTopicId else 0L
             var topicsReload by remember(repository, selectedChatId) { mutableIntStateOf(0) }
             var canCreateTopic by remember(repository, selectedChatId) { mutableStateOf(false) }
@@ -552,13 +561,13 @@ private fun BeyGramAppContent(
                 topicsResult == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-                topicsResult?.isFailure == true -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                topicsResult?.isFailure == true && activeTopicId == 0L -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(stringResource(R.string.share_topics_failed))
                         TextButton(onClick = { topicsReload++ }) { Text(stringResource(R.string.common_retry)) }
                     }
                 }
-                topics != null && (activeTopicId == 0L || selectedTopic == null) -> ForumTopicsScreen(
+                topics != null && activeTopicId == 0L -> ForumTopicsScreen(
                     chatTitle = chat.title,
                     topics = topics,
                     canCreate = canCreateTopic,
@@ -598,7 +607,11 @@ private fun BeyGramAppContent(
                         observeFile = repository::observeFile,
                         onDownloadFile = repository::downloadFile,
                         onBack = {
-                            if (activeTopicId > 0L) {
+                            if (chatBackRouteName == AppRoute.GlobalSearch.name) {
+                                chatFocusMessageId = 0L
+                                selectedForumTopicId = 0L
+                                routeName = AppRoute.GlobalSearch.name
+                            } else if (activeTopicId > 0L) {
                                 selectedForumTopicId = 0L
                                 topicsReload++
                             } else routeName = chatBackRouteName
@@ -892,14 +905,25 @@ private fun BeyGramAppContent(
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
                     onOpenMessage = { chatId, forumTopicId, messageId ->
-                        selectedChatId = chatId
-                        selectedTopicChatId = chatId
-                        selectedForumTopicId = forumTopicId
-                        chatFocusMessageId = messageId
-                        chatBackRouteName = AppRoute.GlobalSearch.name
-                        routeName = AppRoute.Chat.name
+                        globalSearchNavScope.launch {
+                            // A deleted or inaccessible chat must not leave a focus message
+                            // that later opens in the next unrelated chat.
+                            val loaded = repository.loadChat(chatId)
+                            if (loaded.isSuccess) {
+                                selectedChatId = chatId
+                                selectedTopicChatId = chatId
+                                selectedForumTopicId = forumTopicId
+                                chatFocusMessageId = messageId
+                                chatBackRouteName = AppRoute.GlobalSearch.name
+                                routeName = AppRoute.Chat.name
+                            } else {
+                                chatFocusMessageId = 0L
+                                noticeError = UiText.Res(R.string.err_app_open_chat_failed)
+                            }
+                        }
                     },
-                    onBack = { routeName = AppRoute.Chats.name }
+                    onBack = { routeName = AppRoute.Chats.name },
+                    session = globalSearchSession
                 )
                 AppRoute.ReportProblem -> ReportProblemScreen(
                     repository = repository,
