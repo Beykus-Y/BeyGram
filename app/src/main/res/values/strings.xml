@@ -1175,4 +1175,8 @@
     <string name="recording_a11y_switch_mode">Переключить голосовое и кружок</string>
     <string name="recording_a11y_cancel">Отменить запись</string>
     <string name="recording_a11y_send">Отправить запись</string>
+    <string name="global_search_chat_unknown">Чат недоступен</string>
+    <string name="global_search_chat_private">Личный</string>
+    <string name="global_search_chat_group">Группа</string>
+    <string name="global_search_chat_channel">Канал</string>
 </resources>

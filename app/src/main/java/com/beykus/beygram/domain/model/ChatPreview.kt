@@ -11,6 +11,8 @@ data class ChatPreview(
     val unreadCount: Int,
     val avatarColorArgb: Long,
     val isGroup: Boolean = false,
+    /** Broadcast channels are supergroups in TDLib but need a distinct search label. */
+    val isChannel: Boolean = false,
     /** Чат «Избранное»: личный чат аккаунта с самим собой. Его название и значок задаёт интерфейс. */
     val isSavedMessages: Boolean = false,
     val isPinned: Boolean = false,
