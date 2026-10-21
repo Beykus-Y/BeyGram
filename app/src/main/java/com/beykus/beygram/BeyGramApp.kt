@@ -171,6 +171,7 @@ private fun BeyGramAppContent(
     incomingShare: IncomingShare?,
     onIncomingShareHandled: (Long) -> Unit
 ) {
+    val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
     val authState by repository.authState.collectAsStateWithLifecycle()
     val directShareChats by repository.chats.collectAsStateWithLifecycle()
