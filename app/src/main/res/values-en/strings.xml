@@ -220,4 +220,8 @@
     <string name="folder_shareable_hint">This is a shared Telegram folder. Category filters and excluding read, archived or individual chats are unavailable.</string>
     <string name="folder_create_unconfirmed">Folder creation could not be confirmed. Telegram may have created it. Check the folder list before trying again.</string>
     <string name="folder_changed_while_editing">This folder changed on another device. Return to the list and reopen it to avoid overwriting newer changes.</string>
+    <string name="global_search_chat_unknown">Chat unavailable</string>
+    <string name="global_search_chat_private">Private</string>
+    <string name="global_search_chat_group">Group</string>
+    <string name="global_search_chat_channel">Channel</string>
 </resources>
