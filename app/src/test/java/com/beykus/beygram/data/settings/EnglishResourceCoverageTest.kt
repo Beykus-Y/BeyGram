@@ -12,7 +12,7 @@ class EnglishResourceCoverageTest {
     private val completedSections = listOf(
         "auth_", "chats_", "global_search_", "tabs_", "start_", "archive_",
         "contacts_", "calls_", "updates_", "nav_", "settings_", "theme_",
-        "wallpaper_", "proxy_", "notif_", "storage_"
+        "wallpaper_", "proxy_", "notif_", "storage_", "err_", "profile_", "chat_"
     )
 
     private fun resources(directory: String): Map<String, String> {
