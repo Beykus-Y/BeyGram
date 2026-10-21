@@ -102,6 +102,9 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     var lossDeleteError by remember { mutableStateOf<String?>(null) }
     val settings by store.settings.collectAsStateWithLifecycle()
     var diagnosticsPage by rememberSaveable { mutableStateOf(false) }
+    val settingsScroll = rememberScrollState()
+    val diagnosticsScroll = rememberScrollState()
+    LaunchedEffect(diagnosticsPage) { if (diagnosticsPage) diagnosticsScroll.scrollTo(0) }
     var showFullDiagnostics by remember { mutableStateOf(false) }
     var fullExtended by remember { mutableStateOf(false) }
     var latestSurvey by remember { mutableStateOf<String?>(null) }
@@ -162,7 +165,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             stringResource(if (diagnosticsPage) R.string.video_diagnostics_center_screen_title else R.string.settings_video_recording_title),
             goBack
         )
-        Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(if (diagnosticsPage) diagnosticsScroll else settingsScroll).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (!diagnosticsPage) {
             Text(stringResource(R.string.settings_autosave_note), color = palette.textSecondary, fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 4.dp))
@@ -309,6 +312,9 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
         }
     }
 
+    // Results from asynchronous checks remain available upon returning to the center,
+    // but must never open dialogs on top of the everyday recording-settings page.
+    if (diagnosticsPage) {
     cameraSurvey?.let { report ->
         AlertDialog(
             onDismissRequest = { cameraSurvey = null },
@@ -530,6 +536,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             } }
         )
     }
+    } // diagnostics-page-only dialogs
 }
 
 @Composable
