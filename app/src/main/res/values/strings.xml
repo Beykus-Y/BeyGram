@@ -1145,4 +1145,10 @@
     <string name="service_members_added_named">В группу добавлен(а) %1$s</string>
     <string name="service_member_removed_named">Из группы удалён(а) %1$s</string>
     <string name="service_unknown_member">Участник #%1$s</string>
+    <string name="recording_a11y_start_voice">Начать запись голосового без удержания</string>
+    <string name="recording_a11y_start_video">Начать запись кружка без удержания</string>
+    <string name="recording_a11y_lock">Закрепить запись</string>
+    <string name="recording_a11y_switch_mode">Переключить голосовое и кружок</string>
+    <string name="recording_a11y_cancel">Отменить запись</string>
+    <string name="recording_a11y_send">Отправить запись</string>
 </resources>
