@@ -243,7 +243,6 @@ private fun BeyGramAppContent(
         }
     }
     // Скрытый архив остаётся скрытым после перезапуска: флаг лежит в настройках приложения.
-    val context = LocalContext.current
     val chatPreferences = remember(context) { context.applicationContext.getSharedPreferences("chats", Context.MODE_PRIVATE) }
     var archiveHidden by remember { mutableStateOf(chatPreferences.getBoolean("archive_hidden", false)) }
     val onArchiveHiddenChange: (Boolean) -> Unit = { hidden ->
