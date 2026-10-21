@@ -11,6 +11,7 @@ import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.domain.UiText
@@ -33,6 +34,9 @@ class TelegramNotificationService : Service() {
     private var startReported = false
     // Reason recorded when the service stops; stays "system" when the platform stops it.
     private var stopReason = "system"
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.context(newBase))
+    }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
