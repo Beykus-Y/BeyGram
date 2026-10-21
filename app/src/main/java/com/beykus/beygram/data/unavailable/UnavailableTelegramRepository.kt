@@ -170,6 +170,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> = noHistory
     override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {}
     override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {}
+    override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> = unavailable()
     override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = unavailable()
     override fun openChat(chatId: Long) {}
     override fun closeChat(chatId: Long) {}
