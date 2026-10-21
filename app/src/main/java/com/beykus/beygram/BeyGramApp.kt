@@ -891,6 +891,14 @@ private fun BeyGramAppContent(
                     conversation = repository,
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
+                    onOpenMessage = { chatId, forumTopicId, messageId ->
+                        selectedChatId = chatId
+                        selectedTopicChatId = chatId
+                        selectedForumTopicId = forumTopicId
+                        chatFocusMessageId = messageId
+                        chatBackRouteName = AppRoute.GlobalSearch.name
+                        routeName = AppRoute.Chat.name
+                    },
                     onBack = { routeName = AppRoute.Chats.name }
                 )
                 AppRoute.ReportProblem -> ReportProblemScreen(
