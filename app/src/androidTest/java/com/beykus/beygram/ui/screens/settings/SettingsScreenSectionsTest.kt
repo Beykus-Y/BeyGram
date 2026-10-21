@@ -1,9 +1,10 @@
 package com.beykus.beygram.ui.screens.settings
 
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -45,7 +46,10 @@ class SettingsScreenSectionsTest {
             R.string.settings_group_network,
             R.string.settings_group_data_diagnostics,
             R.string.settings_group_updates
-        ).forEach { composeRule.onNodeWithText(context.getString(it)).assertExists() }
+        ).forEach {
+            val heading = SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit)
+            composeRule.onNode(hasText(context.getString(it)) and heading).assertExists()
+        }
         val actions = listOf(
             R.string.feature_language to "language",
             R.string.nav_title to "navigation",
