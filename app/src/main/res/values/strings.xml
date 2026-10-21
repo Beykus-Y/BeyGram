@@ -1179,4 +1179,10 @@
     <string name="global_search_chat_private">Личный</string>
     <string name="global_search_chat_group">Группа</string>
     <string name="global_search_chat_channel">Канал</string>
+    <string name="updates_preparing_install">Проверяем APK перед установкой…</string>
+    <string name="updates_confirm_android_install">Подтвердите обновление в системном установщике Android.</string>
+    <string name="updates_allow_unknown_sources">Разрешите установку из BeyGram в настройках Android, затем вернитесь и нажмите «Установить».</string>
+    <string name="updates_error_launch_installer">Не удалось открыть установщик Android.</string>
+    <string name="updates_error_check">Не удалось проверить GitHub Releases.</string>
+    <string name="updates_error_download">Ошибка загрузки APK.</string>
 </resources>

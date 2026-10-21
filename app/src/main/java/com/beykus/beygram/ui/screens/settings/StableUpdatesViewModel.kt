@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.data.update.ApkUpdateSource
 import com.beykus.beygram.data.update.DEV_PACKAGE
 import com.beykus.beygram.data.update.DevUpdateRepository
@@ -50,6 +52,7 @@ internal fun updateChannelFor(packageName: String): UpdateChannel =
     if (packageName == DEV_PACKAGE) UpdateChannel.DevBeta else UpdateChannel.Stable
 
 class StableUpdatesViewModel(application: Application) : AndroidViewModel(application) {
+    private fun localized(id: Int) = AppLocale.context(getApplication<Application>()).getString(id)
     private val repository: ApkUpdateSource = application.applicationContext.let { context ->
         if (updateChannelFor(context.packageName) == UpdateChannel.DevBeta) {
             DevUpdateRepository(context)
@@ -75,7 +78,7 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
                 status = UpdateStatus.Idle
                 throw cancelled
             } catch (error: Exception) {
-                status = UpdateStatus.Failure(error.message ?: "Не удалось проверить GitHub Releases.")
+                status = UpdateStatus.Failure(error.message ?: localized(R.string.updates_error_check))
             }
         }
     }
@@ -96,7 +99,7 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
                 status = UpdateStatus.Available(release)
                 throw cancelled
             } catch (error: Exception) {
-                status = UpdateStatus.Failure(error.message ?: "Ошибка загрузки APK.", release)
+                status = UpdateStatus.Failure(error.message ?: localized(R.string.updates_error_download), release)
             }
         }
     }
@@ -111,19 +114,19 @@ class StableUpdatesViewModel(application: Application) : AndroidViewModel(applic
         // Synchronously enter the install state before launching any suspendable work.
         // A repeated check or download cannot replace the state during this handoff.
         status = UpdateStatus.PreparingInstall(release)
-        installHint = "Проверяем APK перед установкой…"
+        installHint = localized(R.string.updates_preparing_install)
         viewModelScope.launch {
             try {
                 repository.verifyForInstall(file, release)
                 installHint = if (repository.install(file)) {
-                    "Подтвердите обновление в системном установщике Android."
+                    localized(R.string.updates_confirm_android_install)
                 } else {
-                    "Разрешите установку из BeyGram в настройках Android, затем вернитесь и нажмите «Установить»."
+                    localized(R.string.updates_allow_unknown_sources)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                installHint = error.message ?: "Не удалось открыть установщик Android."
+                installHint = error.message ?: localized(R.string.updates_error_launch_installer)
             } finally {
                 // The APK path is immutable and never used by subsequent downloads.
                 status = UpdateStatus.Ready(release, file)

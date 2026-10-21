@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wallpaper_title">Chat wallpaper</string>
+    <string name="wallpaper_option_none">No wallpaper</string>
+    <string name="wallpaper_option_solid">Solid color %1$d</string>
+    <string name="wallpaper_option_gradient">Gradient %1$d</string>
+    <string name="wallpaper_option_photo">Photo from gallery</string>
+    <string name="wallpaper_dim">Dim wallpaper</string>
+    <string name="wallpaper_import_failed">Unable to open this photo</string>
+</resources>
