@@ -16,6 +16,10 @@ interface ConversationRepository {
     /** Atomic updates prevent text/formatting/reply callbacks from overwriting one another. */
     fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft)
     fun observeChatHistory(chatId: Long): StateFlow<ChatHistory>
+    fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory>
+    fun loadForumTopicHistory(chatId: Long, forumTopicId: Long)
+    fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long)
+    suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean>
     fun openChat(chatId: Long)
     fun closeChat(chatId: Long)
     fun loadOlderMessages(chatId: Long)
@@ -53,6 +57,7 @@ interface ConversationRepository {
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
     /** Messages in one chat whose text matches [query]. Pass 0 for the first page, then the previous page's nextFromMessageId. */
     suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
+    suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
     /**
      * Messages matching [query] in all chats of the account, limited by [filter]. Pass "" for the first page, then the
      * previous page's nextOffset. The offset is only valid with the same filter it came from.
