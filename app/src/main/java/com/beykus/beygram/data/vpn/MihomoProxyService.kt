@@ -3,12 +3,14 @@ package com.beykus.beygram.data.vpn
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.os.SystemClock
 import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
@@ -54,6 +56,10 @@ class MihomoProxyService : Service() {
     // When the newest start request arrived, so the problem report can say how long the listener took to become ready.
     private var startRequestedAt = 0L
     private val notificationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.context(newBase))
+    }
 
     override fun onCreate() {
         super.onCreate()
