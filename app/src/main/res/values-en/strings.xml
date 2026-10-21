@@ -220,4 +220,10 @@
     <string name="folder_shareable_hint">This is a shared Telegram folder. Category filters and excluding read, archived or individual chats are unavailable.</string>
     <string name="folder_create_unconfirmed">Folder creation could not be confirmed. Telegram may have created it. Check the folder list before trying again.</string>
     <string name="folder_changed_while_editing">This folder changed on another device. Return to the list and reopen it to avoid overwriting newer changes.</string>
+    <string name="recording_a11y_start_voice">Start hands-free voice recording</string>
+    <string name="recording_a11y_start_video">Start hands-free video-note recording</string>
+    <string name="recording_a11y_lock">Lock recording</string>
+    <string name="recording_a11y_switch_mode">Switch between voice and video notes</string>
+    <string name="recording_a11y_cancel">Cancel recording</string>
+    <string name="recording_a11y_send">Send recording</string>
 </resources>
