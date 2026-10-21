@@ -232,6 +232,12 @@ class NotificationRuntime private constructor(private val context: Context) {
             ?: throw IllegalStateException("Telegram client is not authorized")
         // A sign-out while the reply waited ends it.
         if (!stillOwned(pending)) throw AccountChangedException()
+        // The notification RemoteInput has no clipping preview. Reject an oversized reply here
+        // instead of treating a silently truncated reply as fully delivered and clearing its outbox.
+        val textLimit = source.messageLimits.value.text
+        if (entry.text.codePointCount(0, entry.text.length) > textLimit) {
+            throw UserMessageException(UiText.Res(R.string.err_message_too_long))
+        }
         // Replying to the notified message puts the answer in its forum topic, too.
         val replyId = entry.replyToMessageId.takeIf { it > 0L }
         val sent = source.sendMessage(entry.chatId, entry.text, replyId, forumTopicId = entry.topicId)
