@@ -421,6 +421,10 @@ private fun BeyGramAppContent(
                     archiveSettingsScope.launch { repository.loadMoreFolderChats(id) }
                 },
                 onPinFolderChat = repository::setFolderChatPinned,
+                onLoadFolder = repository::getFolderDraft,
+                onSaveFolder = repository::saveFolderDraft,
+                onDeleteFolder = repository::deleteServerFolder,
+                onReorderFolders = repository::reorderServerFolders,
                 myProfile = myProfile.info,
                 observeFile = repository::observeFile,
                 downloadFile = repository::downloadFile,
