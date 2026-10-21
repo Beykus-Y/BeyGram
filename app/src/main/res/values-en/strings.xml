@@ -241,4 +241,5 @@
     <string name="wallpaper_preset_terracotta_dust">Terracotta Dust</string>
     <string name="wallpaper_preset_silver_mist">Silver Mist</string>
     <string name="wallpaper_preset_emerald_tide">Emerald Tide</string>
+    <string name="wallpaper_preview_title">Chat preview</string>
 </resources>
