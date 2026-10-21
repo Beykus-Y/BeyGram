@@ -1058,4 +1058,13 @@
     <string name="loss_evidence_verified">Старая локальная копия очищена, подтверждено скачивание нового файла</string>
     <string name="loss_evidence_unverified">Не удалось подтвердить, что файл скачан независимо от локального кэша</string>
     <string name="loss_camera_report_heading">BeyGram — опрос возможностей камер (без съёмки)</string>
+    <string name="share_pick_destination">Куда отправить?</string>
+    <string name="share_review_before_send">Проверьте перед отправкой</string>
+    <string name="share_preview_title">Что вы отправляете</string>
+    <string name="share_files_count">Вложений: %1$d</string>
+    <string name="share_saved_target">Личный чат с собой</string>
+    <string name="share_select_chat">Нажмите, чтобы выбрать</string>
+    <string name="share_send_review_hint">Сообщение отправится только после подтверждения. Адресата можно изменить кнопкой «Назад».</string>
+    <string name="chat_truncated_notice">При отправке останутся первые %1$d символов. Остальной текст будет обрезан.</string>
+    <string name="share_truncated_notice">Будут отправлены первые %1$d символов. Остальное будет обрезано.</string>
 </resources>
