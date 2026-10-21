@@ -561,6 +561,15 @@ private fun BeyGramAppContent(
             LaunchedEffect(repository, selectedChatId, activeTopicId) {
                 if (activeTopicId > 0L) repository.loadForumTopicHistory(selectedChatId, activeTopicId)
             }
+            // A trusted target missing from the topic list whose history can't load was deleted: show the list.
+            LaunchedEffect(activeTopicId, history.error, topics) {
+                if (activeTopicId > 0L && history.error != null && history.messages.isEmpty() &&
+                    topics != null && topics.none { it.id == activeTopicId }
+                ) {
+                    trustedForumTopicId = 0L
+                    selectedForumTopicId = 0L
+                }
+            }
             when {
                 topicsResult == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()

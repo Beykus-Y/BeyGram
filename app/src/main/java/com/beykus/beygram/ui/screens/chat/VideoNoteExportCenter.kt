@@ -100,8 +100,9 @@ internal object VideoNoteExportCenter {
     private val _results = MutableStateFlow<List<VideoNoteExportResult>>(emptyList())
     val results: StateFlow<List<VideoNoteExportResult>> = _results.asStateFlow()
 
-    private val _failures = MutableStateFlow<List<Long>>(emptyList())
-    val failures: StateFlow<List<Long>> = _failures.asStateFlow()
+    /** Failed exports as (chatId, topicId): only the topic the note was recorded in reports it. */
+    private val _failures = MutableStateFlow<List<Pair<Long, Long>>>(emptyList())
+    val failures: StateFlow<List<Pair<Long, Long>>> = _failures.asStateFlow()
 
     private val _pendingNotes = MutableStateFlow<List<PendingVideoNote>>(emptyList())
     /** Автоматические кружки, которые TDLib ещё не принял: лента показывает их сразу, с индикатором. */
@@ -134,7 +135,7 @@ internal object VideoNoteExportCenter {
                 Log.e(TAG, "video_processing_failed session=" + sessionName, failure)
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_failed, failure.javaClass.simpleName), VideoNoteStatus.PROCESSING_FAILED)
                 recordAppEvent(EventKind.OTHER, "video_note_processing_failed", "Кружок: обработка не удалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
-                _failures.update { it + chatId }
+                _failures.update { it + (chatId to topicId) }
             } finally {
                 _pendingNotes.update { current -> current.filterNot { it.sessionName == sessionName } }
             }
@@ -219,9 +220,10 @@ internal object VideoNoteExportCenter {
         }
     }
 
-    fun consumeFailure(chatId: Long): Boolean {
-        val had = chatId in _failures.value
-        if (had) _failures.update { current -> current - chatId }
+    fun consumeFailure(chatId: Long, topicId: Long = 0L): Boolean {
+        val key = chatId to topicId
+        val had = key in _failures.value
+        if (had) _failures.update { current -> current - key }
         return had
     }
 }

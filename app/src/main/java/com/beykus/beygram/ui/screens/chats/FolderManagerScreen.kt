@@ -126,7 +126,7 @@ internal fun FolderManagerScreen(
     ) {
         ProfileToolbar(stringResource(R.string.folder_manage_title), ::back)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        error?.let {
+        (error ?: if (uncertainCreateBaseline != null && !busy) stringResource(R.string.folder_create_unconfirmed) else null)?.let {
             Text(it, color = palette.danger, style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
         }
@@ -164,6 +164,9 @@ internal fun FolderManagerScreen(
                         if (!editing.valid()) {
                             error = context.getString(R.string.folder_validation_error)
                         } else {
+                            // A create sent before a rotation may still succeed: the saved baseline keeps
+                            // the restored draft locked until the result is known or the folder appears.
+                            if (editing.id == null) uncertainCreateBaseline = snapshot.folders.map { f -> f.id }.toSet()
                             scope.launch {
                                 busy = true; error = null
                                 try {
@@ -172,9 +175,9 @@ internal fun FolderManagerScreen(
                                         {
                                             // Only a timeout leaves the create outcome unknown; a rejection stays editable.
                                             if (editing.id == null && it.cause is TimeoutCancellationException) {
-                                                uncertainCreateBaseline = snapshot.folders.map { f -> f.id }.toSet()
                                                 error = context.getString(R.string.folder_create_unconfirmed)
                                             } else {
+                                                uncertainCreateBaseline = null
                                                 error = it.userMessage(context, R.string.feature_action_failed)
                                             }
                                         }
