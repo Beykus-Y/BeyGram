@@ -183,6 +183,7 @@
     <string name="composer_cancel_attachments">Отменить вложения</string>
     <string name="composer_prepare_failed">Не удалось подготовить вложение. Попробуйте отправить его как файл.</string>
     <string name="composer_remove_attachment">Убрать</string>
+    <string name="composer_remove_attachment_named">Удалить вложение «%1$s»</string>
     <string name="composer_send_failed">Не удалось отправить вложение</string>
     <string name="composer_too_many_attachments">Выберите не более 10 вложений за раз</string>
     <string name="composer_type_file">Файл</string>
@@ -751,6 +752,11 @@
     <string name="search_type_to_search">Введите текст, чтобы найти сообщения в этом чате</string>
     <string name="search_you">Вы</string>
     <string name="settings_title">Настройки</string>
+    <string name="settings_group_interface">Интерфейс</string>
+    <string name="settings_group_devices_privacy">Устройства и приватность</string>
+    <string name="settings_group_network">Сеть</string>
+    <string name="settings_group_data_diagnostics">Данные и диагностика</string>
+    <string name="settings_group_updates">Обновления</string>
     <string name="start_connection_checking">Проверяем доступность Telegram…</string>
     <string name="start_connection_connected">Связь с Telegram установлена</string>
     <string name="start_connection_no_network">Нет подключения к сети</string>
