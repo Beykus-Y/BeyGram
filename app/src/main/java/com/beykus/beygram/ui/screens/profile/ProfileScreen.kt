@@ -108,6 +108,7 @@ fun ProfileScreen(
             )
         }
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        state.error?.let { ProfileLoadError(it.resolve(), state.isLoading, onRefresh) }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 28.dp)) {
             state.info?.let { info ->
                 Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -145,9 +146,6 @@ fun ProfileScreen(
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
             }
             if (state.info == null && !state.isLoading && state.error == null) Text(stringResource(R.string.profile_info_not_loaded), color = palette.textSecondary, modifier = Modifier.padding(24.dp))
-            state.error?.let {
-                ProfileLoadError(it.resolve(), state.isLoading, onRefresh)
-            }
             photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp)) }
         }
     }
