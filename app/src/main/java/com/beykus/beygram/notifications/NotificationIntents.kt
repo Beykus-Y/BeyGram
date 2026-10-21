@@ -27,9 +27,9 @@ internal object NotificationIntents {
         val routing = replyRoutingToken(session, intent.getLongExtra(CHAT_ID, 0L), intent.getIntExtra(GROUP_ID, 0), intent.getIntExtra(MAX_ID, 0), intent.getLongExtra(REPLY_TO, 0L), intent.getLongExtra(TOPIC, 0L))
         return session.takeIf { intent.getStringExtra(TOKEN) == routing }
     }
-    fun chat(context: Context, chatId: Long, groupId: Int, maxId: Int): PendingIntent = PendingIntent.getActivity(context, 0,
-        Intent(context, MainActivity::class.java).setAction(OPEN_CHAT).setData(Uri.parse("beygram://${context.packageName}/chat/$chatId/$groupId/$maxId"))
-            .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+    fun chat(context: Context, chatId: Long, groupId: Int, maxId: Int, topicId: Long = 0L): PendingIntent = PendingIntent.getActivity(context, 0,
+        Intent(context, MainActivity::class.java).setAction(OPEN_CHAT).setData(Uri.parse("beygram://${context.packageName}/chat/$chatId/$groupId/$maxId/$topicId"))
+            .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(TOPIC, topicId).putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     fun settings(context: Context): PendingIntent = PendingIntent.getActivity(context, 0,
         Intent(context, MainActivity::class.java).setAction(OPEN_SETTINGS).setData(Uri.parse("beygram://${context.packageName}/notification-settings"))

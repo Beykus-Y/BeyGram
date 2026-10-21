@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Build
 import android.util.AtomicFile
 import android.util.Log
+import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.AppLocale
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -26,6 +28,10 @@ internal object VideoNoteStatus {
     const val SENT = "sent"
     const val SEND_FAILED = "send_failed"
     const val CANCELLED = "cancelled"
+    const val RECORDING = "recording"
+    const val PROCESSING = "processing"
+    const val RECORDING_FAILED = "recording_failed"
+    const val DISCARDED = "discarded"
 }
 
 /**
@@ -39,16 +45,30 @@ data class VideoNoteDiagnosticReport(
     val targetFps: Int,
     val entries: List<String>,
     val rawFps: Double? = null,
-    val outputFps: Double? = null
+    val outputFps: Double? = null,
+    /** Upper bound of the range actually handed to the camera; null = camera default. */
+    val attemptedMaxFps: Int? = null,
+    /** Frame rate of the sensor results received while recording; null = not collected. */
+    val sensorFps: Double? = null
 ) {
-    fun asText(): String = buildString {
-        appendLine("BeyGram — диагностика видеосообщения")
-        appendLine("Сессия: $id")
-        appendLine("Время: ${Date(startedAt)}")
-        appendLine("Состояние: $status")
-        appendLine("Целевой FPS: $targetFps")
-        appendLine("RAW FPS: ${rawFps?.let { String.format(Locale.US, "%.2f", it) } ?: "не измерен"}")
-        appendLine("Итоговый FPS: ${outputFps?.let { String.format(Locale.US, "%.2f", it) } ?: "не измерен"}")
+    /** [statusLabel] turns a [VideoNoteStatus] key into the localized label shown in the list. */
+    fun asText(context: Context, statusLabel: (String) -> String): String = buildString {
+        fun fps(value: Double?) = value?.let { String.format(Locale.US, "%.2f", it) }
+            ?: context.getString(R.string.loss_report_not_measured)
+        appendLine(context.getString(R.string.vn_report_heading))
+        appendLine(context.getString(R.string.vn_report_session, id))
+        appendLine(context.getString(R.string.vn_report_time, Date(startedAt).toString()))
+        appendLine(context.getString(R.string.vn_report_status, statusLabel(status)))
+        appendLine(context.getString(R.string.vn_report_target, targetFps,
+            attemptedMaxFps?.toString() ?: context.getString(R.string.camera_report_range_default)))
+        appendLine(context.getString(R.string.vn_report_raw, fps(rawFps)))
+        appendLine(context.getString(R.string.vn_report_final, fps(outputFps)))
+        appendLine(context.getString(R.string.vn_report_stage,
+            fpsLimitStageText(context, videoNoteFpsLimitStage(targetFps, attemptedMaxFps, rawFps, outputFps))))
+        if (sensorFps != null || rawFps != null || outputFps != null) {
+            appendLine(rootCauseText(context, diagnoseVideoNoteFps(VideoNoteStageEvidence(
+                targetFps = attemptedMaxFps ?: targetFps, sensorFps = sensorFps, rawFps = rawFps, exportedFps = outputFps))))
+        }
         appendLine()
         entries.forEach { appendLine(it) }
     }
@@ -64,10 +84,18 @@ object VideoNoteDiagnostics {
     private val mutableReports = MutableStateFlow<List<VideoNoteDiagnosticReport>>(emptyList())
     val reports: StateFlow<List<VideoNoteDiagnosticReport>> = mutableReports.asStateFlow()
     private var file: AtomicFile? = null
+    private var appContext: Context? = null
+    // The application context has no in-app locale below API 33.
+    private val localContext: Context? get() = appContext?.let(AppLocale::context)
+
+    /** Localized text for entries written from places that have no Context at hand. */
+    internal fun text(id: Int, vararg args: Any): String =
+        localContext?.getString(id, *args) ?: id.toString()
 
     @Synchronized
     fun initialize(context: Context) {
         if (file != null) return
+        appContext = context.applicationContext
         file = AtomicFile(File(context.applicationContext.noBackupFilesDir, FILE_NAME))
         val saved = runCatching {
             val storedFile = file ?: return@runCatching emptyList()
@@ -83,7 +111,9 @@ object VideoNoteDiagnostics {
                     targetFps = json.optInt("targetFps", 30),
                     entries = (0 until rows.length()).map { rows.optString(it) },
                     rawFps = if (json.has("rawFps")) json.getDouble("rawFps") else null,
-                    outputFps = if (json.has("outputFps")) json.getDouble("outputFps") else null
+                    outputFps = if (json.has("outputFps")) json.getDouble("outputFps") else null,
+                    attemptedMaxFps = if (json.has("attemptedMaxFps")) json.getInt("attemptedMaxFps") else null,
+                    sensorFps = if (json.has("sensorFps")) json.getDouble("sensorFps") else null
                 )
             }
         }.onFailure { Log.w(TAG, "Cannot read stored video diagnostics: ${it.javaClass.simpleName}") }
@@ -95,32 +125,39 @@ object VideoNoteDiagnostics {
     }
 
     @Synchronized
-    fun begin(
+    internal fun begin(
         context: Context,
         sessionId: String,
         settings: VideoMessageSettings,
         lens: String,
-        selectedRange: String,
+        decision: VideoNoteFpsDecision?,
+        previewRange: IntRange?,
         supportedRanges: String,
         captureBitrate: Int
     ) {
         if (!settings.diagnosticsEnabled) return
         initialize(context)
         val now = System.currentTimeMillis()
-        val start = listOf(
-            "Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android SDK ${Build.VERSION.SDK_INT}",
-            "Preset: ${settings.preset}, requestedFPS: ${settings.requestedFrameRateRange()}",
-            "Lens: $lens, selectedCameraRange: $selectedRange",
-            "AdvertisedCameraRanges: $supportedRanges",
-            "Capture target bitrate: $captureBitrate bit/s, mirrorFront: ${settings.mirrorFrontCamera}",
-            "Start recording requested"
+        val default = context.getString(R.string.camera_report_range_default)
+        val start = listOfNotNull(
+            context.getString(R.string.camera_report_device, Build.MANUFACTURER, Build.MODEL, Build.VERSION.SDK_INT),
+            context.getString(R.string.vn_entry_preset, settings.preset.name, settings.requestedFrameRateRange().toText()),
+            context.getString(R.string.vn_entry_lens, lens, decision?.selected?.toText() ?: default,
+                previewRange?.toText() ?: default),
+            decision?.let { context.getString(R.string.vn_entry_decision, fpsCauseText(context, it.cause),
+                it.normalCandidates.joinToString { range -> range.toText() }.ifBlank { "—" },
+                yesNoUnknown(context, it.encoderSupports60)) },
+            context.getString(R.string.vn_entry_advertised, supportedRanges),
+            context.getString(R.string.vn_entry_bitrate, captureBitrate, yesNoUnknown(context, settings.mirrorFrontCamera)),
+            context.getString(R.string.vn_entry_start_requested)
         ).map { stamp(it) }
         val report = VideoNoteDiagnosticReport(
             id = sessionId,
             startedAt = now,
-            status = "Запись",
+            status = VideoNoteStatus.RECORDING,
             targetFps = settings.requestedFrameRateRange().last,
-            entries = start
+            entries = start,
+            attemptedMaxFps = decision?.selected?.last
         )
         persist(listOf(report) + mutableReports.value.filterNot { it.id == sessionId })
     }
@@ -136,25 +173,69 @@ object VideoNoteDiagnostics {
         }
     }
 
+    /** Sensor results seen during the recording itself; a null [stats] is logged as "no results", not "no frames". */
+    internal fun recordSensor(id: String, stats: ProbeFrameStats?, truncated: Boolean = false) {
+        if (!hasReport(id)) return
+        if (stats == null) {
+            append(id, text(R.string.vn_entry_sensor_none))
+            return
+        }
+        fun ms(v: Double?) = v?.let { String.format(Locale.US, "%.1f", it) } ?: "?"
+        modify(id) { old ->
+            old.copy(
+                sensorFps = stats.measuredFps,
+                entries = (old.entries + stamp(text(R.string.vn_entry_sensor, stats.frames,
+                    stats.measuredFps?.let { String.format(Locale.US, "%.2f", it) } ?: "?",
+                    ms(stats.p50GapMs), ms(stats.p95GapMs), ms(stats.maxGapMs), stats.longGaps,
+                    ms(stats.medianExposureMs), (stats.coverage * 100).toInt()))) .let { rows ->
+                    if (truncated) rows + stamp(text(R.string.vn_entry_sensor_truncated)) else rows
+                }.takeLast(MAX_ENTRIES)
+            )
+        }
+    }
+
+    /** Crop region and zoom the camera applied: input for comparing the field of view between sizes. */
+    fun recordCrop(id: String, crop: String?, zoom: Float?) {
+        if (crop == null) return
+        append(id, text(R.string.vn_entry_crop, crop, zoom?.let { String.format(Locale.US, "%.2f", it) } ?: "?"))
+    }
+
     suspend fun inspect(id: String, stage: String, file: File, output: Boolean = false) {
         if (!hasReport(id)) return
         // Run after the camera/Transformer has finalized the MP4; only encoded sample PTS are read.
         val result = withContext(Dispatchers.IO) { runCatching { analyzeVideoNoteFrameSamples(file) } }
+        val audioResult = withContext(Dispatchers.IO) { runCatching { analyzeVideoNoteAudio(file) } }
+        val audio = audioResult.getOrNull()
         result.fold(
             onSuccess = { data ->
+                fun orUnknown(v: Number?, divisor: Int = 1) = v?.let { (it.toLong() / divisor).toString() } ?: "?"
+                val avLine = if (audioResult.isFailure) text(R.string.vn_entry_av_failed, audioResult.exceptionOrNull()?.javaClass?.simpleName ?: "?")
+                else avSyncOf(data.firstVideoUs, data.lastVideoUs, audio)?.let { sync ->
+                    if (audio != null && audio.sampleCount == 0) text(R.string.vn_entry_av_unreadable)
+                    else if (sync.verdict == AvSyncVerdict.NO_AUDIO) text(R.string.vn_entry_av_none)
+                    else text(R.string.vn_entry_av, orUnknown(audio?.sampleRate), orUnknown(audio?.channels),
+                        orUnknown(audio?.bitrateBps, 1000), String.format(Locale.US, "%.0f", sync.startOffsetMs),
+                        String.format(Locale.US, "%.0f", sync.endOffsetMs), String.format(Locale.US, "%.0f", sync.driftMs),
+                        text(when (sync.verdict) {
+                            AvSyncVerdict.IN_SYNC, AvSyncVerdict.NO_AUDIO -> R.string.vn_av_in_sync
+                            AvSyncVerdict.START_OFFSET -> R.string.vn_av_start_offset
+                            AvSyncVerdict.DRIFT -> R.string.vn_av_drift
+                        }))
+                }
                 modify(id) { old ->
                     val raw = if (output) old.rawFps else data.measuredFps
                     val final = if (output) data.measuredFps else old.outputFps
-                    val finding = if (output) videoNoteFpsFinding(old.targetFps, raw, final) else null
+                    val finding = if (output) videoNoteFpsLimitStage(old.targetFps, old.attemptedMaxFps, raw, final) else null
                     old.copy(
                         rawFps = raw,
                         outputFps = final,
-                        entries = (old.entries + stamp("$stage: ${data.summary()}") +
-                            listOfNotNull(finding?.let { stamp("FPS finding: $it") })).takeLast(MAX_ENTRIES)
+                        entries = (old.entries + stamp("$stage: ${localContext?.let(data::summary) ?: data.frameCount}") +
+                            listOfNotNull(avLine?.let(::stamp)) +
+                            listOfNotNull(finding?.let { stamp(text(R.string.vn_entry_finding, stageText(it))) })).takeLast(MAX_ENTRIES)
                     )
                 }
             },
-            onFailure = { append(id, "$stage: не удалось измерить FPS (${it.javaClass.simpleName})") }
+            onFailure = { append(id, text(R.string.vn_entry_measure_failed, stage, it.javaClass.simpleName)) }
         )
     }
 
@@ -187,6 +268,8 @@ object VideoNoteDiagnostics {
                     put("entries", JSONArray(report.entries))
                     report.rawFps?.let { put("rawFps", it) }
                     report.outputFps?.let { put("outputFps", it) }
+                    report.attemptedMaxFps?.let { put("attemptedMaxFps", it) }
+                    report.sensorFps?.let { put("sensorFps", it) }
                 })
             }
             val bytes = array.toString().toByteArray(Charsets.UTF_8)
@@ -205,6 +288,9 @@ object VideoNoteDiagnostics {
         val cutoff = System.currentTimeMillis() - RETENTION_MS
         return reports.filter { it.startedAt >= cutoff }.sortedByDescending { it.startedAt }.take(MAX_REPORTS)
     }
+
+    private fun stageText(stage: VideoNoteFpsLimitStage): String =
+        localContext?.let { fpsLimitStageText(it, stage) } ?: stage.name
 
     private fun stamp(message: String): String {
         val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())

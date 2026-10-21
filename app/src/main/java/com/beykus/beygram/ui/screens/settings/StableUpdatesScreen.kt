@@ -42,6 +42,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = viewModel()) {
     val palette = beyGramPalette()
     val status = model.status
+    val isDevBeta = updateChannelFor(BuildConfig.APPLICATION_ID) == UpdateChannel.DevBeta
     Column(
         Modifier.fillMaxSize().background(palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
@@ -58,7 +59,10 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
         }
         Text(stringResource(R.string.updates_installed_version, BuildConfig.VERSION_NAME),
             color = palette.textSecondary)
-        Text(stringResource(R.string.updates_stable_only), color = palette.textSecondary, fontSize = 14.sp)
+        Text(
+            stringResource(if (isDevBeta) R.string.updates_dev_channel else R.string.updates_stable_only),
+            color = palette.textSecondary, fontSize = 14.sp
+        )
         Button(onClick = model::check,
             enabled = status !is UpdateStatus.Checking && status !is UpdateStatus.Downloading &&
                 status !is UpdateStatus.PreparingInstall,
@@ -66,7 +70,10 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
             Text(stringResource(R.string.updates_check))
         }
         when (status) {
-            UpdateStatus.Idle -> Text(stringResource(R.string.updates_manual_hint), color = palette.textSecondary)
+            UpdateStatus.Idle -> Text(
+                stringResource(if (isDevBeta) R.string.updates_dev_manual_hint else R.string.updates_manual_hint),
+                color = palette.textSecondary
+            )
             UpdateStatus.Checking -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.padding(end = 16.dp))
@@ -85,7 +92,7 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
             is UpdateStatus.PreparingInstall -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.padding(end = 16.dp))
-                    Text("Проверяем APK перед установкой…", color = palette.textPrimary)
+                    Text(stringResource(R.string.updates_preparing_install), color = palette.textPrimary)
                 }
             }
             is UpdateStatus.Ready -> {

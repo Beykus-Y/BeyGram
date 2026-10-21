@@ -1,7 +1,9 @@
 package com.beykus.beygram.data.media
 
+import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import com.beykus.beygram.R
 import java.io.File
 import java.util.Locale
 
@@ -28,22 +30,21 @@ internal data class VideoNoteFrameStats(
     val audioDurationUs: Long? = null,
     val videoDurationUs: Long? = null,
     val codecProfile: Int? = null,
-    val codecLevel: Int? = null
+    val codecLevel: Int? = null,
+    val firstVideoUs: Long = 0L,
+    val lastVideoUs: Long = 0L
 ) {
-    fun summary(): String = buildString {
-        append("${width}x${height}, samples=$frameCount")
-        append(", measuredFPS=${measuredFps?.let { String.format(Locale.US, "%.2f", it) } ?: "n/a"}")
-        append(", declaredFPS=${declaredFps ?: "n/a"}")
-        append(", largestGapMs=${String.format(Locale.US, "%.1f", maximumPositiveFrameGapMs)}")
-        append(", gapsOver50ms=$gapsOver50Ms")
-        append(", medianGapMs=${medianGapMs ?: "n/a"}, p95GapMs=${p95GapMs ?: "n/a"}")
-        append(", nonIncreasingPTS=$duplicateOrReorderedPts, framesPerSecond=$fpsWindows")
-        append(", videoCodec=$codec, profile=${codecProfile ?: "n/a"}, level=${codecLevel ?: "n/a"}")
-        append(", declaredBitrateBps=${bitrateBps ?: "n/a"}, audioCodec=${audioCodec ?: "none"}")
-        if (audioDurationUs != null && videoDurationUs != null) {
-            append(", audioVideoDurationDeltaMs=${(audioDurationUs - videoDurationUs) / 1000}")
-        }
-        append(", bytes=$fileBytes")
+    /** Localized one-line summary for reports shown in the app. */
+    fun summary(context: Context): String {
+        fun f(v: Double?) = v?.let { String.format(Locale.US, "%.1f", it) } ?: "?"
+        val avDelta = if (audioDurationUs != null && videoDurationUs != null) ((audioDurationUs - videoDurationUs) / 1000).toString() else "?"
+        return context.getString(
+            R.string.vn_frame_summary, width, height, frameCount,
+            measuredFps?.let { String.format(Locale.US, "%.2f", it) } ?: "?", declaredFps?.toString() ?: "?",
+            f(medianGapMs), f(p95GapMs), f(maximumPositiveFrameGapMs), gapsOver50Ms, duplicateOrReorderedPts,
+            fpsWindows.joinToString(" "), codec, codecProfile?.toString() ?: "?", codecLevel?.toString() ?: "?",
+            bitrateBps?.toString() ?: "?", audioCodec ?: context.getString(R.string.camera_report_none), avDelta, fileBytes
+        )
     }
 }
 
@@ -51,22 +52,19 @@ internal fun measuredVideoFps(sampleCount: Int, earliestUs: Long, latestUs: Long
     if (sampleCount < 2 || latestUs <= earliestUs) null
     else (sampleCount - 1).toDouble() * 1_000_000.0 / (latestUs - earliestUs)
 
+/** Bitrate from the encoded sample sizes; containers rarely declare one, so "?" would hide a real number. */
+internal fun measuredVideoBitrateBps(videoBytes: Long, sampleCount: Int, earliestUs: Long, latestUs: Long): Int? {
+    if (sampleCount < 2 || latestUs <= earliestUs || videoBytes <= 0L) return null
+    val spanUs = (latestUs - earliestUs) * sampleCount.toDouble() / (sampleCount - 1)
+    return (videoBytes * 8.0 * 1_000_000.0 / spanUs).toLong().coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+}
+
 /** Timestamp interval percentiles use measured sample timing, not nominal metadata. */
 internal fun videoNoteGapPercentile(gapsUs: List<Long>, percentile: Double): Double? {
     if (gapsUs.isEmpty()) return null
     val sorted = gapsUs.sorted()
     val index = kotlin.math.ceil((sorted.size - 1) * percentile.coerceIn(0.0, 1.0)).toInt()
     return sorted[index] / 1000.0
-}
-
-/** Returns a stage-specific suspicion, never a claim about a camera's physical capabilities. */
-internal fun videoNoteFpsFinding(target: Int, raw: Double?, output: Double?): String? {
-    if (raw == null || output == null) return null
-    return when {
-        raw >= 45.0 && output < raw * 0.8 -> "После Media3 частота кадров существенно снизилась; проверьте перекодирование."
-        target >= 50 && raw < target * 0.8 -> "RAW уже содержит меньше кадров, чем запрошено; проверьте CameraX, камеру и освещение."
-        else -> "Существенной потери FPS между RAW и готовым MP4 не обнаружено."
-    }
 }
 
 internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
@@ -86,6 +84,7 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
         var maxGapUs = 0L
         var gapsOver50Ms = 0
         var nonIncreasingPts = 0
+        var videoBytes = 0L
         val gaps = ArrayList<Long>()
         val frameBuckets = linkedMapOf<Long, Int>()
         val audioFormat = (0 until extractor.trackCount).firstOrNull { index ->
@@ -105,6 +104,7 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
             } else if (previousUs >= 0L) nonIncreasingPts++
             frameBuckets[ptsUs / 1_000_000L] = (frameBuckets[ptsUs / 1_000_000L] ?: 0) + 1
             previousUs = ptsUs
+            videoBytes += extractor.sampleSize.coerceAtLeast(0L)
             count++
             if (!extractor.advance()) break
         }
@@ -122,12 +122,15 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
             p95GapMs = videoNoteGapPercentile(gaps, 0.95),
             duplicateOrReorderedPts = nonIncreasingPts,
             fpsWindows = frameBuckets.values.take(12),
-            bitrateBps = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) format.getInteger(MediaFormat.KEY_BIT_RATE) else null,
+            bitrateBps = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) format.getInteger(MediaFormat.KEY_BIT_RATE)
+                else measuredVideoBitrateBps(videoBytes, count, firstUs, lastUs),
             audioCodec = audioFormat?.getString(MediaFormat.KEY_MIME),
             audioDurationUs = audioFormat?.takeIf { it.containsKey(MediaFormat.KEY_DURATION) }?.getLong(MediaFormat.KEY_DURATION),
             videoDurationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else null,
             codecProfile = if (format.containsKey(MediaFormat.KEY_PROFILE)) format.getInteger(MediaFormat.KEY_PROFILE) else null,
-            codecLevel = if (format.containsKey(MediaFormat.KEY_LEVEL)) format.getInteger(MediaFormat.KEY_LEVEL) else null
+            codecLevel = if (format.containsKey(MediaFormat.KEY_LEVEL)) format.getInteger(MediaFormat.KEY_LEVEL) else null,
+            firstVideoUs = if (count > 0) firstUs else 0L,
+            lastVideoUs = if (count > 0) lastUs else 0L
         )
     } finally {
         extractor.release()

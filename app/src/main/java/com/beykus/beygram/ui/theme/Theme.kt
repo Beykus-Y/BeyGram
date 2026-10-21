@@ -14,13 +14,15 @@ import androidx.compose.runtime.remember
 val LocalBeyGramTokens = compositionLocalOf { LightTokens }
 
 /** Material's colour scheme with every role taken from these tokens. */
-internal fun BeyGramTokens.toColorScheme(dark: Boolean): ColorScheme =
-    if (dark) {
+internal fun BeyGramTokens.toColorScheme(dark: Boolean): ColorScheme {
+    val containers = surfaceContainerTones(dark)
+    return if (dark) {
         darkColorScheme(
             primary = accent, onPrimary = onAccent, primaryContainer = accentSoft, onPrimaryContainer = accentInk,
             secondary = muted, tertiary = okInk, background = bg, surface = surface, surfaceVariant = surface2,
             onBackground = text, onSurface = text, onSurfaceVariant = muted, outline = line, outlineVariant = line, error = danger,
-            surfaceContainerLowest = surface, surfaceContainerLow = surface, surfaceContainer = surface, surfaceContainerHigh = surface, surfaceContainerHighest = surface2,
+            surfaceContainerLowest = containers.lowest, surfaceContainerLow = containers.low, surfaceContainer = containers.normal,
+            surfaceContainerHigh = containers.high, surfaceContainerHighest = containers.highest,
             secondaryContainer = accentSoft, onSecondaryContainer = accentInk
         )
     } else {
@@ -28,10 +30,12 @@ internal fun BeyGramTokens.toColorScheme(dark: Boolean): ColorScheme =
             primary = accent, onPrimary = onAccent, primaryContainer = accentSoft, onPrimaryContainer = accentInk,
             secondary = muted, tertiary = okInk, background = bg, surface = surface, surfaceVariant = surface2,
             onBackground = text, onSurface = text, onSurfaceVariant = muted, outline = line, outlineVariant = line, error = danger,
-            surfaceContainerLowest = surface, surfaceContainerLow = surface, surfaceContainer = surface, surfaceContainerHigh = surface, surfaceContainerHighest = surface2,
+            surfaceContainerLowest = containers.lowest, surfaceContainerLow = containers.low, surfaceContainer = containers.normal,
+            surfaceContainerHigh = containers.high, surfaceContainerHighest = containers.highest,
             secondaryContainer = accentSoft, onSecondaryContainer = accentInk
         )
     }
+}
 
 /**
  * Provides one token set together with the Material colour scheme built from it, so screens never mix values from two themes.

@@ -76,7 +76,7 @@ internal fun GroupProfileScreen(
     onMembers: () -> Unit, onOpenUser: (Long) -> Unit,
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)?, confirmExport: suspend (Long) -> Boolean,
     messageRights: suspend (Long) -> MessageCapabilities?, forwardMessage: suspend (Long, Long) -> Result<Unit>, chats: List<ChatPreview>,
-    onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -86,6 +86,7 @@ internal fun GroupProfileScreen(
     // Прокрутку читаем только при рисовании: иначе каждый кадр прокрутки перекомпоновывал бы весь экран.
     val collapse = remember { derivedStateOf { collapseFraction(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, headerHeightPx) } }
     val windows = rememberSharedMediaWindows(info.id) { kind, from, newer -> sharedMessages?.invoke(kind, from, newer) ?: Result.failure(IllegalStateException()) }
+    val openMessage: (Long) -> Unit = { id -> onOpenMessage(id, windows.topicOf(id)) }
     val tabs = if (sharedMessages == null) listOf(GroupTab.Members) else GroupTab.entries
     var selectedTab by rememberSaveable(info.id) { mutableStateOf(GroupTab.Members) }
     // Сохранённая вкладка может пропасть из полоски, если источника вложений больше нет: тогда показываем участников.
@@ -104,7 +105,9 @@ internal fun GroupProfileScreen(
         GroupProfileToolbar(title, collapse, onBack = onBack, onDelete = onDelete, onDeleted = onDeleted)
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
         // Ошибку показываем над списком: в конце длинной вкладки она оказалась бы за сотнями строк.
-        state.error?.let { error -> Text(error.resolve(), color = palette.danger, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+        state.error?.let { error ->
+            ProfileLoadError(error.resolve(), state.isLoading, onRefresh)
+        }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(bottom = 28.dp)) {
             item(key = "header") {
                 Column(
@@ -138,11 +141,11 @@ internal fun GroupProfileScreen(
             }
             val kind = activeTab.kind
             if (kind == null || window == null) item(key = "members") { GroupMembers(info, state.isLoading, observeFile, downloadFile, onMembers, onOpenUser) }
-            else sharedItems(kind, info.id, window, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMedia = { viewing = it }, onOpenMessage = onOpenMessage, onRetry = { scope.launch { window.loadOlder() } })
+            else sharedItems(kind, info.id, window, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMedia = { viewing = it }, onOpenMessage = openMessage, onRetry = { scope.launch { window.loadOlder() } })
         }
     }
     SharedMediaViewer(media = windows.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
-        observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = onOpenMessage,
+        observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened)
 }

@@ -1,85 +1,159 @@
 package com.beykus.beygram.data.media
 
 import android.content.Context
-import com.beykus.beygram.R
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CameraMetadata
 import android.media.MediaCodecList
 import android.media.MediaRecorder
-import android.os.Build
 import android.os.PowerManager
 import android.util.Size
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.core.CameraInfo
+import androidx.camera.core.CameraSelector
+import androidx.camera.lifecycle.ProcessCameraProvider
+import com.beykus.beygram.R
 import java.util.Locale
+import java.util.concurrent.TimeUnit
+
+/** The lens the recorder would use for one facing, as the recording pipeline sees it. */
+internal data class RecordingLens(val facing: ProbeFacing, val cameraId: String?, val ranges: List<IntRange>)
 
 /**
- * Read-only hardware survey. Camera2 ranges describe advertised camera capabilities, not
- * guaranteed CameraX Preview+VideoCapture combinations. Does not open the lens or capture media.
+ * Read-only hardware survey. Advertised ranges describe camera capabilities, not guaranteed
+ * Preview+VideoCapture combinations. Does not open the lens or capture media.
  */
 internal object VideoNoteCameraSurvey {
     private val candidates = listOf(
-        Size(7680, 4320), Size(3840, 2160), Size(2560, 1440),
-        Size(1920, 1080), Size(1280, 720), Size(960, 540), Size(640, 480)
+        Size(7680, 4320), Size(3840, 2160), Size(2560, 1440), Size(1920, 1080),
+        Size(1280, 720), Size(960, 540), Size(720, 720), Size(640, 640), Size(854, 480), Size(640, 480)
     )
 
     fun cameraId(info: CameraInfo): String? = runCatching { Camera2CameraInfo.from(info).cameraId }.getOrNull()
 
-    fun report(context: Context): String = buildString {
+    /** Source size the recorder asks for: HD for sides above 480, SD otherwise. */
+    fun sourceSize(settings: VideoMessageSettings): Pair<Int, Int> {
+        val side = when (settings.preset) {
+            VideoQualityPreset.Standard -> 384
+            VideoQualityPreset.High -> 480
+            VideoQualityPreset.Maximum -> 640
+            VideoQualityPreset.Custom -> settings.customSide
+        }
+        return if (side > 480) 1280 to 720 else 640 to 480
+    }
+
+    /**
+     * The exact FPS decision the recorder makes for [settings] on [cameraId]. The recorder and
+     * the diagnostics both call this, so the report cannot drift from what recording does.
+     */
+    fun recordingDecision(context: Context, settings: VideoMessageSettings, cameraId: String?, cameraRanges: List<IntRange>): VideoNoteFpsDecision {
+        val requested = settings.requestedFrameRateRange()
+        val manager = context.getSystemService(CameraManager::class.java)
+        val normalRanges = cameraId?.let { id -> runCatching {
+            manager.getCameraCharacteristics(id).get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+                ?.map { it.lower..it.upper }
+        }.getOrNull() }
+        val (width, height) = sourceSize(settings)
+        val encoder60 = if (requested.last >= 50) encoderSupportsAvc(width, height, 60) else null
+        return safeVideoNoteFpsSelection(requested, cameraRanges, normalRanges, encoder60)
+    }
+
+    /** Lenses the recorder picks for front and back. Blocks briefly; call off the main thread. */
+    fun recordingLenses(context: Context): List<RecordingLens> = runCatching {
+        val provider = ProcessCameraProvider.getInstance(context).get(5, TimeUnit.SECONDS)
+        listOf(ProbeFacing.FRONT to CameraSelector.DEFAULT_FRONT_CAMERA, ProbeFacing.BACK to CameraSelector.DEFAULT_BACK_CAMERA)
+            .mapNotNull { (facing, selector) ->
+                val info = runCatching { selector.filter(provider.availableCameraInfos).firstOrNull() }.getOrNull()
+                    ?: return@mapNotNull null
+                RecordingLens(facing, cameraId(info), info.supportedFrameRateRanges.map { it.lower..it.upper })
+            }
+    }.getOrDefault(emptyList())
+
+    fun report(context: Context, settings: VideoMessageSettings): String = VideoNoteReportRedactor.redact(buildString {
         appendLine(context.getString(R.string.loss_camera_report_heading))
-        appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}, SDK=${Build.VERSION.SDK_INT}")
-        appendLine("Camera2/CameraX advertised capabilities ≠ guaranteed frame rate while recording.")
+        append(VideoNoteEnvironment.snapshot(context))
+        appendLine(context.getString(R.string.camera_report_advertised_notice))
+        appendLine()
+        append(recordingDecisionsReport(context, settings))
         val manager = context.getSystemService(CameraManager::class.java)
         for (id in manager.cameraIdList) {
             appendLine()
-            appendLine("Camera ID: $id")
-            appendLine(describeCamera(manager, id))
+            appendLine(context.getString(R.string.camera_report_camera_id, id))
+            appendLine(describeCamera(context, manager, id))
+            appendLine(VideoNoteCameraDetails.describe(context, manager, id))
         }
         appendLine()
-        appendLine("H.264 encoders:")
-        appendLine(encoderReport())
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val thermal = context.getSystemService(PowerManager::class.java)?.currentThermalStatus
-            appendLine("Thermal status: ${thermal ?: "n/a"} (instantaneous, not historical)")
+        appendLine(context.getString(R.string.camera_report_encoders))
+        appendLine(encoderReport(context))
+        thermalLine(context)?.let(::appendLine)
+        appendLine(context.getString(R.string.camera_report_high_speed_notice))
+    })
+
+    /** "Why does normal recording pick this range" for front and back, with the current settings. */
+    fun recordingDecisionsReport(context: Context, settings: VideoMessageSettings): String = buildString {
+        appendLine(context.getString(R.string.camera_report_recording_heading, settings.requestedFrameRateRange().toText()))
+        val lenses = recordingLenses(context)
+        if (lenses.isEmpty()) appendLine(context.getString(R.string.camera_report_recording_unavailable))
+        lenses.forEach { lens ->
+            val decision = recordingDecision(context, settings, lens.cameraId, lens.ranges)
+            appendLine(context.getString(R.string.camera_report_recording_lens,
+                facingLabel(context, lens.facing), lens.cameraId ?: "?",
+                decision.selected?.toText() ?: context.getString(R.string.camera_report_range_default),
+                fpsCauseText(context, decision.cause)))
+            appendLine(context.getString(R.string.camera_report_recording_candidates,
+                decision.normalCandidates.joinToString { it.toText() }.ifBlank { "—" },
+                yesNoUnknown(context, decision.encoderSupports60)))
         }
-        appendLine("High-speed profiles require a constrained Camera2 session; standard CameraX VideoCapture cannot infer 60 FPS from them.")
     }
 
-    fun describeCamera(manager: CameraManager, id: String): String = runCatching {
+    fun describeCamera(context: Context, manager: CameraManager, id: String): String = runCatching {
         val c = manager.getCameraCharacteristics(id)
-        val facing = when (c.get(CameraCharacteristics.LENS_FACING)) {
-            CameraCharacteristics.LENS_FACING_FRONT -> "front"
-            CameraCharacteristics.LENS_FACING_BACK -> "back"
-            CameraCharacteristics.LENS_FACING_EXTERNAL -> "external"
-            else -> "unknown"
-        }
+        val facing = facingLabel(context, VideoNoteFpsProbe.facingOf(c.get(CameraCharacteristics.LENS_FACING)))
         val level = when (c.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)) {
             CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY -> "LEGACY"
             CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED -> "LIMITED"
             CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL -> "FULL"
             CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3 -> "LEVEL_3"
             CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_EXTERNAL -> "EXTERNAL"
-            else -> "unknown"
+            else -> "?"
         }
+        val capabilities = c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)?.toList().orEmpty()
+        val logical = CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA in capabilities
+        val physical = runCatching { c.physicalCameraIds.sorted() }.getOrDefault(emptyList())
         val ranges = c.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
-            ?.joinToString { "${it.lower}..${it.upper}" } ?: "unknown"
+            ?.joinToString { "${it.lower}..${it.upper}" } ?: "?"
         val map = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
         val normalSizes = map?.getOutputSizes(MediaRecorder::class.java)?.toList().orEmpty()
         val highSpeed = runCatching {
             map?.highSpeedVideoSizes.orEmpty().joinToString { size ->
-                "${size.width}x${size.height}: ${map?.getHighSpeedVideoFpsRangesFor(size)?.joinToString { "${it.lower}..${it.upper}" } ?: "n/a"}"
+                "${size.width}x${size.height}: ${map?.getHighSpeedVideoFpsRangesFor(size)?.joinToString { "${it.lower}..${it.upper}" } ?: "?"}"
             }
-        }.getOrDefault("unavailable")
-        val sampled = candidates.joinToString(separator = "\n") { size ->
-            val supported = normalSizes.contains(size)
-            val minNs = if (supported) runCatching {
-                map?.getOutputMinFrameDuration(MediaRecorder::class.java, size) ?: 0L
-            }.getOrDefault(0L) else 0L
-            val maximum = if (minNs > 0) String.format(Locale.US, "%.1f", 1_000_000_000.0 / minNs) else "unknown"
-            "  ${size.width}x${size.height}: ${if (supported) "advertised" else "not advertised"}; stream frame-rate ceiling≈$maximum"
+        }.getOrDefault("")
+        val sampled = candidates.joinToString(separator = "\n") { size -> sizeLine(context, map, normalSizes, size) }
+        // Non-standard sizes the camera lists are reported too, so the survey is not limited to the template.
+        val extra = normalSizes.filter { it !in candidates }.sortedByDescending { it.width * it.height }
+            .joinToString { "${it.width}x${it.height}" }
+        buildString {
+            appendLine(context.getString(R.string.camera_report_facing_level, facing, level))
+            if (logical || physical.isNotEmpty()) {
+                appendLine(context.getString(R.string.camera_report_logical, physical.joinToString().ifBlank { "—" }))
+            }
+            appendLine(context.getString(R.string.camera_report_normal_ranges, ranges))
+            appendLine(context.getString(R.string.camera_report_sizes_heading))
+            appendLine(sampled)
+            if (extra.isNotBlank()) appendLine(context.getString(R.string.camera_report_other_sizes, extra))
+            append(context.getString(R.string.camera_report_high_speed,
+                highSpeed.ifBlank { context.getString(R.string.camera_report_none) }))
         }
-        "Facing=$facing, hardware=$level\nNormal AE FPS=$ranges\nRecorder output sizes:\n$sampled\nHigh-speed (NOT normal recording): ${highSpeed.ifBlank { "none" }}"
-    }.getOrElse { "Camera2 survey failed: ${it.javaClass.simpleName}" }
+    }.getOrElse { context.getString(R.string.camera_report_failed, it.javaClass.simpleName) }
+
+    private fun sizeLine(context: Context, map: android.hardware.camera2.params.StreamConfigurationMap?, normalSizes: List<Size>, size: Size): String {
+        val supported = normalSizes.contains(size)
+        if (!supported) return context.getString(R.string.camera_report_size_absent, size.width, size.height)
+        val minNs = runCatching { map?.getOutputMinFrameDuration(MediaRecorder::class.java, size) ?: 0L }.getOrDefault(0L)
+        val ceiling = if (minNs > 0) String.format(Locale.US, "%.1f", 1_000_000_000.0 / minNs) else "?"
+        return context.getString(R.string.camera_report_size_present, size.width, size.height, ceiling)
+    }
 
     fun encoderSupportsAvc(width: Int, height: Int, fps: Int): Boolean? = runCatching {
         val encoders = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { it.isEncoder }
@@ -90,40 +164,63 @@ internal object VideoNoteCameraSurvey {
         }.getOrDefault(false) }
     }.getOrNull()
 
-    private fun encoderReport(): String = runCatching {
+    private val encoderChecks = listOf(1920 to 1080, 1280 to 720, 720 to 720, 640 to 640, 640 to 480)
+
+    private fun encoderReport(context: Context): String = runCatching {
         MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { it.isEncoder }
             .filter { info -> info.supportedTypes.any { it.equals("video/avc", ignoreCase = true) } }
             .joinToString(separator = "\n") { info ->
                 val capabilities = runCatching { info.getCapabilitiesForType("video/avc").videoCapabilities }.getOrNull()
-                "${info.name}: 1280x720@60=${capabilities?.areSizeAndRateSupported(1280, 720, 60.0)}; 640x480@60=${capabilities?.areSizeAndRateSupported(640, 480, 60.0)}"
-            }.ifBlank { "No AVC encoder advertised" }
-    }.getOrElse { "Codec capabilities unavailable: ${it.javaClass.simpleName}" }
+                val checks = encoderChecks.joinToString { (w, h) ->
+                    "${w}x$h@60=${yesNoUnknown(context, capabilities?.let { runCatching { it.areSizeAndRateSupported(w, h, 60.0) }.getOrNull() })}"
+                }
+                val hardware = runCatching { info.isHardwareAccelerated }.getOrNull()
+                context.getString(R.string.camera_report_encoder_line, info.name, yesNoUnknown(context, hardware), checks)
+            }.ifBlank { context.getString(R.string.camera_report_no_encoder) }
+    }.getOrElse { context.getString(R.string.camera_report_encoder_failed, it.javaClass.simpleName) }
+
+    fun thermalLine(context: Context): String? {
+        val status = runCatching { context.getSystemService(PowerManager::class.java)?.currentThermalStatus }.getOrNull()
+            ?: return null
+        return context.getString(R.string.camera_report_thermal, thermalLabel(context, status))
+    }
 }
 
-/** Never treat high-speed-only ranges as normal CameraX recording support. */
-internal fun safeVideoNoteFpsSelection(
-    requested: IntRange,
-    cameraXRanges: Collection<IntRange>,
-    camera2NormalRanges: Collection<IntRange>?,
-    encoderSupports60: Boolean?
-): Pair<IntRange?, String> {
-    val regular = cameraXRanges.filter { range ->
-        range.first <= requested.last && (camera2NormalRanges == null ||
-            camera2NormalRanges.any { it.first <= range.first && it.last >= range.last })
-    }
-    val can60 = requested.last >= 50 && regular.any { it.last >= 60 } && encoderSupports60 != false
-    val available = if (requested.last >= 50 && !can60) regular.filter { it.last <= 30 }
-        .ifEmpty { regular.filter { it.last < 50 } }
-    else regular
-    // Preserve Custom 24 FPS and the lower bound used for low-light capture.
-    // Only lower the maximum when a requested 60 FPS cannot be confirmed.
-    val target = if (requested.last >= 50 && !can60) requested.first.coerceAtMost(30)..30 else requested
-    val picked = chooseSupportedFrameRateRange(target, available)
-    val reason = when {
-        picked == null -> "No compatible normal FPS range advertised; CameraX default (verify actual RAW FPS)"
-        requested.last >= 50 && !can60 -> "60 FPS not confirmed for normal CameraX video + H.264; fallback to ${picked.last} FPS"
-        picked.last < requested.last -> "Camera range fallback: target=${requested.last}, advertised=${picked.last}"
-        else -> "CameraX range requested; actual capture FPS must be measured"
-    }
-    return picked to reason
+internal fun IntRange.toText(): String = "$first..$last"
+
+internal fun facingLabel(context: Context, facing: ProbeFacing): String = context.getString(when (facing) {
+    ProbeFacing.FRONT -> R.string.camera_facing_front
+    ProbeFacing.BACK -> R.string.camera_facing_back
+    ProbeFacing.EXTERNAL -> R.string.camera_facing_external
+    ProbeFacing.UNKNOWN -> R.string.camera_facing_unknown
+})
+
+internal fun yesNoUnknown(context: Context, value: Boolean?): String = context.getString(when (value) {
+    true -> R.string.loss_yes
+    false -> R.string.loss_no
+    null -> R.string.loss_no_data
+})
+
+internal fun thermalLabel(context: Context, status: Int): String = when (status) {
+    PowerManager.THERMAL_STATUS_NONE -> context.getString(R.string.camera_thermal_none)
+    PowerManager.THERMAL_STATUS_LIGHT -> context.getString(R.string.camera_thermal_light)
+    PowerManager.THERMAL_STATUS_MODERATE -> context.getString(R.string.camera_thermal_moderate)
+    PowerManager.THERMAL_STATUS_SEVERE -> context.getString(R.string.camera_thermal_severe)
+    else -> context.getString(R.string.camera_thermal_critical, status)
 }
+
+internal fun fpsCauseText(context: Context, cause: VideoNoteFpsCause): String = context.getString(when (cause) {
+    VideoNoteFpsCause.AS_REQUESTED -> R.string.fps_cause_as_requested
+    VideoNoteFpsCause.CAMERA_RANGE_FALLBACK -> R.string.fps_cause_camera_fallback
+    VideoNoteFpsCause.NO_NORMAL_60 -> R.string.fps_cause_no_normal_60
+    VideoNoteFpsCause.ENCODER_REJECTS_60 -> R.string.fps_cause_encoder_60
+    VideoNoteFpsCause.NO_COMPATIBLE_RANGE -> R.string.fps_cause_no_range
+})
+
+internal fun fpsLimitStageText(context: Context, stage: VideoNoteFpsLimitStage): String = context.getString(when (stage) {
+    VideoNoteFpsLimitStage.NONE -> R.string.fps_stage_none
+    VideoNoteFpsLimitStage.POLICY -> R.string.fps_stage_policy
+    VideoNoteFpsLimitStage.CAMERA_RUNTIME -> R.string.fps_stage_camera
+    VideoNoteFpsLimitStage.EXPORT -> R.string.fps_stage_export
+    VideoNoteFpsLimitStage.UNKNOWN -> R.string.fps_stage_unknown
+})

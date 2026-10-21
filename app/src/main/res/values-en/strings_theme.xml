@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="theme_title">Appearance</string>
+    <string name="theme_preview_title">Preview</string>
+    <string name="theme_palette_title">Color palette</string>
+    <string name="theme_palette_warm">BeyGram Warm</string>
+    <string name="theme_palette_graphite">BeyGram Graphite</string>
+    <string name="theme_palette_system">System colors</string>
+    <string name="theme_brightness_title">Brightness</string>
+    <string name="theme_brightness_system">Follow system</string>
+    <string name="theme_brightness_light">Light</string>
+    <string name="theme_brightness_dark">Dark</string>
+    <string name="theme_brightness_amoled">AMOLED black</string>
+    <string name="theme_apply">Apply</string>
+    <string name="theme_footnote">Changes appear in the preview. Tap Apply to save them.</string>
+    <string name="theme_editor_save_note">Changes are saved only after you tap Apply.</string>
+    <string name="theme_discard_title">Leave without saving?</string>
+    <string name="theme_discard_message">Your appearance changes have not been applied and will be lost.</string>
+    <string name="theme_discard_confirm">Discard changes</string>
+    <string name="theme_discard_cancel">Continue editing</string>
+    <string name="settings_autosave_note">Changes on this screen are saved automatically.</string>
+    <string name="theme_preview_contact">Anna</string>
+    <string name="theme_preview_last_message">I will send the mockup today</string>
+    <string name="theme_preview_incoming">Hi! What do you think of the new theme?</string>
+    <string name="theme_preview_outgoing">Still looking, it feels calm</string>
+    <string name="theme_preview_today">Today</string>
+    <string name="theme_preview_time">12:40</string>
+    <string name="theme_preview_time_reply">12:41</string>
+    <string name="theme_editor_open">Customize theme</string>
+    <string name="theme_editor_title">Theme editor</string>
+    <string name="theme_editor_accent">Accent color</string>
+    <string name="theme_editor_bubble_color">Outgoing message color</string>
+    <string name="theme_editor_default">Default</string>
+    <string name="theme_editor_bubble_shape">Bubble shape</string>
+    <string name="theme_editor_shape_rounded">Rounded</string>
+    <string name="theme_editor_shape_soft">Soft</string>
+    <string name="theme_editor_shape_square">Square</string>
+    <string name="theme_editor_density">List density</string>
+    <string name="theme_editor_density_compact">Compact</string>
+    <string name="theme_editor_density_comfortable">Comfortable</string>
+    <string name="theme_editor_density_spacious">Spacious</string>
+    <string name="theme_editor_reset">Reset all</string>
+    <string name="theme_editor_cancel">Cancel</string>
+    <string name="theme_editor_warning_bubble">Text is difficult to read on this bubble color. Choose another color.</string>
+    <string name="theme_editor_warning_accent">The accent color blends into the background. Choose another color.</string>
+    <string name="theme_editor_swatch">Color %1$d</string>
+</resources>

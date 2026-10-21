@@ -13,19 +13,30 @@ import kotlinx.coroutines.withContext
 /**
  * Produces a silent, circular 480x480 H.264/MP4 diagnostic clip from deterministic YUV
  * frames. Uses no CameraX, camera permission or microphone, and never embeds user data.
+ * The 24/30/50/60 FPS variants (60 FPS = 180 frames in 3 s) checks whether 60 FPS survives processing and Telegram;
+ * the 30 FPS clip cannot answer that.
  */
 internal object VideoNoteSyntheticSource {
     const val SIDE = 480
-    const val FPS = 30
-    const val FRAMES = 90
+    const val FPS_24 = 24
+    const val FPS_30 = 30
+    const val FPS_50 = 50
+    const val FPS_60 = 60
+    /** Rates of the synthetic lab (issue #234, §12). Every one yields rate x 3 distinct frames. */
+    val SUPPORTED_FPS = listOf(FPS_24, FPS_30, FPS_50, FPS_60)
+    const val SECONDS = 3
 
-    suspend fun generate(file: File) = withContext(Dispatchers.Default) {
+    fun frameCount(fps: Int): Int = fps * SECONDS
+
+    suspend fun generate(file: File, fps: Int = FPS_30) = withContext(Dispatchers.Default) {
+        require(fps in SUPPORTED_FPS) { "Unsupported synthetic frame rate" }
+        val frames = frameCount(fps)
         file.parentFile?.mkdirs()
         file.delete()
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, SIDE, SIDE).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
             setInteger(MediaFormat.KEY_BIT_RATE, 1_400_000)
-            setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
+            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
         }
         val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
@@ -72,7 +83,7 @@ internal object VideoNoteSyntheticSource {
         try {
             codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             codec.start()
-            for (frame in 0 until FRAMES) {
+            for (frame in 0 until frames) {
                 currentCoroutineContext().ensureActive()
                 var input = codec.dequeueInputBuffer(10_000)
                 while (input < 0) {
@@ -87,7 +98,7 @@ internal object VideoNoteSyntheticSource {
                 } finally {
                     image.close()
                 }
-                codec.queueInputBuffer(input, 0, SIDE * SIDE * 3 / 2, frame * 1_000_000L / FPS, 0)
+                codec.queueInputBuffer(input, 0, SIDE * SIDE * 3 / 2, syntheticFramePtsUs(frame, fps), 0)
                 drain(false)
             }
             var eosInput = codec.dequeueInputBuffer(10_000)
@@ -96,7 +107,7 @@ internal object VideoNoteSyntheticSource {
                 currentCoroutineContext().ensureActive()
                 eosInput = codec.dequeueInputBuffer(10_000)
             }
-            codec.queueInputBuffer(eosInput, 0, 0, FRAMES * 1_000_000L / FPS, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+            codec.queueInputBuffer(eosInput, 0, 0, syntheticFramePtsUs(frames, fps), MediaCodec.BUFFER_FLAG_END_OF_STREAM)
             drain(true)
             check(endOfOutput && muxerStarted) { "Synthetic MP4 export incomplete" }
         } catch (failure: Exception) {
@@ -143,3 +154,6 @@ internal object VideoNoteSyntheticSource {
         }
     }
 }
+
+/** Exact presentation time of a synthetic frame. Integer microseconds, never drifting into duplicates. */
+internal fun syntheticFramePtsUs(frame: Int, fps: Int): Long = frame * 1_000_000L / fps

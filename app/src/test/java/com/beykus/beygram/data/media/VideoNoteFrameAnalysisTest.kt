@@ -2,7 +2,6 @@ package com.beykus.beygram.data.media
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoNoteFrameAnalysisTest {
@@ -14,11 +13,5 @@ class VideoNoteFrameAnalysisTest {
     @Test fun refusesMisleadingSingleFrameEstimates() {
         assertNull(measuredVideoFps(1, 0, 0))
         assertNull(measuredVideoFps(20, 2_000, 2_000))
-    }
-
-    @Test fun distinguishesCameraAndTransformerFpsDrops() {
-        assertTrue(videoNoteFpsFinding(60, 60.0, 30.0)!!.contains("Media3"))
-        assertTrue(videoNoteFpsFinding(60, 30.0, 30.0)!!.contains("CameraX"))
-        assertTrue(videoNoteFpsFinding(60, 59.7, 59.5)!!.contains("не обнаружено"))
     }
 }

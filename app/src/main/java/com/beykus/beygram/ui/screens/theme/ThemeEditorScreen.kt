@@ -8,6 +8,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,6 +61,18 @@ import com.beykus.beygram.ui.theme.contrastIssues
 private val AccentChoices = listOf(0xFF6A4FDC, 0xFF3B5BDB, 0xFF1C7ED6, 0xFF0F9D8A, 0xFF2F9E44, 0xFFE8890C, 0xFFD6336C, 0xFFC2410C).map { it.toInt() }
 private val BubbleChoices = listOf(0xFFE6DEFD, 0xFFDCE4F8, 0xFFD3EFFA, 0xFFD5F2E6, 0xFFDDF3C9, 0xFFFFE8C2, 0xFFFAD9E6, 0xFF2E2952).map { it.toInt() }
 
+/** Palette labels are localized and presented as the swatch's accessible name. */
+private val AccentNames = listOf(
+    R.string.theme_swatch_violet, R.string.theme_swatch_blue, R.string.theme_swatch_sky,
+    R.string.theme_swatch_teal, R.string.theme_swatch_green, R.string.theme_swatch_orange,
+    R.string.theme_swatch_pink, R.string.theme_swatch_terracotta
+)
+private val BubbleNames = listOf(
+    R.string.theme_swatch_lavender, R.string.theme_swatch_ice_blue, R.string.theme_swatch_cyan,
+    R.string.theme_swatch_mint, R.string.theme_swatch_pale_green, R.string.theme_swatch_peach,
+    R.string.theme_swatch_blush, R.string.theme_swatch_dark_violet
+)
+
 /**
  * The editor of the look: accent, outgoing bubble colour, bubble shape and list density.
  * The preview follows every change. The choice reaches the rest of the app only after «Применить»; leaving the screen drops it.
@@ -100,9 +116,9 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
             }
 
             SectionTitle(stringResource(R.string.theme_editor_accent))
-            ColorChoices(AccentChoices, accent, stringResource(R.string.theme_editor_default)) { accent = it }
+            ColorChoices(AccentChoices, AccentNames, accent, stringResource(R.string.theme_editor_default)) { accent = it }
             SectionTitle(stringResource(R.string.theme_editor_bubble_color))
-            ColorChoices(BubbleChoices, bubbleColor, stringResource(R.string.theme_editor_default)) { bubbleColor = it }
+            ColorChoices(BubbleChoices, BubbleNames, bubbleColor, stringResource(R.string.theme_editor_default)) { bubbleColor = it }
 
             SectionTitle(stringResource(R.string.theme_editor_bubble_shape))
             ChoiceGroup {
@@ -145,36 +161,56 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
     )
 }
 
+/** FlowRow wraps automatically on 320dp screens, larger font settings and landscape. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ColorChoices(colors: List<Int>, selected: Int?, defaultLabel: String, onPick: (Int?) -> Unit) {
+private fun ColorChoices(colors: List<Int>, labelResources: List<Int>, selected: Int?, defaultLabel: String, onPick: (Int?) -> Unit) {
+    require(colors.size == labelResources.size)
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            colors.take(4).forEachIndexed { index, color -> Swatch(color, index, selected == color) { onPick(color) } }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            colors.drop(4).forEachIndexed { index, color -> Swatch(color, index + 4, selected == color) { onPick(color) } }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            colors.forEachIndexed { index, color ->
+                ColorSwatch(color, stringResource(labelResources[index]), selected == color) { onPick(color) }
+            }
         }
         Text(
             defaultLabel,
             color = if (selected == null) palette.accent else palette.textSecondary,
             fontSize = 14.sp,
             fontWeight = if (selected == null) FontWeight.SemiBold else FontWeight.Normal,
-            modifier = Modifier.clickable { onPick(null) }.padding(vertical = 2.dp)
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .selectable(selected = selected == null, role = Role.RadioButton) { onPick(null) }
+                .wrapContentHeight(Alignment.CenterVertically)
         )
     }
 }
 
+/** The hit target is 48dp, the visible circle remains 40dp for visual consistency. */
 @Composable
-private fun Swatch(color: Int, index: Int, selected: Boolean, onClick: () -> Unit) {
+internal fun ColorSwatch(color: Int, label: String, selected: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
-    val description = stringResource(R.string.theme_editor_swatch, index + 1)
     Box(
-        Modifier.size(40.dp).clip(CircleShape).background(Color(color))
-            .border(if (selected) 3.dp else 1.dp, if (selected) palette.accent else palette.textSecondary.copy(alpha = 0.3f), CircleShape)
+        Modifier.size(48.dp)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .semantics { contentDescription = description }
-    )
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier.size(40.dp).clip(CircleShape).background(Color(color))
+                .border(
+                    if (selected) 3.dp else 1.dp,
+                    if (selected) palette.accent else palette.textSecondary.copy(alpha = 0.3f),
+                    CircleShape
+                )
+        )
+    }
 }
 
 @Composable

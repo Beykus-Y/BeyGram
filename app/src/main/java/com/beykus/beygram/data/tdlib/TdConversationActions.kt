@@ -18,7 +18,8 @@ private const val SEARCH_PAGE_SIZE = 50
 
 internal class TdConversationActions(
     client: () -> Client, private val history: MessageHistoryStore,
-    private val map: (TdApi.Message) -> ChatMessage
+    private val map: (TdApi.Message) -> ChatMessage,
+    private val onTopicDraft: (Long, Int, TdApi.DraftMessage?) -> Unit = { _, _, _ -> }
 ) {
     private val request = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -89,40 +90,123 @@ internal class TdConversationActions(
         var offsetMessageId = 0L
         var offsetTopicId = 0
         var pages = 0
+        val visitedCursors = mutableSetOf<Triple<Int, Long, Int>>()
         while (true) {
+            if (!visitedCursors.add(Triple(offsetDate, offsetMessageId, offsetTopicId))) break
             val page = request(TdApi.GetForumTopics(chatId, "", offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
-            page.topics.filter { !it.info.isClosed || it.info.isOutgoing || manageTopics }
-                .mapTo(topics) { ForumTopic(it.info.forumTopicId.toLong(), it.info.name) }
+            page.topics.filter { !it.info.isHidden }
+                .mapTo(topics) {
+                    onTopicDraft(chatId, it.info.forumTopicId, it.draftMessage)
+                    ForumTopic(
+                        id = it.info.forumTopicId.toLong(),
+                        title = it.info.name,
+                        unreadCount = it.unreadCount,
+                        isPinned = it.isPinned,
+                        isClosed = it.info.isClosed,
+                        canWrite = !it.info.isClosed || it.info.isOutgoing || manageTopics,
+                        canManage = it.info.isOutgoing || manageTopics,
+                        canPin = manageTopics,
+                        order = it.order,
+                        lastReadInboxMessageId = it.lastReadInboxMessageId,
+                        lastReadOutboxMessageId = it.lastReadOutboxMessageId,
+                        lastMessagePreview = (it.lastMessage?.content as? TdApi.MessageText)?.text?.text.orEmpty()
+                    )
+                }
             pages++
             if (page.topics.isEmpty() || page.nextOffsetForumTopicId == 0 || pages == MAX_FORUM_TOPIC_PAGES) break
             offsetDate = page.nextOffsetDate
             offsetMessageId = page.nextOffsetMessageId
             offsetTopicId = page.nextOffsetForumTopicId
         }
-        topics
+        uniqueForumTopics(topics)
+    }
+
+    /**
+     * GetForumTopics can omit lastMessage for long-inactive topics or return non-text content.
+     * Request the newest message only for a visible topic without a usable preview.
+     * This does not alter the full, separately paged topic history.
+     */
+    suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> =
+        conversationResult<String?> {
+            if (forumTopicId <= 0L) return@conversationResult null
+            val messages = request(TdApi.GetForumTopicHistory().apply {
+                this.chatId = chatId
+                this.forumTopicId = forumTopicId.toInt()
+                fromMessageId = 0L
+                offset = 0
+                limit = 1
+            })
+            messages.messages.orEmpty().filterNotNull().firstOrNull()?.let { forumTopicMessagePreview(map(it)) }
+        }
+
+    /** All mutations go through TDLib; the server is the final authority for permissions. */
+    suspend fun canCreateTopic(chatId: Long): Result<Boolean> = conversationResult {
+        val chat = request(TdApi.GetChat(chatId))
+        val supergroupType = chat.type as? TdApi.ChatTypeSupergroup ?: return@conversationResult false
+        val group = request(TdApi.GetSupergroup(supergroupType.supergroupId))
+        if (!group.isForum) return@conversationResult false
+        when (val status = group.status) {
+            is TdApi.ChatMemberStatusCreator -> true
+            is TdApi.ChatMemberStatusAdministrator -> status.rights.canManageTopics
+            else -> chat.permissions.canCreateTopics
+        }
+    }
+
+    suspend fun createTopic(chatId: Long, title: String): Result<Long> = conversationResult {
+        val name = title.trim()
+        require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 128)
+        val info = request(TdApi.CreateForumTopic().apply {
+            this.chatId = chatId
+            this.name = name
+            isNameImplicit = false
+            icon = TdApi.ForumTopicIcon(0x6FB9F0, 0L)
+        })
+        info.forumTopicId.toLong()
+    }
+
+    suspend fun renameTopic(chatId: Long, topicId: Long, title: String): Result<Unit> = conversationResult {
+        val name = title.trim()
+        require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 128)
+        request(TdApi.EditForumTopic(chatId, topicId.toInt(), name, false, 0L))
+        Unit
+    }
+
+    suspend fun closeTopic(chatId: Long, topicId: Long, closed: Boolean): Result<Unit> = conversationResult {
+        request(TdApi.ToggleForumTopicIsClosed(chatId, topicId.toInt(), closed))
+        Unit
+    }
+
+    suspend fun pinTopic(chatId: Long, topicId: Long, pinned: Boolean): Result<Unit> = conversationResult {
+        request(TdApi.ToggleForumTopicIsPinned(chatId, topicId.toInt(), pinned))
+        Unit
+    }
+
+    suspend fun deleteTopic(chatId: Long, topicId: Long): Result<Unit> = conversationResult {
+        request(TdApi.DeleteForumTopic(chatId, topicId.toInt()))
+        Unit
     }
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {
-        if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
-        if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_message_too_long))
-        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); this.clearDraft = clearDraft }, replyId, forumTopicId)
+        val bounded = boundTelegramText(text, entities, limits.value.text)
+        if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
+        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft }, replyId, forumTopicId)
     }.onFailure { recordSendFailure("text", it) }
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
-        if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
-        send(chatId, media.toInputContent(caption, entities), replyId, forumTopicId)
+        val bounded = boundTelegramText(caption, entities, limits.value.caption)
+        send(chatId, media.toInputContent(bounded.text, bounded.entities), replyId, forumTopicId)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
         require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
-        if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
+        val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
             request(TdApi.GetMessage(chatId, it))
         }
         val messages = request(TdApi.SendMessageAlbum().apply {
             this.chatId = chatId
-            inputMessageContents = media.mapIndexed { index, item -> item.toInputContent(if (index == 0) caption else "", if (index == 0) entities else emptyList()) }.toTypedArray()
+            inputMessageContents = media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
@@ -133,8 +217,8 @@ internal class TdConversationActions(
         messages.messages.filterNotNull().forEach { message -> history.put(map(message)); hydrateReply(message) }
     }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
 
-    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long): Result<PinnedMessagePage> = conversationResult {
-        val page = request(pinnedMessagesRequest(chatId, fromMessageId))
+    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L): Result<PinnedMessagePage> = conversationResult {
+        val page = request(pinnedMessagesRequest(chatId, fromMessageId, forumTopicId))
         PinnedMessagePage(page.messages.orEmpty().filterNotNull().map(map), page.totalCount, page.nextFromMessageId)
     }
 
@@ -166,19 +250,27 @@ internal class TdConversationActions(
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))
         val original = request(TdApi.GetMessage(chatId, messageId))
         if (!(properties.canBeEdited && original.isOutgoing && editable(original.content))) throw UserMessageException(UiText.Res(R.string.err_message_cannot_edit))
-        val message = if (original.content is TdApi.MessageText) {
-            if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_edit_text_empty))
-            if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_edit_text_too_long))
-            request(TdApi.EditMessageText(chatId, messageId, null, TdApi.InputMessageText().apply { this.text = formattedText(text, entities) }))
+        val isText = original.content is TdApi.MessageText
+        val bounded = boundTelegramText(text, entities, if (isText) limits.value.text else limits.value.caption)
+        if (isText && bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_edit_text_empty))
+        // An appended suffix can disappear after clipping. Do not send an unchanged edit:
+        // Telegram rejects EditMessageText/Caption with MESSAGE_NOT_MODIFIED.
+        val previous = messageFormattedText(original.content)
+        if (previous?.text == bounded.text &&
+            previous.domainEntities().sortedWith(compareBy({ it.offset }, { it.length })) ==
+            bounded.entities.sortedWith(compareBy({ it.offset }, { it.length }))) {
+            return@conversationResult Unit
+        }
+        val message = if (isText) {
+            request(TdApi.EditMessageText(chatId, messageId, null, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities) }))
         } else {
-            if (text.codePointCount(0, text.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
             val above = when (val c = original.content) {
                 is TdApi.MessagePhoto -> c.showCaptionAboveMedia
                 is TdApi.MessageVideo -> c.showCaptionAboveMedia
                 is TdApi.MessageAnimation -> c.showCaptionAboveMedia
                 else -> false
             }
-            request(TdApi.EditMessageCaption(chatId, messageId, null, formattedText(text, entities), above))
+            request(TdApi.EditMessageCaption(chatId, messageId, null, formattedText(bounded.text, bounded.entities), above))
         }
         history.put(map(message)); hydrateReply(message)
     }
@@ -289,8 +381,9 @@ internal class TdConversationActions(
     }
 
     /** Поиск по тексту внутри одного чата: TDLib отдаёт новые сообщения первыми, дальше страницы идут через nextFromMessageId. */
-    suspend fun search(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
-        val found = request(TdApi.SearchChatMessages(chatId, null, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
+    suspend fun search(chatId: Long, query: String, fromMessageId: Long, forumTopicId: Long = 0L): Result<MessageSearchPage> = requestResult {
+        val topic = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
+        val found = request(TdApi.SearchChatMessages(chatId, topic, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
         MessageSearchPage(found.messages.orEmpty().map(map), found.nextFromMessageId)
     }
 
@@ -339,8 +432,9 @@ internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(t
     MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title
 })
 
-internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long) = TdApi.SearchChatMessages().apply {
+internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L) = TdApi.SearchChatMessages().apply {
     this.chatId = chatId
+    topicId = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
     query = ""
     this.fromMessageId = fromMessageId
     limit = 50
@@ -371,3 +465,13 @@ private fun recordSendFailure(kind: String, error: Throwable) {
         attrs = mapOf("kind" to kind, "reason" to reason)
     )
 }
+
+/** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */
+internal fun uniqueForumTopics(topics: List<ForumTopic>): List<ForumTopic> =
+    topics.distinctBy(ForumTopic::id).sortedByDescending(ForumTopic::order)
+
+/** A blank string means a message exists but has no textual snippet (for example a photo). */
+internal fun forumTopicMessagePreview(message: ChatMessage): String =
+    message.text.trim().ifBlank {
+        message.media?.fileName?.trim().orEmpty().ifBlank { message.serviceText?.trim().orEmpty() }
+    }

@@ -50,28 +50,29 @@ internal fun PinnedMessagesBar(
     conversation: ConversationRepository,
     connected: Boolean,
     onOpen: (ChatMessage) -> Unit,
-    visibleOldestMessageId: Long? = null
+    visibleOldestMessageId: Long? = null,
+    forumTopicId: Long = 0L
 ) {
     val version by remember(conversation, chatId) { conversation.observePinnedMessagesVersion(chatId) }.collectAsStateWithLifecycle()
-    var pins by remember(chatId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var total by remember(chatId) { mutableIntStateOf(0) }
-    var nextId by remember(chatId) { mutableLongStateOf(0L) }
-    var loading by remember(chatId) { mutableStateOf(false) }
-    var failed by remember(chatId) { mutableStateOf(false) }
-    var retry by remember(chatId) { mutableIntStateOf(0) }
-    var expanded by remember(chatId) { mutableStateOf(false) }
+    var pins by remember(chatId, forumTopicId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    var total by remember(chatId, forumTopicId) { mutableIntStateOf(0) }
+    var nextId by remember(chatId, forumTopicId) { mutableLongStateOf(0L) }
+    var loading by remember(chatId, forumTopicId) { mutableStateOf(false) }
+    var failed by remember(chatId, forumTopicId) { mutableStateOf(false) }
+    var retry by remember(chatId, forumTopicId) { mutableIntStateOf(0) }
+    var expanded by remember(chatId, forumTopicId) { mutableStateOf(false) }
     // A page requested before the pins were reloaded must not be added to the new list.
-    var generation by remember(chatId) { mutableIntStateOf(0) }
+    var generation by remember(chatId, forumTopicId) { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val palette = beyGramPalette()
 
-    LaunchedEffect(chatId, version, connected, retry) {
+    LaunchedEffect(chatId, forumTopicId, version, connected, retry) {
         generation++
         val requestedGeneration = generation
         loading = true
         failed = false
         try {
-            conversation.pinnedMessages(chatId).onSuccess { page ->
+            conversation.pinnedMessages(chatId, forumTopicId = forumTopicId).onSuccess { page ->
                 pins = page.messages.distinctBy(ChatMessage::id).sortedByDescending(ChatMessage::id)
                 total = page.totalCount
                 nextId = page.nextFromMessageId
@@ -86,7 +87,7 @@ internal fun PinnedMessagesBar(
         loading = true
         failed = false
         try {
-            conversation.pinnedMessages(chatId, requestedId).onSuccess { page ->
+            conversation.pinnedMessages(chatId, requestedId, forumTopicId).onSuccess { page ->
                 if (generation == requestedGeneration) {
                     pins = (pins + page.messages).distinctBy(ChatMessage::id).sortedByDescending(ChatMessage::id)
                     total = page.totalCount

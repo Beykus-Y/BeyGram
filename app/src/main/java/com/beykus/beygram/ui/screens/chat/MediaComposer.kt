@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -103,7 +104,7 @@ internal class AttachmentState(
     }
 
     fun remove(item: OutgoingMedia) {
-        if (sending) return
+        if (sending || importing) return
         pendingState.value = ArrayList(pending.filterNot { it.path == item.path })
         scope.launch { importer.discard(item) }
     }
@@ -165,8 +166,8 @@ internal fun rememberAttachmentState(
 internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
     val palette = beyGramPalette()
     val context = LocalContext.current
-    IconButton(onClick = { state.menuOpen = !state.menuOpen }, enabled = enabled && !state.sending,
-        modifier = Modifier.size(44.dp).semantics { contentDescription = context.getString(R.string.composer_attach_description) }) {
+    IconButton(onClick = { state.menuOpen = !state.menuOpen }, enabled = enabled && !state.sending && !state.importing,
+        modifier = Modifier.size(48.dp).semantics { contentDescription = context.getString(R.string.composer_attach_description) }) {
         Icon(Icons.Rounded.AttachFile, contentDescription = null, tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary, modifier = Modifier.size(24.dp))
     }
 }
@@ -180,32 +181,51 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
     if (!visible) return
     Column(Modifier.fillMaxWidth().background(palette.surface).padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 2.dp)) {
         if (!state.active) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 if (state.menuOpen) {
-                    TypeChip(Icons.Rounded.Image, stringResource(R.string.composer_type_photo_video)) { state.menuOpen = false; state.pickPhotos() }
-                    TypeChip(Icons.Rounded.Description, stringResource(R.string.composer_type_file)) { state.menuOpen = false; state.pickDocuments() }
+                    // The picker choices scroll independently on small screens or with large text.
+                    Row(
+                        modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TypeChip(Icons.Rounded.Image, stringResource(R.string.composer_type_photo_video)) { state.menuOpen = false; state.pickPhotos() }
+                        TypeChip(Icons.Rounded.Description, stringResource(R.string.composer_type_file)) { state.menuOpen = false; state.pickDocuments() }
+                    }
+                } else {
+                    Spacer(Modifier.weight(1f))
                 }
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { state.discardAll() }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textSecondary) }
+                IconButton(onClick = { state.discardAll() }, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textSecondary)
+                }
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     state.pending.forEach { item ->
-                        Row(Modifier.clip(RoundedCornerShape(14.dp)).background(palette.surface2).padding(start = 6.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            Modifier.clip(RoundedCornerShape(14.dp)).background(palette.surface2)
+                                .padding(start = 6.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             if (item.thumbnailPath != null) LocalMediaImage(item.thumbnailPath, Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)))
                             else Icon(Icons.Rounded.Description, null, tint = palette.accentInk, modifier = Modifier.size(36.dp).background(palette.accentSoft, RoundedCornerShape(8.dp)).padding(8.dp))
                             Column(Modifier.padding(horizontal = 8.dp).width(112.dp)) {
                                 Text(item.fileName, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                 Text("${item.kind.label(context)} · ${formatMediaSize(item.size)}", color = palette.textSecondary, fontSize = 12.sp, maxLines = 1)
                             }
-                            Icon(Icons.Rounded.Close, stringResource(R.string.composer_remove_attachment), tint = palette.textSecondary,
-                                modifier = Modifier.size(28.dp).clip(CircleShape).clickable(enabled = !state.sending && !state.importing) { state.remove(item) }.padding(5.dp))
+                            AttachmentRemoveButton(
+                                fileName = item.fileName,
+                                enabled = !state.sending && !state.importing,
+                                onClick = { state.remove(item) }
+                            )
                         }
                     }
                     if (state.importing) CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent, strokeWidth = 2.dp)
                 }
-                IconButton(onClick = { state.discardAll() }, enabled = !state.sending) { Icon(Icons.Rounded.Close, stringResource(R.string.composer_cancel_attachments), tint = palette.textSecondary) }
+                IconButton(onClick = { state.discardAll() }, enabled = !state.sending, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.Close, stringResource(R.string.composer_cancel_attachments), tint = palette.textSecondary)
+                }
             }
             val count = caption.codePointCount(0, caption.length)
             Text("$count / $captionLimit", color = if (count > captionLimit) palette.danger else palette.textSecondary, fontSize = 12.sp,
@@ -216,10 +236,32 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
     }
 }
 
+/**
+ * A real 48dp button instead of a clickable 28dp glyph.
+ * Icon remains visually compact while the accessibility action names its file.
+ */
+@Composable
+internal fun AttachmentRemoveButton(fileName: String, enabled: Boolean, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val label = stringResource(R.string.composer_remove_attachment_named, fileName)
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(48.dp).semantics { contentDescription = label }
+    ) {
+        Icon(
+            Icons.Rounded.Close,
+            contentDescription = null,
+            tint = palette.textSecondary.copy(alpha = if (enabled) 1f else 0.38f),
+            modifier = Modifier.size(18.dp)
+        )
+    }
+}
+
 @Composable
 private fun TypeChip(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, onClick: () -> Unit) {
     val palette = beyGramPalette()
-    Row(Modifier.height(40.dp).clip(RoundedCornerShape(14.dp)).background(palette.accentSoft).clickable(onClick = onClick).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.defaultMinSize(minHeight = 48.dp).clip(RoundedCornerShape(14.dp)).background(palette.accentSoft).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
         Text(title, color = palette.accentInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)

@@ -47,7 +47,9 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -127,6 +129,10 @@ fun ChatsScreen(
     folderLoadStates: Map<Int, TelegramFolderLoadState>,
     onFolderLoadMore: (Int) -> Unit,
     onPinFolderChat: suspend (Int, Long, Boolean) -> Result<Unit>,
+    onLoadFolder: suspend (Int) -> Result<com.beykus.beygram.domain.model.TelegramFolderDraft>,
+    onSaveFolder: suspend (com.beykus.beygram.domain.model.TelegramFolderDraft) -> Result<Int>,
+    onDeleteFolder: suspend (Int) -> Result<Unit>,
+    onReorderFolders: suspend (List<Int>, Int) -> Result<Unit>,
     myProfile: ProfileInfo?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
@@ -144,8 +150,10 @@ fun ChatsScreen(
     onGlobalSearch: (String) -> Unit = {}
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    var selectedFilterName by rememberSaveable { mutableStateOf(ChatFilter.All.name) }
-    val selectedFilter = ChatFilter.valueOf(selectedFilterName)
+    // Server folders replace the old local All / People / Groups / Unread chips.
+    // Applying local filtering again beneath server folders gave users two competing tab bars.
+    val selectedFilter = ChatFilter.All
+    var managingFolders by rememberSaveable { mutableStateOf(false) }
     // A folder is selected by server ID, never by its mutable index or local category name.
     var selectedFolderId by rememberSaveable(myProfile?.id) { mutableIntStateOf(0) }
     val activeFolderId = validTelegramFolderSelection(folderSnapshot, selectedFolderId.takeIf { it > 0 })
@@ -183,7 +191,6 @@ fun ChatsScreen(
     }
     val regularChats = remember(filteredChats, pinnedChats) { filteredChats.filterNot { it in pinnedChats } }
     val unreadTotal = remember(displayedChats) { displayedChats.sumOf { it.unreadCount } }
-    val showAllHeader = pinnedChats.isNotEmpty() || (selectedFilter == ChatFilter.All && query.isBlank())
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
     val listState = rememberSaveable(activeFolderId, saver = LazyListState.Saver) { LazyListState() }
@@ -227,6 +234,20 @@ fun ChatsScreen(
         if (!listState.isScrollInProgress) pullPx = 0f
     }
 
+    if (managingFolders) {
+        FolderManagerScreen(
+            snapshot = folderSnapshot,
+            knownChats = (chats + archivedChats + folderChats.values.flatten()).distinctBy { it.id }
+                .sortedBy { it.title.lowercase() },
+            loadFolder = onLoadFolder,
+            saveFolder = onSaveFolder,
+            deleteFolder = onDeleteFolder,
+            reorderFolders = onReorderFolders,
+            onBack = { managingFolders = false }
+        )
+        return
+    }
+
     // The root Box is bounded by MainTabsScaffold above the bottom navigation and
     // persistent player. Its FAB is never drawn under the system navigation bar.
     Box(
@@ -253,49 +274,45 @@ fun ChatsScreen(
             Spacer(Modifier.height(14.dp))
             SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
             Spacer(Modifier.height(12.dp))
-            // Server folders are a distinct navigation level from local People/Groups/Unread chips.
-            if (folderSnapshot.initialized && folderSnapshot.folders.isNotEmpty()) {
-                val serverTabs = orderedTelegramFolderTabs(folderSnapshot)
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 0.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(serverTabs, key = { tab ->
-                        when (tab) {
-                            TelegramFolderTab.Main -> "server_main"
-                            is TelegramFolderTab.Folder -> "server_folder_${tab.id}"
-                        }
-                    }) { tab ->
-                        when (tab) {
-                            TelegramFolderTab.Main -> ServerFolderChip(
-                                title = stringResource(R.string.chat_folders_all),
-                                selected = activeFolderId == null,
-                                unreadCount = null,
-                                onClick = { selectedFolderId = 0 }
-                            )
-                            is TelegramFolderTab.Folder -> {
-                                val folder = folderSnapshot.folders.firstOrNull { it.id == tab.id }
-                                if (folder != null) ServerFolderChip(
-                                    title = folder.title,
-                                    selected = activeFolderId == folder.id,
-                                    unreadCount = folder.unreadChats,
-                                    onClick = { selectedFolderId = folder.id }
+            // Only one source of folder navigation: server-backed Telegram lists.
+            // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
+            if (folderSnapshot.initialized) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    val serverTabs = orderedTelegramFolderTabs(folderSnapshot)
+                    LazyRow(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(serverTabs, key = { tab ->
+                            when (tab) {
+                                TelegramFolderTab.Main -> "server_main"
+                                is TelegramFolderTab.Folder -> "server_folder_${tab.id}"
+                            }
+                        }) { tab ->
+                            when (tab) {
+                                TelegramFolderTab.Main -> ServerFolderChip(
+                                    title = stringResource(R.string.chat_folders_all),
+                                    selected = activeFolderId == null,
+                                    unreadCount = null,
+                                    onClick = { selectedFolderId = 0 }
                                 )
+                                is TelegramFolderTab.Folder -> {
+                                    val folder = folderSnapshot.folders.firstOrNull { it.id == tab.id }
+                                    if (folder != null) ServerFolderChip(
+                                        title = folder.title,
+                                        selected = activeFolderId == folder.id,
+                                        unreadCount = folder.unreadChats,
+                                        onClick = { selectedFolderId = folder.id }
+                                    )
+                                }
                             }
                         }
                     }
-                }
-                Spacer(Modifier.height(12.dp))
-            }
-            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ChatFilter.entries.forEach { filter ->
-                    FilterChip(
-                        title = stringResource(filter.title),
-                        selected = selectedFilter == filter,
-                        count = if (filter == ChatFilter.Unread) unreadTotal else null,
-                        onClick = { selectedFilterName = filter.name }
-                    )
+                    androidx.compose.material3.IconButton(onClick = { managingFolders = true }) {
+                        Icon(Icons.Rounded.Tune,
+                            contentDescription = stringResource(R.string.folder_manage_title),
+                            tint = palette.textSecondary)
+                    }
                 }
             }
         }
@@ -351,9 +368,14 @@ fun ChatsScreen(
                     }
                 }
             } else {
-                if (showAllHeader && regularChats.isNotEmpty()) {
-                    item(key = "all_header") {
-                        Text(stringResource(R.string.chats_section_all), modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
+                // A pinned group needs a quiet separator, not a second "All chats" label
+                // beneath the already selected Telegram folder tab.
+                if (pinnedChats.isNotEmpty() && regularChats.isNotEmpty()) {
+                    item(key = "pinned_separator") {
+                        HorizontalDivider(
+                            color = palette.divider,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                        )
                     }
                 }
                 items(regularChats, key = { it.id }) { chat ->

@@ -1,10 +1,14 @@
 package com.beykus.beygram.ui.screens.share
 
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -16,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -30,6 +35,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -38,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.BeyGramApplication
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.media.OutgoingMediaImporter
@@ -65,10 +73,11 @@ internal fun ShareTargetScreen(
     loadTopics: suspend (chatId: Long) -> Result<List<ForumTopic>?>,
     sendText: suspend (chatId: Long, topicId: Long, text: String) -> Result<Unit>,
     sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>,
-    onSent: (chatId: Long) -> Unit,
+    onSent: (chatId: Long, topicId: Long) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
+    val palette = beyGramPalette()
     val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
     val importer = remember(context) { OutgoingMediaImporter(context) }
 
@@ -86,7 +95,7 @@ internal fun ShareTargetScreen(
     val limit = if (session.staged.isNotEmpty()) captionLimit else IncomingShareParser.MAX_TEXT_LENGTH
     val tooLong = session.draft.codePointCount(0, session.draft.length) > limit
     // Без готовых файлов текст уйдёт, только если файлов не было или пользователь убрал их все сам; при сбое подготовки не отправляем.
-    val canSend = !tooLong && !session.sending && !session.staging &&
+    val canSend = !session.sending && !session.staging &&
         (session.staged.isNotEmpty() || (session.draft.isNotBlank() && (!hasFiles || session.error == null)))
 
     LaunchedEffect(session) { session.startStaging(context, appScope) }
@@ -97,11 +106,12 @@ internal fun ShareTargetScreen(
         topicsError = null
         if (targetId == 0L) return@LaunchedEffect
         loadTopics(targetId)
-            .onSuccess { loaded -> topics = loaded; topicsReady = true }
+            // A closed topic the user can't post to is not a share destination.
+            .onSuccess { loaded -> topics = loaded?.filter { it.canWrite }; topicsReady = true }
             .onFailure { topicsError = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_topics_failed) }
     }
     // Отправка могла закончиться, пока экрана не было (поворот): тогда открываем чат, куда ушло сообщение.
-    LaunchedEffect(session.sent) { if (session.sent) onSent(session.sentChatId) }
+    LaunchedEffect(session.sent) { if (session.sent) onSent(session.sentChatId, topicId) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -122,21 +132,37 @@ internal fun ShareTargetScreen(
                 ) {
                     Text(stringResource(if (target != null) R.string.common_back else R.string.common_cancel))
                 }
-                Text(
-                    text = stringResource(R.string.share_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(start = 8.dp)
-                )
+                Column(modifier = Modifier.padding(start = 8.dp)) {
+                    Text(text = stringResource(R.string.share_title), style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        text = stringResource(if (target == null) R.string.share_pick_destination else R.string.share_review_before_send),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
 
             if (target == null) {
-                if (text.isNotEmpty()) {
-                    Text(
-                        text = text,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                // A concise preview gives context before choosing a recipient; never sends anything on selection.
+                if (text.isNotEmpty() || hasFiles) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(stringResource(R.string.share_preview_title), style = MaterialTheme.typography.labelLarge)
+                            if (text.isNotEmpty()) Text(
+                                text = text, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall
+                            )
+                            if (hasFiles) Text(
+                                stringResource(R.string.share_files_count, uris.size),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
                 }
                 if (session.staging) Text(stringResource(R.string.share_preparing), style = MaterialTheme.typography.bodyMedium)
                 session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
@@ -149,21 +175,41 @@ internal fun ShareTargetScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 val shown = chats.filter { it.canPost && (query.isBlank() || it.title.contains(query.trim(), ignoreCase = true)) }
+                    .sortedWith(compareByDescending<ChatPreview> { it.isSavedMessages }.thenBy { it.title.lowercase() })
                 if (shown.isEmpty()) {
                     Text(stringResource(R.string.share_no_chats), style = MaterialTheme.typography.bodyMedium)
                 }
                 LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     items(shown, key = { it.id }) { chat ->
-                        Text(
-                            text = chat.title,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier
-                                .fillMaxWidth()
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
                                 .clickable { targetId = chat.id; topicId = 0L; session.error = null }
-                                .padding(vertical = 14.dp)
-                        )
+                                .padding(horizontal = 4.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                Modifier.size(46.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (chat.isSavedMessages) palette.accentSoft else MaterialTheme.colorScheme.surfaceContainerHighest),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    if (chat.isSavedMessages) "★" else chat.initials.take(2).ifBlank { chat.title.take(1) },
+                                    color = if (chat.isSavedMessages) palette.accentInk else MaterialTheme.colorScheme.onSurface,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(chat.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    stringResource(if (chat.isSavedMessages) R.string.share_saved_target else R.string.share_select_chat),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = 62.dp))
                     }
                 }
             } else if (!topicsReady) {
@@ -197,8 +243,9 @@ internal fun ShareTargetScreen(
                 ) {
                     Text(
                         text = stringResource(R.string.share_send_to, target.title),
-                        style = MaterialTheme.typography.titleSmall
+                        style = MaterialTheme.typography.titleMedium
                     )
+                    Text(stringResource(R.string.share_send_review_hint), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     session.staged.forEach { item ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -220,11 +267,11 @@ internal fun ShareTargetScreen(
                         placeholder = { Text(stringResource(if (hasFiles) R.string.share_caption_placeholder else R.string.share_text_placeholder)) },
                         enabled = !session.sending,
                         minLines = 3,
-                        isError = tooLong,
+                        isError = false,
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (tooLong) {
-                        Text(stringResource(R.string.share_text_too_long, limit), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.share_truncated_notice, limit), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                     session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                     if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }

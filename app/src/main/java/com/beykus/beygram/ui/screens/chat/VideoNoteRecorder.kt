@@ -4,8 +4,11 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
-import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
 import android.os.StatFs
 import android.os.SystemClock
 import android.util.Range
@@ -13,6 +16,8 @@ import android.util.Rational
 import android.util.Log
 import android.view.Surface
 import android.view.ViewGroup
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.MirrorMode
@@ -63,6 +68,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.VideoNoteSensorTap
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
@@ -70,17 +76,19 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteCameraSurvey
-import com.beykus.beygram.data.media.safeVideoNoteFpsSelection
+import com.beykus.beygram.data.media.VideoNoteFpsCheck
+import com.beykus.beygram.data.media.VideoNoteFpsDecision
+import com.beykus.beygram.data.media.VideoNoteStatus
+import com.beykus.beygram.data.media.previewFrameRateFor
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoQualityPreset
-import com.beykus.beygram.data.media.requestedFrameRateRange
-import com.beykus.beygram.data.media.chooseSupportedFrameRateRange
 import com.beykus.beygram.data.media.videoMirrorToggleSupported
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.UUID
 
@@ -91,6 +99,8 @@ private const val SIDE_PX = 480
 /** Сдвиг пальца влево, после которого отпускание отменяет запись. */
 private const val CANCEL_DRAG_DP = 96f
 private const val TAG = "BeyGramRecorder"
+// The FPS check settles a pending open (5 s) and then waits for the close callback (2 s).
+private const val FPS_CHECK_RELEASE_TIMEOUT_MS = 8_000L
 /** Кадр обрезается по кругу при обработке (маска в VideoNoteProcessor), поэтому запись кружков включена. */
 internal const val VIDEO_NOTE_RECORDING_ENABLED = true
 
@@ -149,7 +159,9 @@ internal class VideoNoteRecorder(
     private var camera: Camera? = null
     /** Диапазон FPS, зашитый в текущий VideoCapture на этапе создания: пересоздать его без обрыва записи нельзя. */
     private var captureFpsRange: Range<Int>? = null
-    private var captureFpsReason: String = "not selected"
+    private var captureFpsDecision: VideoNoteFpsDecision? = null
+    /** What the preview asked for; logged next to the recording range so a mismatch is visible. */
+    private var previewFpsRange: IntRange? = null
     private var captureCameraId: String? = null
     /** Persistent-запись не отвязывается от VideoCapture при перепривязке камеры. Если устройство её не умеет, переключение скрывается. */
     private var persistentSupported = true
@@ -194,7 +206,7 @@ internal class VideoNoteRecorder(
                 val compatible = targetSupported.any { range -> range.first <= captureFps.lower && captureFps.upper <= range.last }
                 if (!compatible) {
                     Log.i(TAG, "video_camera_switch_refused fps=$captureFps supported=$targetSupported")
-                    VideoNoteDiagnostics.append(current.sessionName, "Camera switch refused: FPS range incompatible with target lens")
+                    VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_switch_refused))
                     onError(context.getString(R.string.recorder_camera_switch_failed))
                     return
                 }
@@ -206,10 +218,14 @@ internal class VideoNoteRecorder(
             bind(cameraProvider, selector, current.settings, capture)
             preferFrontCamera = targetFront
             Log.i(TAG, "video_camera_switched front=$preferFrontCamera")
-            VideoNoteDiagnostics.append(current.sessionName, "Camera switched: ${if (preferFrontCamera) "front" else "back"}")
+            // Timestamps of different camera devices are not comparable: measure the new camera on its own.
+            if (sensorTap.isActive()) sensorTap.begin()
+            VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_switched,
+                context.getString(if (preferFrontCamera) R.string.camera_facing_front else R.string.camera_facing_back),
+                previewFpsRange?.let { "${it.first}..${it.last}" } ?: context.getString(R.string.camera_report_range_default)))
         } catch (failure: Exception) {
             Log.e(TAG, "video_camera_switch_failed", failure)
-            VideoNoteDiagnostics.append(current.sessionName, "Camera switch failed: ${failure.javaClass.simpleName}")
+            VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_switch_failed, failure.javaClass.simpleName))
             if (!unbound) {
                 // Камера ещё привязана: сбоила только проверка, запись продолжается без изменений.
                 onError(context.getString(R.string.recorder_camera_switch_failed))
@@ -245,6 +261,9 @@ internal class VideoNoteRecorder(
             onError(context.getString(R.string.recorder_processing_busy))
             return
         }
+        // The opt-in camera FPS check may still hold a lens after leaving settings: recording wins,
+        // but CameraX binds only after the check has closed that lens.
+        val stoppingCheck = VideoNoteFpsCheck.cancelForRecording()
         val settings = currentSettings()
         Log.i(TAG, "video_start_requested preset=${settings.preset} long=${settings.longRecordingEnabled}")
         maxDurationMs = if (settings.longRecordingEnabled) LONG_MAX_DURATION_MS else NORMAL_MAX_DURATION_MS
@@ -262,6 +281,15 @@ internal class VideoNoteRecorder(
         zoomRatio = 1f
         elapsedMs = 0L
         val current = ++attempt
+        if (stoppingCheck != null) {
+            scope.launch {
+                withTimeoutOrNull(FPS_CHECK_RELEASE_TIMEOUT_MS) { stoppingCheck.join() }
+                if (active && current == attempt) openCamera(current, settings)
+            }
+        } else openCamera(current, settings)
+    }
+
+    private fun openCamera(current: Int, settings: VideoMessageSettings) {
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             // Ответ камеры от более раннего нажатия игнорируется, чтобы не начать вторую запись.
@@ -390,6 +418,8 @@ internal class VideoNoteRecorder(
     private fun requestStop(current: VideoTake) {
         if (current.stopRequested) return
         current.stopRequested = true
+        // Results after this point belong to finalization, not to the recorded file.
+        sensorTap.stop()
         current.recording?.stop()
     }
 
@@ -414,27 +444,18 @@ internal class VideoNoteRecorder(
         }
         val bitrate = videoCameraBitrate(settings)
         val quality = if (side > 480) Quality.HD else Quality.SD
-        val requestedFps = settings.requestedFrameRateRange()
         val supportedFps = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges
-        val manager = context.getSystemService(CameraManager::class.java)
         captureCameraId = VideoNoteCameraSurvey.cameraId(cameraProvider.getCameraInfo(selector))
-        val normalRanges = captureCameraId?.let { id -> runCatching {
-            manager.getCameraCharacteristics(id).get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
-                ?.map { it.lower..it.upper }
-        }.getOrNull() }
-        // For maximum profile CameraX usually selects HD (1280x720); for others SD (640x480).
         // Camera2 normal ranges and H.264 capabilities constrain claims, but cannot guarantee
         // Preview+VideoCapture session combinations or low-light exposure behaviour.
-        val sourceSize = if (quality == Quality.HD) 1280 to 720 else 640 to 480
-        val encoder60 = if (requestedFps.last >= 50) {
-            VideoNoteCameraSurvey.encoderSupportsAvc(sourceSize.first, sourceSize.second, 60)
-        } else null
-        val (chosenFps, reason) = safeVideoNoteFpsSelection(
-            requestedFps, supportedFps.map { it.lower..it.upper }, normalRanges, encoder60
+        // The settings screen's diagnostics call the same function, so both always agree.
+        val decision = VideoNoteCameraSurvey.recordingDecision(
+            context, settings, captureCameraId, supportedFps.map { it.lower..it.upper }
         )
+        val chosenFps = decision.selected
         val fpsRange = chosenFps?.let { Range(it.first, it.last) }
-        captureFpsReason = reason
-        Log.i(TAG, "video_fps requested=$requestedFps selected=$chosenFps reason=$reason")
+        captureFpsDecision = decision
+        Log.i(TAG, "video_fps requested=${decision.requested} selected=$chosenFps cause=${decision.cause}")
         val qualitySelector = QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(quality))
         val captureBuilder = VideoCapture.Builder(
             Recorder.Builder()
@@ -446,6 +467,7 @@ internal class VideoNoteRecorder(
         captureBuilder.setMirrorMode(mirrorMode(settings))
         if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
         captureFpsRange = fpsRange
+        if (settings.diagnosticsEnabled) attachSensorTap(captureBuilder)
         return captureBuilder.build()
     }
 
@@ -456,12 +478,14 @@ internal class VideoNoteRecorder(
         settings: VideoMessageSettings,
         capture: VideoCapture<Recorder>
     ) {
-        val requestedFps = settings.requestedFrameRateRange()
         val supportedFps = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges
-        val chosenFps = chooseSupportedFrameRateRange(
-            requestedFps,
+        // The preview follows the recording range instead of re-deciding from the raw request:
+        // a preview asking for 60 next to a 30 FPS recording used to be possible here.
+        val chosenFps = previewFrameRateFor(
+            captureFpsRange?.let { it.lower..it.upper },
             supportedFps.map { it.lower..it.upper }
         )
+        previewFpsRange = chosenFps
         val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         val previewBuilder = Preview.Builder()
         previewBuilder.setMirrorMode(mirrorMode(settings))
@@ -506,6 +530,24 @@ internal class VideoNoteRecorder(
         }
     }
 
+    private val sensorTap = VideoNoteSensorTap()
+
+    /** Reads sensor timestamps from the capture results of the real session; the numbers never leave the report. */
+    @OptIn(ExperimentalCamera2Interop::class)
+    private fun attachSensorTap(builder: VideoCapture.Builder<Recorder>) {
+        Camera2Interop.Extender(builder).setSessionCaptureCallback(object : CameraCaptureSession.CaptureCallback() {
+            override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+                if (!sensorTap.isActive()) return
+                val crop = result.get(CaptureResult.SCALER_CROP_REGION)
+                sensorTap.record(
+                    result.get(CaptureResult.SENSOR_TIMESTAMP), result.get(CaptureResult.SENSOR_EXPOSURE_TIME),
+                    crop?.let { "${it.left},${it.top} ${it.width()}x${it.height()}" },
+                    if (android.os.Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null
+                )
+            }
+        })
+    }
+
     private fun startRecording(settings: VideoMessageSettings) {
         val capture = videoCapture ?: return
         // RAW без маски пишется в no_backup: он не должен попадать в резервные копии и на другое устройство.
@@ -518,22 +560,20 @@ internal class VideoNoteRecorder(
             context = context,
             sessionId = sessionName,
             settings = settings,
-            lens = if (preferFrontCamera) "front" else "back",
-            selectedRange = captureFpsRange?.toString() ?: "CameraX automatic",
-            supportedRanges = camera?.cameraInfo?.supportedFrameRateRanges?.joinToString() ?: "unavailable",
+            lens = context.getString(if (preferFrontCamera) R.string.camera_facing_front else R.string.camera_facing_back),
+            decision = captureFpsDecision,
+            previewRange = previewFpsRange,
+            supportedRanges = camera?.cameraInfo?.supportedFrameRateRanges?.joinToString { "${it.lower}..${it.upper}" } ?: "?",
             captureBitrate = videoCameraBitrate(settings)
         )
         if (settings.diagnosticsEnabled) {
-            VideoNoteDiagnostics.append(sessionName, "Camera ID: ${captureCameraId ?: "unavailable"}, CameraX FPS decision: $captureFpsReason")
-            VideoNoteDiagnostics.append(sessionName, "UseCases: Preview + VideoCapture, 1:1 ViewPort FILL_CENTER; chosen CameraX Quality: ${if (settings.preset == VideoQualityPreset.Maximum || (settings.preset == VideoQualityPreset.Custom && settings.customSide > 480)) "HD" else "SD"}")
+            val (sourceWidth, sourceHeight) = VideoNoteCameraSurvey.sourceSize(settings)
+            VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_camera, captureCameraId ?: "?", sourceWidth, sourceHeight))
             val manager = context.getSystemService(CameraManager::class.java)
             captureCameraId?.let { id ->
-                VideoNoteDiagnostics.append(sessionName, VideoNoteCameraSurvey.describeCamera(manager, id).take(2600))
+                VideoNoteDiagnostics.append(sessionName, VideoNoteCameraSurvey.describeCamera(context, manager, id).take(2600))
             }
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                val thermal = context.getSystemService(android.os.PowerManager::class.java)?.currentThermalStatus
-                VideoNoteDiagnostics.append(sessionName, "Thermal status at start: ${thermal ?: "unknown"}")
-            }
+            VideoNoteCameraSurvey.thermalLine(context)?.let { VideoNoteDiagnostics.append(sessionName, it) }
         }
         try {
             current.recording = prepare(current, persistent = persistentSupported)
@@ -576,7 +616,8 @@ internal class VideoNoteRecorder(
                     started = true
                     startClock()
                     recordStarted()
-                    VideoNoteDiagnostics.append(current.sessionName, "CameraX VideoRecordEvent.Start")
+                    if (current.settings.diagnosticsEnabled) sensorTap.begin()
+                    VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_recording_started))
                 }
                 if (event is VideoRecordEvent.Finalize) onFinalize(current, event)
             }
@@ -595,9 +636,22 @@ internal class VideoNoteRecorder(
             timer = null
         }
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
+        val sensor = sensorTap.finish(captureFpsRange?.upper ?: 30)
+        if (current.settings.diagnosticsEnabled) {
+            VideoNoteDiagnostics.recordCrop(current.sessionName, sensor?.crop, sensor?.zoom)
+            VideoNoteDiagnostics.recordSensor(current.sessionName, sensor?.stats, sensor?.truncated == true)
+        }
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
         val outcome = videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)
-        VideoNoteDiagnostics.append(current.sessionName, "CameraX finalized: duration=${seconds}s, bytes=${current.file.length()}, errorCode=${event.error}, outcome=$outcome", if (outcome == VideoTakeOutcome.Send) "Обработка" else outcome.name)
+        VideoNoteDiagnostics.append(
+            current.sessionName,
+            context.getString(R.string.vn_entry_recording_finalized, seconds, current.file.length(), event.error),
+            when (outcome) {
+                VideoTakeOutcome.Send -> VideoNoteStatus.PROCESSING
+                VideoTakeOutcome.Discarded, VideoTakeOutcome.TooShort -> VideoNoteStatus.DISCARDED
+                VideoTakeOutcome.SaveFailed -> VideoNoteStatus.RECORDING_FAILED
+            }
+        )
         recordAppEvent(
             kind = EventKind.UI,
             code = "video_note_finalized",
@@ -661,16 +715,18 @@ internal fun rememberVideoNoteRecorder(
     settings: VideoMessageSettingsStore,
     processingScope: CoroutineScope,
     chatId: Long,
+    topicId: Long = 0L,
     onError: (String) -> Unit
 ): VideoNoteRecorder {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val currentChatId by rememberUpdatedState(chatId)
+    val currentTopicId by rememberUpdatedState(topicId)
     val currentOnError by rememberUpdatedState(onError)
     val recorder = remember(owner, settings, processingScope) {
         VideoNoteRecorder(context, owner, processingScope, { settings.settings.value },
             onTakeReady = { raw, takeSettings, sessionName, previewFirst ->
-                VideoNoteExportCenter.enqueue(context.applicationContext, currentChatId, raw, takeSettings, sessionName, previewFirst)
+                VideoNoteExportCenter.enqueue(context.applicationContext, currentChatId, raw, takeSettings, sessionName, previewFirst, currentTopicId)
             },
             onError = { currentOnError(it) })
     }
@@ -752,7 +808,7 @@ internal fun VideoNoteSwitchCameraButton(recorder: VideoNoteRecorder, enabled: B
 @Composable
 internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modifier = Modifier, onCancel: () -> Unit) {
     val palette = beyGramPalette()
-    Row(modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface2).padding(horizontal = 12.dp),
+    Row(modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface2).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Spacer(Modifier.size(9.dp).clip(CircleShape).background(palette.danger))
         Icon(Icons.Rounded.Videocam, null, tint = palette.danger, modifier = Modifier.size(19.dp))
@@ -765,8 +821,9 @@ internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modif
             modifier = Modifier.weight(1f)
         )
         if (recorder.locked) {
-            Text(stringResource(R.string.recorder_cancel), color = palette.warningText, fontSize = 13.sp,
-                modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable(onClick = onCancel).padding(horizontal = 8.dp, vertical = 7.dp))
+            androidx.compose.material3.TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.recorder_cancel), color = palette.warningText, fontSize = 13.sp)
+            }
         }
     }
 }

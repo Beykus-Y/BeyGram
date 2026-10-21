@@ -13,6 +13,7 @@ import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
@@ -22,6 +23,8 @@ import com.beykus.beygram.ui.text.resolve
 import java.util.concurrent.ConcurrentHashMap
 
 internal class AndroidNotificationRenderer(private val context: Context, private val preferences: NotificationPreferencesStore) {
+    // Re-read the selected locale at render time, not only at service creation.
+    private val localizedContext get() = AppLocale.context(context)
     private val manager = context.getSystemService(NotificationManager::class.java)
     private val compat = NotificationManagerCompat.from(context)
     // The last reason Messages notifications were blocked; the diagnostics journal records only changes.
@@ -62,23 +65,23 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             }
             val hideContent = group.isSecret || !group.metadataReady
             val title = if (hideContent) "BeyGram" else group.title
-            val style = NotificationCompat.MessagingStyle(Person.Builder().setName(context.getString(R.string.chat_you)).build()).setConversationTitle(title).setGroupConversation(group.isGroup)
+            val style = NotificationCompat.MessagingStyle(Person.Builder().setName(localizedContext.getString(R.string.chat_you)).build()).setConversationTitle(title).setGroupConversation(group.isGroup)
             notices.forEach { notice ->
                 val preview = config.previews && notice.previewAllowed && !hideContent
-                style.addMessage(if (preview) notice.text.resolve(context) else context.getString(R.string.notif_new_message), notice.dateSeconds * 1000,
+                style.addMessage(if (preview) notice.text.resolve(localizedContext) else localizedContext.getString(R.string.notif_new_message), notice.dateSeconds * 1000,
                     Person.Builder().setName(if (hideContent) "Telegram" else notice.sender.ifBlank { title }).build())
             }
             val latest = notices.last()
-            val public = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle("BeyGram").setContentText(context.getString(R.string.notif_new_message)).build()
+            val public = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle("BeyGram").setContentText(localizedContext.getString(R.string.notif_new_message)).build()
             val builder = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle(title)
-                .setContentText(if (config.previews && latest.previewAllowed && !hideContent) latest.text.resolve(context) else context.getString(R.string.notif_new_message))
+                .setContentText(if (config.previews && latest.previewAllowed && !hideContent) latest.text.resolve(localizedContext) else localizedContext.getString(R.string.notif_new_message))
                 .setStyle(style).setCategory(NotificationCompat.CATEGORY_MESSAGE).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
                 .setWhen(latest.dateSeconds * 1000).setShowWhen(true).setNumber(group.totalCount).setAutoCancel(true)
-                .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
+                .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId, latest.topicId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
                 .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH)
             // A reply needs a visible chat title and a chat the user can write to, so other groups get no reply action.
             if (!hideContent && group.replyable) builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId, latest.topicId))
-            if (failedReplies.containsKey(group.id)) builder.setSubText(context.getString(R.string.notif_reply_failed))
+            if (failedReplies.containsKey(group.id)) builder.setSubText(localizedContext.getString(R.string.notif_reply_failed))
             val notification = builder.build()
             try {
                 compat.notify(tag, 0, notification)
@@ -104,8 +107,8 @@ internal class AndroidNotificationRenderer(private val context: Context, private
     }
     fun cancelGroup(id: Int) { manager.cancel(tag(id), 0); failedReplies.remove(id) }
     fun markReplyFailed(id: Int, maxId: Int) { failedReplies[id] = maxId }
-    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, context.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId, topicId))
-        .addRemoteInput(RemoteInput.Builder(NotificationIntents.REPLY_TEXT).setLabel(context.getString(R.string.notif_reply_hint)).build())
+    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, localizedContext.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId, topicId))
+        .addRemoteInput(RemoteInput.Builder(NotificationIntents.REPLY_TEXT).setLabel(localizedContext.getString(R.string.notif_reply_hint)).build())
         .setAllowGeneratedReplies(false)
         .build()
     private fun blockedText(reason: String?): String = when (reason) {
@@ -127,10 +130,11 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             context.getSystemService(NotificationManager::class.java).getNotificationChannel(channelId)?.importance == NotificationManager.IMPORTANCE_NONE
         fun messagesChannelBlocked(context: Context): Boolean = channelBlocked(context, MESSAGES)
         fun channels(context: Context) {
+            val localizedContext = AppLocale.context(context)
             context.getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(
-                NotificationChannel(MESSAGES, context.getString(R.string.notif_channel_messages), NotificationManager.IMPORTANCE_HIGH).apply { description = context.getString(R.string.notif_channel_messages_description); lockscreenVisibility = Notification.VISIBILITY_PRIVATE },
-                NotificationChannel(CONNECTION, context.getString(R.string.notif_channel_connection), NotificationManager.IMPORTANCE_LOW).apply { description = context.getString(R.string.notif_channel_connection_description); setSound(null, null); enableVibration(false); setShowBadge(false) },
-                NotificationChannel(PROXY, context.getString(R.string.proxy_notification_title), NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null); enableVibration(false); setShowBadge(false) }
+                NotificationChannel(MESSAGES, localizedContext.getString(R.string.notif_channel_messages), NotificationManager.IMPORTANCE_HIGH).apply { description = localizedContext.getString(R.string.notif_channel_messages_description); lockscreenVisibility = Notification.VISIBILITY_PRIVATE },
+                NotificationChannel(CONNECTION, localizedContext.getString(R.string.notif_channel_connection), NotificationManager.IMPORTANCE_LOW).apply { description = localizedContext.getString(R.string.notif_channel_connection_description); setSound(null, null); enableVibration(false); setShowBadge(false) },
+                NotificationChannel(PROXY, localizedContext.getString(R.string.proxy_notification_title), NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null); enableVibration(false); setShowBadge(false) }
             ))
         }
     }

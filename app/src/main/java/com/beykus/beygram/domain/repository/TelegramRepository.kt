@@ -37,6 +37,13 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun loadMoreFolderChats(folderId: Int): Result<Unit>
     suspend fun setFolderChatPinned(folderId: Int, chatId: Long, pinned: Boolean): Result<Unit>
 
+
+    /** Read and change actual TDLib server chat folder rules, never local chat filters. */
+    suspend fun getFolderDraft(folderId: Int): Result<com.beykus.beygram.domain.model.TelegramFolderDraft>
+    suspend fun saveFolderDraft(draft: com.beykus.beygram.domain.model.TelegramFolderDraft): Result<Int>
+    suspend fun deleteServerFolder(folderId: Int): Result<Unit>
+    suspend fun reorderServerFolders(ids: List<Int>, mainPosition: Int): Result<Unit>
+
     val connectionState: StateFlow<TelegramConnectionState>
     val myProfile: StateFlow<ProfileState>
     val bioLengthLimit: StateFlow<Int>

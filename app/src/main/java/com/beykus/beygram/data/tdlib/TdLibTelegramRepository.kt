@@ -23,6 +23,7 @@ import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.data.media.VideoNoteSendTracking
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.storage.StorageSettingsStore
 import com.beykus.beygram.domain.model.CachePolicy
@@ -34,6 +35,7 @@ import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.FolderChatPosition
 import com.beykus.beygram.domain.model.TelegramChatFolders
+import com.beykus.beygram.domain.model.TelegramFolderDraft
 import com.beykus.beygram.domain.model.TelegramFolderLoadState
 import com.beykus.beygram.domain.model.orderedTelegramFolderChats
 import com.beykus.beygram.domain.model.GroupCreationState
@@ -80,6 +82,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
@@ -269,15 +273,72 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     /** Кэш сообщений по chatId. */
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
-    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId)
+    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId)
     override fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft> = messageDrafts.observe(chatId)
+    override fun observeForumTopicDraft(chatId: Long, forumTopicId: Long): StateFlow<MessageDraft> = messageDrafts.observeTopic(chatId, forumTopicId)
+    override fun updateForumTopicDraft(chatId: Long, forumTopicId: Long, transform: (MessageDraft) -> MessageDraft) =
+        messageDrafts.updateTopic(chatId, forumTopicId, transform)
     override fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft) =
         messageDrafts.update(chatId, transform)
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
+    // A forum topic is a separate history even though all of its messages have the parent chatId.
+    private val topicStores = ConcurrentHashMap<Pair<Long, Long>, MessageHistoryStore>()
+    private fun topicStore(chatId: Long, topicId: Long): MessageHistoryStore =
+        topicStores.computeIfAbsent(chatId to topicId) { MessageHistoryStore(maxCachedChats = 1) }
+    private fun forumId(message: TdApi.Message): Long =
+        (message.topicId as? TdApi.MessageTopicForum)?.forumTopicId?.toLong() ?: 0L
+    // Only topics whose history was loaded take live messages: an unopened topic would keep
+    // every message forever and later show a gap between them and its first loaded page.
+    private val loadedTopics = ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
+    // A newer jump or latest load of the same topic wins over a slower earlier response.
+    private val topicRequests = ConcurrentHashMap<Pair<Long, Long>, Long>()
+    private fun nextTopicRequest(chatId: Long, topicId: Long): Long =
+        topicRequests.merge(chatId to topicId, 1L) { current, _ -> current + 1 } ?: 1L
+    private fun putForumMessage(message: TdApi.Message, replaces: Long? = null) {
+        val topicId = forumId(message)
+        if (topicId > 0L && (message.chatId to topicId) in loadedTopics) {
+            topicStore(message.chatId, topicId).put(message.toChatMessage(), replaces)
+        }
+    }
+    private fun updateForumMessage(chatId: Long, messageId: Long, transform: (ChatMessage) -> ChatMessage) {
+        topicStores.filterKeys { it.first == chatId }.values.forEach { it.update(chatId, messageId, transform) }
+    }
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
+    private val serviceMessages = TdServiceMessageMapper(appContext)
+    private val pendingServiceUserRequests = ConcurrentHashMap.newKeySet<Triple<Long, Long, Long>>()
+
+    private fun hydrateServiceMember(message: TdApi.Message, userId: Long) {
+        if (userId <= 0L || profiles.senderName(TdApi.MessageSenderUser(userId)).isNotBlank()) return
+        val requestKey = Triple(message.chatId, message.id, userId)
+        if (!pendingServiceUserRequests.add(requestKey)) return
+        client.send(TdApi.GetUser(userId), Client.ResultHandler { result ->
+            pendingServiceUserRequests.remove(requestKey)
+            if (result is TdApi.User) {
+                profiles.rememberServiceUser(result)
+                val updated = serviceMessages.event(message) {
+                    profiles.senderName(TdApi.MessageSenderUser(it))
+                } ?: return@ResultHandler
+                val transform: (ChatMessage) -> ChatMessage = {
+                    it.copy(text = updated.text, serviceText = updated.text, serviceUserId = updated.userId)
+                }
+                messageHistory.update(message.chatId, message.id, transform)
+                updateForumMessage(message.chatId, message.id, transform)
+                // The service event can also be the chat's last message. Update its list preview,
+                // but never overwrite a newer last message received during the async GetUser call.
+                val currentPreview = chatCache[message.chatId]
+                if (currentPreview?.lastMessageId == message.id) {
+                    val rendered = UiText.Raw(updated.text)
+                    if (currentPreview.lastMessage != rendered) {
+                        chatCache[message.chatId] = currentPreview.copy(lastMessage = rendered)
+                        publishChat(message.chatId)
+                    }
+                }
+            }
+        })
+    }
     private val profiles = TdProfiles({ client }, mediaFiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
     private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
@@ -302,6 +363,99 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun setFolderChatPinned(folderId: Int, chatId: Long, pinned: Boolean): Result<Unit> = requestResult {
         require(_chatFolders.value.folders.any { it.id == folderId }) { "Folder no longer exists" }
         tdRequests(TdApi.ToggleChatIsPinned(TdApi.ChatListFolder(folderId), chatId, pinned))
+        Unit
+    }
+
+    /** Stable server snapshot: an edit never silently reverts another device's newer changes. */
+    private fun TdApi.ChatFolder.folderStamp(): String = listOf(
+        tdFolderDisplayName(name), icon?.name.orEmpty(), colorId, isShareable,
+        pinnedChatIds?.joinToString(",").orEmpty(),
+        includedChatIds?.joinToString(",").orEmpty(),
+        excludedChatIds?.joinToString(",").orEmpty(),
+        excludeMuted, excludeRead, excludeArchived,
+        includeContacts, includeNonContacts, includeBots, includeGroups, includeChannels
+    ).joinToString(separator = "\u001f")
+
+    /** Read rules from TDLib each time the editor opens, including explicitly included/excluded IDs. */
+    override suspend fun getFolderDraft(folderId: Int): Result<TelegramFolderDraft> = requestResult {
+        require(_chatFolders.value.folders.any { it.id == folderId }) { "Folder no longer exists" }
+        val f = tdRequests(TdApi.GetChatFolder(folderId))
+        TelegramFolderDraft(
+            id = folderId,
+            title = tdFolderDisplayName(f.name),
+            isShareable = f.isShareable,
+            baselineFingerprint = f.folderStamp(),
+            includeContacts = f.includeContacts,
+            includeNonContacts = f.includeNonContacts,
+            includeBots = f.includeBots,
+            includeGroups = f.includeGroups,
+            includeChannels = f.includeChannels,
+            excludeMuted = f.excludeMuted,
+            excludeRead = f.excludeRead,
+            excludeArchived = f.excludeArchived,
+            pinnedChatIds = f.pinnedChatIds?.toList() ?: emptyList(),
+            includedChatIds = f.includedChatIds?.toSet() ?: emptySet<Long>(),
+            excludedChatIds = f.excludedChatIds?.toSet() ?: emptySet<Long>()
+        )
+    }
+
+    /**
+     * Edit by re-reading the original server folder, preserving icons, color, custom emoji in
+     * unchanged names, sharing metadata and existing pinned order. Never overwrite an old snapshot.
+     */
+    override suspend fun saveFolderDraft(draft: TelegramFolderDraft): Result<Int> = requestResult {
+        require(draft.valid()) { "Folder name (1-12 characters) and included chats are required" }
+        val original = draft.id?.let { tdRequests(TdApi.GetChatFolder(it)) }
+        if (original != null && (draft.baselineFingerprint == null ||
+                    original.folderStamp() != draft.baselineFingerprint)) {
+            throw UserMessageException(UiText.Res(R.string.folder_changed_while_editing))
+        }
+        val folder = original ?: TdApi.ChatFolder().apply {
+            colorId = -1
+            isShareable = false
+            pinnedChatIds = longArrayOf()
+        }
+        if (original == null || tdFolderDisplayName(original.name) != draft.title.trim()) {
+            folder.name = TdApi.ChatFolderName(
+                TdApi.FormattedText(draft.title.trim(), emptyArray()),
+                false
+            )
+        }
+        // Pinned members keep their order; a chat can't stay pinned after being excluded or removed.
+        val pinned = draft.pinnedChatIds.filterNot { it in draft.excludedChatIds }
+        folder.pinnedChatIds = pinned.toLongArray()
+        folder.includedChatIds = (draft.includedChatIds - pinned.toSet()).toLongArray()
+        folder.excludedChatIds = draft.excludedChatIds.toLongArray()
+        folder.excludeMuted = draft.excludeMuted
+        folder.excludeRead = draft.excludeRead
+        folder.excludeArchived = draft.excludeArchived
+        folder.includeContacts = draft.includeContacts
+        folder.includeNonContacts = draft.includeNonContacts
+        folder.includeBots = draft.includeBots
+        folder.includeGroups = draft.includeGroups
+        folder.includeChannels = draft.includeChannels
+        if (draft.id != null) {
+            tdRequests(TdApi.EditChatFolder(draft.id, folder)).id
+        } else {
+            tdRequests(TdApi.CreateChatFolder(folder)).id
+        }
+    }
+
+    /** Remove the folder only; never leave or delete any of its Telegram chats. */
+    override suspend fun deleteServerFolder(folderId: Int): Result<Unit> = requestResult {
+        require(_chatFolders.value.folders.any { it.id == folderId }) { "Folder no longer exists" }
+        tdRequests(TdApi.DeleteChatFolder(folderId, longArrayOf()))
+        Unit
+    }
+
+    /** Telegram validates Premium limits. All folder IDs must be included exactly once. */
+    override suspend fun reorderServerFolders(ids: List<Int>, mainPosition: Int): Result<Unit> = requestResult {
+        val state = _chatFolders.value
+        require(ids.size == ids.distinct().size && ids.toSet() == state.folders.map { it.id }.toSet()) {
+            "Folder list changed; refresh and retry"
+        }
+        require(mainPosition == state.mainChatListPosition) { "Main tab position changed" }
+        tdRequests(TdApi.ReorderChatFolders(ids.toIntArray(), mainPosition))
         Unit
     }
 
@@ -550,7 +704,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
-    private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
+    private val conversationActions = TdConversationActions({ client }, messageHistory,
+        map = { it.toChatMessage() },
+        onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })
     private val customEmojis = TdCustomEmojis(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
@@ -595,8 +751,41 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
+    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long) =
+        conversationActions.search(chatId, query, fromMessageId, forumTopicId)
     override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter) =
-        conversationActions.searchGlobal(query, offset, filter)
+        conversationActions.searchGlobal(query, offset, filter).map { page ->
+            // One metadata lookup per distinct uncached chat, never per message. Bounded
+            // concurrency prevents a page of old hits from flooding the TDLib request lane.
+            val missing = page.messages.map { it.chatId }.distinct().filter { chatCache[it] == null }
+            val limiter = Semaphore(6)
+            val fetched = coroutineScope {
+                missing.map { id ->
+                    async {
+                        limiter.withPermit {
+                            val preview = try {
+                                val loaded = tdRequests(TdApi.GetChat(id))
+                                val cached = loaded.toChatPreview()
+                                // Retain successful off-list metadata, including for the next page
+                                // and for opening a result. Do not force it into a visible chat list.
+                                if (cached != null) chatCache[id] = cached
+                                cached
+                            } catch (_: TimeoutCancellationException) {
+                                null // Metadata lookup timed out; preserve the search hits.
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                null // A deleted or inaccessible chat must not hide the hit.
+                            }
+                            id to preview
+                        }
+                    }
+                }.awaitAll().mapNotNull { (id, preview) -> preview?.let { id to it } }.toMap()
+            }
+            page.copy(chats = page.messages.mapNotNull { hit ->
+                (chatCache[hit.chatId] ?: fetched[hit.chatId])?.let { hit.chatId to it }
+            }.toMap())
+        }
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean) = conversationActions.shared(chatId, kind, fromMessageId, newer)
         .onSuccess { page -> listedMediaFiles.remember(page.messages.flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }) }
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
@@ -743,6 +932,60 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = messageHistory.observe(chatId)
+    override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> =
+        topicStore(chatId, forumTopicId).observe(chatId)
+
+    override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {
+        val store = topicStore(chatId, forumTopicId)
+        loadedTopics += chatId to forumTopicId
+        nextTopicRequest(chatId, forumTopicId)
+        requestForumHistory(chatId, forumTopicId, 0L, store.restartFromLatest(chatId))
+    }
+
+    override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {
+        val store = topicStore(chatId, forumTopicId)
+        val oldest = store.observe(chatId).value.messages.firstOrNull()?.id ?: 0L
+        store.beginLoad(chatId)?.let { requestForumHistory(chatId, forumTopicId, oldest, it) }
+    }
+
+    override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> =
+        conversationActions.latestForumTopicPreview(chatId, forumTopicId)
+
+    override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = requestResult {
+        val store = topicStore(chatId, forumTopicId)
+        loadedTopics += chatId to forumTopicId
+        val request = nextTopicRequest(chatId, forumTopicId)
+        val result = tdRequests(TdApi.GetForumTopicHistory().apply {
+            this.chatId = chatId; this.forumTopicId = forumTopicId.toInt()
+            fromMessageId = messageId; offset = -15; limit = 40
+        })
+        if (topicRequests[chatId to forumTopicId] != request) false else {
+            store.replaceWithWindow(chatId, result.messages.orEmpty().filterNotNull().map { it.toChatMessage() }, reachesLatest = false)
+            true
+        }
+    }
+
+    private fun requestForumHistory(chatId: Long, forumTopicId: Long, fromMessageId: Long, epoch: Long) {
+        val store = topicStore(chatId, forumTopicId)
+        val version = store.version()
+        client.send(TdApi.GetForumTopicHistory().apply {
+            this.chatId = chatId; this.forumTopicId = forumTopicId.toInt()
+            this.fromMessageId = fromMessageId; offset = 0; limit = 50
+        }, Client.ResultHandler { result ->
+            when (result) {
+                is TdApi.Messages -> {
+                    // GetForumTopicHistory already scopes messages. Older messages may have no explicit topicId.
+                    val page = result.messages.orEmpty().filterNotNull().filter { it.id != fromMessageId }
+                    val nextId = page.lastOrNull()?.id ?: fromMessageId
+                    val hasMore = page.isNotEmpty() && nextId != fromMessageId
+                    if (store.finishLoad(chatId, page.map { it.toChatMessage() }, hasMore, requestVersion = version, epoch = epoch)) {
+                        page.forEach(conversationActions::hydrateReply)
+                    }
+                }
+                is TdApi.Error -> store.fail(chatId, UiText.Res(R.string.err_chat_history_load_failed), epoch = epoch)
+            }
+        })
+    }
 
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = mediaFiles.observe(fileId)
 
@@ -858,7 +1101,22 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = conversationActions.isForum(chatId)
 
-    override suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = conversationActions.forumTopics(chatId)
+    override suspend fun canCreateForumTopic(chatId: Long) = conversationActions.canCreateTopic(chatId)
+    override suspend fun createForumTopic(chatId: Long, name: String) = conversationActions.createTopic(chatId, name)
+    override suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String) = conversationActions.renameTopic(chatId, forumTopicId, name)
+    override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean) = conversationActions.closeTopic(chatId, forumTopicId, closed)
+    override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
+    override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
+
+    override suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> =
+        conversationActions.forumTopics(chatId).onSuccess { topics ->
+            topics?.forEach { topic ->
+                topicStore(chatId, topic.id).apply {
+                    readInbox(chatId, topic.lastReadInboxMessageId)
+                    readOutbox(chatId, topic.lastReadOutboxMessageId)
+                }
+            }
+        }
 
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean): Result<Unit> {
         leaveJumpWindow(chatId)
@@ -882,6 +1140,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
+            is TdApi.UpdateForumTopic -> {
+                messageDrafts.receiveTopic(update.chatId, update.forumTopicId.toLong(), update.draftMessage)
+                topicStores[update.chatId to update.forumTopicId.toLong()]?.apply {
+                readInbox(update.chatId, update.lastReadInboxMessageId)
+                readOutbox(update.chatId, update.lastReadOutboxMessageId)
+                }
+            }
             is TdApi.UpdateChatFolders -> handleChatFolders(update)
             is TdApi.UpdateUnreadChatCount -> {
                 val list = update.chatList
@@ -914,15 +1179,28 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(lastReadOutboxMessageId = update.lastReadOutboxMessageId) }
                 publishChat(update.chatId)
             }
-            is TdApi.UpdateMessageContent -> messageHistory.update(update.chatId, update.messageId) { message ->
+            is TdApi.UpdateMessageContent -> {
                 val attachment = mediaMapper.media(update.newContent)
-                message.copy(text = contentText(update.newContent, attachment != null), entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
+                val service = serviceMessages.text(update.newContent)
+                val transform: (ChatMessage) -> ChatMessage = { message ->
+                    message.copy(text = service ?: contentText(update.newContent, attachment != null),
+                        serviceText = service, entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
+                }
+                messageHistory.update(update.chatId, update.messageId, transform)
+                updateForumMessage(update.chatId, update.messageId, transform)
             }
-            is TdApi.UpdateMessageContentOpened -> messageHistory.update(update.chatId, update.messageId) { message ->
-                message.copy(media = message.media?.copy(isViewed = true))
+            is TdApi.UpdateMessageContentOpened -> {
+                messageHistory.update(update.chatId, update.messageId) { it.copy(media = it.media?.copy(isViewed = true)) }
+                updateForumMessage(update.chatId, update.messageId) { it.copy(media = it.media?.copy(isViewed = true)) }
             }
-            is TdApi.UpdateMessageEdited -> messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
-            is TdApi.UpdateMessageInteractionInfo -> messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
+            is TdApi.UpdateMessageEdited -> {
+                messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
+                updateForumMessage(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
+            }
+            is TdApi.UpdateMessageInteractionInfo -> {
+                messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
+                updateForumMessage(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
+            }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
@@ -941,13 +1219,19 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 reportBotChannel.onNewMessage(update.message)
                 handleNewMessage(update.message)
                 conversationEffects.uploadStarted(update.message)
+                if (update.message.isOutgoing && update.message.content is TdApi.MessageVideoNote &&
+                    update.message.sendingState is TdApi.MessageSendingStatePending) {
+                    VideoNoteSendTracking.tracker.onPending(update.message.chatId, update.message.id)
+                }
             }
             is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
             is TdApi.UpdateMessageSendSucceeded -> {
                 videoNoteLossTransport.onSendSucceeded(update)
+                VideoNoteSendTracking.tracker.onSucceeded(update.message.chatId, update.oldMessageId)
                 reportBotChannel.onSendSucceeded(update)
                 cleanupSentUploads(update.message)
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+                putForumMessage(update.message, update.oldMessageId)
                 conversationActions.hydrateReply(update.message)
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
@@ -955,6 +1239,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 videoNoteLossTransport.onSendFailed(update)
                 reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
+                VideoNoteSendTracking.tracker.onFailed(update.message.chatId, update.oldMessageId, sendError?.code ?: 0)
                 android.util.Log.e("BeyGramNet", "Message send failed chat=${update.message.chatId} id=${update.message.id} content=${update.message.content.javaClass.simpleName} code=${sendError?.code} error=${sendError?.message}")
                 recordAppEvent(
                     kind = EventKind.TDLIB,
@@ -964,11 +1249,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     attrs = mapOf("content" to update.message.content.javaClass.simpleName, "error_code" to (sendError?.code ?: 0).toString())
                 )
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+                putForumMessage(update.message, update.oldMessageId)
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateDeleteMessages -> {
                 update.messageIds.forEach { conversationEffects.uploadFinished(update.chatId, it) }
-                if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())
+                if (update.isPermanent) {
+                    messageHistory.delete(update.chatId, update.messageIds.toList())
+                    topicStores.filterKeys { it.first == update.chatId }.values.forEach { it.delete(update.chatId, update.messageIds.toList()) }
+                }
             }
             is TdApi.UpdateConnectionState    -> {
                 ConnectionEventLog.shared.record("Соединение с Telegram: ${update.state.logLabel()}")
@@ -1346,6 +1635,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleNewMessage(message: TdApi.Message) {
         messageHistory.put(message.toChatMessage())
+        putForumMessage(message)
         conversationActions.hydrateReply(message)
         val chat = chatCache[message.chatId]
         // Muted archived chats stay in the archive, as they do in Telegram. Until the chat's notification settings are
@@ -1363,10 +1653,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun TdApi.Message.toChatMessage(): ChatMessage {
         val attachment = mediaMapper.media(content)
+        val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
+        val service = event?.text
+        if (event != null) hydrateServiceMember(this, event.userId)
         return ChatMessage(
         id = id,
         chatId = chatId,
-        text = contentText(content, attachment != null),
+        text = service ?: contentText(content, attachment != null),
         time = toTimeString(),
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
@@ -1378,6 +1671,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),
         reactions = messageReactions(interactionInfo),
+        serviceText = service,
+        serviceUserId = event?.userId ?: 0L,
+        forumTopicId = forumId(this),
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
@@ -1417,6 +1713,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             unreadCount = unreadCount,
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
+            isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,
             isSavedMessages = saved,
             isPinned = mainPosition?.isPinned == true,
             order = mainPosition?.order ?: 0L,
@@ -1446,10 +1743,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }
     }
 
-    private fun TdApi.Message.toTextPreview(): UiText = previewText(content)
+    private fun TdApi.Message.toTextPreview(): UiText =
+        serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
+            ?.let { UiText.Raw(it.text) } ?: previewText(content)
 
     private fun previewText(c: TdApi.MessageContent): UiText =
-        when (c) {
+        serviceMessages.text(c)?.let(UiText::Raw) ?: when (c) {
             is TdApi.MessageText      -> UiText.Raw(c.text.text)
             is TdApi.MessagePhoto     -> UiText.Res(R.string.chat_preview_photo)
             is TdApi.MessageVideo     -> UiText.Res(R.string.chat_preview_video)

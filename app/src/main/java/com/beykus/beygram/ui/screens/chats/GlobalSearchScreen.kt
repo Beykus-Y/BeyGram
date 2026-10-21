@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -19,6 +20,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.GlobalChatType
 import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.GlobalSearchPeriod
@@ -40,16 +45,78 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.domain.search.appendDistinctBy
+import com.beykus.beygram.ui.components.Avatar
+import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.screens.chat.MessageContextDialog
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
+import java.text.DateFormat
+import java.util.Date
 
 private const val SEARCH_DEBOUNCE_MILLIS = 400L
+
+/**
+ * Hoisted across GlobalSearch → Chat → Back, so paging and filters are not
+ * recreated whenever the navigation branch leaves composition.
+ */
+class GlobalSearchSession(initialQuery: String) {
+    val query = mutableStateOf(initialQuery)
+    val filter = mutableStateOf(GlobalSearchFilter())
+    val hits = mutableStateOf<List<ChatMessage>>(emptyList())
+    val chatContexts = mutableStateOf<Map<Long, ChatPreview>>(emptyMap())
+    val nextOffset = mutableStateOf("")
+    val loadingMore = mutableStateOf(false)
+    val moreFailed = mutableStateOf(false)
+    val pagingJob = mutableStateOf<Job?>(null)
+    val searching = mutableStateOf(false)
+    val failed = mutableStateOf(false)
+    val retryVersion = mutableStateOf(0)
+    var completedRequest: Pair<String, GlobalSearchFilter>? = null
+
+    companion object {
+        // Only primitive enum identifiers enter Android saved state. Search pages are
+        // deliberately reloaded after process recreation; filters are not lost.
+        val stateSaver = androidx.compose.runtime.saveable.listSaver<GlobalSearchSession, String>(
+            save = { state ->
+                listOf(
+                    state.query.value,
+                    state.filter.value.kind?.name.orEmpty(),
+                    state.filter.value.chatType?.name.orEmpty(),
+                    state.filter.value.period.name
+                )
+            },
+            restore = { saved ->
+                GlobalSearchSession(saved.getOrElse(0) { "" }).also { state ->
+                    state.filter.value = GlobalSearchFilter(
+                        kind = SharedMediaKind.entries.firstOrNull { it.name == saved.getOrNull(1) },
+                        chatType = GlobalChatType.entries.firstOrNull { it.name == saved.getOrNull(2) },
+                        period = GlobalSearchPeriod.entries.firstOrNull { it.name == saved.getOrNull(3) }
+                            ?: GlobalSearchPeriod.Any
+                    )
+                }
+            }
+        )
+    }
+
+    fun reset(newQuery: String) {
+        pagingJob.value?.cancel()
+        query.value = newQuery
+        filter.value = GlobalSearchFilter()
+        hits.value = emptyList()
+        chatContexts.value = emptyMap()
+        nextOffset.value = ""
+        loadingMore.value = false
+        moreFailed.value = false
+        searching.value = false
+        failed.value = false
+        completedRequest = null
+        retryVersion.value++
+    }
+}
 
 /**
  * Поиск сообщений по всем чатам аккаунта. Каждое изменение текста перезапускает LaunchedEffect,
@@ -61,42 +128,56 @@ fun GlobalSearchScreen(
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onBack: () -> Unit
+    onOpenMessage: (chatId: Long, forumTopicId: Long, messageId: Long) -> Unit,
+    onBack: () -> Unit,
+    session: GlobalSearchSession = remember { GlobalSearchSession(initialQuery) }
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
-    var query by rememberSaveable { mutableStateOf(initialQuery) }
-    // Фильтры сбрасываются при повороте экрана вместе с выдачей: они не сохраняются через rememberSaveable.
-    var filter by remember { mutableStateOf(GlobalSearchFilter()) }
-    var hits by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var nextOffset by remember { mutableStateOf("") }
-    var loadingMore by remember { mutableStateOf(false) }
-    var moreFailed by remember { mutableStateOf(false) }
-    var pagingJob by remember { mutableStateOf<Job?>(null) }
-    var searching by remember { mutableStateOf(false) }
-    var failed by remember { mutableStateOf(false) }
-    var opened by remember { mutableStateOf<ChatMessage?>(null) }
+    val context = LocalContext.current
+    val currentLocale = context.resources.configuration.locales[0]
+    val dateFormat = remember(currentLocale) { DateFormat.getDateInstance(DateFormat.MEDIUM, currentLocale) }
+    var query by session.query
+    var filter by session.filter
+    var hits by session.hits
+    var chatContexts by session.chatContexts
+    var nextOffset by session.nextOffset
+    var loadingMore by session.loadingMore
+    var moreFailed by session.moreFailed
+    var pagingJob by session.pagingJob
+    var searching by session.searching
+    var failed by session.failed
+    var retryVersion by session.retryVersion
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(query, filter) {
-        // Догрузка прошлого запроса или фильтра не должна дописаться к выдаче нового.
+    LaunchedEffect(query, filter, retryVersion) {
         pagingJob?.cancel()
         pagingJob = null
         loadingMore = false
         moreFailed = false
-        hits = emptyList()
-        nextOffset = ""
+        val request = query to filter
+        if (request == session.completedRequest && !failed) return@LaunchedEffect
+        if (session.completedRequest != request) {
+            hits = emptyList()
+            chatContexts = emptyMap()
+            nextOffset = ""
+        }
         failed = false
-        if (query.isBlank()) return@LaunchedEffect
-        delay(SEARCH_DEBOUNCE_MILLIS)
+        if (query.isBlank()) { searching = false; return@LaunchedEffect }
         searching = true
-        conversation.searchGlobalMessages(query, "", filter)
-            .onSuccess { page ->
-                hits = page.messages
-                nextOffset = page.nextOffset
-            }
-            .onFailure { failed = true }
-        searching = false
+        try {
+            delay(SEARCH_DEBOUNCE_MILLIS)
+            conversation.searchGlobalMessages(query, "", filter)
+                .onSuccess { page ->
+                    hits = page.messages
+                    chatContexts = page.chats
+                    nextOffset = page.nextOffset
+                }
+                .onFailure { failed = true }
+            session.completedRequest = request
+        } finally {
+            searching = false
+        }
     }
 
     Column(
@@ -134,14 +215,55 @@ fun GlobalSearchScreen(
         if (empty != null) {
             Text(empty, color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
         }
+        if (failed && query.isNotBlank()) {
+            TextButton(onClick = { retryVersion++ }, enabled = !searching) {
+                Text(stringResource(R.string.common_retry))
+            }
+        }
         LazyColumn(Modifier.fillMaxWidth()) {
             items(hits, key = { "${it.chatId}:${it.id}" }) { message ->
-                Column(
-                    Modifier.fillMaxWidth().clickable { opened = message }.padding(horizontal = 20.dp, vertical = 12.dp)
+                val chat = chatContexts[message.chatId]
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clickable { onOpenMessage(message.chatId, message.forumTopicId, message.id) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    val preview = message.text.ifBlank { if (message.media != null) stringResource(R.string.global_search_attachment) else "" }
-                    Text(preview, color = palette.textPrimary, fontSize = 15.sp, maxLines = 2)
-                    Text(message.time, color = palette.textSecondary, fontSize = 12.sp)
+                    if (chat != null) {
+                        ChatAvatar(chat, 42.dp, observeFile, downloadFile)
+                    } else {
+                        Avatar("?", palette.accent, 42.dp)
+                    }
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                chat?.title ?: stringResource(R.string.global_search_chat_unknown),
+                                color = palette.textPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (chat != null) {
+                                val typeLabel = when {
+                                    chat.isChannel -> R.string.global_search_chat_channel
+                                    chat.isGroup -> R.string.global_search_chat_group
+                                    else -> R.string.global_search_chat_private
+                                }
+                                Text(stringResource(typeLabel), color = palette.textSecondary, fontSize = 11.sp)
+                            }
+                        }
+                        if (message.senderName.isNotBlank()) {
+                            Text(message.senderName, color = palette.accentInk, fontSize = 12.sp, maxLines = 1)
+                        }
+                        val preview = message.text.ifBlank {
+                            if (message.media != null) stringResource(R.string.global_search_attachment) else ""
+                        }
+                        Text(preview, color = palette.textPrimary, fontSize = 14.sp, maxLines = 2)
+                        val date = if (message.dateSeconds > 0) dateFormat.format(Date(message.dateSeconds * 1000L)) else ""
+                        val timestamp = listOf(date, message.time).filter { it.isNotBlank() }.joinToString(" · ")
+                        Text(timestamp, color = palette.textSecondary, fontSize = 12.sp)
+                    }
                 }
             }
             if (nextOffset.isNotEmpty() && hits.isNotEmpty()) {
@@ -157,6 +279,7 @@ fun GlobalSearchScreen(
                                 conversation.searchGlobalMessages(requestedQuery, nextOffset, requestedFilter)
                                     .onSuccess { page ->
                                         hits = appendDistinctBy(hits, page.messages) { it.chatId to it.id }
+                                        chatContexts = chatContexts + page.chats
                                         nextOffset = page.nextOffset
                                     }
                                     .onFailure { moreFailed = true }
@@ -173,16 +296,6 @@ fun GlobalSearchScreen(
         }
     }
 
-    opened?.let { message ->
-        MessageContextDialog(
-            chatId = message.chatId,
-            targetId = message.id,
-            conversation = conversation,
-            observeFile = observeFile,
-            downloadFile = downloadFile,
-            onClose = { opened = null }
-        )
-    }
 }
 
 @Composable

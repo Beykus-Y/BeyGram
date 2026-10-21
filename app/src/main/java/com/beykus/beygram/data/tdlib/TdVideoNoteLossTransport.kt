@@ -12,6 +12,12 @@ import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.TdApi
 
 /**
+ * TDLib's `videoNote.length` is the side of the square in pixels and `duration` is seconds.
+ * Earlier reports printed the side as seconds ("length 480 s" for a 3-second 480x480 clip).
+ */
+internal fun confirmedVideoNoteShape(note: TdApi.VideoNote): Pair<Int, Int> = note.length to note.duration
+
+/**
  * One opt-in probe at a time. SendMessage returning a local message is not delivery:
  * we await TDLib's UpdateMessageSendSucceeded, then retrieve the file by its remote ID.
  */
@@ -78,6 +84,7 @@ internal class TdVideoNoteLossTransport(private val request: TdRequests) {
             val videoNote = (sent.content as? TdApi.MessageVideoNote)?.videoNote
                 ?: error("Sent message is not a Telegram video note")
             val file = videoNote.video ?: error("Confirmed video note contains no video file")
+            val (side, duration) = confirmedVideoNoteShape(videoNote)
             // Store only IDs that this diagnostic sent, never expose arbitrary message deletion to UI.
             synchronized(this) {
                 ownedChatId = savedChatId
@@ -87,21 +94,21 @@ internal class TdVideoNoteLossTransport(private val request: TdRequests) {
 
             val remoteId = file.remote?.id.orEmpty()
             if (remoteId.isBlank()) return@withLock VideoNoteLossRemoteResult(
-                sent.id, null, videoNote.length, file.size.toLong(),
+                sent.id, null, side, duration, file.size.toLong(),
                 "Remote ID unavailable after confirmed send; independent verification impossible", false
             )
             // Evict TDLib's cached file before registering the remote identifier.
             // Without observed eviction, an apparent byte-for-byte match is NOT proof of server delivery.
             val evicted = runCatching { request(TdApi.DeleteFile(file.id)); true }.getOrDefault(false)
             val registered = runCatching { request(TdApi.GetRemoteFile(remoteId, null)) }.getOrElse {
-                return@withLock VideoNoteLossRemoteResult(sent.id, null, videoNote.length, file.size.toLong(),
+                return@withLock VideoNoteLossRemoteResult(sent.id, null, side, duration, file.size.toLong(),
                     "GetRemoteFile failed: ${it.javaClass.simpleName}; not verified", false)
             }
             val cachedBeforeDownload = registered.local?.isDownloadingCompleted == true
             val downloaded = runCatching {
                 request(TdApi.DownloadFile(registered.id, 32, 0, 0, true), 90_000L)
             }.getOrElse {
-                return@withLock VideoNoteLossRemoteResult(sent.id, null, videoNote.length, file.size.toLong(),
+                return@withLock VideoNoteLossRemoteResult(sent.id, null, side, duration, file.size.toLong(),
                     "Remote download failed: ${it.javaClass.simpleName}; not verified", false)
             }
             val remotePath = downloaded.local?.path.orEmpty()
@@ -120,7 +127,8 @@ internal class TdVideoNoteLossTransport(private val request: TdRequests) {
             VideoNoteLossRemoteResult(
                 messageId = sent.id,
                 remoteCopyPath = destination.takeIf { copied }?.absolutePath,
-                declaredSide = videoNote.length,
+                declaredSide = side,
+                declaredDurationSeconds = duration,
                 remoteFileBytes = file.size.toLong(),
                 sourceEvidence = if (verified) "TDLib cache evicted → GetRemoteFile → synchronous DownloadFile (new local bytes)"
                     else "Independent remote read NOT proven (cache/eviction/source/copy ambiguity)",

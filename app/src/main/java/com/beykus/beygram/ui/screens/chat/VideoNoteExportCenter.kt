@@ -5,9 +5,11 @@ import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.beykus.beygram.R
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteProcessor
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
+import com.beykus.beygram.data.media.VideoNoteSendTracking
 import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
@@ -38,7 +40,9 @@ internal data class VideoNoteExportResult(
     val nextIndex: Int = 0,
     val sending: Boolean = false,
     /** Preview and retry items stay in the center until explicit Send/Delete. */
-    val requiresPreview: Boolean = previewFirst || media.size > 1
+    val requiresPreview: Boolean = previewFirst || media.size > 1,
+    /** Forum topic the note was recorded in (0 outside forums): it is sent there, not to the open topic. */
+    val topicId: Long = 0L
 )
 
 /** Pure transitions shared by the app-level sender and regression tests. */
@@ -49,15 +53,15 @@ internal fun VideoNoteExportResult.markSendFailed(): VideoNoteExportResult =
     copy(sending = false, requiresPreview = true)
 
 /** Автоматический кружок до приёма TDLib: [processing] — идёт обработка, иначе кружок ждёт отправки. */
-internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null)
+internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null, val topicId: Long = 0L)
 
 /**
  * Кружки чата для ленты: сначала обрабатываемые, затем ждущие отправки. Кружок с предпросмотром здесь не показывается:
  * он остаётся в диалоге, пока пользователь не отправит или не удалит его. Одна сессия показывается один раз.
  */
-internal fun pendingVideoNotesFor(chatId: Long, processing: List<PendingVideoNote>, results: List<VideoNoteExportResult>): List<PendingVideoNote> =
-    (processing.filter { it.chatId == chatId } + results.filter { it.chatId == chatId && !it.requiresPreview }
-        .map { PendingVideoNote(it.chatId, it.sessionName, processing = false, previewPath = it.media.firstOrNull()?.thumbnailPath) })
+internal fun pendingVideoNotesFor(chatId: Long, processing: List<PendingVideoNote>, results: List<VideoNoteExportResult>, topicId: Long = 0L): List<PendingVideoNote> =
+    (processing.filter { it.chatId == chatId && it.topicId == topicId } + results.filter { it.chatId == chatId && it.topicId == topicId && !it.requiresPreview }
+        .map { PendingVideoNote(it.chatId, it.sessionName, processing = false, previewPath = it.media.firstOrNull()?.thumbnailPath, topicId = it.topicId) })
         .distinctBy { it.sessionName }
 
 private val exportMutex = Mutex()
@@ -96,8 +100,9 @@ internal object VideoNoteExportCenter {
     private val _results = MutableStateFlow<List<VideoNoteExportResult>>(emptyList())
     val results: StateFlow<List<VideoNoteExportResult>> = _results.asStateFlow()
 
-    private val _failures = MutableStateFlow<List<Long>>(emptyList())
-    val failures: StateFlow<List<Long>> = _failures.asStateFlow()
+    /** Failed exports as (chatId, topicId): only the topic the note was recorded in reports it. */
+    private val _failures = MutableStateFlow<List<Pair<Long, Long>>>(emptyList())
+    val failures: StateFlow<List<Pair<Long, Long>>> = _failures.asStateFlow()
 
     private val _pendingNotes = MutableStateFlow<List<PendingVideoNote>>(emptyList())
     /** Автоматические кружки, которые TDLib ещё не принял: лента показывает их сразу, с индикатором. */
@@ -110,11 +115,11 @@ internal object VideoNoteExportCenter {
         }
     }
 
-    fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean) {
+    fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean, topicId: Long = 0L) {
         val appContext = context.applicationContext
-        VideoNoteDiagnostics.append(sessionName, "Export queued; previewFirst=$previewFirst", VideoNoteStatus.QUEUED)
+        VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_queued, VideoNoteDiagnostics.text(if (previewFirst) R.string.loss_yes else R.string.loss_no)), VideoNoteStatus.QUEUED)
         // Автоматический кружок виден в ленте сразу после отпускания, а не когда обработка закончится.
-        if (!previewFirst) _pendingNotes.update { it + PendingVideoNote(chatId, sessionName, processing = true) }
+        if (!previewFirst) _pendingNotes.update { it + PendingVideoNote(chatId, sessionName, processing = true, topicId = topicId) }
         scope.launchExclusiveExport {
             try {
                 val outputDirectory = File(appContext.filesDir, "uploads").resolve(sessionName).apply { mkdirs() }
@@ -122,15 +127,15 @@ internal object VideoNoteExportCenter {
                 val media = VideoNoteProcessor(appContext).process(source, settings, outputDirectory, sessionName)
                 Log.i(TAG, "video_processing_completed session=" + sessionName + " segments=" + media.size)
                 recordAppEvent(EventKind.OTHER, "video_note_processed", "Кружок: обработка завершена", attrs = mapOf("segments" to media.size.toString()))
-                VideoNoteDiagnostics.append(sessionName, "Export succeeded: segments=${media.size}", if (previewFirst) VideoNoteStatus.PREVIEW else VideoNoteStatus.READY)
-                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName))
+                VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_succeeded, media.size), if (previewFirst) VideoNoteStatus.PREVIEW else VideoNoteStatus.READY)
+                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName, topicId = topicId))
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
                 Log.e(TAG, "video_processing_failed session=" + sessionName, failure)
-                VideoNoteDiagnostics.append(sessionName, "Media3 export failed: ${failure.javaClass.simpleName}", VideoNoteStatus.PROCESSING_FAILED)
+                VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_failed, failure.javaClass.simpleName), VideoNoteStatus.PROCESSING_FAILED)
                 recordAppEvent(EventKind.OTHER, "video_note_processing_failed", "Кружок: обработка не удалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
-                _failures.update { it + chatId }
+                _failures.update { it + (chatId to topicId) }
             } finally {
                 _pendingNotes.update { current -> current.filterNot { it.sessionName == sessionName } }
             }
@@ -163,30 +168,33 @@ internal object VideoNoteExportCenter {
             updateResult(sessionName) { it.copy(sending = true) }
             current
         }
-        VideoNoteDiagnostics.append(sessionName, "TDLib send requested: segments=${initial.media.size - initial.nextIndex}", VideoNoteStatus.SENDING)
+        VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_requested, initial.media.size - initial.nextIndex), VideoNoteStatus.SENDING)
         scope.launch {
             var reply = replyId
             try {
                 for (index in initial.nextIndex until initial.media.size) {
+                    VideoNoteSendTracking.tracker.expect(chatId, sessionName)
                     val sent = sender(initial.media[index], reply)
                     if (sent.isFailure) {
-                        VideoNoteDiagnostics.append(sessionName, "TDLib send failed: ${sent.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"}", VideoNoteStatus.SEND_FAILED)
+                        VideoNoteSendTracking.tracker.forget(sessionName)
+                        VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, sent.exceptionOrNull()?.javaClass?.simpleName ?: "?"), VideoNoteStatus.SEND_FAILED)
                         updateResult(sessionName) { it.markSendFailed() }
                         return@launch
                     }
                     updateResult(sessionName) { it.markSegmentSent() }
-                    VideoNoteDiagnostics.append(sessionName, "TDLib accepted segment ${index + 1}/${initial.media.size}")
+                    VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_accepted, index + 1, initial.media.size))
                     reply = null
                 }
                 updateResult(sessionName) { null } // ACK only after all segments were accepted.
-                VideoNoteDiagnostics.append(sessionName, "All segments accepted by TDLib (not a delivery receipt)", VideoNoteStatus.SENT)
+                VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_all_accepted), VideoNoteStatus.SENT)
             } catch (cancelled: CancellationException) {
-                VideoNoteDiagnostics.append(sessionName, "Send cancelled", VideoNoteStatus.CANCELLED)
+                VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_cancelled), VideoNoteStatus.CANCELLED)
                 updateResult(sessionName) { it.markSendFailed() }
                 throw cancelled
             } catch (failure: Exception) {
                 Log.e(TAG, "video_note_send_failed session=" + sessionName, failure)
-                VideoNoteDiagnostics.append(sessionName, "TDLib send exception: ${failure.javaClass.simpleName}", VideoNoteStatus.SEND_FAILED)
+                VideoNoteSendTracking.tracker.forget(sessionName)
+                VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_send_failed, failure.javaClass.simpleName), VideoNoteStatus.SEND_FAILED)
                 recordAppEvent(EventKind.OTHER, "video_note_send_failed", "Кружок: отправка прервалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
                 updateResult(sessionName) { it.markSendFailed() }
             }
@@ -212,9 +220,10 @@ internal object VideoNoteExportCenter {
         }
     }
 
-    fun consumeFailure(chatId: Long): Boolean {
-        val had = chatId in _failures.value
-        if (had) _failures.update { current -> current - chatId }
+    fun consumeFailure(chatId: Long, topicId: Long = 0L): Boolean {
+        val key = chatId to topicId
+        val had = key in _failures.value
+        if (had) _failures.update { current -> current - key }
         return had
     }
 }

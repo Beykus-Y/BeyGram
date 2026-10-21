@@ -3,6 +3,10 @@ package com.beykus.beygram.ui.screens.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -38,14 +42,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
-import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.ui.components.beyGramPalette
 
-/** Настройки приложения: нижнее меню, уведомления и диагностика. */
+/** Settings grouped by purpose. Routes remain owned by the caller. */
 @Composable
 fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit,
     onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit,
@@ -60,39 +66,73 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             stringResource(R.string.settings_title), color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
         )
-        Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+
+        SettingsGroup(stringResource(R.string.settings_group_interface)) {
             SettingsLink(Icons.Rounded.Language, stringResource(R.string.feature_language), onLanguage)
-            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
-            SettingsLink(Icons.Rounded.Devices, stringResource(R.string.feature_sessions), onSessions)
-            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsDivider()
             SettingsLink(Icons.Rounded.Dashboard, stringResource(R.string.nav_title), onNavigationSettings)
-            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsDivider()
             SettingsLink(Icons.Rounded.Palette, stringResource(R.string.theme_title), onAppearance)
-            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
-            SettingsLink(Icons.Rounded.Schedule, stringResource(R.string.settings_last_seen_title), onLastSeen)
-            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsDivider()
             SettingsLink(Icons.Rounded.Videocam, stringResource(R.string.settings_video_recording_title), onVideoRecording)
-            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
-            SettingsLink(Icons.Rounded.Lock, stringResource(R.string.start_proxy_settings), onProxy)
-            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+            SettingsDivider()
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
-            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
-            SettingsLink(Icons.Rounded.Storage, stringResource(R.string.settings_storage_title), onStorage)
-            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
-            SettingsLink(Icons.Rounded.BugReport, stringResource(R.string.diagnostics_title), onDiagnostics)
-            if (BuildConfig.APPLICATION_ID == "com.beykus.beygram") {
-                HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
-                SettingsLink(Icons.Rounded.SystemUpdate, stringResource(R.string.updates_title), onUpdates)
-            }
         }
+        SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {
+            SettingsLink(Icons.Rounded.Devices, stringResource(R.string.feature_sessions), onSessions)
+            SettingsDivider()
+            SettingsLink(Icons.Rounded.Schedule, stringResource(R.string.settings_last_seen_title), onLastSeen)
+        }
+        SettingsGroup(stringResource(R.string.settings_group_network)) {
+            SettingsLink(Icons.Rounded.Lock, stringResource(R.string.start_proxy_settings), onProxy)
+        }
+        SettingsGroup(stringResource(R.string.settings_group_data_diagnostics)) {
+            SettingsLink(Icons.Rounded.Storage, stringResource(R.string.settings_storage_title), onStorage)
+            SettingsDivider()
+            SettingsLink(Icons.Rounded.BugReport, stringResource(R.string.diagnostics_title), onDiagnostics)
+        }
+        SettingsGroup(stringResource(R.string.settings_group_updates)) {
+            SettingsLink(Icons.Rounded.SystemUpdate, stringResource(R.string.updates_title), onUpdates)
+        }
+        Spacer(Modifier.height(12.dp))
     }
+}
+
+/** Every group has its own heading and card; labels are announced as headings by TalkBack. */
+@Composable
+private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+    val palette = beyGramPalette()
+    Column(Modifier.padding(bottom = 14.dp)) {
+        Text(
+            title,
+            color = palette.textSecondary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth()
+                .padding(start = 22.dp, end = 22.dp, top = 4.dp, bottom = 8.dp)
+                .semantics { heading() }
+        )
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(palette.surface)
+                .padding(vertical = 4.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun SettingsDivider() {
+    val palette = beyGramPalette()
+    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
 }
 
 @Composable
 private fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))

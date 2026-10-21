@@ -210,4 +210,30 @@ class MessageHistoryStoreTest {
         store.finishLoad(1L, listOf(message(300L), message(1L)), hasOlder = false)
         assertEquals(listOf(1L), store.observe(1L).value.messages.map { it.id })
     }
+    @Test fun forumTopicStoresWithSameParentChatStayIndependent() {
+        val chatId = 900L
+        val firstTopic = MessageHistoryStore(maxCachedChats = 1)
+        val secondTopic = MessageHistoryStore(maxCachedChats = 1)
+        val firstEpoch = firstTopic.restartFromLatest(chatId)
+        val secondEpoch = secondTopic.restartFromLatest(chatId)
+
+        firstTopic.finishLoad(chatId, listOf(message(101L, chatId = chatId)), hasOlder = false, epoch = firstEpoch)
+        secondTopic.finishLoad(chatId, listOf(message(202L, chatId = chatId)), hasOlder = false, epoch = secondEpoch)
+
+        assertEquals(listOf(101L), firstTopic.observe(chatId).value.messages.map { it.id })
+        assertEquals(listOf(202L), secondTopic.observe(chatId).value.messages.map { it.id })
+
+        firstTopic.delete(chatId, listOf(101L))
+        assertTrue(firstTopic.observe(chatId).value.messages.isEmpty())
+        assertEquals(listOf(202L), secondTopic.observe(chatId).value.messages.map { it.id })
+    }
+
+    @Test fun serviceEventRemainsAnEventAfterHistoryMerge() {
+        val history = MessageHistoryStore()
+        val event = message(77L).copy(text = "Создана тема", serviceText = "Создана тема")
+        history.finishLoad(1L, listOf(event), hasOlder = false)
+        history.put(event)
+        assertEquals("Создана тема", history.observe(1L).value.messages.single().serviceText)
+    }
+
 }
