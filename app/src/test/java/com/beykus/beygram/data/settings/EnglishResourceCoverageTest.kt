@@ -53,6 +53,20 @@ class EnglishResourceCoverageTest {
     }
 
     @Test
+    fun chatListCrossPrefixDependenciesAreTranslated() {
+        val default = resources("values")
+        val english = resources("values-en")
+        val keys = listOf(
+            "chat_you", "chat_sending_description", "chat_sent_description",
+            "chat_read_description", "chat_status_not_sent", "saved_messages_open_description"
+        )
+        keys.forEach { key ->
+            assertTrue("$key is not translated to English", !english[key].isNullOrBlank() &&
+                english[key] != default[key])
+        }
+    }
+
+    @Test
     fun englishResourceStringsAreNotBlank() {
         val translated = resources("values-en")
         val empty = translated.filterValues { it.isBlank() }.keys
