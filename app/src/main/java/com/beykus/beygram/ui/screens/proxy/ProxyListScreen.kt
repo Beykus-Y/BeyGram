@@ -291,6 +291,11 @@ internal fun ProxyListScreen(
                             scope.launch {
                                 repository.removeProxy(proxy.id)
                                     .onSuccess {
+                                        // Reconcile the last-known-good snapshot before requesting remote state.
+                                        // Refresh may fail even though the deletion succeeded.
+                                        saved = saved.filterNot { it.id == proxy.id }
+                                        latency = latency - proxy.id
+                                        savedLoaded = true
                                         pendingDeletion = null
                                         deletionError = null
                                         reload()
