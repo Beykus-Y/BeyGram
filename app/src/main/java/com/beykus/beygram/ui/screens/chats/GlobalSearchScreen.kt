@@ -22,7 +22,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -70,7 +69,7 @@ fun GlobalSearchScreen(
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onOpenMessage: (chatId: Long, messageId: Long) -> Unit,
+    onOpenMessage: (chatId: Long, forumTopicId: Long, messageId: Long) -> Unit,
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -154,14 +153,14 @@ fun GlobalSearchScreen(
                 val chat = chatContexts[message.chatId]
                 Row(
                     Modifier.fillMaxWidth()
-                        .clickable { onOpenMessage(message.chatId, message.id) }
+                        .clickable { onOpenMessage(message.chatId, message.forumTopicId, message.id) }
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.Top
                 ) {
                     if (chat != null) {
                         ChatAvatar(chat, 42.dp, observeFile, downloadFile)
                     } else {
-                        Avatar("?", Color(palette.accent.value), 42.dp)
+                        Avatar("?", palette.accent, 42.dp)
                     }
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
