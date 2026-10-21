@@ -850,18 +850,21 @@ private fun shareMedia(context: Context, path: String, mime: String): String? = 
 /** Копирует файл в галерею (фото и видео) или в «Загрузки» через MediaStore; без разрешения на хранилище на API 29+. */
 private fun saveToDevice(context: Context, path: String, media: MessageMedia): String = runCatching {
     val resolver = context.contentResolver
-    val image = media.mimeType.startsWith("image/")
-    val video = media.mimeType.startsWith("video/")
+    val mimeMap = MimeTypeMap.getSingleton()
+    val export = resolveExportFileMetadata(
+        media.fileName, media.mimeType, media.kind.label(context),
+        mimeMap::getExtensionFromMimeType, mimeMap::getMimeTypeFromExtension
+    )
+    val image = export.mimeType.startsWith("image/")
+    val video = export.mimeType.startsWith("video/")
     val (collection, folder) = when {
         image -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_PICTURES
         video -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_MOVIES
         else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI to Environment.DIRECTORY_DOWNLOADS
     }
-    val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(media.mimeType)?.let { ".$it" }.orEmpty()
-    val base = media.fileName.replace('/', '_').ifBlank { media.kind.label(context) }
     val values = ContentValues().apply {
-        put(MediaStore.MediaColumns.DISPLAY_NAME, if (extension.isEmpty() || base.endsWith(extension, ignoreCase = true)) base else base + extension)
-        put(MediaStore.MediaColumns.MIME_TYPE, media.mimeType.ifBlank { "application/octet-stream" })
+        put(MediaStore.MediaColumns.DISPLAY_NAME, export.displayName)
+        put(MediaStore.MediaColumns.MIME_TYPE, export.mimeType)
         put(MediaStore.MediaColumns.RELATIVE_PATH, "$folder/BeyGram")
         put(MediaStore.MediaColumns.IS_PENDING, 1)
     }
