@@ -297,6 +297,27 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
     private val serviceMessages = TdServiceMessageMapper(appContext)
+    private val pendingServiceUserRequests = ConcurrentHashMap.newKeySet<Triple<Long, Long, Long>>()
+
+    private fun hydrateServiceMember(message: TdApi.Message, userId: Long) {
+        if (userId <= 0L || profiles.senderName(TdApi.MessageSenderUser(userId)).isNotBlank()) return
+        val requestKey = Triple(message.chatId, message.id, userId)
+        if (!pendingServiceUserRequests.add(requestKey)) return
+        client.send(TdApi.GetUser(userId), Client.ResultHandler { result ->
+            pendingServiceUserRequests.remove(requestKey)
+            if (result is TdApi.User) {
+                profiles.rememberServiceUser(result)
+                val updated = serviceMessages.event(message) {
+                    profiles.senderName(TdApi.MessageSenderUser(it))
+                } ?: return@ResultHandler
+                val transform: (ChatMessage) -> ChatMessage = {
+                    it.copy(text = updated.text, serviceText = updated.text, serviceUserId = updated.userId)
+                }
+                messageHistory.update(message.chatId, message.id, transform)
+                updateForumMessage(message.chatId, message.id, transform)
+            }
+        })
+    }
     private val profiles = TdProfiles({ client }, mediaFiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
     private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
@@ -1569,7 +1590,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun TdApi.Message.toChatMessage(): ChatMessage {
         val attachment = mediaMapper.media(content)
-        val service = serviceMessages.text(content)
+        val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
+        val service = event?.text
+        if (event != null) hydrateServiceMember(this, event.userId)
         return ChatMessage(
         id = id,
         chatId = chatId,
@@ -1586,6 +1609,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         inlineKeyboard = inlineKeyboard(replyMarkup),
         reactions = messageReactions(interactionInfo),
         serviceText = service,
+        serviceUserId = event?.userId ?: 0L,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
@@ -1654,7 +1678,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }
     }
 
-    private fun TdApi.Message.toTextPreview(): UiText = previewText(content)
+    private fun TdApi.Message.toTextPreview(): UiText =
+        serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
+            ?.let { UiText.Raw(it.text) } ?: previewText(content)
 
     private fun previewText(c: TdApi.MessageContent): UiText =
         serviceMessages.text(c)?.let(UiText::Raw) ?: when (c) {
