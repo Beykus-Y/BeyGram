@@ -9,10 +9,15 @@ sealed interface ChatWallpaper {
     data class Solid(val color: Int) : ChatWallpaper
     data class Gradient(val top: Int, val bottom: Int) : ChatWallpaper
 
+    /** A built-in, resolution-independent vector wallpaper. */
+    data class Preset(val id: String, val intensityPercent: Int = DEFAULT_PATTERN_INTENSITY) : ChatWallpaper
+
     /** A picture kept in the app's own storage under [fileName]. [dimPercent] darkens it, 0..[MAX_DIM_PERCENT]. */
     data class Photo(val fileName: String, val dimPercent: Int = DEFAULT_DIM_PERCENT) : ChatWallpaper
 
     companion object {
+        const val DEFAULT_PATTERN_INTENSITY = 24
+        const val MAX_PATTERN_INTENSITY = 45
         const val DEFAULT_DIM_PERCENT = 20
         const val MAX_DIM_PERCENT = 70
     }
@@ -37,6 +42,7 @@ fun ChatWallpaper.encode(): String = when (this) {
     ChatWallpaper.None -> "none"
     is ChatWallpaper.Solid -> "solid:${color.toUInt().toString(16)}"
     is ChatWallpaper.Gradient -> "gradient:${top.toUInt().toString(16)}:${bottom.toUInt().toString(16)}"
+    is ChatWallpaper.Preset -> "preset:$id:${intensityPercent.coerceIn(0, ChatWallpaper.MAX_PATTERN_INTENSITY)}"
     is ChatWallpaper.Photo -> "photo:$dimPercent:$fileName"
 }
 
@@ -50,6 +56,13 @@ fun chatWallpaperFromStored(stored: String?): ChatWallpaper {
             val top = parts.getOrNull(1)?.let(::parseColor)
             val bottom = parts.getOrNull(2)?.let(::parseColor)
             if (top != null && bottom != null) ChatWallpaper.Gradient(top, bottom) else null
+        }
+        "preset" -> {
+            val id = parts.getOrNull(1)
+            val intensity = parts.getOrNull(2)?.toIntOrNull()
+            if (id != null && wallpaperPreset(id) != null && intensity != null) {
+                ChatWallpaper.Preset(id, intensity.coerceIn(0, ChatWallpaper.MAX_PATTERN_INTENSITY))
+            } else null
         }
         "photo" -> {
             val dim = parts.getOrNull(1)?.toIntOrNull()
