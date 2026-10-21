@@ -7,4 +7,25 @@
     <string name="wallpaper_option_photo">Фото из галереи</string>
     <string name="wallpaper_dim">Затемнение</string>
     <string name="wallpaper_import_failed">Не удалось открыть это фото</string>
+    <string name="wallpaper_curated_title">Узорные обои</string>
+    <string name="wallpaper_curated_subtitle">16 узоров, созданных для BeyGram. Оттенки подстраиваются под тему.</string>
+    <string name="wallpaper_pattern_intensity">Интенсивность узора: %1$d%%</string>
+    <string name="wallpaper_classic_title">Простые фоны и свои фото</string>
+    <string name="wallpaper_preview_input">Сообщение…</string>
+    <string name="wallpaper_preset_lavender_flow">Лавандовые волны</string>
+    <string name="wallpaper_preset_arctic_blue">Арктический лёд</string>
+    <string name="wallpaper_preset_mint_air">Мятный воздух</string>
+    <string name="wallpaper_preset_sunset_peach">Персиковый закат</string>
+    <string name="wallpaper_preset_soft_rose">Нежная роза</string>
+    <string name="wallpaper_preset_blue_notes">Синие заметки</string>
+    <string name="wallpaper_preset_graphite_wave">Графитовые волны</string>
+    <string name="wallpaper_preset_forest_whisper">Лесной шёпот</string>
+    <string name="wallpaper_preset_deep_night">Тихая ночь</string>
+    <string name="wallpaper_preset_violet_mesh">Фиолетовая сетка</string>
+    <string name="wallpaper_preset_ocean_current">Морское течение</string>
+    <string name="wallpaper_preset_amber_glow">Янтарное сияние</string>
+    <string name="wallpaper_preset_sky_paper">Небесная бумага</string>
+    <string name="wallpaper_preset_terracotta_dust">Терракотовая пыль</string>
+    <string name="wallpaper_preset_silver_mist">Серебряный туман</string>
+    <string name="wallpaper_preset_emerald_tide">Изумрудная волна</string>
 </resources>
