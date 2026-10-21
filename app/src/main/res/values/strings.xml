@@ -1164,4 +1164,9 @@
     <string name="theme_swatch_peach">Персиковый</string>
     <string name="theme_swatch_blush">Пудрово-розовый</string>
     <string name="theme_swatch_dark_violet">Тёмно-фиолетовый</string>
+    <string name="proxy_list_loading_saved">Загружаем сохранённые прокси…</string>
+    <string name="proxy_list_delete_confirm_title">Удалить прокси?</string>
+    <string name="proxy_list_delete_confirm_detail">Удалить %1$s (%2$s:%3$d)?</string>
+    <string name="proxy_list_delete_active_warning">Этот прокси сейчас активен. После удаления соединение может прерваться.</string>
+    <string name="proxy_list_deleting">Удаляем…</string>
 </resources>

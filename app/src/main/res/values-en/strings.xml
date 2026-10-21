@@ -261,4 +261,9 @@
     <string name="theme_swatch_peach">Peach</string>
     <string name="theme_swatch_blush">Blush pink</string>
     <string name="theme_swatch_dark_violet">Dark violet</string>
+    <string name="proxy_list_loading_saved">Loading saved proxies…</string>
+    <string name="proxy_list_delete_confirm_title">Delete proxy?</string>
+    <string name="proxy_list_delete_confirm_detail">Delete %1$s (%2$s:%3$d)?</string>
+    <string name="proxy_list_delete_active_warning">This proxy is active. Removing it may interrupt the connection.</string>
+    <string name="proxy_list_deleting">Deleting…</string>
 </resources>
