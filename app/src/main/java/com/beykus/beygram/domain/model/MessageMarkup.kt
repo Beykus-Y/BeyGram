@@ -1,6 +1,8 @@
 package com.beykus.beygram.domain.model
 
 import java.io.Serializable
+import java.text.BreakIterator
+import java.util.Locale
 
 enum class TextStyleKind { Bold, Italic, Underline, Strike, Code, Pre, Quote, Spoiler, Url, Mention, MentionName, Email, Phone, Command, Hashtag, CustomEmoji }
 
@@ -11,6 +13,38 @@ fun validTextEntities(text: String, entities: List<MessageTextEntity>): List<Mes
     it.offset >= 0 && it.length > 0 && it.offset.toLong() + it.length <= text.length &&
         !(it.offset > 0 && text[it.offset].isLowSurrogate() && text[it.offset - 1].isHighSurrogate()) &&
         !(it.offset + it.length < text.length && text[it.offset + it.length].isLowSurrogate() && text[it.offset + it.length - 1].isHighSurrogate())
+}
+
+/**
+ * Bound outbound text to the current Telegram option, expressed in Unicode code points.
+ * Telegram entities, unlike the limit, are indexed by UTF-16 code units. Cutting on a character
+ * boundary avoids splitting surrogate pairs and common emoji clusters. The unmodified draft is
+ * never overwritten: callers pass the clipped text only to TDLib.
+ */
+data class TelegramBoundedText(
+    val text: String,
+    val entities: List<MessageTextEntity>,
+    val truncated: Boolean
+)
+
+fun boundTelegramText(text: String, entities: List<MessageTextEntity>, limit: Int): TelegramBoundedText {
+    require(limit > 0) { "Telegram text limit must be positive" }
+    if (text.codePointCount(0, text.length) <= limit) {
+        return TelegramBoundedText(text, validTextEntities(text, entities), truncated = false)
+    }
+
+    val proposedEnd = text.offsetByCodePoints(0, limit)
+    val clusters = BreakIterator.getCharacterInstance(Locale.ROOT).apply { setText(text) }
+    // On a narrow limit, prefer omitting an entire grapheme to sending a broken emoji.
+    val end = if (clusters.isBoundary(proposedEnd)) proposedEnd else clusters.preceding(proposedEnd).coerceAtLeast(0)
+    val bounded = text.substring(0, end)
+    val adjusted = validTextEntities(text, entities).mapNotNull { entity ->
+        if (entity.offset >= end) return@mapNotNull null
+        val right = minOf(end.toLong(), entity.offset.toLong() + entity.length)
+        val remaining = (right - entity.offset).toInt()
+        if (remaining > 0) entity.copy(length = remaining) else null
+    }
+    return TelegramBoundedText(bounded, validTextEntities(bounded, adjusted), truncated = true)
 }
 
 /** Preserve formatting around a single edit (including paste, replacement and deletion). */
