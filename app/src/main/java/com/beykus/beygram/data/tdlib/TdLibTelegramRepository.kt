@@ -1046,9 +1046,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
             is TdApi.UpdateAuthorizationState -> handleAuthorizationState(update.authorizationState)
             is TdApi.UpdateNewChat            -> handleNewChat(update.chat)
-            is TdApi.UpdateForumTopic -> topicStores[update.chatId to update.forumTopicId.toLong()]?.apply {
+            is TdApi.UpdateForumTopic -> {
+                messageDrafts.receiveTopic(update.chatId, update.forumTopicId.toLong(), update.draftMessage)
+                topicStores[update.chatId to update.forumTopicId.toLong()]?.apply {
                 readInbox(update.chatId, update.lastReadInboxMessageId)
                 readOutbox(update.chatId, update.lastReadOutboxMessageId)
+                }
             }
             is TdApi.UpdateChatFolders -> handleChatFolders(update)
             is TdApi.UpdateUnreadChatCount -> {

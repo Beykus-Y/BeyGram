@@ -312,7 +312,13 @@ private fun BeyGramAppContent(
         else if (request.settings) openNotifications(AppRoute.Chats)
         else request.chatId?.let { chatId ->
             val result = repository.loadChat(chatId)
-            if (result.isSuccess) { selectedChatId = chatId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name }
+            if (result.isSuccess) {
+                selectedChatId = chatId
+                selectedTopicChatId = chatId
+                selectedForumTopicId = request.topicId
+                chatBackRouteName = AppRoute.Chats.name
+                routeName = AppRoute.Chat.name
+            }
             else noticeError = (result.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.err_app_open_chat_failed)
         }
         onNotificationHandled(request.token)

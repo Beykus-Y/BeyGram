@@ -74,7 +74,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
                 .setContentText(if (config.previews && latest.previewAllowed && !hideContent) latest.text.resolve(context) else context.getString(R.string.notif_new_message))
                 .setStyle(style).setCategory(NotificationCompat.CATEGORY_MESSAGE).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
                 .setWhen(latest.dateSeconds * 1000).setShowWhen(true).setNumber(group.totalCount).setAutoCancel(true)
-                .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
+                .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId, latest.topicId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
                 .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH)
             // A reply needs a visible chat title and a chat the user can write to, so other groups get no reply action.
             if (!hideContent && group.replyable) builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId, latest.topicId))
