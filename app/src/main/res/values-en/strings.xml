@@ -220,4 +220,9 @@
     <string name="folder_shareable_hint">This is a shared Telegram folder. Category filters and excluding read, archived or individual chats are unavailable.</string>
     <string name="folder_create_unconfirmed">Folder creation could not be confirmed. Telegram may have created it. Check the folder list before trying again.</string>
     <string name="folder_changed_while_editing">This folder changed on another device. Return to the list and reopen it to avoid overwriting newer changes.</string>
+    <string name="proxy_list_loading_saved">Loading saved proxies…</string>
+    <string name="proxy_list_delete_confirm_title">Delete proxy?</string>
+    <string name="proxy_list_delete_confirm_detail">Delete %1$s (%2$s:%3$d)?</string>
+    <string name="proxy_list_delete_active_warning">This proxy is active. Removing it may interrupt the connection.</string>
+    <string name="proxy_list_deleting">Deleting…</string>
 </resources>
