@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
-    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long = 0L): Result<PinnedMessagePage>
+    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long = 0L, forumTopicId: Long = 0L): Result<PinnedMessagePage>
     fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?>
     suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit>
     suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer>

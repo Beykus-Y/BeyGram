@@ -587,8 +587,8 @@ fun ChatScreen(
                 }.minOrNull()
             }
         }
-        if (forumTopicId == 0L) PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected,
-            ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary)
+        PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected,
+            ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary, forumTopicId = forumTopicId)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
