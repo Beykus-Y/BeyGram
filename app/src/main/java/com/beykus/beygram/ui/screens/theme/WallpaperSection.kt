@@ -111,6 +111,12 @@ internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onS
             stringResource(R.string.wallpaper_curated_subtitle),
             color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp)
         )
+        Text(
+            stringResource(R.string.wallpaper_preview_title),
+            color = palette.textSecondary, fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        ThemePreview(wallpaper = selected)
         FlowRow(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
