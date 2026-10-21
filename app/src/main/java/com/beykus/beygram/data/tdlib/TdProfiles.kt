@@ -34,6 +34,10 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     val me = _me.asStateFlow()
     private val _bioLimit = MutableStateFlow(70)
     val bioLimit = _bioLimit.asStateFlow()
+    fun rememberServiceUser(user: TdApi.User) = synchronized(lock) {
+        users[user.id] = user
+        publish()
+    }
     fun senderName(sender: TdApi.MessageSender?): String = synchronized(lock) {
         when (sender) {
             is TdApi.MessageSenderUser -> users[sender.userId]?.let { listOf(it.firstName, it.lastName).filter { name -> !name.isNullOrBlank() }.joinToString(" ") }.orEmpty()

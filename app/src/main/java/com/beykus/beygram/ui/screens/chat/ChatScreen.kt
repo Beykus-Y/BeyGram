@@ -80,7 +80,8 @@ fun ChatScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
     recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
-    forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0
+    forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
+    onServiceUser: (Long) -> Unit = {}
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val canPostHere = chat.canPost && topicCanPost
@@ -616,7 +617,7 @@ fun ChatScreen(
                         onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
                 } else {
                     val message = listItem.messages.single()
-                    if (message.serviceText != null) ServiceMessageChip(message.serviceText)
+                    if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                     else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                         highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                         onPlayed = { conversation.openMessageContent(chat.id, message.id) },
@@ -942,7 +943,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
 
 /** Telegram service actions have no sender bubble, read checks or swipe-to-reply affordances. */
 @Composable
-internal fun ServiceMessageChip(text: String) {
+internal fun ServiceMessageChip(text: String, userId: Long = 0L, onOpenUser: (Long) -> Unit = {}) {
     val palette = beyGramPalette()
     Box(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
         Text(
@@ -953,6 +954,7 @@ internal fun ServiceMessageChip(text: String) {
             lineHeight = 17.sp,
             modifier = Modifier.clip(RoundedCornerShape(14.dp))
                 .background(palette.surface.copy(alpha = 0.87f))
+                .then(if (userId > 0L) Modifier.clickable { onOpenUser(userId) } else Modifier)
                 .padding(horizontal = 13.dp, vertical = 7.dp)
         )
     }

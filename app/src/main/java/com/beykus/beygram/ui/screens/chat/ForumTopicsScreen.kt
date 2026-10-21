@@ -73,7 +73,7 @@ fun ForumTopicsScreen(
                 Text(stringResource(R.string.forum_topics_empty), color = palette.textSecondary)
             }
         } else LazyColumn(Modifier.fillMaxSize()) {
-            items(topics, key = { it.id }) { topic ->
+            items(topics.distinctBy(ForumTopic::id), key = { "forum-topic:${it.id}" }) { topic ->
                 Row(
                     Modifier.fillMaxWidth().clickable(enabled = !busy) { onTopic(topic) }
                         .padding(start = 18.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
@@ -90,7 +90,7 @@ fun ForumTopicsScreen(
                         val subtitle = when {
                             topic.isClosed -> stringResource(R.string.forum_topic_closed)
                             topic.lastMessagePreview.isNotBlank() -> topic.lastMessagePreview
-                            else -> stringResource(R.string.forum_topic_no_messages)
+                            else -> stringResource(R.string.forum_topic_history_hint)
                         }
                         Text(subtitle, color = palette.textSecondary, fontSize = 13.sp,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
