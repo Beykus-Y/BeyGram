@@ -99,6 +99,8 @@ internal class TdConversationActions(
                         unreadCount = it.unreadCount,
                         isPinned = it.isPinned,
                         isClosed = it.info.isClosed,
+                        canWrite = !it.info.isClosed || it.info.isOutgoing || manageTopics,
+                        order = it.order,
                         lastMessagePreview = (it.lastMessage?.content as? TdApi.MessageText)?.text?.text.orEmpty()
                     )
                 }
@@ -108,7 +110,7 @@ internal class TdConversationActions(
             offsetMessageId = page.nextOffsetMessageId
             offsetTopicId = page.nextOffsetForumTopicId
         }
-        topics.sortedWith(compareByDescending<ForumTopic> { it.isPinned }.thenByDescending { it.unreadCount > 0 })
+        topics.sortedByDescending { it.order }
     }
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {
