@@ -3,6 +3,7 @@ package com.beykus.beygram.data.media
 import android.content.Context
 import android.os.Build
 import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.AppLocale
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -37,7 +38,8 @@ internal object VideoNoteFpsCheck {
     @Synchronized
     fun start(context: Context, scopeOfLenses: ProbeScope, settings: VideoMessageSettings): Boolean {
         if (job?.isActive == true) return false
-        val app = context.applicationContext
+        // Reports follow the in-app language, which the application context lacks below API 33.
+        val app = AppLocale.context(context.applicationContext)
         _state.value = VideoNoteFpsCheckState(running = true)
         job = scope.launch { run(app, scopeOfLenses, settings) }
         return true
@@ -47,9 +49,14 @@ internal object VideoNoteFpsCheck {
 
     fun cancel() { job?.cancel() }
 
-    /** Recording must not compete with the check for a camera: starting a video note stops it. */
-    fun cancelForRecording() {
-        if (job?.isActive == true) job?.cancel()
+    /**
+     * Recording must not compete with the check for a camera: starting a video note stops it.
+     * Returns the stopping check, whose cleanup still releases the lens, or null when none ran.
+     */
+    fun cancelForRecording(): Job? {
+        val running = job?.takeIf { it.isActive } ?: return null
+        running.cancel()
+        return running
     }
 
     private suspend fun run(context: Context, lenses: ProbeScope, settings: VideoMessageSettings) {

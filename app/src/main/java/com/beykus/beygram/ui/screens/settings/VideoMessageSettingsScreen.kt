@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteLossDiagnostics
@@ -117,7 +118,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             highSpeedBusy = true
             showHighSpeed = true
             scope.launch {
-                highSpeedReport = try { VideoNoteHighSpeedProbe.run(context.applicationContext) }
+                highSpeedReport = try { VideoNoteHighSpeedProbe.run(AppLocale.context(context.applicationContext)) }
                 catch (failure: Exception) { context.getString(R.string.camera_report_failed, failure.javaClass.simpleName) }
                 finally { highSpeedBusy = false }
             }

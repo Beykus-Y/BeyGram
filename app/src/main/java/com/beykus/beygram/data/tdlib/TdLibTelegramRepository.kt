@@ -289,9 +289,18 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         topicStores.computeIfAbsent(chatId to topicId) { MessageHistoryStore(maxCachedChats = 1) }
     private fun forumId(message: TdApi.Message): Long =
         (message.topicId as? TdApi.MessageTopicForum)?.forumTopicId?.toLong() ?: 0L
+    // Only topics whose history was loaded take live messages: an unopened topic would keep
+    // every message forever and later show a gap between them and its first loaded page.
+    private val loadedTopics = ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
+    // A newer jump or latest load of the same topic wins over a slower earlier response.
+    private val topicRequests = ConcurrentHashMap<Pair<Long, Long>, Long>()
+    private fun nextTopicRequest(chatId: Long, topicId: Long): Long =
+        topicRequests.merge(chatId to topicId, 1L) { current, _ -> current + 1 } ?: 1L
     private fun putForumMessage(message: TdApi.Message, replaces: Long? = null) {
         val topicId = forumId(message)
-        if (topicId > 0L) topicStore(message.chatId, topicId).put(message.toChatMessage(), replaces)
+        if (topicId > 0L && (message.chatId to topicId) in loadedTopics) {
+            topicStore(message.chatId, topicId).put(message.toChatMessage(), replaces)
+        }
     }
     private fun updateForumMessage(chatId: Long, messageId: Long, transform: (ChatMessage) -> ChatMessage) {
         topicStores.filterKeys { it.first == chatId }.values.forEach { it.update(chatId, messageId, transform) }
@@ -384,6 +393,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             excludeMuted = f.excludeMuted,
             excludeRead = f.excludeRead,
             excludeArchived = f.excludeArchived,
+            pinnedChatIds = f.pinnedChatIds?.toList() ?: emptyList(),
             includedChatIds = f.includedChatIds?.toSet() ?: emptySet<Long>(),
             excludedChatIds = f.excludedChatIds?.toSet() ?: emptySet<Long>()
         )
@@ -411,9 +421,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 false
             )
         }
-        // A chat can't remain pinned in a folder after being explicitly excluded.
-        folder.pinnedChatIds = folder.pinnedChatIds?.filterNot { it in draft.excludedChatIds }?.toLongArray() ?: longArrayOf()
-        folder.includedChatIds = draft.includedChatIds.toLongArray()
+        // Pinned members keep their order; a chat can't stay pinned after being excluded or removed.
+        val pinned = draft.pinnedChatIds.filterNot { it in draft.excludedChatIds }
+        folder.pinnedChatIds = pinned.toLongArray()
+        folder.includedChatIds = (draft.includedChatIds - pinned.toSet()).toLongArray()
         folder.excludedChatIds = draft.excludedChatIds.toLongArray()
         folder.excludeMuted = draft.excludeMuted
         folder.excludeRead = draft.excludeRead
@@ -926,6 +937,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {
         val store = topicStore(chatId, forumTopicId)
+        loadedTopics += chatId to forumTopicId
+        nextTopicRequest(chatId, forumTopicId)
         requestForumHistory(chatId, forumTopicId, 0L, store.restartFromLatest(chatId))
     }
 
@@ -940,12 +953,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = requestResult {
         val store = topicStore(chatId, forumTopicId)
+        loadedTopics += chatId to forumTopicId
+        val request = nextTopicRequest(chatId, forumTopicId)
         val result = tdRequests(TdApi.GetForumTopicHistory().apply {
             this.chatId = chatId; this.forumTopicId = forumTopicId.toInt()
             fromMessageId = messageId; offset = -15; limit = 40
         })
-        store.replaceWithWindow(chatId, result.messages.orEmpty().filterNotNull().map { it.toChatMessage() }, reachesLatest = false)
-        true
+        if (topicRequests[chatId to forumTopicId] != request) false else {
+            store.replaceWithWindow(chatId, result.messages.orEmpty().filterNotNull().map { it.toChatMessage() }, reachesLatest = false)
+            true
+        }
     }
 
     private fun requestForumHistory(chatId: Long, forumTopicId: Long, fromMessageId: Long, epoch: Long) {

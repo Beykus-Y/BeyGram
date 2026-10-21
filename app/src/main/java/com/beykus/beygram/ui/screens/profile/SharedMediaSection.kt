@@ -98,11 +98,12 @@ internal fun SharedMediaSection(
     chatId: Long, counts: SharedCounts?, load: suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
     messageRights: suspend (Long) -> MessageCapabilities?, forwardMessage: suspend (Long, Long) -> Result<Unit>, chats: List<ChatPreview>,
-    onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     val tabs = rememberSharedMediaWindows(chatId, load)
+    val openMessage: (Long) -> Unit = { id -> onOpenMessage(id, tabs.topicOf(id)) }
     val pagerState = rememberPagerState { chatSharedKinds.size }
     val pagerHeight = (LocalConfiguration.current.screenHeightDp * PAGER_SCREEN_FRACTION).dp.coerceAtLeast(PAGER_MIN_HEIGHT)
     var viewing by remember(chatId) { mutableStateOf<Long?>(null) }
@@ -123,14 +124,18 @@ internal fun SharedMediaSection(
         val kind = chatSharedKinds[page]
         SharedMediaPageContent(kind, chatId, tabs.getValue(kind), onMore = { loadMore(kind) }, observeFile = observeFile, downloadFile = downloadFile,
             confirmExport = confirmExport, onContentOpened = onContentOpened,
-            onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = onOpenMessage)
+            onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = openMessage)
     }
 
     SharedMediaViewer(media = tabs.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
-        observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = onOpenMessage,
+        observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened)
 }
+
+/** A forum message opens in its own topic, not in the topic list. */
+internal fun Map<SharedMediaKind, SharedMediaWindow>.topicOf(messageId: Long): Long =
+    values.firstNotNullOfOrNull { window -> window.messages.firstOrNull { it.id == messageId } }?.forumTopicId ?: 0L
 
 /** Окна вкладок по видам вложений. Новые создаются только при смене чата и переживают пересборку экрана. */
 @Composable

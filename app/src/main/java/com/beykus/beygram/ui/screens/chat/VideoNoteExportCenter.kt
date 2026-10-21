@@ -40,7 +40,9 @@ internal data class VideoNoteExportResult(
     val nextIndex: Int = 0,
     val sending: Boolean = false,
     /** Preview and retry items stay in the center until explicit Send/Delete. */
-    val requiresPreview: Boolean = previewFirst || media.size > 1
+    val requiresPreview: Boolean = previewFirst || media.size > 1,
+    /** Forum topic the note was recorded in (0 outside forums): it is sent there, not to the open topic. */
+    val topicId: Long = 0L
 )
 
 /** Pure transitions shared by the app-level sender and regression tests. */
@@ -51,15 +53,15 @@ internal fun VideoNoteExportResult.markSendFailed(): VideoNoteExportResult =
     copy(sending = false, requiresPreview = true)
 
 /** Автоматический кружок до приёма TDLib: [processing] — идёт обработка, иначе кружок ждёт отправки. */
-internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null)
+internal data class PendingVideoNote(val chatId: Long, val sessionName: String, val processing: Boolean, val previewPath: String? = null, val topicId: Long = 0L)
 
 /**
  * Кружки чата для ленты: сначала обрабатываемые, затем ждущие отправки. Кружок с предпросмотром здесь не показывается:
  * он остаётся в диалоге, пока пользователь не отправит или не удалит его. Одна сессия показывается один раз.
  */
-internal fun pendingVideoNotesFor(chatId: Long, processing: List<PendingVideoNote>, results: List<VideoNoteExportResult>): List<PendingVideoNote> =
-    (processing.filter { it.chatId == chatId } + results.filter { it.chatId == chatId && !it.requiresPreview }
-        .map { PendingVideoNote(it.chatId, it.sessionName, processing = false, previewPath = it.media.firstOrNull()?.thumbnailPath) })
+internal fun pendingVideoNotesFor(chatId: Long, processing: List<PendingVideoNote>, results: List<VideoNoteExportResult>, topicId: Long = 0L): List<PendingVideoNote> =
+    (processing.filter { it.chatId == chatId && it.topicId == topicId } + results.filter { it.chatId == chatId && it.topicId == topicId && !it.requiresPreview }
+        .map { PendingVideoNote(it.chatId, it.sessionName, processing = false, previewPath = it.media.firstOrNull()?.thumbnailPath, topicId = it.topicId) })
         .distinctBy { it.sessionName }
 
 private val exportMutex = Mutex()
@@ -98,8 +100,9 @@ internal object VideoNoteExportCenter {
     private val _results = MutableStateFlow<List<VideoNoteExportResult>>(emptyList())
     val results: StateFlow<List<VideoNoteExportResult>> = _results.asStateFlow()
 
-    private val _failures = MutableStateFlow<List<Long>>(emptyList())
-    val failures: StateFlow<List<Long>> = _failures.asStateFlow()
+    /** Failed exports as (chatId, topicId): only the topic the note was recorded in reports it. */
+    private val _failures = MutableStateFlow<List<Pair<Long, Long>>>(emptyList())
+    val failures: StateFlow<List<Pair<Long, Long>>> = _failures.asStateFlow()
 
     private val _pendingNotes = MutableStateFlow<List<PendingVideoNote>>(emptyList())
     /** Автоматические кружки, которые TDLib ещё не принял: лента показывает их сразу, с индикатором. */
@@ -112,11 +115,11 @@ internal object VideoNoteExportCenter {
         }
     }
 
-    fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean) {
+    fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean, topicId: Long = 0L) {
         val appContext = context.applicationContext
         VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_queued, VideoNoteDiagnostics.text(if (previewFirst) R.string.loss_yes else R.string.loss_no)), VideoNoteStatus.QUEUED)
         // Автоматический кружок виден в ленте сразу после отпускания, а не когда обработка закончится.
-        if (!previewFirst) _pendingNotes.update { it + PendingVideoNote(chatId, sessionName, processing = true) }
+        if (!previewFirst) _pendingNotes.update { it + PendingVideoNote(chatId, sessionName, processing = true, topicId = topicId) }
         scope.launchExclusiveExport {
             try {
                 val outputDirectory = File(appContext.filesDir, "uploads").resolve(sessionName).apply { mkdirs() }
@@ -125,14 +128,14 @@ internal object VideoNoteExportCenter {
                 Log.i(TAG, "video_processing_completed session=" + sessionName + " segments=" + media.size)
                 recordAppEvent(EventKind.OTHER, "video_note_processed", "Кружок: обработка завершена", attrs = mapOf("segments" to media.size.toString()))
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_succeeded, media.size), if (previewFirst) VideoNoteStatus.PREVIEW else VideoNoteStatus.READY)
-                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName))
+                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName, topicId = topicId))
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
                 Log.e(TAG, "video_processing_failed session=" + sessionName, failure)
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_failed, failure.javaClass.simpleName), VideoNoteStatus.PROCESSING_FAILED)
                 recordAppEvent(EventKind.OTHER, "video_note_processing_failed", "Кружок: обработка не удалась", Severity.ERROR, mapOf("cause" to failure.javaClass.simpleName))
-                _failures.update { it + chatId }
+                _failures.update { it + (chatId to topicId) }
             } finally {
                 _pendingNotes.update { current -> current.filterNot { it.sessionName == sessionName } }
             }
@@ -217,9 +220,10 @@ internal object VideoNoteExportCenter {
         }
     }
 
-    fun consumeFailure(chatId: Long): Boolean {
-        val had = chatId in _failures.value
-        if (had) _failures.update { current -> current - chatId }
+    fun consumeFailure(chatId: Long, topicId: Long = 0L): Boolean {
+        val key = chatId to topicId
+        val had = key in _failures.value
+        if (had) _failures.update { current -> current - key }
         return had
     }
 }

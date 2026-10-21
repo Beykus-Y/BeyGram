@@ -138,7 +138,8 @@ fun ChatScreen(
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
-    val scrollPosition: ChatScrollPositionViewModel = viewModel(key = "chat-scroll-${chat.id}")
+    // Each forum topic keeps its own list position.
+    val scrollPosition: ChatScrollPositionViewModel = viewModel(key = "chat-scroll-${chat.id}-$forumTopicId")
     val listState = rememberLazyListState(scrollPosition.firstVisibleItemIndex, scrollPosition.firstVisibleItemScrollOffset)
     DisposableEffect(listState) {
         onDispose {
@@ -165,10 +166,10 @@ fun ChatScreen(
     // Voice messages use this local queue; video notes are owned by VideoNoteExportCenter.
     val pendingRecordingSends = remember(chat.id) { ArrayDeque<List<OutgoingMedia>>() }
     val videoExports by VideoNoteExportCenter.results.collectAsStateWithLifecycle()
-    val videoPreview = videoExports.firstOrNull { it.chatId == chat.id && it.requiresPreview }
+    val videoPreview = videoExports.firstOrNull { it.chatId == chat.id && it.topicId == forumTopicId && it.requiresPreview }
     val videoPending by VideoNoteExportCenter.pendingNotes.collectAsStateWithLifecycle()
     // Автоматический кружок виден в ленте сразу: сначала обработка, потом отправка, пока TDLib не примет сообщение.
-    val pendingVideoNotes = remember(videoPending, videoExports, chat.id) { pendingVideoNotesFor(chat.id, videoPending, videoExports) }
+    val pendingVideoNotes = remember(videoPending, videoExports, chat.id, forumTopicId) { pendingVideoNotesFor(chat.id, videoPending, videoExports, forumTopicId) }
     fun startRecordingSendWorker() {
         if (recordingQueueSending) return
         if (pendingRecordingSends.isEmpty()) return
@@ -234,15 +235,16 @@ fun ChatScreen(
         if (result.isSuccess) clearReply()
         result
     }
-    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, onError = { error = it })
+    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.
-    LaunchedEffect(chat.id, conversation) {
+    // A note goes to the topic it was recorded in, so another topic never claims it.
+    LaunchedEffect(chat.id, forumTopicId, conversation) {
         launch {
             VideoNoteExportCenter.results.collect { list ->
-                list.filter { it.chatId == chat.id && !it.requiresPreview && !it.sending }.forEach { item ->
+                list.filter { it.chatId == chat.id && it.topicId == forumTopicId && !it.requiresPreview && !it.sending }.forEach { item ->
                     val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, replyId) { media, targetReply ->
-                        conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = forumTopicId).map { Unit }
+                        conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
                     if (accepted) clearReply()
                 }
@@ -250,7 +252,7 @@ fun ChatScreen(
         }
         launch {
             VideoNoteExportCenter.failures.collect {
-                if (VideoNoteExportCenter.consumeFailure(chat.id)) error = context.getString(R.string.recorder_save_failed)
+                if (VideoNoteExportCenter.consumeFailure(chat.id, forumTopicId)) error = context.getString(R.string.recorder_save_failed)
             }
         }
     }
@@ -793,7 +795,7 @@ fun ChatScreen(
             onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName) },
             onSend = {
                 val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, replyId) { media, targetReply ->
-                    conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = forumTopicId).map { Unit }
+                    conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = video.topicId).map { Unit }
                 }
                 if (accepted) clearReply()
             }

@@ -25,6 +25,7 @@ import com.beykus.beygram.R
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -38,6 +39,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The result says nothing about recording a circle with sound; it only separates "not in the normal
  * ranges" from "available in another mode".
  */
+@OptIn(ExperimentalCoroutinesApi::class) // resume(value, onCancellation) releases a camera opened during cancellation.
 internal object VideoNoteHighSpeedProbe {
     private const val WARMUP_NS = 800_000_000L
     private const val MODE_TIMEOUT_MS = 9_000L
@@ -197,7 +199,7 @@ internal object VideoNoteHighSpeedProbe {
                 suspendCancellableCoroutine<CameraDevice?> { cont ->
                     try {
                         manager.openCamera(id, object : CameraDevice.StateCallback() {
-                            override fun onOpened(camera: CameraDevice) { if (cont.isActive) cont.resume(camera) else camera.close() }
+                            override fun onOpened(camera: CameraDevice) { if (cont.isActive) cont.resume(camera) { camera.close() } else camera.close() }
                             override fun onDisconnected(camera: CameraDevice) { camera.close(); if (cont.isActive) cont.resume(null) }
                             override fun onError(camera: CameraDevice, error: Int) { camera.close(); if (cont.isActive) cont.resume(null) }
                             override fun onClosed(camera: CameraDevice) { closed.complete(Unit) }
@@ -216,7 +218,7 @@ internal object VideoNoteHighSpeedProbe {
                         dev.createCaptureSession(SessionConfiguration(
                             SessionConfiguration.SESSION_HIGH_SPEED, listOf(OutputConfiguration(target)), executor,
                             object : CameraCaptureSession.StateCallback() {
-                                override fun onConfigured(s: CameraCaptureSession) { if (cont.isActive) cont.resume(s) else s.close() }
+                                override fun onConfigured(s: CameraCaptureSession) { if (cont.isActive) cont.resume(s) { s.close() } else s.close() }
                                 override fun onConfigureFailed(s: CameraCaptureSession) { if (cont.isActive) cont.resume(null) }
                             }))
                     } catch (failure: Exception) {
