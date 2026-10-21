@@ -6,18 +6,24 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
@@ -35,22 +41,47 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.WallpaperFiles
 import com.beykus.beygram.data.appearance.WallpaperGradientChoices
+import com.beykus.beygram.data.appearance.WallpaperPresetSpec
+import com.beykus.beygram.data.appearance.WallpaperPresets
 import com.beykus.beygram.data.appearance.WallpaperSolidChoices
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.chat.PatternWallpaper
 import kotlinx.coroutines.launch
 
 private val TileShape = RoundedCornerShape(14.dp)
 
+private val PresetNameResources: Map<String, Int> = mapOf(
+    "lavender-flow" to R.string.wallpaper_preset_lavender_flow,
+    "arctic-blue" to R.string.wallpaper_preset_arctic_blue,
+    "mint-air" to R.string.wallpaper_preset_mint_air,
+    "sunset-peach" to R.string.wallpaper_preset_sunset_peach,
+    "soft-rose" to R.string.wallpaper_preset_soft_rose,
+    "blue-notes" to R.string.wallpaper_preset_blue_notes,
+    "graphite-wave" to R.string.wallpaper_preset_graphite_wave,
+    "forest-whisper" to R.string.wallpaper_preset_forest_whisper,
+    "deep-night" to R.string.wallpaper_preset_deep_night,
+    "violet-mesh" to R.string.wallpaper_preset_violet_mesh,
+    "ocean-current" to R.string.wallpaper_preset_ocean_current,
+    "amber-glow" to R.string.wallpaper_preset_amber_glow,
+    "sky-paper" to R.string.wallpaper_preset_sky_paper,
+    "terracotta-dust" to R.string.wallpaper_preset_terracotta_dust,
+    "silver-mist" to R.string.wallpaper_preset_silver_mist,
+    "emerald-tide" to R.string.wallpaper_preset_emerald_tide
+)
+
 /**
- * Chat wallpaper choice: none, a solid colour, a gradient or a photo from the gallery.
- * [saved] is the wallpaper already applied. A picture picked here stays a draft until the screen is applied.
+ * All chat wallpaper choices, including existing solid/gradient/photo options.
+ * The user edits a draft; tapping Apply in ThemeSettingsScreen persists the choice.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onSelect: (ChatWallpaper) -> Unit) {
     val palette = beyGramPalette()
@@ -61,7 +92,6 @@ internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onS
         scope.launch {
             val name = WallpaperFiles.import(context, uri)
             if (name != null) {
-                // The new copy is in place: only the applied picture and this one are worth keeping.
                 WallpaperFiles.deleteAllExcept(context, setOfNotNull((saved as? ChatWallpaper.Photo)?.fileName, name))
                 onSelect(ChatWallpaper.Photo(name, (selected as? ChatWallpaper.Photo)?.dimPercent ?: ChatWallpaper.DEFAULT_DIM_PERCENT))
             } else Toast.makeText(context, R.string.wallpaper_import_failed, Toast.LENGTH_SHORT).show()
@@ -69,21 +99,74 @@ internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onS
     }
     val noneLabel = stringResource(R.string.wallpaper_option_none)
     val photoLabel = stringResource(R.string.wallpaper_option_photo)
+    val presetIntensity = (selected as? ChatWallpaper.Preset)?.intensityPercent ?: ChatWallpaper.DEFAULT_PATTERN_INTENSITY
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            stringResource(R.string.wallpaper_curated_title),
+            color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        Text(
+            stringResource(R.string.wallpaper_curated_subtitle),
+            color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            WallpaperPresets.forEach { preset ->
+                val name = stringResource(PresetNameResources.getValue(preset.id))
+                PatternTile(
+                    preset, name,
+                    selected = (selected as? ChatWallpaper.Preset)?.id == preset.id,
+                    intensity = presetIntensity,
+                    onClick = { onSelect(ChatWallpaper.Preset(preset.id, presetIntensity)) }
+                )
+            }
+        }
+        if (selected is ChatWallpaper.Preset) {
+            Text(
+                stringResource(R.string.wallpaper_pattern_intensity, selected.intensityPercent),
+                color = palette.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+            Slider(
+                value = selected.intensityPercent.toFloat(),
+                onValueChange = { onSelect(selected.copy(intensityPercent = it.toInt())) },
+                valueRange = 0f..ChatWallpaper.MAX_PATTERN_INTENSITY.toFloat(),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        }
+
+        Text(
+            stringResource(R.string.wallpaper_classic_title),
+            color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             Tile(selected == ChatWallpaper.None, noneLabel, { onSelect(ChatWallpaper.None) }) {
                 Box(Modifier.size(56.dp).background(palette.surface2), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.Block, null, tint = palette.textSecondary)
                 }
             }
             WallpaperSolidChoices.forEachIndexed { index, color ->
-                Tile(selected == ChatWallpaper.Solid(color), stringResource(R.string.wallpaper_option_solid, index + 1), { onSelect(ChatWallpaper.Solid(color)) }) {
-                    Box(Modifier.size(56.dp).background(Color(color)))
-                }
+                Tile(
+                    selected == ChatWallpaper.Solid(color),
+                    stringResource(R.string.wallpaper_option_solid, index + 1),
+                    { onSelect(ChatWallpaper.Solid(color)) }
+                ) { Box(Modifier.size(56.dp).background(Color(color))) }
             }
             WallpaperGradientChoices.forEachIndexed { index, (top, bottom) ->
-                Tile(selected == ChatWallpaper.Gradient(top, bottom), stringResource(R.string.wallpaper_option_gradient, index + 1), { onSelect(ChatWallpaper.Gradient(top, bottom)) }) {
+                Tile(
+                    selected == ChatWallpaper.Gradient(top, bottom),
+                    stringResource(R.string.wallpaper_option_gradient, index + 1),
+                    { onSelect(ChatWallpaper.Gradient(top, bottom)) }
+                ) {
                     Box(Modifier.size(56.dp).background(Brush.verticalGradient(listOf(Color(top), Color(bottom)))))
                 }
             }
@@ -96,7 +179,11 @@ internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onS
             }
         }
         if (selected is ChatWallpaper.Photo) {
-            Text(stringResource(R.string.wallpaper_dim), color = palette.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 4.dp))
+            Text(
+                stringResource(R.string.wallpaper_dim), color = palette.textSecondary,
+                fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
             Slider(
                 value = selected.dimPercent.toFloat(),
                 onValueChange = { onSelect(selected.copy(dimPercent = it.toInt())) },
@@ -104,6 +191,58 @@ internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onS
                 modifier = Modifier.padding(horizontal = 4.dp)
             )
         }
+    }
+}
+
+/** 88dp-wide cards wrap naturally on narrow screens; 88dp high is the minimum touch target. */
+@Composable
+private fun PatternTile(
+    preset: WallpaperPresetSpec,
+    name: String,
+    selected: Boolean,
+    intensity: Int,
+    onClick: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Column(Modifier.width(88.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(width = 88.dp, height = 94.dp)
+                .clip(TileShape)
+                .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+                .semantics { contentDescription = name }
+                .border(
+                    if (selected) 3.dp else 1.dp,
+                    if (selected) palette.accent else palette.divider,
+                    TileShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            PatternWallpaper(preset, intensity, modifier = Modifier.matchParentSize())
+            // Two tiny bubbles make contrast and placement visible even before opening the large preview.
+            Box(
+                Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 31.dp)
+                    .size(width = 40.dp, height = 13.dp)
+                    .clip(RoundedCornerShape(6.dp)).background(palette.incomingBubble)
+            )
+            Box(
+                Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 16.dp)
+                    .size(width = 45.dp, height = 14.dp)
+                    .clip(RoundedCornerShape(6.dp)).background(palette.outgoingBubble)
+            )
+            if (selected) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(6.dp).size(22.dp)
+                        .clip(RoundedCornerShape(50)).background(palette.accent),
+                    contentAlignment = Alignment.Center
+                ) { Icon(Icons.Rounded.Check, null, tint = palette.onAccent, modifier = Modifier.size(15.dp)) }
+            }
+        }
+        Text(
+            name, color = if (selected) palette.accent else palette.textSecondary,
+            fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center, lineHeight = 15.sp,
+            modifier = Modifier.fillMaxWidth().padding(top = 5.dp)
+        )
     }
 }
 
