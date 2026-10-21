@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chats
 
+import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,6 +18,8 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -32,9 +35,50 @@ import com.beykus.beygram.domain.model.movedTelegramFolderIds
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 
 private enum class FolderChoice { Include, Exclude }
+
+// An unsaved folder survives rotation and language or theme changes.
+private val FolderDraftSaver = Saver<TelegramFolderDraft?, Bundle>(
+    save = { d ->
+        d?.let {
+            Bundle().apply {
+                it.id?.let { id -> putInt("id", id) }
+                putString("title", it.title)
+                putBoolean("shareable", it.isShareable)
+                putString("baseline", it.baselineFingerprint)
+                putBooleanArray("flags", booleanArrayOf(
+                    it.includeContacts, it.includeNonContacts, it.includeBots, it.includeGroups,
+                    it.includeChannels, it.excludeMuted, it.excludeRead, it.excludeArchived
+                ))
+                putLongArray("pinned", it.pinnedChatIds.toLongArray())
+                putLongArray("included", it.includedChatIds.toLongArray())
+                putLongArray("excluded", it.excludedChatIds.toLongArray())
+            }
+        }
+    },
+    restore = { b ->
+        val f = b.getBooleanArray("flags") ?: BooleanArray(8)
+        TelegramFolderDraft(
+            id = if (b.containsKey("id")) b.getInt("id") else null,
+            title = b.getString("title").orEmpty(),
+            isShareable = b.getBoolean("shareable"),
+            baselineFingerprint = b.getString("baseline"),
+            includeContacts = f[0], includeNonContacts = f[1], includeBots = f[2], includeGroups = f[3],
+            includeChannels = f[4], excludeMuted = f[5], excludeRead = f[6], excludeArchived = f[7],
+            pinnedChatIds = b.getLongArray("pinned")?.toList().orEmpty(),
+            includedChatIds = b.getLongArray("included")?.toSet().orEmpty(),
+            excludedChatIds = b.getLongArray("excluded")?.toSet().orEmpty()
+        )
+    }
+)
+
+private val FolderIdsSaver = Saver<Set<Int>?, IntArray>(
+    save = { it?.toIntArray() },
+    restore = { it.toSet() }
+)
 
 @Composable
 internal fun FolderManagerScreen(
@@ -49,12 +93,12 @@ internal fun FolderManagerScreen(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var draft by remember { mutableStateOf<TelegramFolderDraft?>(null) }
-    var picking by remember { mutableStateOf<FolderChoice?>(null) }
+    var draft by rememberSaveable(stateSaver = FolderDraftSaver) { mutableStateOf<TelegramFolderDraft?>(null) }
+    var picking by rememberSaveable { mutableStateOf<FolderChoice?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
-    var uncertainCreateBaseline by remember { mutableStateOf<Set<Int>?>(null) }
+    var uncertainCreateBaseline by rememberSaveable(stateSaver = FolderIdsSaver) { mutableStateOf<Set<Int>?>(null) }
     fun back() {
         when {
             busy -> Unit
@@ -93,14 +137,16 @@ internal fun FolderManagerScreen(
                 val choice = requireNotNull(picking)
                 FolderChatPicker(
                     chats = knownChats,
-                    selected = if (choice == FolderChoice.Include) editing.includedChatIds else editing.excludedChatIds,
+                    selected = if (choice == FolderChoice.Include) editing.memberChatIds else editing.excludedChatIds,
                     onToggle = { id, checked ->
                         draft = if (choice == FolderChoice.Include) editing.copy(
                             includedChatIds = if (checked) editing.includedChatIds + id else editing.includedChatIds - id,
+                            pinnedChatIds = if (checked) editing.pinnedChatIds else editing.pinnedChatIds - id,
                             excludedChatIds = if (checked) editing.excludedChatIds - id else editing.excludedChatIds
                         ) else editing.copy(
                             excludedChatIds = if (checked) editing.excludedChatIds + id else editing.excludedChatIds - id,
-                            includedChatIds = if (checked) editing.includedChatIds - id else editing.includedChatIds
+                            includedChatIds = if (checked) editing.includedChatIds - id else editing.includedChatIds,
+                            pinnedChatIds = if (checked) editing.pinnedChatIds - id else editing.pinnedChatIds
                         )
                     },
                     onDone = { picking = null }
@@ -124,7 +170,8 @@ internal fun FolderManagerScreen(
                                     saveFolder(editing).fold(
                                         { draft = null; uncertainCreateBaseline = null },
                                         {
-                                            if (editing.id == null) {
+                                            // Only a timeout leaves the create outcome unknown; a rejection stays editable.
+                                            if (editing.id == null && it.cause is TimeoutCancellationException) {
                                                 uncertainCreateBaseline = snapshot.folders.map { f -> f.id }.toSet()
                                                 error = context.getString(R.string.folder_create_unconfirmed)
                                             } else {
@@ -288,7 +335,7 @@ private fun FolderEditor(
         FolderSwitch(stringResource(R.string.folder_exclude_read), draft.excludeRead, !disabled && !draft.isShareable) { onUpdate(draft.copy(excludeRead = it)) }
         FolderSwitch(stringResource(R.string.folder_exclude_archived), draft.excludeArchived, !disabled && !draft.isShareable) { onUpdate(draft.copy(excludeArchived = it)) }
         OutlinedButton(onClick = onPickIncluded, enabled = !disabled, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.folder_manual_include, draft.includedChatIds.size))
+            Text(stringResource(R.string.folder_manual_include, draft.memberChatIds.size))
         }
         OutlinedButton(onClick = onPickExcluded, enabled = !disabled && !draft.isShareable, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.folder_manual_exclude, draft.excludedChatIds.size))

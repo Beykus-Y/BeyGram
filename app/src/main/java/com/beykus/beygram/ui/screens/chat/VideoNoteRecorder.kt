@@ -88,6 +88,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.UUID
 
@@ -98,6 +99,8 @@ private const val SIDE_PX = 480
 /** Сдвиг пальца влево, после которого отпускание отменяет запись. */
 private const val CANCEL_DRAG_DP = 96f
 private const val TAG = "BeyGramRecorder"
+// The FPS check settles a pending open (5 s) and then waits for the close callback (2 s).
+private const val FPS_CHECK_RELEASE_TIMEOUT_MS = 8_000L
 /** Кадр обрезается по кругу при обработке (маска в VideoNoteProcessor), поэтому запись кружков включена. */
 internal const val VIDEO_NOTE_RECORDING_ENABLED = true
 
@@ -258,8 +261,9 @@ internal class VideoNoteRecorder(
             onError(context.getString(R.string.recorder_processing_busy))
             return
         }
-        // The opt-in camera FPS check may still hold a lens after leaving settings: recording wins.
-        VideoNoteFpsCheck.cancelForRecording()
+        // The opt-in camera FPS check may still hold a lens after leaving settings: recording wins,
+        // but CameraX binds only after the check has closed that lens.
+        val stoppingCheck = VideoNoteFpsCheck.cancelForRecording()
         val settings = currentSettings()
         Log.i(TAG, "video_start_requested preset=${settings.preset} long=${settings.longRecordingEnabled}")
         maxDurationMs = if (settings.longRecordingEnabled) LONG_MAX_DURATION_MS else NORMAL_MAX_DURATION_MS
@@ -277,6 +281,15 @@ internal class VideoNoteRecorder(
         zoomRatio = 1f
         elapsedMs = 0L
         val current = ++attempt
+        if (stoppingCheck != null) {
+            scope.launch {
+                withTimeoutOrNull(FPS_CHECK_RELEASE_TIMEOUT_MS) { stoppingCheck.join() }
+                if (active && current == attempt) openCamera(current, settings)
+            }
+        } else openCamera(current, settings)
+    }
+
+    private fun openCamera(current: Int, settings: VideoMessageSettings) {
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             // Ответ камеры от более раннего нажатия игнорируется, чтобы не начать вторую запись.
@@ -702,16 +715,18 @@ internal fun rememberVideoNoteRecorder(
     settings: VideoMessageSettingsStore,
     processingScope: CoroutineScope,
     chatId: Long,
+    topicId: Long = 0L,
     onError: (String) -> Unit
 ): VideoNoteRecorder {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val currentChatId by rememberUpdatedState(chatId)
+    val currentTopicId by rememberUpdatedState(topicId)
     val currentOnError by rememberUpdatedState(onError)
     val recorder = remember(owner, settings, processingScope) {
         VideoNoteRecorder(context, owner, processingScope, { settings.settings.value },
             onTakeReady = { raw, takeSettings, sessionName, previewFirst ->
-                VideoNoteExportCenter.enqueue(context.applicationContext, currentChatId, raw, takeSettings, sessionName, previewFirst)
+                VideoNoteExportCenter.enqueue(context.applicationContext, currentChatId, raw, takeSettings, sessionName, previewFirst, currentTopicId)
             },
             onError = { currentOnError(it) })
     }

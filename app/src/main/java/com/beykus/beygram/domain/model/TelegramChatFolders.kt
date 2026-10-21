@@ -40,9 +40,14 @@ data class TelegramFolderDraft(
     val excludeMuted: Boolean = false,
     val excludeRead: Boolean = false,
     val excludeArchived: Boolean = false,
+    /** TDLib keeps pinned members apart from [includedChatIds]; both make a chat a member. */
+    val pinnedChatIds: List<Long> = emptyList(),
     val includedChatIds: Set<Long> = emptySet(),
     val excludedChatIds: Set<Long> = emptySet()
 ) {
+    val memberChatIds: Set<Long> get() = pinnedChatIds.toSet() + includedChatIds
+
+
     fun valid(): Boolean {
         val clean = title.trim()
         val incompatibleWithShare = isShareable && (
@@ -51,8 +56,8 @@ data class TelegramFolderDraft(
         )
         return clean.isNotEmpty() && '\n' !in clean && '\r' !in clean &&
             clean.codePointCount(0, clean.length) <= 12 &&
-            (includeContacts || includeNonContacts || includeBots || includeGroups || includeChannels || includedChatIds.isNotEmpty()) &&
-            includedChatIds.intersect(excludedChatIds).isEmpty() && !incompatibleWithShare
+            (includeContacts || includeNonContacts || includeBots || includeGroups || includeChannels || memberChatIds.isNotEmpty()) &&
+            memberChatIds.intersect(excludedChatIds).isEmpty() && !incompatibleWithShare
     }
 }
 

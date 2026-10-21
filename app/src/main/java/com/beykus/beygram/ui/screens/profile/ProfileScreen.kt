@@ -71,7 +71,7 @@ fun ProfileScreen(
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)? = null,
     confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
     forwardMessage: suspend (Long, Long) -> Result<Unit> = { _, _ -> Result.failure(IllegalStateException()) }, chats: List<ChatPreview> = emptyList(),
-    onContentOpened: (Long) -> Unit = {}, onOpenMessage: (Long) -> Unit = {}
+    onContentOpened: (Long) -> Unit = {}, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit = { _, _ -> }
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()

@@ -52,4 +52,11 @@ class VideoNotePendingTest {
         val results = listOf(VideoNoteExportResult(7L, listOf(media("a")), false, "a"))
         assertEquals(listOf(PendingVideoNote(7L, "a", processing = true)), pendingVideoNotesFor(7L, processing, results))
     }
+
+    @Test fun forumNoteStaysInTheTopicItWasRecordedIn() {
+        val processing = listOf(PendingVideoNote(7L, "a", processing = true, topicId = 11L))
+        val results = listOf(VideoNoteExportResult(7L, listOf(media("b")), false, "b", topicId = 11L))
+        assertEquals(emptyList<PendingVideoNote>(), pendingVideoNotesFor(7L, processing, results, topicId = 12L))
+        assertEquals(listOf("a", "b"), pendingVideoNotesFor(7L, processing, results, topicId = 11L).map { it.sessionName })
+    }
 }

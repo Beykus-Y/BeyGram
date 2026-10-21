@@ -15,6 +15,9 @@ class TelegramFolderEditorTest {
         assertFalse(TelegramFolderDraft(title = "Важное").valid())
         assertTrue(TelegramFolderDraft(title = "Важное", includedChatIds = setOf(3L)).valid())
         assertFalse(TelegramFolderDraft(title = "Важное", includedChatIds = setOf(3L), excludedChatIds = setOf(3L)).valid())
+        // A folder holding only pinned chats is still a valid folder.
+        assertTrue(TelegramFolderDraft(title = "Важное", pinnedChatIds = listOf(5L)).valid())
+        assertFalse(TelegramFolderDraft(title = "Важное", pinnedChatIds = listOf(5L), excludedChatIds = setOf(5L)).valid())
     }
 
     @Test fun shareableFolderOnlyAllowsExplicitIncludedChats() {

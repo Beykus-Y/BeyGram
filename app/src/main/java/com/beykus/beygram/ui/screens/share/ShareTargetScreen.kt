@@ -106,7 +106,8 @@ internal fun ShareTargetScreen(
         topicsError = null
         if (targetId == 0L) return@LaunchedEffect
         loadTopics(targetId)
-            .onSuccess { loaded -> topics = loaded; topicsReady = true }
+            // A closed topic the user can't post to is not a share destination.
+            .onSuccess { loaded -> topics = loaded?.filter { it.canWrite }; topicsReady = true }
             .onFailure { topicsError = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_topics_failed) }
     }
     // Отправка могла закончиться, пока экрана не было (поворот): тогда открываем чат, куда ушло сообщение.

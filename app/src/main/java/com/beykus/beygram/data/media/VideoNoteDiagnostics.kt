@@ -5,6 +5,7 @@ import android.os.Build
 import android.util.AtomicFile
 import android.util.Log
 import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.AppLocale
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -84,10 +85,12 @@ object VideoNoteDiagnostics {
     val reports: StateFlow<List<VideoNoteDiagnosticReport>> = mutableReports.asStateFlow()
     private var file: AtomicFile? = null
     private var appContext: Context? = null
+    // The application context has no in-app locale below API 33.
+    private val localContext: Context? get() = appContext?.let(AppLocale::context)
 
     /** Localized text for entries written from places that have no Context at hand. */
     internal fun text(id: Int, vararg args: Any): String =
-        appContext?.getString(id, *args) ?: id.toString()
+        localContext?.getString(id, *args) ?: id.toString()
 
     @Synchronized
     fun initialize(context: Context) {
@@ -226,7 +229,7 @@ object VideoNoteDiagnostics {
                     old.copy(
                         rawFps = raw,
                         outputFps = final,
-                        entries = (old.entries + stamp("$stage: ${appContext?.let(data::summary) ?: data.frameCount}") +
+                        entries = (old.entries + stamp("$stage: ${localContext?.let(data::summary) ?: data.frameCount}") +
                             listOfNotNull(avLine?.let(::stamp)) +
                             listOfNotNull(finding?.let { stamp(text(R.string.vn_entry_finding, stageText(it))) })).takeLast(MAX_ENTRIES)
                     )
@@ -287,7 +290,7 @@ object VideoNoteDiagnostics {
     }
 
     private fun stageText(stage: VideoNoteFpsLimitStage): String =
-        appContext?.let { fpsLimitStageText(it, stage) } ?: stage.name
+        localContext?.let { fpsLimitStageText(it, stage) } ?: stage.name
 
     private fun stamp(message: String): String {
         val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())

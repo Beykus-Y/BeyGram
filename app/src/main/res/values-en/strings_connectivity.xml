@@ -57,14 +57,14 @@
     <string name="proxy_connect_refresh_subscription">Refresh subscription</string>
     <string name="proxy_connect_subscription_load_failed">Could not load subscription</string>
     <string name="proxy_connect_tab_mtproto">Telegram</string>
-    <string name="proxy_connect_tab_socks5">SOCKS5</string>
+    <string name="proxy_connect_tab_socks5">Standard</string>
     <string name="proxy_connect_tab_subscription">Subscription</string>
     <string name="proxy_connect_tab_web">Web</string>
     <string name="proxy_connect_title">Connect to Telegram</string>
     <string name="proxy_connect_web_hint">Web proxy. Can be selected if Telegram supports it.</string>
     <string name="proxy_kind_http">Web proxy</string>
     <string name="proxy_kind_mtproto">Telegram proxy</string>
-    <string name="proxy_kind_socks5">SOCKS5 proxy</string>
+    <string name="proxy_kind_socks5">Standard proxy</string>
     <string name="proxy_latency_ms">%1$d ms</string>
     <string name="proxy_list_add_proxy">Add proxy</string>
     <string name="proxy_list_add_subscription_link">Add a subscription link</string>

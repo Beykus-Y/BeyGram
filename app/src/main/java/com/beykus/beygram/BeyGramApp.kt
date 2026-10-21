@@ -203,6 +203,8 @@ private fun BeyGramAppContent(
     // The selected forum topic follows its parent chat. Other chats must never inherit the previous topic.
     var selectedTopicChatId by rememberSaveable { mutableStateOf(0L) }
     var selectedForumTopicId by rememberSaveable { mutableStateOf(0L) }
+    // A topic named by a notification or shared media may be hidden from the visible topics list.
+    var trustedForumTopicId by rememberSaveable { mutableStateOf(0L) }
     // Вложение из профиля открывает чат у своего сообщения; 0 значит, что переход не нужен.
     var chatFocusMessageId by rememberSaveable { mutableStateOf(0L) }
     // Профиль участника открывается по его личному чату; запоминаем чат и экран, куда вернуться.
@@ -319,6 +321,7 @@ private fun BeyGramAppContent(
                 selectedChatId = chatId
                 selectedTopicChatId = chatId
                 selectedForumTopicId = request.topicId
+                trustedForumTopicId = request.topicId
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
             }
@@ -515,7 +518,8 @@ private fun BeyGramAppContent(
                     topicsResult?.getOrNull()?.any { it.id == selectedForumTopicId } == true ||
                         // A hidden General topic may not appear in the visible topics list;
                         // its message ID from global search is still an authoritative target.
-                        chatBackRouteName == AppRoute.GlobalSearch.name && selectedForumTopicId > 0L
+                        chatBackRouteName == AppRoute.GlobalSearch.name && selectedForumTopicId > 0L ||
+                        selectedForumTopicId > 0L && selectedForumTopicId == trustedForumTopicId
                 )
             ) selectedForumTopicId else 0L
             var topicsReload by remember(repository, selectedChatId) { mutableIntStateOf(0) }
@@ -657,7 +661,15 @@ private fun BeyGramAppContent(
             messageRights = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull() },
             forwardMessage = { messageId, toChatId -> repository.forwardMessage(selectedChatId, messageId, toChatId) }, chats = chats,
             onContentOpened = { messageId -> repository.openMessageContent(selectedChatId, messageId) },
-            onOpenMessage = { messageId -> chatFocusMessageId = messageId; routeName = AppRoute.Chat.name })
+            onOpenMessage = { messageId, topicId ->
+                if (topicId > 0L) {
+                    selectedTopicChatId = selectedChatId
+                    selectedForumTopicId = topicId
+                    trustedForumTopicId = topicId
+                }
+                chatFocusMessageId = messageId
+                routeName = AppRoute.Chat.name
+            })
     }
 
     val chatMembersRoute: @Composable () -> Unit = {

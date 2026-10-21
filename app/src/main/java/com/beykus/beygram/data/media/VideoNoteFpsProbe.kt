@@ -26,6 +26,7 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
@@ -55,6 +56,7 @@ internal data class ProbeRow(val mode: ProbeMode, val outcome: ProbeOutcome?)
  * recording, no sound, pixels never read), asks for a frame-rate range and reads the sensor
  * timestamps of the delivered frames. The camera is fully closed before the next mode starts.
  */
+@OptIn(ExperimentalCoroutinesApi::class) // resume(value, onCancellation) releases a camera opened during cancellation.
 internal class VideoNoteFpsProbe(private val context: Context) {
     private val manager = context.getSystemService(CameraManager::class.java)
     private val power = context.getSystemService(PowerManager::class.java)
@@ -233,7 +235,7 @@ internal class VideoNoteFpsProbe(private val context: Context) {
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     // A late open after cancellation is closed here; the caller waits for onClosed.
-                    if (cont.isActive) cont.resume(OpenResult.Opened(camera)) else camera.close()
+                    if (cont.isActive) cont.resume(OpenResult.Opened(camera)) { camera.close() } else camera.close()
                     settled.complete(true)
                 }
                 override fun onDisconnected(camera: CameraDevice) {
@@ -262,7 +264,7 @@ internal class VideoNoteFpsProbe(private val context: Context) {
                 executor,
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
-                        if (cont.isActive) cont.resume(session) else session.close()
+                        if (cont.isActive) cont.resume(session) { session.close() } else session.close()
                     }
                     override fun onConfigureFailed(session: CameraCaptureSession) {
                         if (cont.isActive) cont.resume(null)

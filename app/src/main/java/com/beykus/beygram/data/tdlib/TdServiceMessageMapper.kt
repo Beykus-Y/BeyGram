@@ -2,6 +2,7 @@ package com.beykus.beygram.data.tdlib
 
 import android.content.Context
 import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.AppLocale
 import org.drinkless.tdlib.TdApi
 
 /**
@@ -22,7 +23,16 @@ internal fun serviceAffectedUserId(content: TdApi.MessageContent, senderId: TdAp
 internal data class TdServiceEvent(val text: String, val userId: Long = 0L)
 
 /** The event actor or affected member is preserved separately so the UI can open their profile. */
-internal class TdServiceMessageMapper(private val context: Context) {
+internal class TdServiceMessageMapper(private val baseContext: Context) {
+    // The application context has no in-app locale below API 33; follow the selected language.
+    @Volatile private var localized: Pair<String, Context>? = null
+    private val context: Context
+        get() {
+            val language = AppLocale.selected(baseContext)
+            localized?.takeIf { it.first == language }?.let { return it.second }
+            return AppLocale.context(baseContext).also { localized = language to it }
+        }
+
     fun event(message: TdApi.Message, nameForUser: (Long) -> String): TdServiceEvent? {
         val base = text(message.content) ?: return null
         val userId = serviceAffectedUserId(message.content, message.senderId)
