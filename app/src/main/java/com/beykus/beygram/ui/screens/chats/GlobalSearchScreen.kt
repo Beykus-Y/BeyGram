@@ -77,6 +77,31 @@ class GlobalSearchSession(initialQuery: String) {
     val retryVersion = mutableStateOf(0)
     var completedRequest: Pair<String, GlobalSearchFilter>? = null
 
+    companion object {
+        // Only primitive enum identifiers enter Android saved state. Search pages are
+        // deliberately reloaded after process recreation; filters are not lost.
+        val stateSaver = androidx.compose.runtime.saveable.listSaver<GlobalSearchSession, String>(
+            save = { state ->
+                listOf(
+                    state.query.value,
+                    state.filter.value.kind?.name.orEmpty(),
+                    state.filter.value.chatType?.name.orEmpty(),
+                    state.filter.value.period.name
+                )
+            },
+            restore = { saved ->
+                GlobalSearchSession(saved.getOrElse(0) { "" }).also { state ->
+                    state.filter.value = GlobalSearchFilter(
+                        kind = SharedMediaKind.entries.firstOrNull { it.name == saved.getOrNull(1) },
+                        chatType = GlobalChatType.entries.firstOrNull { it.name == saved.getOrNull(2) },
+                        period = GlobalSearchPeriod.entries.firstOrNull { it.name == saved.getOrNull(3) }
+                            ?: GlobalSearchPeriod.Any
+                    )
+                }
+            }
+        )
+    }
+
     fun reset(newQuery: String) {
         pagingJob.value?.cancel()
         query.value = newQuery
