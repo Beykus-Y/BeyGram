@@ -19,7 +19,7 @@ class EnglishResourceCoverageTest {
         val folder = sequenceOf(
             File("src/main/res/$directory"),
             File("app/src/main/res/$directory")
-        ).firstOrNull(File::isDirectory) ?: error("Cannot find resources: $directory")
+        ).firstOrNull { it.isDirectory } ?: error("Cannot find resources: $directory")
         val result = linkedMapOf<String, String>()
         val xmlFiles = folder.listFiles().orEmpty().filter { it.isFile && it.name.startsWith("strings") && it.extension == "xml" }
         for (file in xmlFiles) {
@@ -39,7 +39,7 @@ class EnglishResourceCoverageTest {
     fun completedEnglishSectionsNeverFallBackToRussian() {
         val default = resources("values")
         val english = resources("values-en")
-        val missing = default.keys.filter { key -> completedSections.any(key::startsWith) && !english.containsKey(key) }
+        val missing = default.keys.filter { key -> completedSections.any { key.startsWith(it) } && !english.containsKey(key) }
         assertTrue("Missing English UI strings: $missing", missing.isEmpty())
     }
 
@@ -49,7 +49,7 @@ class EnglishResourceCoverageTest {
         val english = resources("values-en")
         val placeholders = Regex("%(?:\\d+\\$)?(?:\\.\\d+)?[sdif]|%%")
         val broken = default.keys.intersect(english.keys)
-            .filter { key -> completedSections.any(key::startsWith) }
+            .filter { key -> completedSections.any { key.startsWith(it) } }
             .filter { key ->
                 placeholders.findAll(default.getValue(key)).map { it.value }.sorted().toList() !=
                     placeholders.findAll(english.getValue(key)).map { it.value }.sorted().toList()
@@ -61,7 +61,7 @@ class EnglishResourceCoverageTest {
     fun everyCompletedSectionHasNonEmptyEnglishText() {
         val translated = resources("values-en")
         val empty = translated.filter { (key, value) ->
-            completedSections.any(key::startsWith) && value.isBlank()
+            completedSections.any { key.startsWith(it) } && value.isBlank()
         }.keys
         assertTrue("Empty translated UI strings: $empty", empty.isEmpty())
     }
