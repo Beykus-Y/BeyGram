@@ -90,7 +90,7 @@ internal object VideoNoteCameraSurvey {
         // Camera2 stream ceiling is a filter, not a guarantee Preview + capture will sustain 60.
         val stream60 = if (high) sourceSupports60(characteristics, width, height) else null
         val selected = safeVideoNoteFpsSelection(
-            requested, cameraRanges, normalRanges, if (stream60 == false) false else encoder
+            requested, cameraRanges, normalRanges, encoder, stream60
         )
         return VideoNoteRecordingPlan(selected, quality, width, height)
     }
@@ -102,7 +102,7 @@ internal object VideoNoteCameraSurvey {
         val supported = map.getOutputSizes(MediaRecorder::class.java)?.contains(size) ?: return null
         if (!supported) return false
         val ns = runCatching { map.getOutputMinFrameDuration(MediaRecorder::class.java, size) }.getOrNull()
-        return ns?.takeIf { it > 0 }?.let { it <= 1_000_000_000L / 60L }
+        return ns?.takeIf { it > 0 }?.let { it <= 1_000_000_000L / 59L }
     }
 
     /** Lenses the recorder picks for front and back. Blocks briefly; call off the main thread. */
@@ -263,6 +263,7 @@ internal fun fpsCauseText(context: Context, cause: VideoNoteFpsCause): String = 
     VideoNoteFpsCause.CAMERA_RANGE_FALLBACK -> R.string.fps_cause_camera_fallback
     VideoNoteFpsCause.NO_NORMAL_60 -> R.string.fps_cause_no_normal_60
     VideoNoteFpsCause.ENCODER_REJECTS_60 -> R.string.fps_cause_encoder_60
+    VideoNoteFpsCause.STREAM_REJECTS_60 -> R.string.fps_cause_stream_60
     VideoNoteFpsCause.NO_COMPATIBLE_RANGE -> R.string.fps_cause_no_range
 })
 
