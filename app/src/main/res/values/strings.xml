@@ -1103,6 +1103,10 @@
     <string name="folder_shareable_hint">Это общая папка Telegram. Для неё недоступны фильтры по категориям, исключение прочитанных, архивных и отдельных чатов.</string>
     <string name="folder_create_unconfirmed">Не удалось подтвердить создание. Папка могла появиться в Telegram. Проверьте список папок перед новой попыткой.</string>
     <string name="folder_changed_while_editing">Папка была изменена на другом устройстве. Вернитесь к списку и откройте её заново, чтобы не потерять изменения.</string>
+    <string name="service_call_answered">%1$s · %2$s · %3$s</string>
+    <string name="service_call_missed">Пропущенный · %1$s</string>
+    <string name="service_call_declined">Отклонён · %1$s</string>
+    <string name="service_call_no_answer">%1$s · %2$s · без ответа</string>
     <string name="service_group_created">Группа создана</string>
     <string name="service_supergroup_created">Супергруппа создана</string>
     <string name="service_title_changed">Название группы изменено: %1$s</string>

@@ -3,6 +3,7 @@ package com.beykus.beygram.data.tdlib
 import android.content.Context
 import com.beykus.beygram.R
 import com.beykus.beygram.data.settings.AppLocale
+import com.beykus.beygram.domain.model.CallStatus
 import org.drinkless.tdlib.TdApi
 
 /**
@@ -34,6 +35,9 @@ internal class TdServiceMessageMapper(private val baseContext: Context) {
         }
 
     fun event(message: TdApi.Message, nameForUser: (Long) -> String): TdServiceEvent? {
+        if (message.content is TdApi.MessageCall) {
+            return TdServiceEvent(callText(message.content as TdApi.MessageCall, message.isOutgoing))
+        }
         val base = text(message.content) ?: return null
         val userId = serviceAffectedUserId(message.content, message.senderId)
         if (userId <= 0L) return TdServiceEvent(base)
@@ -50,7 +54,19 @@ internal class TdServiceMessageMapper(private val baseContext: Context) {
         return TdServiceEvent(label, userId)
     }
 
+    internal fun callText(call: TdApi.MessageCall, isOutgoing: Boolean): String {
+        val direction = context.getString(if (isOutgoing) R.string.calls_direction_outgoing else R.string.calls_direction_incoming)
+        val kind = context.getString(if (call.isVideo) R.string.calls_kind_video else R.string.calls_kind_call)
+        return when (call.discardReason.toCallStatus(call.duration, isOutgoing)) {
+            CallStatus.Answered -> context.getString(R.string.service_call_answered, direction, kind, callEventDuration(call.duration))
+            CallStatus.Missed -> context.getString(R.string.service_call_missed, kind)
+            CallStatus.Declined -> context.getString(R.string.service_call_declined, kind)
+            CallStatus.NoAnswer -> context.getString(R.string.service_call_no_answer, direction, kind)
+        }
+    }
+
     fun text(content: TdApi.MessageContent): String? = when (content) {
+        is TdApi.MessageCall -> context.getString(if (content.isVideo) R.string.calls_kind_video else R.string.calls_kind_call)
         is TdApi.MessageBasicGroupChatCreate -> context.getString(R.string.service_group_created)
         is TdApi.MessageSupergroupChatCreate -> context.getString(R.string.service_supergroup_created)
         is TdApi.MessageChatChangeTitle -> context.getString(R.string.service_title_changed, content.title)
@@ -71,4 +87,13 @@ internal class TdServiceMessageMapper(private val baseContext: Context) {
         is TdApi.MessageChatSetBackground -> context.getString(R.string.service_background_changed)
         else -> null
     }
+}
+
+/** Duration of a call, independent of the device clock. */
+internal fun callEventDuration(seconds: Int): String {
+    val total = seconds.coerceAtLeast(0)
+    val hours = total / 3600
+    val minutes = total % 3600 / 60
+    val secs = (total % 60).toString().padStart(2, '0')
+    return if (hours > 0) "$hours:${minutes.toString().padStart(2, '0')}:$secs" else "$minutes:$secs"
 }

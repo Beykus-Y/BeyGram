@@ -1183,8 +1183,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 val attachment = mediaMapper.media(update.newContent)
                 val service = serviceMessages.text(update.newContent)
                 val transform: (ChatMessage) -> ChatMessage = { message ->
-                    message.copy(text = service ?: contentText(update.newContent, attachment != null),
-                        serviceText = service, entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
+                    val rendered = (update.newContent as? TdApi.MessageCall)?.let {
+                        serviceMessages.callText(it, message.isOutgoing)
+                    } ?: service
+                    message.copy(text = rendered ?: contentText(update.newContent, attachment != null),
+                        serviceText = rendered, isCallEvent = update.newContent is TdApi.MessageCall,
+                        entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
                 }
                 messageHistory.update(update.chatId, update.messageId, transform)
                 updateForumMessage(update.chatId, update.messageId, transform)
@@ -1672,6 +1676,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         inlineKeyboard = inlineKeyboard(replyMarkup),
         reactions = messageReactions(interactionInfo),
         serviceText = service,
+        isCallEvent = content is TdApi.MessageCall,
         serviceUserId = event?.userId ?: 0L,
         forumTopicId = forumId(this),
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->

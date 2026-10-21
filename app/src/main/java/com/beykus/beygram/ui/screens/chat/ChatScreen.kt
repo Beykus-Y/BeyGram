@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
@@ -619,7 +620,8 @@ fun ChatScreen(
                         onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
                 } else {
                     val message = listItem.messages.single()
-                    if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
+                    if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
+                    else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                     else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                         highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                         onPlayed = { conversation.openMessageContent(chat.id, message.id) },
@@ -954,7 +956,31 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
 
 /** Telegram service actions have no sender bubble, read checks or swipe-to-reply affordances. */
 @Composable
-internal fun ServiceMessageChip(text: String, userId: Long = 0L, onOpenUser: (Long) -> Unit = {}) {
+internal /** A Telegram call is an event with a direction and result, not an empty message bubble. */
+@Composable
+private fun CallMessageChip(text: String, time: String) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Row(
+            Modifier.clip(RoundedCornerShape(16.dp))
+                .background(palette.surface.copy(alpha = 0.92f))
+                .padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.Call, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(9.dp))
+            Column {
+                Text(text, color = palette.textPrimary, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 2)
+                Text(time, color = palette.textSecondary, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+fun ServiceMessageChip(text: String, userId: Long = 0L, onOpenUser: (Long) -> Unit = {}) {
     val palette = beyGramPalette()
     Box(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
         Text(
