@@ -510,6 +510,24 @@ private fun BeyGramAppContent(
                 topicsResult?.getOrNull()?.any { it.id == selectedForumTopicId } == true
             ) selectedForumTopicId else 0L
             var topicsReload by remember(repository, selectedChatId) { mutableIntStateOf(0) }
+            var canCreateTopic by remember(repository, selectedChatId) { mutableStateOf(false) }
+            var forumBusy by remember(repository, selectedChatId) { mutableStateOf(false) }
+            var forumActionError by remember(repository, selectedChatId) { mutableStateOf<String?>(null) }
+            val forumScope = rememberCoroutineScope()
+            LaunchedEffect(repository, selectedChatId) {
+                canCreateTopic = repository.canCreateForumTopic(selectedChatId).getOrDefault(false)
+            }
+            fun forumAction(action: suspend () -> Result<Unit>) {
+                if (forumBusy) return
+                forumBusy = true; forumActionError = null
+                forumScope.launch {
+                    try {
+                        val outcome = action()
+                        if (outcome.isSuccess) topicsReload++
+                        else forumActionError = context.getString(R.string.forum_action_failed)
+                    } finally { forumBusy = false }
+                }
+            }
             LaunchedEffect(repository, selectedChatId, topicsReload) {
                 topicsResult = repository.forumTopics(selectedChatId)
             }
@@ -540,15 +558,34 @@ private fun BeyGramAppContent(
                         TextButton(onClick = { topicsReload++ }) { Text(stringResource(R.string.common_retry)) }
                     }
                 }
-                topics != null && activeTopicId == 0L -> ForumTopicsScreen(
-                    chatTitle = chat.title, topics = topics,
+                topics != null && (activeTopicId == 0L || selectedTopic == null) -> ForumTopicsScreen(
+                    chatTitle = chat.title,
+                    topics = topics,
+                    canCreate = canCreateTopic,
+                    busy = forumBusy,
+                    actionError = forumActionError,
                     onBack = { routeName = chatBackRouteName },
-                    onTopic = { topic -> selectedTopicChatId = selectedChatId; selectedForumTopicId = topic.id }
-                )
-                topics != null && selectedTopic == null -> ForumTopicsScreen(
-                    chatTitle = chat.title, topics = topics,
-                    onBack = { routeName = chatBackRouteName },
-                    onTopic = { topic -> selectedTopicChatId = selectedChatId; selectedForumTopicId = topic.id }
+                    onTopic = { topic -> selectedTopicChatId = selectedChatId; selectedForumTopicId = topic.id },
+                    onCreate = { name ->
+                        if (!forumBusy) {
+                            forumBusy = true; forumActionError = null
+                            forumScope.launch {
+                                try {
+                                    repository.createForumTopic(selectedChatId, name)
+                                        .onSuccess { newId ->
+                                            selectedTopicChatId = selectedChatId
+                                            selectedForumTopicId = newId
+                                            topicsReload++
+                                        }
+                                        .onFailure { forumActionError = context.getString(R.string.forum_action_failed) }
+                                } finally { forumBusy = false }
+                            }
+                        }
+                    },
+                    onRename = { topic, name -> forumAction { repository.renameForumTopic(selectedChatId, topic.id, name) } },
+                    onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(selectedChatId, topic.id, closed) } },
+                    onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(selectedChatId, topic.id, pinned) } },
+                    onDelete = { topic -> forumAction { repository.deleteForumTopic(selectedChatId, topic.id) } }
                 )
                 else -> key(selectedChatId, activeTopicId) {
                     ChatScreen(
