@@ -660,7 +660,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
-    private val conversationActions = TdConversationActions({ client }, messageHistory) { it.toChatMessage() }
+    private val conversationActions = TdConversationActions({ client }, messageHistory,
+        map = { it.toChatMessage() },
+        onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })
     private val customEmojis = TdCustomEmojis(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
@@ -1013,6 +1015,13 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = conversationActions.isForum(chatId)
+
+    override suspend fun canCreateForumTopic(chatId: Long) = conversationActions.canCreateTopic(chatId)
+    override suspend fun createForumTopic(chatId: Long, name: String) = conversationActions.createTopic(chatId, name)
+    override suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String) = conversationActions.renameTopic(chatId, forumTopicId, name)
+    override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean) = conversationActions.closeTopic(chatId, forumTopicId, closed)
+    override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
+    override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
 
     override suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> =
         conversationActions.forumTopics(chatId).onSuccess { topics ->

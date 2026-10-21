@@ -18,7 +18,8 @@ private const val SEARCH_PAGE_SIZE = 50
 
 internal class TdConversationActions(
     client: () -> Client, private val history: MessageHistoryStore,
-    private val map: (TdApi.Message) -> ChatMessage
+    private val map: (TdApi.Message) -> ChatMessage,
+    private val onTopicDraft: (Long, Int, TdApi.DraftMessage?) -> Unit = { _, _, _ -> }
 ) {
     private val request = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -93,6 +94,7 @@ internal class TdConversationActions(
             val page = request(TdApi.GetForumTopics(chatId, "", offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
             page.topics.filter { !it.info.isHidden }
                 .mapTo(topics) {
+                    onTopicDraft(chatId, it.info.forumTopicId, it.draftMessage)
                     ForumTopic(
                         id = it.info.forumTopicId.toLong(),
                         title = it.info.name,
@@ -100,6 +102,8 @@ internal class TdConversationActions(
                         isPinned = it.isPinned,
                         isClosed = it.info.isClosed,
                         canWrite = !it.info.isClosed || it.info.isOutgoing || manageTopics,
+                        canManage = it.info.isOutgoing || manageTopics,
+                        canPin = manageTopics,
                         order = it.order,
                         lastReadInboxMessageId = it.lastReadInboxMessageId,
                         lastReadOutboxMessageId = it.lastReadOutboxMessageId,
@@ -113,6 +117,53 @@ internal class TdConversationActions(
             offsetTopicId = page.nextOffsetForumTopicId
         }
         topics.sortedByDescending { it.order }
+    }
+
+    /** All mutations go through TDLib; the server is the final authority for permissions. */
+    suspend fun canCreateTopic(chatId: Long): Result<Boolean> = conversationResult {
+        val chat = request(TdApi.GetChat(chatId))
+        val supergroupType = chat.type as? TdApi.ChatTypeSupergroup ?: return@conversationResult false
+        val group = request(TdApi.GetSupergroup(supergroupType.supergroupId))
+        if (!group.isForum) return@conversationResult false
+        when (val status = group.status) {
+            is TdApi.ChatMemberStatusCreator -> true
+            is TdApi.ChatMemberStatusAdministrator -> status.rights.canManageTopics
+            else -> chat.permissions.canCreateTopics
+        }
+    }
+
+    suspend fun createTopic(chatId: Long, title: String): Result<Long> = conversationResult {
+        val name = title.trim()
+        require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 128)
+        val info = request(TdApi.CreateForumTopic().apply {
+            this.chatId = chatId
+            this.name = name
+            isNameImplicit = false
+            icon = TdApi.ForumTopicIcon(0x6FB9F0, 0L)
+        })
+        info.forumTopicId.toLong()
+    }
+
+    suspend fun renameTopic(chatId: Long, topicId: Long, title: String): Result<Unit> = conversationResult {
+        val name = title.trim()
+        require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 128)
+        request(TdApi.EditForumTopic(chatId, topicId.toInt(), name, false, 0L))
+        Unit
+    }
+
+    suspend fun closeTopic(chatId: Long, topicId: Long, closed: Boolean): Result<Unit> = conversationResult {
+        request(TdApi.ToggleForumTopicIsClosed(chatId, topicId.toInt(), closed))
+        Unit
+    }
+
+    suspend fun pinTopic(chatId: Long, topicId: Long, pinned: Boolean): Result<Unit> = conversationResult {
+        request(TdApi.ToggleForumTopicIsPinned(chatId, topicId.toInt(), pinned))
+        Unit
+    }
+
+    suspend fun deleteTopic(chatId: Long, topicId: Long): Result<Unit> = conversationResult {
+        request(TdApi.DeleteForumTopic(chatId, topicId.toInt()))
+        Unit
     }
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {

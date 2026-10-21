@@ -33,6 +33,12 @@ interface ConversationRepository {
     suspend fun isForumChat(chatId: Long): Result<Boolean>
     /** Темы группы с темами; null, если чат не группа с темами. Берётся первая страница, до 100 тем. */
     suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?>
+    suspend fun canCreateForumTopic(chatId: Long): Result<Boolean>
+    suspend fun createForumTopic(chatId: Long, name: String): Result<Long>
+    suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit>
+    suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit>
+    suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit>
+    suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit>
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit>
     /** Retries failed outgoing messages regardless of their content type. */
