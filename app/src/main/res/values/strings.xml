@@ -1119,4 +1119,15 @@
     <string name="forum_topics_empty">Пока нет доступных тем</string>
     <string name="forum_topic_closed">Тема закрыта</string>
     <string name="forum_topic_no_messages">Нет сообщений в теме</string>
+    <string name="forum_create">Новая тема</string>
+    <string name="forum_manage">Управление темой</string>
+    <string name="forum_rename">Переименовать тему</string>
+    <string name="forum_close">Закрыть тему</string>
+    <string name="forum_reopen">Открыть тему</string>
+    <string name="forum_delete">Удалить тему</string>
+    <string name="forum_pin">Закрепить тему</string>
+    <string name="forum_unpin">Открепить тему</string>
+    <string name="forum_topic_name">Название темы</string>
+    <string name="forum_delete_confirm">Удалить тему «%1$s» вместе с сообщениями? Отменить удаление нельзя.</string>
+    <string name="forum_action_failed">Не удалось выполнить действие с темой. Проверьте права доступа и соединение.</string>
 </resources>
