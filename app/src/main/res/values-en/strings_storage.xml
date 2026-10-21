@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="storage_category_files">Files</string>
+    <string name="storage_category_music">Music</string>
+    <string name="storage_category_other">Stickers and other</string>
+    <string name="storage_category_photos">Photos</string>
+    <string name="storage_category_videos">Videos</string>
+    <string name="storage_category_voice_notes">Voice and video messages</string>
+    <string name="storage_clear_all">Clear all cache</string>
+    <string name="storage_clear_all_title">Clear all cache?</string>
+    <string name="storage_clear_confirm">Clear</string>
+    <string name="storage_clear_failed">Could not clear cache. Please try again.</string>
+    <string name="storage_clear_selected">Clear selected</string>
+    <string name="storage_clear_selected_title">Clear selected items?</string>
+    <string name="storage_clear_text">Files will be removed from this device and downloaded again when needed. Your chats and messages will remain intact.</string>
+    <string name="storage_clearing">Clearing files… %1$d%%</string>
+    <string name="storage_database">Database and app data</string>
+    <string name="storage_database_detail">Messages, chats and logs. Cache cleaning does not affect these.</string>
+    <string name="storage_footnote">The cache limit and retention period are checked when you sign in, every 6 hours and after changes. Your conversations are never deleted.</string>
+    <string name="storage_freed">Space freed: %1$s</string>
+    <string name="storage_limit_detail">If the cache exceeds this limit, BeyGram removes files that have not been opened for the longest time.</string>
+    <string name="storage_limit_gigabytes">%1$d GB</string>
+    <string name="storage_limit_title">Cache size limit</string>
+    <string name="storage_limit_unlimited">Unlimited</string>
+    <string name="storage_load_failed">Could not calculate storage. Please try later.</string>
+    <string name="storage_retention_detail">Files not opened for a long time are removed after the selected period.</string>
+    <string name="storage_retention_forever">Forever</string>
+    <string name="storage_retention_month">1 month</string>
+    <string name="storage_retention_three_days">3 days</string>
+    <string name="storage_retention_title">Keep files for</string>
+    <string name="storage_retention_week">1 week</string>
+    <string name="storage_selected_size">Selected for cleanup: %1$s</string>
+    <string name="storage_settings_save_failed">Could not save this setting. The previous value is unchanged.</string>
+    <string name="storage_size_bytes">%1$s B</string>
+    <string name="storage_size_gigabytes">%1$s GB</string>
+    <string name="storage_size_kilobytes">%1$s KB</string>
+    <string name="storage_size_megabytes">%1$s MB</string>
+    <string name="storage_uploads">Files awaiting upload</string>
+    <string name="storage_uploads_detail">Unsent files remain until sent. Sent file copies are removed based on cache age and size limits, unless the open chat needs them.</string>
+    <string name="storage_usage_loading">Calculating file storage…</string>
+    <string name="storage_usage_title">App storage</string>
+</resources>
