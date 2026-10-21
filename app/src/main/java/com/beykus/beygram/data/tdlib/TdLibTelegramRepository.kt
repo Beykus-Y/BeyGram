@@ -278,6 +278,19 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
+    // A forum topic is a separate history even though all of its messages have the parent chatId.
+    private val topicStores = ConcurrentHashMap<Pair<Long, Long>, MessageHistoryStore>()
+    private fun topicStore(chatId: Long, topicId: Long): MessageHistoryStore =
+        topicStores.computeIfAbsent(chatId to topicId) { MessageHistoryStore(maxCachedChats = 1) }
+    private fun forumId(message: TdApi.Message): Long =
+        (message.topicId as? TdApi.MessageTopicForum)?.forumTopicId?.toLong() ?: 0L
+    private fun putForumMessage(message: TdApi.Message, replaces: Long? = null) {
+        val topicId = forumId(message)
+        if (topicId > 0L) topicStore(message.chatId, topicId).put(message.toChatMessage(), replaces)
+    }
+    private fun updateForumMessage(chatId: Long, messageId: Long, transform: (ChatMessage) -> ChatMessage) {
+        topicStores.filterKeys { it.first == chatId }.values.forEach { it.update(chatId, messageId, transform) }
+    }
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
     private val serviceMessages = TdServiceMessageMapper(appContext)
@@ -689,6 +702,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
+    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long) =
+        conversationActions.search(chatId, query, fromMessageId, forumTopicId)
     override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter) =
         conversationActions.searchGlobal(query, offset, filter)
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean) = conversationActions.shared(chatId, kind, fromMessageId, newer)
@@ -837,6 +852,50 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = messageHistory.observe(chatId)
+    override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> =
+        topicStore(chatId, forumTopicId).observe(chatId)
+
+    override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {
+        val store = topicStore(chatId, forumTopicId)
+        requestForumHistory(chatId, forumTopicId, 0L, store.restartFromLatest(chatId))
+    }
+
+    override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {
+        val store = topicStore(chatId, forumTopicId)
+        val oldest = store.observe(chatId).value.messages.firstOrNull()?.id ?: 0L
+        store.beginLoad(chatId)?.let { requestForumHistory(chatId, forumTopicId, oldest, it) }
+    }
+
+    override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = requestResult {
+        val store = topicStore(chatId, forumTopicId)
+        val result = tdRequests(TdApi.GetForumTopicHistory().apply {
+            this.chatId = chatId; this.forumTopicId = forumTopicId.toInt()
+            fromMessageId = messageId; offset = -15; limit = 40
+        })
+        store.replaceWithWindow(chatId, result.messages.orEmpty().filterNotNull().map { it.toChatMessage() }, reachesLatest = false)
+        true
+    }
+
+    private fun requestForumHistory(chatId: Long, forumTopicId: Long, fromMessageId: Long, epoch: Long) {
+        val store = topicStore(chatId, forumTopicId)
+        val version = store.version()
+        client.send(TdApi.GetForumTopicHistory().apply {
+            this.chatId = chatId; this.forumTopicId = forumTopicId.toInt()
+            this.fromMessageId = fromMessageId; offset = 0; limit = 50
+        }, Client.ResultHandler { result ->
+            when (result) {
+                is TdApi.Messages -> {
+                    val page = result.messages.orEmpty().filterNotNull().filter { it.id != fromMessageId && forumId(it) == forumTopicId }
+                    val nextId = page.lastOrNull()?.id ?: fromMessageId
+                    val hasMore = page.isNotEmpty() && nextId != fromMessageId
+                    if (store.finishLoad(chatId, page.map { it.toChatMessage() }, hasMore, requestVersion = version, epoch = epoch)) {
+                        page.forEach(conversationActions::hydrateReply)
+                    }
+                }
+                is TdApi.Error -> store.fail(chatId, UiText.Res(R.string.err_chat_history_load_failed), epoch = epoch)
+            }
+        })
+    }
 
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = mediaFiles.observe(fileId)
 
@@ -1008,15 +1067,28 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(lastReadOutboxMessageId = update.lastReadOutboxMessageId) }
                 publishChat(update.chatId)
             }
-            is TdApi.UpdateMessageContent -> messageHistory.update(update.chatId, update.messageId) { message ->
+            is TdApi.UpdateMessageContent -> {
                 val attachment = mediaMapper.media(update.newContent)
-                message.copy(text = serviceMessages.text(update.newContent) ?: contentText(update.newContent, attachment != null), serviceText = serviceMessages.text(update.newContent), entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
+                val service = serviceMessages.text(update.newContent)
+                val transform: (ChatMessage) -> ChatMessage = { message ->
+                    message.copy(text = service ?: contentText(update.newContent, attachment != null),
+                        serviceText = service, entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
+                }
+                messageHistory.update(update.chatId, update.messageId, transform)
+                updateForumMessage(update.chatId, update.messageId, transform)
             }
-            is TdApi.UpdateMessageContentOpened -> messageHistory.update(update.chatId, update.messageId) { message ->
-                message.copy(media = message.media?.copy(isViewed = true))
+            is TdApi.UpdateMessageContentOpened -> {
+                messageHistory.update(update.chatId, update.messageId) { it.copy(media = it.media?.copy(isViewed = true)) }
+                updateForumMessage(update.chatId, update.messageId) { it.copy(media = it.media?.copy(isViewed = true)) }
             }
-            is TdApi.UpdateMessageEdited -> messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
-            is TdApi.UpdateMessageInteractionInfo -> messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
+            is TdApi.UpdateMessageEdited -> {
+                messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
+                updateForumMessage(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
+            }
+            is TdApi.UpdateMessageInteractionInfo -> {
+                messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
+                updateForumMessage(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
+            }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
@@ -1047,6 +1119,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 reportBotChannel.onSendSucceeded(update)
                 cleanupSentUploads(update.message)
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+                putForumMessage(update.message, update.oldMessageId)
                 conversationActions.hydrateReply(update.message)
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
@@ -1064,11 +1137,15 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     attrs = mapOf("content" to update.message.content.javaClass.simpleName, "error_code" to (sendError?.code ?: 0).toString())
                 )
                 messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+                putForumMessage(update.message, update.oldMessageId)
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateDeleteMessages -> {
                 update.messageIds.forEach { conversationEffects.uploadFinished(update.chatId, it) }
-                if (update.isPermanent) messageHistory.delete(update.chatId, update.messageIds.toList())
+                if (update.isPermanent) {
+                    messageHistory.delete(update.chatId, update.messageIds.toList())
+                    topicStores.filterKeys { it.first == update.chatId }.values.forEach { it.delete(update.chatId, update.messageIds.toList()) }
+                }
             }
             is TdApi.UpdateConnectionState    -> {
                 ConnectionEventLog.shared.record("Соединение с Telegram: ${update.state.logLabel()}")
@@ -1446,6 +1523,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleNewMessage(message: TdApi.Message) {
         messageHistory.put(message.toChatMessage())
+        putForumMessage(message)
         conversationActions.hydrateReply(message)
         val chat = chatCache[message.chatId]
         // Muted archived chats stay in the archive, as they do in Telegram. Until the chat's notification settings are
