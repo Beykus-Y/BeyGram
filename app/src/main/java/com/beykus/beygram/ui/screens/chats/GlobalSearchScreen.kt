@@ -60,6 +60,40 @@ import java.util.Date
 private const val SEARCH_DEBOUNCE_MILLIS = 400L
 
 /**
+ * Hoisted across GlobalSearch → Chat → Back, so paging and filters are not
+ * recreated whenever the navigation branch leaves composition.
+ */
+class GlobalSearchSession(initialQuery: String) {
+    val query = mutableStateOf(initialQuery)
+    val filter = mutableStateOf(GlobalSearchFilter())
+    val hits = mutableStateOf<List<ChatMessage>>(emptyList())
+    val chatContexts = mutableStateOf<Map<Long, ChatPreview>>(emptyMap())
+    val nextOffset = mutableStateOf("")
+    val loadingMore = mutableStateOf(false)
+    val moreFailed = mutableStateOf(false)
+    val pagingJob = mutableStateOf<Job?>(null)
+    val searching = mutableStateOf(false)
+    val failed = mutableStateOf(false)
+    val retryVersion = mutableStateOf(0)
+    var completedRequest: Pair<String, GlobalSearchFilter>? = null
+
+    fun reset(newQuery: String) {
+        pagingJob.value?.cancel()
+        query.value = newQuery
+        filter.value = GlobalSearchFilter()
+        hits.value = emptyList()
+        chatContexts.value = emptyMap()
+        nextOffset.value = ""
+        loadingMore.value = false
+        moreFailed.value = false
+        searching.value = false
+        failed.value = false
+        completedRequest = null
+        retryVersion.value++
+    }
+}
+
+/**
  * Поиск сообщений по всем чатам аккаунта. Каждое изменение текста перезапускает LaunchedEffect,
  * поэтому запрос устаревшего текста отменяется и его результат не попадает в выдачу.
  */
@@ -70,47 +104,55 @@ fun GlobalSearchScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onOpenMessage: (chatId: Long, forumTopicId: Long, messageId: Long) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    session: GlobalSearchSession = remember { GlobalSearchSession(initialQuery) }
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val currentLocale = context.resources.configuration.locales[0]
     val dateFormat = remember(currentLocale) { DateFormat.getDateInstance(DateFormat.MEDIUM, currentLocale) }
-    var query by rememberSaveable { mutableStateOf(initialQuery) }
-    // Фильтры сбрасываются при повороте экрана вместе с выдачей: они не сохраняются через rememberSaveable.
-    var filter by remember { mutableStateOf(GlobalSearchFilter()) }
-    var hits by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var chatContexts by remember { mutableStateOf<Map<Long, ChatPreview>>(emptyMap()) }
-    var nextOffset by remember { mutableStateOf("") }
-    var loadingMore by remember { mutableStateOf(false) }
-    var moreFailed by remember { mutableStateOf(false) }
-    var pagingJob by remember { mutableStateOf<Job?>(null) }
-    var searching by remember { mutableStateOf(false) }
-    var failed by remember { mutableStateOf(false) }
+    var query by session.query
+    var filter by session.filter
+    var hits by session.hits
+    var chatContexts by session.chatContexts
+    var nextOffset by session.nextOffset
+    var loadingMore by session.loadingMore
+    var moreFailed by session.moreFailed
+    var pagingJob by session.pagingJob
+    var searching by session.searching
+    var failed by session.failed
+    var retryVersion by session.retryVersion
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(query, filter) {
-        // Догрузка прошлого запроса или фильтра не должна дописаться к выдаче нового.
+    LaunchedEffect(query, filter, retryVersion) {
         pagingJob?.cancel()
         pagingJob = null
         loadingMore = false
         moreFailed = false
-        hits = emptyList()
-        chatContexts = emptyMap()
-        nextOffset = ""
+        val request = query to filter
+        if (request == session.completedRequest && !failed) return@LaunchedEffect
+        if (session.completedRequest != request) {
+            hits = emptyList()
+            chatContexts = emptyMap()
+            nextOffset = ""
+        }
         failed = false
-        if (query.isBlank()) return@LaunchedEffect
-        delay(SEARCH_DEBOUNCE_MILLIS)
+        if (query.isBlank()) { searching = false; return@LaunchedEffect }
         searching = true
-        conversation.searchGlobalMessages(query, "", filter)
-            .onSuccess { page ->
-                hits = page.messages
-                chatContexts = page.chats
-                nextOffset = page.nextOffset
-            }
-            .onFailure { failed = true }
-        searching = false
+        try {
+            delay(SEARCH_DEBOUNCE_MILLIS)
+            conversation.searchGlobalMessages(query, "", filter)
+                .onSuccess { page ->
+                    hits = page.messages
+                    chatContexts = page.chats
+                    nextOffset = page.nextOffset
+                }
+                .onFailure { failed = true }
+            session.completedRequest = request
+        } finally {
+            searching = false
+        }
     }
 
     Column(
@@ -147,6 +189,11 @@ fun GlobalSearchScreen(
         }
         if (empty != null) {
             Text(empty, color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
+        }
+        if (failed && query.isNotBlank()) {
+            TextButton(onClick = { retryVersion++ }, enabled = !searching) {
+                Text(stringResource(R.string.common_retry))
+            }
         }
         LazyColumn(Modifier.fillMaxWidth()) {
             items(hits, key = { "${it.chatId}:${it.id}" }) { message ->
