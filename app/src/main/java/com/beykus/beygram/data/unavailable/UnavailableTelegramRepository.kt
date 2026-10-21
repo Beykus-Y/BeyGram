@@ -164,6 +164,10 @@ class UnavailableTelegramRepository : TelegramRepository {
         transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft
     ) {}
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = noHistory
+    override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> = noHistory
+    override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {}
+    override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {}
+    override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = unavailable()
     override fun openChat(chatId: Long) {}
     override fun closeChat(chatId: Long) {}
     override fun loadOlderMessages(chatId: Long) {}
@@ -171,6 +175,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = unavailable()
 
     override suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = unavailable()
+    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> = unavailable()
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = unavailable()
