@@ -108,6 +108,7 @@ fun ProfileScreen(
             )
         }
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        state.error?.let { ProfileLoadError(it.resolve(), state.isLoading, onRefresh) }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 28.dp)) {
             state.info?.let { info ->
                 Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -145,7 +146,6 @@ fun ProfileScreen(
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
             }
             if (state.info == null && !state.isLoading && state.error == null) Text(stringResource(R.string.profile_info_not_loaded), color = palette.textSecondary, modifier = Modifier.padding(24.dp))
-            state.error?.let { Text(it.resolve(), color = palette.danger, modifier = Modifier.padding(20.dp)) }
             photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp)) }
         }
     }
@@ -184,6 +184,25 @@ fun ProfileScreen(
                         } finally { saving = false }
                     } }) { Text(if (saving) stringResource(R.string.common_saving) else stringResource(R.string.profile_photo_set), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
             }
+        }
+    }
+}
+
+/**
+ * A failed profile refresh must not hide information already in the state.
+ * The error is separate from photo upload/import failures.
+ */
+@Composable
+internal fun ProfileLoadError(message: String, loading: Boolean, onRetry: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        TextButton(onClick = onRetry, enabled = !loading, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(stringResource(R.string.common_retry))
         }
     }
 }
