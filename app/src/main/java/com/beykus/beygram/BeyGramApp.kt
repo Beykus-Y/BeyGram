@@ -559,6 +559,7 @@ private fun BeyGramAppContent(
                         recordingSettings = recordingSettings,
                         forumTopicId = activeTopicId,
                         forumTopicTitle = selectedTopic?.title,
+                        topicCanPost = selectedTopic?.canWrite ?: true,
                         focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L }
                     )
                 }
