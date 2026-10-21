@@ -5,7 +5,12 @@ internal data class VideoNoteSensorResult(
     val stats: ProbeFrameStats,
     val crop: String?,
     val zoom: Float?,
-    val truncated: Boolean
+    val truncated: Boolean,
+    /** The first values seen in the active recording segment (not the earlier preview). */
+    val firstCrop: String? = null,
+    val firstZoom: Float? = null,
+    val cropChanged: Boolean = false,
+    val zoomChanged: Boolean = false
 )
 
 /**
@@ -26,6 +31,10 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
     private var truncated = false
     private var crop: String? = null
     private var zoom: Float? = null
+    private var firstCrop: String? = null
+    private var firstZoom: Float? = null
+    private var cropChanged = false
+    private var zoomChanged = false
 
     /** Cheap check for the camera callback thread, before any work is spent on a result. */
     @Synchronized fun isActive(): Boolean = active
@@ -36,6 +45,10 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
         exposures.clear()
         crop = null
         zoom = null
+        firstCrop = null
+        firstZoom = null
+        cropChanged = false
+        zoomChanged = false
         truncated = false
         active = true
         begun = true
@@ -43,8 +56,16 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
 
     @Synchronized fun record(sensorTimestampNs: Long?, exposureNs: Long?, cropRegion: String? = null, zoomRatio: Float? = null) {
         if (!active || sensorTimestampNs == null) return
-        if (cropRegion != null) crop = cropRegion
-        if (zoomRatio != null) zoom = zoomRatio
+        if (cropRegion != null) {
+            if (firstCrop == null) firstCrop = cropRegion
+            if (crop != null && crop != cropRegion) cropChanged = true
+            crop = cropRegion
+        }
+        if (zoomRatio != null && zoomRatio.isFinite()) {
+            if (firstZoom == null) firstZoom = zoomRatio
+            if (zoom != null && kotlin.math.abs(zoom!! - zoomRatio) > 0.02f) zoomChanged = true
+            zoom = zoomRatio
+        }
         if (timestamps.size >= capacity) {
             truncated = true
             return
@@ -67,7 +88,8 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
         val wasBegun = begun
         begun = false
         if (!wasBegun || timestamps.isEmpty()) {
-            timestamps.clear(); exposures.clear(); crop = null; zoom = null; truncated = false
+            timestamps.clear(); exposures.clear(); crop = null; zoom = null
+            firstCrop = null; firstZoom = null; cropChanged = false; zoomChanged = false; truncated = false
             return null
         }
         val first = timestamps.first()
@@ -75,8 +97,9 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
         val interval = 1_000_000_000L / targetFps.coerceAtLeast(1)
         // The window is what the recording spanned plus one frame: coverage compares against that.
         val stats = measureProbeFrames(timestamps.toList(), exposures.toList(), targetFps, (last - first) + interval)
-        val result = VideoNoteSensorResult(stats, crop, zoom, truncated)
-        timestamps.clear(); exposures.clear(); crop = null; zoom = null; truncated = false
+        val result = VideoNoteSensorResult(stats, crop, zoom, truncated, firstCrop, firstZoom, cropChanged, zoomChanged)
+        timestamps.clear(); exposures.clear(); crop = null; zoom = null
+        firstCrop = null; firstZoom = null; cropChanged = false; zoomChanged = false; truncated = false
         return result
     }
 }

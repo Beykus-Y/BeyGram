@@ -10,6 +10,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoNoteRecorderPolicyTest {
+    @Test fun missingZoomStateStillSendsNative1xRequest() {
+        assertEquals(1f, videoNoteZoomTarget(1f, null, null), 0f)
+        assertEquals(2f, videoNoteZoomTarget(2f, null, null), 0f)
+        assertEquals(1f, videoNoteZoomTarget(Float.NaN, null, null), 0f)
+    }
+
+    @Test fun knownCameraBoundsClampZoomWithoutSneakingInExtraZoom() {
+        assertEquals(1f, videoNoteZoomTarget(1f, 0.5f, 8f), 0f)
+        assertEquals(0.5f, videoNoteZoomTarget(0.3f, 0.5f, 8f), 0f)
+        assertEquals(8f, videoNoteZoomTarget(12f, 0.5f, 8f), 0f)
+    }
+
     @Test fun switchRequiresPersistentRecordingAndBothCameras() {
         assertTrue(videoSwitchCameraAvailable(persistentSupported = true, hasFrontCamera = true, hasBackCamera = true))
         assertFalse(videoSwitchCameraAvailable(persistentSupported = false, hasFrontCamera = true, hasBackCamera = true))
