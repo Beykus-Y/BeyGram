@@ -36,6 +36,26 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val guard = Any()
     private val states = ConcurrentHashMap<Long, MutableStateFlow<MessageDraft>>()
+    // Topic drafts are kept independently from the parent chat composer.
+    // Initial forum support persists these locally; TDLib cloud syncing is a separate follow-up.
+    private val topicStates = ConcurrentHashMap<Pair<Long, Long>, MutableStateFlow<MessageDraft>>()
+    private fun topicKey(chatId: Long, topicId: Long) = "topic_${chatId}_${topicId}"
+    private fun topicState(chatId: Long, topicId: Long): MutableStateFlow<MessageDraft> =
+        topicStates.computeIfAbsent(chatId to topicId) {
+            val saved = prefs.getString(topicKey(chatId, topicId), null)?.let(MessageDraftCodec::decode)
+            MutableStateFlow(saved?.value ?: MessageDraft())
+        }
+    fun observeTopic(chatId: Long, topicId: Long): StateFlow<MessageDraft> = topicState(chatId, topicId).asStateFlow()
+    fun updateTopic(chatId: Long, topicId: Long, transform: (MessageDraft) -> MessageDraft) = synchronized(guard) {
+        val flow = topicState(chatId, topicId)
+        val updated = transform(flow.value)
+        val next = updated.copy(entities = validTextEntities(updated.text, updated.entities))
+        if (next != flow.value) {
+            flow.value = next
+            prefs.edit().putString(topicKey(chatId, topicId),
+                MessageDraftCodec.encode(StoredMessageDraft(next, System.currentTimeMillis()))).apply()
+        }
+    }
     private val revisions = ConcurrentHashMap<Long, AtomicLong>()
     private val sendLocks = ConcurrentHashMap<Long, Mutex>()
     private val dirty = ConcurrentHashMap.newKeySet<Long>()
