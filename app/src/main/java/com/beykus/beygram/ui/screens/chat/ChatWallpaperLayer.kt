@@ -17,6 +17,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.WallpaperFiles
+import com.beykus.beygram.data.appearance.wallpaperPreset
 
 /** The wallpaper chosen in the appearance settings. MainActivity provides it next to the theme. */
 internal val LocalChatWallpaper = compositionLocalOf<ChatWallpaper> { ChatWallpaper.None }
@@ -28,6 +29,9 @@ internal fun ChatWallpaperLayer(wallpaper: ChatWallpaper, modifier: Modifier = M
         ChatWallpaper.None -> Unit
         is ChatWallpaper.Solid -> Box(modifier.background(Color(wallpaper.color)))
         is ChatWallpaper.Gradient -> Box(modifier.background(Brush.verticalGradient(listOf(Color(wallpaper.top), Color(wallpaper.bottom)))))
+        is ChatWallpaper.Preset -> wallpaperPreset(wallpaper.id)?.let { preset ->
+            PatternWallpaper(preset, wallpaper.intensityPercent, modifier)
+        }
         is ChatWallpaper.Photo -> {
             val context = LocalContext.current
             val bitmap by produceState<ImageBitmap?>(null, wallpaper.fileName) {
