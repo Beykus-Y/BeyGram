@@ -192,7 +192,7 @@ private fun BeyGramAppContent(
     // ---- Локальный UI-state --------------------------------------------------
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     var globalSearchQuery by rememberSaveable { mutableStateOf("") }
-    val globalSearchSession = remember(repository) { GlobalSearchSession(globalSearchQuery) }
+    val globalSearchSession = rememberSaveable(saver = GlobalSearchSession.stateSaver) { GlobalSearchSession(globalSearchQuery) }
     val globalSearchNavScope = rememberCoroutineScope()
     // The choice made on the theme screen but not applied yet, so the editor starts from it.
     // One draft shared across the palette screen and its editor; neither navigation, cancel nor Activity recreation loses pending choices.
