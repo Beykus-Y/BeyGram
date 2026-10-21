@@ -19,10 +19,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,23 +72,44 @@ internal fun ProxyListScreen(
     val settings by vpnBackend.settings.collectAsStateWithLifecycle()
     val runtime by vpnBackend.runtimeState.collectAsStateWithLifecycle()
     var saved by remember { mutableStateOf<List<SavedTelegramProxy>>(emptyList()) }
+    var savedLoaded by remember { mutableStateOf(false) }
+    var savedLoading by remember { mutableStateOf(false) }
+    var savedLoadError by remember { mutableStateOf<String?>(null) }
+    var reloadGeneration by remember { mutableStateOf(0) }
+    var pendingDeletion by remember { mutableStateOf<SavedTelegramProxy?>(null) }
+    var deletingProxyId by remember { mutableStateOf<Int?>(null) }
+    var deletionError by remember { mutableStateOf<String?>(null) }
     var mihomoEnabled by remember { mutableStateOf(false) }
     // Ключ отсутствует, пока пинг не измерен; null означает «нет связи».
     var latency by remember { mutableStateOf<Map<Int, Long?>>(emptyMap()) }
     var message by remember { mutableStateOf<String?>(null) }
 
     val reload: () -> Unit = {
+        val generation = ++reloadGeneration
+        savedLoading = true
+        savedLoadError = null
         scope.launch {
-            saved = repository.loadSavedProxies().getOrElse { error -> message = error.userMessage(context, R.string.proxy_list_load_failed); emptyList() }
-            // A failed query keeps the last known state: an error must not show the proxy as off.
-            repository.isMihomoProxyEnabled().onSuccess { mihomoEnabled = it }
-            latency = emptyMap()
-            saved.forEach { proxy ->
-                launch {
-                    val delay = repository.measureProxyLatency(proxy.server, proxy.port).getOrNull()
-                    latency = latency + (proxy.id to delay)
+            val result = repository.loadSavedProxies()
+            if (generation != reloadGeneration) return@launch
+            result.onSuccess { loaded ->
+                saved = loaded
+                savedLoaded = true
+                latency = emptyMap()
+                loaded.forEach { proxy ->
+                    launch {
+                        val measured = repository.measureProxyLatency(proxy.server, proxy.port).getOrNull()
+                        if (generation == reloadGeneration) latency = latency + (proxy.id to measured)
+                    }
                 }
+            }.onFailure { error ->
+                // An unsuccessful refresh must never erase previously loaded proxies.
+                savedLoadError = error.userMessage(context, R.string.proxy_list_load_failed)
             }
+            // A failed status check does not imply that the active route was disabled.
+            repository.isMihomoProxyEnabled().onSuccess {
+                if (generation == reloadGeneration) mihomoEnabled = it
+            }
+            if (generation == reloadGeneration) savedLoading = false
         }
     }
 
@@ -120,9 +143,9 @@ internal fun ProxyListScreen(
         }
     }
     val removeSaved: (SavedTelegramProxy) -> Unit = { proxy ->
-        scope.launch {
-            repository.removeProxy(proxy.id).onFailure { message = it.userMessage(context, R.string.proxy_list_remove_failed) }
-            reload()
+        if (deletingProxyId == null) {
+            pendingDeletion = proxy
+            deletionError = null
         }
     }
 
@@ -175,7 +198,25 @@ internal fun ProxyListScreen(
             }
 
             ProxySectionLabel(stringResource(R.string.proxy_list_section_manual))
-            ProxyCard {
+            if (savedLoading && !savedLoaded) {
+                Text(
+                    stringResource(R.string.proxy_list_loading_saved),
+                    color = palette.textSecondary, fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+            }
+            savedLoadError?.let { error ->
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(error, color = palette.danger, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = reload, enabled = !savedLoading) {
+                        Text(stringResource(R.string.common_retry))
+                    }
+                }
+            }
+            if (savedLoaded) ProxyCard {
                 ProxyRadioRow(
                     selected = !mihomoEnabled && saved.none { it.enabled },
                     title = stringResource(R.string.proxy_list_no_proxy),
@@ -191,7 +232,7 @@ internal fun ProxyListScreen(
                         onClick = { selectSaved(proxy) },
                         trailing = {
                             ProxyLatencyLabel(latency, proxy.id)
-                            IconButton(onClick = { removeSaved(proxy) }, modifier = Modifier.size(36.dp)) {
+                            IconButton(onClick = { removeSaved(proxy) }, enabled = deletingProxyId == null, modifier = Modifier.size(48.dp)) {
                                 Icon(
                                     Icons.Rounded.Delete,
                                     contentDescription = stringResource(R.string.proxy_list_delete_proxy),
@@ -219,6 +260,58 @@ internal fun ProxyListScreen(
             onClick = onAddProxy,
             icon = Icons.Rounded.Add,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp)
+        )
+    }
+    pendingDeletion?.let { proxy ->
+        AlertDialog(
+            onDismissRequest = {
+                if (deletingProxyId == null) {
+                    pendingDeletion = null
+                    deletionError = null
+                }
+            },
+            title = { Text(stringResource(R.string.proxy_list_delete_confirm_title)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.proxy_list_delete_confirm_detail, proxy.kind.label, proxy.server, proxy.port))
+                    if (proxy.enabled && !mihomoEnabled) {
+                        Text(stringResource(R.string.proxy_list_delete_active_warning), color = palette.danger)
+                    }
+                    deletionError?.let {
+                        Text(it, color = palette.danger, modifier = Modifier.padding(top = 8.dp))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = deletingProxyId == null,
+                    onClick = {
+                        if (deletingProxyId == null) {
+                            deletingProxyId = proxy.id
+                            scope.launch {
+                                repository.removeProxy(proxy.id)
+                                    .onSuccess {
+                                        pendingDeletion = null
+                                        deletionError = null
+                                        reload()
+                                    }
+                                    .onFailure {
+                                        deletionError = it.userMessage(context, R.string.proxy_list_remove_failed)
+                                    }
+                                deletingProxyId = null
+                            }
+                        }
+                    }
+                ) {
+                    Text(stringResource(if (deletingProxyId != null) R.string.proxy_list_deleting else R.string.common_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = deletingProxyId == null,
+                    onClick = { pendingDeletion = null; deletionError = null }
+                ) { Text(stringResource(R.string.common_cancel)) }
+            }
         )
     }
 }
