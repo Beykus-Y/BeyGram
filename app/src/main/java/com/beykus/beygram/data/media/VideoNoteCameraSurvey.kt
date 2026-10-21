@@ -83,7 +83,7 @@ internal object VideoNoteCameraSurvey {
                 sourceSupports60(characteristics, 640, 480),
                 hdEncoder, encoderSupportsAvc(640, 480, 60)
             )
-        } else VideoNoteSourceQuality.HD
+        } else if (originalWidth <= 640) VideoNoteSourceQuality.SD else VideoNoteSourceQuality.HD
         val (width, height) = if (quality == VideoNoteSourceQuality.SD) 640 to 480
             else originalWidth to originalHeight
         val encoder = if (quality == VideoNoteSourceQuality.SD) true else hdEncoder
