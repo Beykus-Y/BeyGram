@@ -890,7 +890,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }, Client.ResultHandler { result ->
             when (result) {
                 is TdApi.Messages -> {
-                    val page = result.messages.orEmpty().filterNotNull().filter { it.id != fromMessageId && forumId(it) == forumTopicId }
+                    // GetForumTopicHistory already scopes messages. Older messages may have no explicit topicId.
+                    val page = result.messages.orEmpty().filterNotNull().filter { it.id != fromMessageId }
                     val nextId = page.lastOrNull()?.id ?: fromMessageId
                     val hasMore = page.isNotEmpty() && nextId != fromMessageId
                     if (store.finishLoad(chatId, page.map { it.toChatMessage() }, hasMore, requestVersion = version, epoch = epoch)) {
