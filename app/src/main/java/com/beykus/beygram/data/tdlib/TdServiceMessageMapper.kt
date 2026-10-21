@@ -8,19 +8,24 @@ import org.drinkless.tdlib.TdApi
  * Converts TDLib service content to text for both the chat timeline and chat-list preview.
  * Unsupported regular content is deliberately not identified as a service event.
  */
+/** Resolve the affected member, not the admin who performed the action. */
+internal fun serviceAffectedUserId(content: TdApi.MessageContent, senderId: TdApi.MessageSender?): Long {
+    val actor = (senderId as? TdApi.MessageSenderUser)?.userId ?: 0L
+    return when (content) {
+        is TdApi.MessageChatJoinByLink, is TdApi.MessageChatJoinByRequest -> actor
+        is TdApi.MessageChatAddMembers -> content.memberUserIds.singleOrNull() ?: 0L
+        is TdApi.MessageChatDeleteMember -> content.userId
+        else -> 0L
+    }
+}
+
 internal data class TdServiceEvent(val text: String, val userId: Long = 0L)
 
 /** The event actor or affected member is preserved separately so the UI can open their profile. */
 internal class TdServiceMessageMapper(private val context: Context) {
     fun event(message: TdApi.Message, nameForUser: (Long) -> String): TdServiceEvent? {
         val base = text(message.content) ?: return null
-        val actor = (message.senderId as? TdApi.MessageSenderUser)?.userId ?: 0L
-        val userId = when (val content = message.content) {
-            is TdApi.MessageChatJoinByLink, is TdApi.MessageChatJoinByRequest -> actor
-            is TdApi.MessageChatAddMembers -> content.memberUserIds.singleOrNull() ?: 0L
-            is TdApi.MessageChatDeleteMember -> content.userId
-            else -> 0L
-        }
+        val userId = serviceAffectedUserId(message.content, message.senderId)
         if (userId <= 0L) return TdServiceEvent(base)
         val name = nameForUser(userId).ifBlank {
             context.getString(R.string.service_unknown_member, userId.toString())
