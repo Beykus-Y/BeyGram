@@ -129,7 +129,7 @@ class MainActivity : ComponentActivity() {
             Intent.ACTION_SEND_MULTIPLE -> multipleStreams(intent)
             else -> emptyList()
         }
-        return IncomingShareParser.collectStreams(intent.action, streams, clipUris(intent))
+        return IncomingShareParser.collectStreams(intent.action, streams + listOfNotNull(intent.data), clipUris(intent))
     }
 
     private fun clipUris(intent: Intent): List<Uri> {
