@@ -13,6 +13,8 @@ interface ConversationRepository {
     val messageLimits: StateFlow<MessageLimits>
     /** Local-first persistent composer drafts, synchronized with TDLib when connected. */
     fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft>
+    fun observeForumTopicDraft(chatId: Long, forumTopicId: Long): StateFlow<MessageDraft>
+    fun updateForumTopicDraft(chatId: Long, forumTopicId: Long, transform: (MessageDraft) -> MessageDraft)
     /** Atomic updates prevent text/formatting/reply callbacks from overwriting one another. */
     fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft)
     fun observeChatHistory(chatId: Long): StateFlow<ChatHistory>
