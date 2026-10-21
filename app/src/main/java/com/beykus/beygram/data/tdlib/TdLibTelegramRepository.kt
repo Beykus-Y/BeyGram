@@ -1646,6 +1646,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         reactions = messageReactions(interactionInfo),
         serviceText = service,
         serviceUserId = event?.userId ?: 0L,
+        forumTopicId = forumId(this),
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
