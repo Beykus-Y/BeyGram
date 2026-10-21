@@ -166,12 +166,20 @@ internal class TdConversationActions(
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))
         val original = request(TdApi.GetMessage(chatId, messageId))
         if (!(properties.canBeEdited && original.isOutgoing && editable(original.content))) throw UserMessageException(UiText.Res(R.string.err_message_cannot_edit))
-        val message = if (original.content is TdApi.MessageText) {
-            val bounded = boundTelegramText(text, entities, limits.value.text)
-            if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_edit_text_empty))
+        val isText = original.content is TdApi.MessageText
+        val bounded = boundTelegramText(text, entities, if (isText) limits.value.text else limits.value.caption)
+        if (isText && bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_edit_text_empty))
+        // An appended suffix can disappear after clipping. Do not send an unchanged edit:
+        // Telegram rejects EditMessageText/Caption with MESSAGE_NOT_MODIFIED.
+        val previous = messageFormattedText(original.content)
+        if (previous?.text == bounded.text &&
+            previous.domainEntities().sortedWith(compareBy({ it.offset }, { it.length })) ==
+            bounded.entities.sortedWith(compareBy({ it.offset }, { it.length }))) {
+            return@conversationResult Unit
+        }
+        val message = if (isText) {
             request(TdApi.EditMessageText(chatId, messageId, null, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities) }))
         } else {
-            val bounded = boundTelegramText(text, entities, limits.value.caption)
             val above = when (val c = original.content) {
                 is TdApi.MessagePhoto -> c.showCaptionAboveMedia
                 is TdApi.MessageVideo -> c.showCaptionAboveMedia
