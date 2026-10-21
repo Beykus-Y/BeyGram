@@ -47,6 +47,8 @@ import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.StateFlow
 
 private const val SEARCH_DEBOUNCE_MILLIS = 400L
@@ -66,8 +68,18 @@ fun GlobalSearchScreen(
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     var query by rememberSaveable { mutableStateOf(initialQuery) }
-    // Фильтры сбрасываются при повороте экрана вместе с выдачей: они не сохраняются через rememberSaveable.
-    var filter by remember { mutableStateOf(GlobalSearchFilter()) }
+    // Store enum names in the saved-state registry, not the filter object itself.
+    // This also survives activity recreation without relying on Parcelable models.
+    var savedKind by rememberSaveable { mutableStateOf<String?>(null) }
+    var savedChatType by rememberSaveable { mutableStateOf<String?>(null) }
+    var savedPeriod by rememberSaveable { mutableStateOf(GlobalSearchPeriod.Any.name) }
+    val filter = GlobalSearchFilter(
+        kind = SharedMediaKind.entries.firstOrNull { it.name == savedKind },
+        chatType = GlobalChatType.entries.firstOrNull { it.name == savedChatType },
+        period = GlobalSearchPeriod.entries.firstOrNull { it.name == savedPeriod } ?: GlobalSearchPeriod.Any
+    )
+    var retryVersion by remember { mutableStateOf(0) }
+    var lastRequest by remember { mutableStateOf<Pair<String, GlobalSearchFilter>?>(null) }
     var hits by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var nextOffset by remember { mutableStateOf("") }
     var loadingMore by remember { mutableStateOf(false) }
@@ -78,24 +90,31 @@ fun GlobalSearchScreen(
     var opened by remember { mutableStateOf<ChatMessage?>(null) }
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(query, filter) {
-        // Догрузка прошлого запроса или фильтра не должна дописаться к выдаче нового.
+    LaunchedEffect(query, filter, retryVersion) {
+        // The previous page or initial search must not append results from stale filters.
         pagingJob?.cancel()
         pagingJob = null
         loadingMore = false
         moreFailed = false
-        hits = emptyList()
-        nextOffset = ""
+        val request = query to filter
+        if (request != lastRequest) {
+            lastRequest = request
+            hits = emptyList()
+            nextOffset = ""
+        }
         failed = false
-        if (query.isBlank()) return@LaunchedEffect
-        delay(SEARCH_DEBOUNCE_MILLIS)
+        if (query.isBlank()) {
+            searching = false
+            return@LaunchedEffect
+        }
         searching = true
-        conversation.searchGlobalMessages(query, "", filter)
-            .onSuccess { page ->
-                hits = page.messages
-                nextOffset = page.nextOffset
-            }
-            .onFailure { failed = true }
+        delay(SEARCH_DEBOUNCE_MILLIS)
+        val pageResult = conversation.searchGlobalMessages(query, "", filter)
+        currentCoroutineContext().ensureActive()
+        pageResult.onSuccess { page ->
+            hits = page.messages
+            nextOffset = page.nextOffset
+        }.onFailure { failed = true }
         searching = false
     }
 
@@ -109,30 +128,37 @@ fun GlobalSearchScreen(
             options = SharedMediaKind.entries.map { it to stringResource(kindLabel(it)) },
             selected = filter.kind,
             all = stringResource(R.string.global_search_filter_all_types),
-            onSelect = { filter = filter.copy(kind = it) }
+            onSelect = { savedKind = it?.name }
         )
         SearchChips(
             options = GlobalChatType.entries.map { it to stringResource(chatTypeLabel(it)) },
             selected = filter.chatType,
             all = stringResource(R.string.global_search_filter_all_chats),
-            onSelect = { filter = filter.copy(chatType = it) }
+            onSelect = { savedChatType = it?.name }
         )
         SearchChips(
             options = GlobalSearchPeriod.entries.filter { it != GlobalSearchPeriod.Any }
                 .map { it to stringResource(periodLabel(it)) },
             selected = filter.period.takeIf { it != GlobalSearchPeriod.Any },
             all = stringResource(R.string.global_search_filter_any_period),
-            onSelect = { filter = filter.copy(period = it ?: GlobalSearchPeriod.Any) }
+            onSelect = { savedPeriod = (it ?: GlobalSearchPeriod.Any).name }
         )
         val empty = when {
             query.isBlank() -> stringResource(R.string.global_search_idle)
-            searching -> stringResource(R.string.global_search_loading)
-            failed -> stringResource(R.string.global_search_failed)
-            hits.isEmpty() -> stringResource(R.string.global_search_empty)
+            searching && hits.isEmpty() -> stringResource(R.string.global_search_loading)
+            !failed && hits.isEmpty() -> stringResource(R.string.global_search_empty)
             else -> null
         }
         if (empty != null) {
             Text(empty, color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
+        }
+        if (failed) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                Text(stringResource(R.string.global_search_failed), color = palette.textSecondary, fontSize = 14.sp)
+                TextButton(onClick = { retryVersion++ }, enabled = !searching) {
+                    Text(stringResource(R.string.common_retry))
+                }
+            }
         }
         LazyColumn(Modifier.fillMaxWidth()) {
             items(hits, key = { "${it.chatId}:${it.id}" }) { message ->
@@ -154,8 +180,11 @@ fun GlobalSearchScreen(
                             val requestedQuery = query
                             val requestedFilter = filter
                             pagingJob = scope.launch {
-                                conversation.searchGlobalMessages(requestedQuery, nextOffset, requestedFilter)
-                                    .onSuccess { page ->
+                                // Capture the offset and reject the result if the job was cancelled.
+                                val requestedOffset = nextOffset
+                                val pageResult = conversation.searchGlobalMessages(requestedQuery, requestedOffset, requestedFilter)
+                                currentCoroutineContext().ensureActive()
+                                pageResult.onSuccess { page ->
                                         hits = appendDistinctBy(hits, page.messages) { it.chatId to it.id }
                                         nextOffset = page.nextOffset
                                     }
