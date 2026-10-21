@@ -80,7 +80,7 @@ fun ChatScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
     recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
-    forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true
+    forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val canPostHere = chat.canPost && topicCanPost
@@ -436,7 +436,7 @@ fun ChatScreen(
         // A message sent while the chat opens drops the boundary: the list goes to the bottom and the boundary is not placed.
         val arrived = scrollPosition.seenNewestId != 0L && newest != null && newest.id != scrollPosition.seenNewestId
         scrollPosition.seenNewestId = newest?.id ?: 0L
-        if (forumTopicId == 0L && chat.unreadCount > 0 && !scrollPosition.readBoundaryChecked) {
+        if ((if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0 && !scrollPosition.readBoundaryChecked) {
             if (arrived && newest?.isOutgoing == true) scrollPosition.readBoundaryChecked = true
             else return@LaunchedEffect
         }
@@ -449,7 +449,7 @@ fun ChatScreen(
         if (focusMessageId != 0L) scrollPosition.focusClaimed = true
         if (scrollPosition.readBoundaryChecked || history.isLoading || messages.isEmpty()) return@LaunchedEffect
         val boundary = history.lastReadInboxMessageId
-        val step = unreadOpenStep(if (forumTopicId > 0L) 0 else chat.unreadCount, boundary, rawMessageItems, scrollPosition.readBoundaryWindowRequested, scrollPosition.focusClaimed)
+        val step = unreadOpenStep(if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount, boundary, rawMessageItems, scrollPosition.readBoundaryWindowRequested, scrollPosition.focusClaimed)
         when (step) {
             // A focused message settles the opening itself (see settleFocusedOpening), so read marks wait for its jump.
             UnreadOpenStep.Done -> if (!scrollPosition.focusClaimed) scrollPosition.readBoundaryChecked = true
