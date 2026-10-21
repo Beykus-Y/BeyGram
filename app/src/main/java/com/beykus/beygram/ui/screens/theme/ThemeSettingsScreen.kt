@@ -50,6 +50,7 @@ import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.WallpaperFiles
 import com.beykus.beygram.data.appearance.ThemePreset
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.chat.ChatWallpaperLayer
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.BeyGramTokens
@@ -94,7 +95,7 @@ fun ThemeSettingsScreen(
         ) {
             SectionTitle(stringResource(R.string.theme_preview_title))
             BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
-                ThemePreview()
+                ThemePreview(wallpaper = wallpaper)
             }
 
             SectionTitle(stringResource(R.string.theme_palette_title))
@@ -133,7 +134,11 @@ fun ThemeSettingsScreen(
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = palette.textSecondary)
             }
             SectionTitle(stringResource(R.string.wallpaper_title))
-            WallpaperSection(selected = wallpaper, saved = saved.wallpaper, onSelect = { onDraftChange(draft.copy(wallpaper = it)) })
+            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
+                WallpaperSection(selected = wallpaper, saved = saved.wallpaper, onSelect = {
+                    onDraftChange(draft.copy(wallpaper = it))
+                })
+            }
             Text(stringResource(R.string.theme_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
         }
         Button(
@@ -158,13 +163,18 @@ internal fun SectionTitle(text: String) {
 
 /** A small chat with fake messages, drawn with the tokens of the choice being made. */
 @Composable
-internal fun ThemePreview(bubbleRadius: Dp = 16.dp, spacing: Dp = 8.dp) {
+internal fun ThemePreview(
+    bubbleRadius: Dp = 16.dp,
+    spacing: Dp = 8.dp,
+    wallpaper: ChatWallpaper = ChatWallpaper.None
+) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.screen).padding(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(spacing)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.screen),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        // The header is not wallpapered in the actual chat either.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accentSoft), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.theme_preview_contact).take(1), color = palette.accentInk, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             }
@@ -174,14 +184,33 @@ internal fun ThemePreview(bubbleRadius: Dp = 16.dp, spacing: Dp = 8.dp) {
             }
             Text(stringResource(R.string.theme_preview_time), color = palette.textSecondary, fontSize = 12.sp)
         }
-        PreviewBubble(text = stringResource(R.string.theme_preview_incoming), time = stringResource(R.string.theme_preview_time), outgoing = false, radius = bubbleRadius)
-        PreviewBubble(text = stringResource(R.string.theme_preview_outgoing), time = stringResource(R.string.theme_preview_time_reply), outgoing = true, radius = bubbleRadius)
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth()) {
+            ChatWallpaperLayer(wallpaper, modifier = Modifier.matchParentSize())
+            Column(
+                Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(spacing)
+            ) {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text(
+                        stringResource(R.string.theme_preview_today),
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                            .background(palette.surface2).padding(horizontal = 10.dp, vertical = 3.dp)
+                    )
+                }
+                PreviewBubble(text = stringResource(R.string.theme_preview_incoming), time = stringResource(R.string.theme_preview_time), outgoing = false, radius = bubbleRadius)
+                PreviewBubble(text = stringResource(R.string.theme_preview_outgoing), time = stringResource(R.string.theme_preview_time_reply), outgoing = true, radius = bubbleRadius)
+            }
+        }
+        // The input surface also stays solid so controls remain legible.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                stringResource(R.string.theme_preview_today),
+                stringResource(R.string.wallpaper_preview_input),
                 color = palette.textSecondary,
-                fontSize = 12.sp,
-                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(palette.surface2).padding(horizontal = 10.dp, vertical = 3.dp)
+                fontSize = 13.sp,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                    .background(palette.surface2).padding(horizontal = 14.dp, vertical = 10.dp)
             )
         }
     }
