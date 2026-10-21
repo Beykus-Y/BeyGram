@@ -92,6 +92,7 @@ import com.beykus.beygram.ui.screens.proxy.ProxyRestoreDialog
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
 import com.beykus.beygram.share.IncomingShare
 import com.beykus.beygram.share.ShareSessions
+import com.beykus.beygram.share.DirectShareShortcuts
 import com.beykus.beygram.ui.screens.share.ShareTargetScreen
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -172,6 +173,13 @@ private fun BeyGramAppContent(
 ) {
     // ---- Реактивное состояние ------------------------------------------------
     val authState by repository.authState.collectAsStateWithLifecycle()
+    val directShareChats by repository.chats.collectAsStateWithLifecycle()
+    val directShareTargets = remember(directShareChats) { DirectShareShortcuts.pickTargets(directShareChats) }
+    LaunchedEffect(authState, directShareTargets) {
+        // Publishing only when the short list changes avoids rate limiting on every TDLib update.
+        if (authState == AuthState.Ready) DirectShareShortcuts.publish(context, directShareTargets)
+        else DirectShareShortcuts.clear(context)
+    }
     val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
     val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
     val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
@@ -351,6 +359,7 @@ private fun BeyGramAppContent(
             key(incomingShare.requestId) {
                 ShareTargetScreen(
                     requestId = incomingShare.requestId,
+                    initialChatId = incomingShare.targetChatId,
                     text = incomingShare.text,
                     uris = incomingShare.uris,
                     session = shareSession,

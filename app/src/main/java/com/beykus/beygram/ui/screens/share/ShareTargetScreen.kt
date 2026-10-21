@@ -65,6 +65,7 @@ import com.beykus.beygram.ui.text.resolve
 @Composable
 internal fun ShareTargetScreen(
     requestId: Long,
+    initialChatId: Long = 0L,
     text: String,
     uris: List<Uri>,
     session: ShareSession,
@@ -81,7 +82,9 @@ internal fun ShareTargetScreen(
     val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
     val importer = remember(context) { OutgoingMediaImporter(context) }
 
-    var targetId by rememberSaveable(requestId) { mutableStateOf(0L) }
+    var targetId by rememberSaveable(requestId) {
+        mutableStateOf(initialChatId.takeIf { suggested -> chats.any { it.id == suggested && it.canPost } } ?: 0L)
+    }
     var query by rememberSaveable { mutableStateOf("") }
     // Тема группы с темами; 0 — чат без тем, тема не нужна.
     var topicId by rememberSaveable(requestId) { mutableStateOf(0L) }
