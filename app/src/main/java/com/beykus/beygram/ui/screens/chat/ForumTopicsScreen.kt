@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +46,7 @@ fun ForumTopicsScreen(
     onTopic: (ForumTopic) -> Unit
 ) {
     val palette = beyGramPalette()
+    BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(
             Modifier.fillMaxWidth().background(palette.surface).padding(start = 8.dp, end = 16.dp, top = 6.dp, bottom = 10.dp),
