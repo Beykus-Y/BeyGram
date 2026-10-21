@@ -35,6 +35,7 @@ import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.FolderChatPosition
 import com.beykus.beygram.domain.model.TelegramChatFolders
+import com.beykus.beygram.domain.model.TelegramFolderDraft
 import com.beykus.beygram.domain.model.TelegramFolderLoadState
 import com.beykus.beygram.domain.model.orderedTelegramFolderChats
 import com.beykus.beygram.domain.model.GroupCreationState
@@ -303,6 +304,97 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun setFolderChatPinned(folderId: Int, chatId: Long, pinned: Boolean): Result<Unit> = requestResult {
         require(_chatFolders.value.folders.any { it.id == folderId }) { "Folder no longer exists" }
         tdRequests(TdApi.ToggleChatIsPinned(TdApi.ChatListFolder(folderId), chatId, pinned))
+        Unit
+    }
+
+    /** Stable server snapshot: an edit never silently reverts another device's newer changes. */
+    private fun TdApi.ChatFolder.folderStamp(): String = listOf(
+        tdFolderDisplayName(name), icon?.name.orEmpty(), colorId, isShareable,
+        pinnedChatIds?.joinToString(",").orEmpty(),
+        includedChatIds?.joinToString(",").orEmpty(),
+        excludedChatIds?.joinToString(",").orEmpty(),
+        excludeMuted, excludeRead, excludeArchived,
+        includeContacts, includeNonContacts, includeBots, includeGroups, includeChannels
+    ).joinToString(separator = "\u001f")
+
+    /** Read rules from TDLib each time the editor opens, including explicitly included/excluded IDs. */
+    override suspend fun getFolderDraft(folderId: Int): Result<TelegramFolderDraft> = requestResult {
+        require(_chatFolders.value.folders.any { it.id == folderId }) { "Folder no longer exists" }
+        val f = tdRequests(TdApi.GetChatFolder(folderId))
+        TelegramFolderDraft(
+            id = folderId,
+            title = tdFolderDisplayName(f.name),
+            isShareable = f.isShareable,
+            baselineFingerprint = f.folderStamp(),
+            includeContacts = f.includeContacts,
+            includeNonContacts = f.includeNonContacts,
+            includeBots = f.includeBots,
+            includeGroups = f.includeGroups,
+            includeChannels = f.includeChannels,
+            excludeMuted = f.excludeMuted,
+            excludeRead = f.excludeRead,
+            excludeArchived = f.excludeArchived,
+            includedChatIds = f.includedChatIds?.toSet() ?: emptySet<Long>(),
+            excludedChatIds = f.excludedChatIds?.toSet() ?: emptySet<Long>()
+        )
+    }
+
+    /**
+     * Edit by re-reading the original server folder, preserving icons, color, custom emoji in
+     * unchanged names, sharing metadata and existing pinned order. Never overwrite an old snapshot.
+     */
+    override suspend fun saveFolderDraft(draft: TelegramFolderDraft): Result<Int> = requestResult {
+        require(draft.valid()) { "Folder name (1-12 characters) and included chats are required" }
+        val original = draft.id?.let { tdRequests(TdApi.GetChatFolder(it)) }
+        if (original != null && (draft.baselineFingerprint == null ||
+                    original.folderStamp() != draft.baselineFingerprint)) {
+            throw UserMessageException(UiText.Res(R.string.folder_changed_while_editing))
+        }
+        val folder = original ?: TdApi.ChatFolder().apply {
+            colorId = -1
+            isShareable = false
+            pinnedChatIds = longArrayOf()
+        }
+        if (original == null || tdFolderDisplayName(original.name) != draft.title.trim()) {
+            folder.name = TdApi.ChatFolderName(
+                TdApi.FormattedText(draft.title.trim(), emptyArray()),
+                false
+            )
+        }
+        // A chat can't remain pinned in a folder after being explicitly excluded.
+        folder.pinnedChatIds = folder.pinnedChatIds?.filterNot { it in draft.excludedChatIds }?.toLongArray() ?: longArrayOf()
+        folder.includedChatIds = draft.includedChatIds.toLongArray()
+        folder.excludedChatIds = draft.excludedChatIds.toLongArray()
+        folder.excludeMuted = draft.excludeMuted
+        folder.excludeRead = draft.excludeRead
+        folder.excludeArchived = draft.excludeArchived
+        folder.includeContacts = draft.includeContacts
+        folder.includeNonContacts = draft.includeNonContacts
+        folder.includeBots = draft.includeBots
+        folder.includeGroups = draft.includeGroups
+        folder.includeChannels = draft.includeChannels
+        if (draft.id != null) {
+            tdRequests(TdApi.EditChatFolder(draft.id, folder)).id
+        } else {
+            tdRequests(TdApi.CreateChatFolder(folder)).id
+        }
+    }
+
+    /** Remove the folder only; never leave or delete any of its Telegram chats. */
+    override suspend fun deleteServerFolder(folderId: Int): Result<Unit> = requestResult {
+        require(_chatFolders.value.folders.any { it.id == folderId }) { "Folder no longer exists" }
+        tdRequests(TdApi.DeleteChatFolder(folderId, longArrayOf()))
+        Unit
+    }
+
+    /** Telegram validates Premium limits. All folder IDs must be included exactly once. */
+    override suspend fun reorderServerFolders(ids: List<Int>, mainPosition: Int): Result<Unit> = requestResult {
+        val state = _chatFolders.value
+        require(ids.size == ids.distinct().size && ids.toSet() == state.folders.map { it.id }.toSet()) {
+            "Folder list changed; refresh and retry"
+        }
+        require(mainPosition == state.mainChatListPosition) { "Main tab position changed" }
+        tdRequests(TdApi.ReorderChatFolders(ids.toIntArray(), mainPosition))
         Unit
     }
 
