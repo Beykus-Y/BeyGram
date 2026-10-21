@@ -643,7 +643,6 @@ private fun BeyGramAppContent(
                         onNotifications = { openNotifications(AppRoute.MyProfile) },
                         hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
-                        onOpenAppearance = { appearanceDraft = appearance; editorSeed = null; appearanceReturnRouteName = AppRoute.MyProfile.name; routeName = AppRoute.Appearance.name },
                         onOpenLinkedChannel = { channelId ->
                             selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
                         }, lastSeenStyle = lastSeenStyle)

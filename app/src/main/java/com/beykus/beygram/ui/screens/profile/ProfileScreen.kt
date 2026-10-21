@@ -17,7 +17,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -60,7 +59,7 @@ fun ProfileScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onBack: () -> Unit, onRefresh: () -> Unit, onEdit: () -> Unit,
     setPhoto: suspend (OutgoingMedia) -> Result<Unit>,
-    onOpenAppearance: () -> Unit = {}, lastSeenStyle: LastSeenStyle,
+    lastSeenStyle: LastSeenStyle,
     loadProfilePhotos: suspend (Long, Int, Int) -> Result<ProfilePhotosPage> = { _, _, _ -> Result.failure(IllegalStateException("Profile photos unavailable")) },
     deleteMyProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Profile photo deletion unavailable")) },
     setPreviousProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Previous photo unavailable")) },
@@ -144,11 +143,6 @@ fun ProfileScreen(
                 if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                if (isOwnProfile) Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).clickable(onClick = onOpenAppearance).padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Palette, null, tint = palette.accent, modifier = Modifier.size(22.dp))
-                    Text(stringResource(R.string.theme_title), color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
-                    Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
-                }
             }
             if (state.info == null && !state.isLoading && state.error == null) Text(stringResource(R.string.profile_info_not_loaded), color = palette.textSecondary, modifier = Modifier.padding(24.dp))
             state.error?.let { Text(it.resolve(), color = palette.danger, modifier = Modifier.padding(20.dp)) }
