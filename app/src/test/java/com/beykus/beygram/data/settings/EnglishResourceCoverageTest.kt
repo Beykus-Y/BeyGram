@@ -9,11 +9,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 /** JVM-side coverage guard for completed English UI sections; no Android emulator required. */
 class EnglishResourceCoverageTest {
-    private val completedSections = listOf(
-        "auth_", "chats_", "global_search_", "tabs_", "start_", "archive_",
-        "contacts_", "calls_", "updates_", "nav_", "settings_", "theme_",
-        "wallpaper_", "proxy_", "notif_", "storage_", "err_", "profile_", "chat_"
-    )
+    // Every default-language string now has an explicit English counterpart.
 
     private fun resources(directory: String): Map<String, String> {
         val folder = sequenceOf(
@@ -36,10 +32,10 @@ class EnglishResourceCoverageTest {
     }
 
     @Test
-    fun completedEnglishSectionsNeverFallBackToRussian() {
+    fun allEnglishStringsHaveExplicitTranslations() {
         val default = resources("values")
         val english = resources("values-en")
-        val missing = default.keys.filter { key -> completedSections.any { key.startsWith(it) } && !english.containsKey(key) }
+        val missing = default.keys.filterNot(english::containsKey)
         assertTrue("Missing English UI strings: $missing", missing.isEmpty())
     }
 
@@ -49,7 +45,6 @@ class EnglishResourceCoverageTest {
         val english = resources("values-en")
         val placeholders = Regex("%(?:\\d+\\$)?(?:\\.\\d+)?[sdif]|%%")
         val broken = default.keys.intersect(english.keys)
-            .filter { key -> completedSections.any { key.startsWith(it) } }
             .filter { key ->
                 placeholders.findAll(default.getValue(key)).map { it.value }.sorted().toList() !=
                     placeholders.findAll(english.getValue(key)).map { it.value }.sorted().toList()
@@ -58,11 +53,9 @@ class EnglishResourceCoverageTest {
     }
 
     @Test
-    fun everyCompletedSectionHasNonEmptyEnglishText() {
+    fun englishResourceStringsAreNotBlank() {
         val translated = resources("values-en")
-        val empty = translated.filter { (key, value) ->
-            completedSections.any { key.startsWith(it) } && value.isBlank()
-        }.keys
+        val empty = translated.filterValues { it.isBlank() }.keys
         assertTrue("Empty translated UI strings: $empty", empty.isEmpty())
     }
 }
