@@ -315,6 +315,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 }
                 messageHistory.update(message.chatId, message.id, transform)
                 updateForumMessage(message.chatId, message.id, transform)
+                // The service event can also be the chat's last message. Update its list preview,
+                // but never overwrite a newer last message received during the async GetUser call.
+                val currentPreview = chatCache[message.chatId]
+                if (currentPreview?.lastMessageId == message.id) {
+                    val rendered = UiText.Raw(updated.text)
+                    if (currentPreview.lastMessage != rendered) {
+                        chatCache[message.chatId] = currentPreview.copy(lastMessage = rendered)
+                        publishChat(message.chatId)
+                    }
+                }
             }
         })
     }
