@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -19,6 +20,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,6 +51,7 @@ import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
 import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
+import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.chats.CreateChannelScreen
 import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
@@ -191,6 +197,9 @@ private fun BeyGramAppContent(
     var editorSeed by rememberSaveable(stateSaver = AppearanceDraftSaver) { mutableStateOf<AppearanceConfig?>(null) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
+    // The selected forum topic follows its parent chat. Other chats must never inherit the previous topic.
+    var selectedTopicChatId by rememberSaveable { mutableStateOf(0L) }
+    var selectedForumTopicId by rememberSaveable { mutableStateOf(0L) }
     // Вложение из профиля открывает чат у своего сообщения; 0 значит, что переход не нужен.
     var chatFocusMessageId by rememberSaveable { mutableStateOf(0L) }
     // Профиль участника открывается по его личному чату; запоминаем чат и экран, куда вернуться.
@@ -303,7 +312,13 @@ private fun BeyGramAppContent(
         else if (request.settings) openNotifications(AppRoute.Chats)
         else request.chatId?.let { chatId ->
             val result = repository.loadChat(chatId)
-            if (result.isSuccess) { selectedChatId = chatId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name }
+            if (result.isSuccess) {
+                selectedChatId = chatId
+                selectedTopicChatId = chatId
+                selectedForumTopicId = request.topicId
+                chatBackRouteName = AppRoute.Chats.name
+                routeName = AppRoute.Chat.name
+            }
             else noticeError = (result.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.err_app_open_chat_failed)
         }
         onNotificationHandled(request.token)
@@ -343,8 +358,10 @@ private fun BeyGramAppContent(
                         if (media.size == 1) repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId)
                         else repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId)
                     },
-                    onSent = { chatId ->
+                    onSent = { chatId, topicId ->
                         onIncomingShareHandled(incomingShare.requestId)
+                        selectedTopicChatId = chatId
+                        selectedForumTopicId = topicId
                         selectedChatId = chatId
                         chatBackRouteName = AppRoute.Chats.name
                         routeName = AppRoute.Chat.name
@@ -484,7 +501,42 @@ private fun BeyGramAppContent(
         if (chat == null) {
             chatsTab()
         } else {
-            val historyFlow = remember(repository, selectedChatId) { repository.observeChatHistory(selectedChatId) }
+            var topicsResult by remember(repository, selectedChatId) {
+                mutableStateOf<Result<List<com.beykus.beygram.domain.model.ForumTopic>?>?>(null)
+            }
+            // A removed topic or a forum turned into a regular group must fall back to the parent chat.
+            val activeTopicId = if (
+                selectedTopicChatId == selectedChatId &&
+                topicsResult?.getOrNull()?.any { it.id == selectedForumTopicId } == true
+            ) selectedForumTopicId else 0L
+            var topicsReload by remember(repository, selectedChatId) { mutableIntStateOf(0) }
+            var canCreateTopic by remember(repository, selectedChatId) { mutableStateOf(false) }
+            var forumBusy by remember(repository, selectedChatId) { mutableStateOf(false) }
+            var forumActionError by remember(repository, selectedChatId) { mutableStateOf<String?>(null) }
+            val forumScope = rememberCoroutineScope()
+            LaunchedEffect(repository, selectedChatId) {
+                canCreateTopic = repository.canCreateForumTopic(selectedChatId).getOrDefault(false)
+            }
+            fun forumAction(action: suspend () -> Result<Unit>) {
+                if (forumBusy) return
+                forumBusy = true; forumActionError = null
+                forumScope.launch {
+                    try {
+                        val outcome = action()
+                        if (outcome.isSuccess) topicsReload++
+                        else forumActionError = context.getString(R.string.forum_action_failed)
+                    } finally { forumBusy = false }
+                }
+            }
+            LaunchedEffect(repository, selectedChatId, topicsReload) {
+                topicsResult = repository.forumTopics(selectedChatId)
+            }
+            val topics = topicsResult?.getOrNull()
+            val selectedTopic = topics?.firstOrNull { it.id == activeTopicId }
+            val historyFlow = remember(repository, selectedChatId, activeTopicId) {
+                if (activeTopicId > 0L) repository.observeForumTopicHistory(selectedChatId, activeTopicId)
+                else repository.observeChatHistory(selectedChatId)
+            }
             val history by historyFlow.collectAsStateWithLifecycle()
             val chatInfoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
             val chatInfo by chatInfoFlow.collectAsStateWithLifecycle()
@@ -493,22 +545,74 @@ private fun BeyGramAppContent(
                 repository.openChat(openedChatId)
                 onDispose { repository.closeChat(openedChatId) }
             }
-            key(selectedChatId) {
-                ChatScreen(
-                    chat = chat,
-                    info = chatInfo.info,
-                    lastSeenStyle = lastSeenStyle,
-                    history = history,
-                    conversation = repository,
-                    chats = chats,
-                    observeFile = repository::observeFile,
-                    onDownloadFile = repository::downloadFile,
+            LaunchedEffect(repository, selectedChatId, activeTopicId) {
+                if (activeTopicId > 0L) repository.loadForumTopicHistory(selectedChatId, activeTopicId)
+            }
+            when {
+                topicsResult == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+                topicsResult?.isFailure == true -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(stringResource(R.string.share_topics_failed))
+                        TextButton(onClick = { topicsReload++ }) { Text(stringResource(R.string.common_retry)) }
+                    }
+                }
+                topics != null && (activeTopicId == 0L || selectedTopic == null) -> ForumTopicsScreen(
+                    chatTitle = chat.title,
+                    topics = topics,
+                    canCreate = canCreateTopic,
+                    busy = forumBusy,
+                    actionError = forumActionError,
                     onBack = { routeName = chatBackRouteName },
-                    onChatInfo = { routeName = AppRoute.ChatInfo.name },
-                    connectionState = connectionState,
-                    recordingSettings = recordingSettings,
-                    focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L }
+                    onTopic = { topic -> selectedTopicChatId = selectedChatId; selectedForumTopicId = topic.id },
+                    onCreate = { name ->
+                        if (!forumBusy) {
+                            forumBusy = true; forumActionError = null
+                            forumScope.launch {
+                                try {
+                                    repository.createForumTopic(selectedChatId, name)
+                                        .onSuccess { newId ->
+                                            selectedTopicChatId = selectedChatId
+                                            selectedForumTopicId = newId
+                                            topicsReload++
+                                        }
+                                        .onFailure { forumActionError = context.getString(R.string.forum_action_failed) }
+                                } finally { forumBusy = false }
+                            }
+                        }
+                    },
+                    onRename = { topic, name -> forumAction { repository.renameForumTopic(selectedChatId, topic.id, name) } },
+                    onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(selectedChatId, topic.id, closed) } },
+                    onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(selectedChatId, topic.id, pinned) } },
+                    onDelete = { topic -> forumAction { repository.deleteForumTopic(selectedChatId, topic.id) } }
                 )
+                else -> key(selectedChatId, activeTopicId) {
+                    ChatScreen(
+                        chat = chat,
+                        info = chatInfo.info,
+                        lastSeenStyle = lastSeenStyle,
+                        history = history,
+                        conversation = repository,
+                        chats = chats,
+                        observeFile = repository::observeFile,
+                        onDownloadFile = repository::downloadFile,
+                        onBack = {
+                            if (activeTopicId > 0L) {
+                                selectedForumTopicId = 0L
+                                topicsReload++
+                            } else routeName = chatBackRouteName
+                        },
+                        onChatInfo = { routeName = AppRoute.ChatInfo.name },
+                        connectionState = connectionState,
+                        recordingSettings = recordingSettings,
+                        forumTopicId = activeTopicId,
+                        forumTopicTitle = selectedTopic?.title,
+                        topicCanPost = selectedTopic?.canWrite ?: true,
+                        topicUnreadCount = selectedTopic?.unreadCount ?: 0,
+                        focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L }
+                    )
+                }
             }
         }
     }

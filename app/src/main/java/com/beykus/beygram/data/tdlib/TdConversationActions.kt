@@ -18,7 +18,8 @@ private const val SEARCH_PAGE_SIZE = 50
 
 internal class TdConversationActions(
     client: () -> Client, private val history: MessageHistoryStore,
-    private val map: (TdApi.Message) -> ChatMessage
+    private val map: (TdApi.Message) -> ChatMessage,
+    private val onTopicDraft: (Long, Int, TdApi.DraftMessage?) -> Unit = { _, _, _ -> }
 ) {
     private val request = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -91,15 +92,78 @@ internal class TdConversationActions(
         var pages = 0
         while (true) {
             val page = request(TdApi.GetForumTopics(chatId, "", offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
-            page.topics.filter { !it.info.isClosed || it.info.isOutgoing || manageTopics }
-                .mapTo(topics) { ForumTopic(it.info.forumTopicId.toLong(), it.info.name) }
+            page.topics.filter { !it.info.isHidden }
+                .mapTo(topics) {
+                    onTopicDraft(chatId, it.info.forumTopicId, it.draftMessage)
+                    ForumTopic(
+                        id = it.info.forumTopicId.toLong(),
+                        title = it.info.name,
+                        unreadCount = it.unreadCount,
+                        isPinned = it.isPinned,
+                        isClosed = it.info.isClosed,
+                        canWrite = !it.info.isClosed || it.info.isOutgoing || manageTopics,
+                        canManage = it.info.isOutgoing || manageTopics,
+                        canPin = manageTopics,
+                        order = it.order,
+                        lastReadInboxMessageId = it.lastReadInboxMessageId,
+                        lastReadOutboxMessageId = it.lastReadOutboxMessageId,
+                        lastMessagePreview = (it.lastMessage?.content as? TdApi.MessageText)?.text?.text.orEmpty()
+                    )
+                }
             pages++
             if (page.topics.isEmpty() || page.nextOffsetForumTopicId == 0 || pages == MAX_FORUM_TOPIC_PAGES) break
             offsetDate = page.nextOffsetDate
             offsetMessageId = page.nextOffsetMessageId
             offsetTopicId = page.nextOffsetForumTopicId
         }
-        topics
+        topics.sortedByDescending { it.order }
+    }
+
+    /** All mutations go through TDLib; the server is the final authority for permissions. */
+    suspend fun canCreateTopic(chatId: Long): Result<Boolean> = conversationResult {
+        val chat = request(TdApi.GetChat(chatId))
+        val supergroupType = chat.type as? TdApi.ChatTypeSupergroup ?: return@conversationResult false
+        val group = request(TdApi.GetSupergroup(supergroupType.supergroupId))
+        if (!group.isForum) return@conversationResult false
+        when (val status = group.status) {
+            is TdApi.ChatMemberStatusCreator -> true
+            is TdApi.ChatMemberStatusAdministrator -> status.rights.canManageTopics
+            else -> chat.permissions.canCreateTopics
+        }
+    }
+
+    suspend fun createTopic(chatId: Long, title: String): Result<Long> = conversationResult {
+        val name = title.trim()
+        require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 128)
+        val info = request(TdApi.CreateForumTopic().apply {
+            this.chatId = chatId
+            this.name = name
+            isNameImplicit = false
+            icon = TdApi.ForumTopicIcon(0x6FB9F0, 0L)
+        })
+        info.forumTopicId.toLong()
+    }
+
+    suspend fun renameTopic(chatId: Long, topicId: Long, title: String): Result<Unit> = conversationResult {
+        val name = title.trim()
+        require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 128)
+        request(TdApi.EditForumTopic(chatId, topicId.toInt(), name, false, 0L))
+        Unit
+    }
+
+    suspend fun closeTopic(chatId: Long, topicId: Long, closed: Boolean): Result<Unit> = conversationResult {
+        request(TdApi.ToggleForumTopicIsClosed(chatId, topicId.toInt(), closed))
+        Unit
+    }
+
+    suspend fun pinTopic(chatId: Long, topicId: Long, pinned: Boolean): Result<Unit> = conversationResult {
+        request(TdApi.ToggleForumTopicIsPinned(chatId, topicId.toInt(), pinned))
+        Unit
+    }
+
+    suspend fun deleteTopic(chatId: Long, topicId: Long): Result<Unit> = conversationResult {
+        request(TdApi.DeleteForumTopic(chatId, topicId.toInt()))
+        Unit
     }
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {
@@ -133,8 +197,8 @@ internal class TdConversationActions(
         messages.messages.filterNotNull().forEach { message -> history.put(map(message)); hydrateReply(message) }
     }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
 
-    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long): Result<PinnedMessagePage> = conversationResult {
-        val page = request(pinnedMessagesRequest(chatId, fromMessageId))
+    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L): Result<PinnedMessagePage> = conversationResult {
+        val page = request(pinnedMessagesRequest(chatId, fromMessageId, forumTopicId))
         PinnedMessagePage(page.messages.orEmpty().filterNotNull().map(map), page.totalCount, page.nextFromMessageId)
     }
 
@@ -297,8 +361,9 @@ internal class TdConversationActions(
     }
 
     /** Поиск по тексту внутри одного чата: TDLib отдаёт новые сообщения первыми, дальше страницы идут через nextFromMessageId. */
-    suspend fun search(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = requestResult {
-        val found = request(TdApi.SearchChatMessages(chatId, null, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
+    suspend fun search(chatId: Long, query: String, fromMessageId: Long, forumTopicId: Long = 0L): Result<MessageSearchPage> = requestResult {
+        val topic = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
+        val found = request(TdApi.SearchChatMessages(chatId, topic, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
         MessageSearchPage(found.messages.orEmpty().map(map), found.nextFromMessageId)
     }
 
@@ -347,8 +412,9 @@ internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(t
     MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title
 })
 
-internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long) = TdApi.SearchChatMessages().apply {
+internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L) = TdApi.SearchChatMessages().apply {
     this.chatId = chatId
+    topicId = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
     query = ""
     this.fromMessageId = fromMessageId
     limit = 50

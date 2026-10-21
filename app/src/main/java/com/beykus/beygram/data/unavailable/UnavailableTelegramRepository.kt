@@ -155,8 +155,11 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit> = unavailable()
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer> = unavailable()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
-    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long): Result<PinnedMessagePage> = unavailable()
+    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long): Result<PinnedMessagePage> = unavailable()
     override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> = unavailable()
+    override fun observeForumTopicDraft(chatId: Long, forumTopicId: Long): StateFlow<com.beykus.beygram.domain.model.MessageDraft> =
+        MutableStateFlow(com.beykus.beygram.domain.model.MessageDraft()).asStateFlow()
+    override fun updateForumTopicDraft(chatId: Long, forumTopicId: Long, transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) {}
     override fun observeMessageDraft(chatId: Long): StateFlow<com.beykus.beygram.domain.model.MessageDraft> =
         MutableStateFlow(com.beykus.beygram.domain.model.MessageDraft()).asStateFlow()
     override fun updateMessageDraft(
@@ -164,6 +167,10 @@ class UnavailableTelegramRepository : TelegramRepository {
         transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft
     ) {}
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = noHistory
+    override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> = noHistory
+    override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {}
+    override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {}
+    override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = unavailable()
     override fun openChat(chatId: Long) {}
     override fun closeChat(chatId: Long) {}
     override fun loadOlderMessages(chatId: Long) {}
@@ -171,6 +178,13 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = unavailable()
 
     override suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = unavailable()
+    override suspend fun canCreateForumTopic(chatId: Long): Result<Boolean> = unavailable()
+    override suspend fun createForumTopic(chatId: Long, name: String): Result<Long> = unavailable()
+    override suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit> = unavailable()
+    override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = unavailable()
+    override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = unavailable()
+    override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = unavailable()
+    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> = unavailable()
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = unavailable()

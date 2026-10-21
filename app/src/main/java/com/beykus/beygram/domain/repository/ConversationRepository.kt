@@ -6,16 +6,22 @@ import kotlinx.coroutines.flow.StateFlow
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
-    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long = 0L): Result<PinnedMessagePage>
+    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long = 0L, forumTopicId: Long = 0L): Result<PinnedMessagePage>
     fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?>
     suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit>
     suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer>
     val messageLimits: StateFlow<MessageLimits>
     /** Local-first persistent composer drafts, synchronized with TDLib when connected. */
     fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft>
+    fun observeForumTopicDraft(chatId: Long, forumTopicId: Long): StateFlow<MessageDraft>
+    fun updateForumTopicDraft(chatId: Long, forumTopicId: Long, transform: (MessageDraft) -> MessageDraft)
     /** Atomic updates prevent text/formatting/reply callbacks from overwriting one another. */
     fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft)
     fun observeChatHistory(chatId: Long): StateFlow<ChatHistory>
+    fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory>
+    fun loadForumTopicHistory(chatId: Long, forumTopicId: Long)
+    fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long)
+    suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean>
     fun openChat(chatId: Long)
     fun closeChat(chatId: Long)
     fun loadOlderMessages(chatId: Long)
@@ -27,6 +33,12 @@ interface ConversationRepository {
     suspend fun isForumChat(chatId: Long): Result<Boolean>
     /** Темы группы с темами; null, если чат не группа с темами. Берётся первая страница, до 100 тем. */
     suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?>
+    suspend fun canCreateForumTopic(chatId: Long): Result<Boolean>
+    suspend fun createForumTopic(chatId: Long, name: String): Result<Long>
+    suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit>
+    suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit>
+    suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit>
+    suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit>
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit>
     /** Retries failed outgoing messages regardless of their content type. */
@@ -53,6 +65,7 @@ interface ConversationRepository {
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
     /** Messages in one chat whose text matches [query]. Pass 0 for the first page, then the previous page's nextFromMessageId. */
     suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
+    suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
     /**
      * Messages matching [query] in all chats of the account, limited by [filter]. Pass "" for the first page, then the
      * previous page's nextOffset. The offset is only valid with the same filter it came from.

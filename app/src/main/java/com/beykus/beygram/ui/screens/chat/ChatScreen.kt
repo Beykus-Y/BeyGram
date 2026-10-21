@@ -79,15 +79,20 @@ fun ChatScreen(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
-    recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {}
+    recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
+    forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
-    val composerDraft by remember(conversation, chat.id) { conversation.observeMessageDraft(chat.id) }.collectAsStateWithLifecycle()
+    val canPostHere = chat.canPost && topicCanPost
+    val composerDraft by remember(conversation, chat.id, forumTopicId) {
+        if (forumTopicId > 0L) conversation.observeForumTopicDraft(chat.id, forumTopicId) else conversation.observeMessageDraft(chat.id)
+    }.collectAsStateWithLifecycle()
     val draft = composerDraft.text
     val draftEntities = composerDraft.entities
     val replyId = composerDraft.replyToMessageId
     fun updateDraft(transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) =
-        conversation.updateMessageDraft(chat.id, transform)
+        if (forumTopicId > 0L) conversation.updateForumTopicDraft(chat.id, forumTopicId, transform)
+        else conversation.updateMessageDraft(chat.id, transform)
     fun clearReply() = updateDraft { it.copy(replyToMessageId = null) }
     var editEntities by remember(chat.id) { mutableStateOf<List<MessageTextEntity>>(emptyList()) }
     val botKeyboard by remember(conversation, chat.id) { conversation.observeBotKeyboard(chat.id) }.collectAsStateWithLifecycle()
@@ -175,7 +180,7 @@ fun ChatScreen(
                     mediaList.forEachIndexed { index, media ->
                         if (media.path in sentRecordingPaths) return@forEachIndexed
                         recordingQueueProgress = index + 1
-                        val result = conversation.sendMedia(chat.id, media, "", replyId)
+                        val result = conversation.sendMedia(chat.id, media, "", replyId, forumTopicId = forumTopicId)
                         if (result.isSuccess) {
                             sentRecordingPaths = sentRecordingPaths + media.path
                             clearReply()
@@ -223,8 +228,8 @@ fun ChatScreen(
         else sendRecordedMedia(listOf(media))
     }
     val attachments = rememberAttachmentState(chat.id) { media, caption ->
-        val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities)
-        else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities)
+        val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = forumTopicId)
+        else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = forumTopicId)
         if (result.isSuccess) clearReply()
         result
     }
@@ -236,7 +241,7 @@ fun ChatScreen(
             VideoNoteExportCenter.results.collect { list ->
                 list.filter { it.chatId == chat.id && !it.requiresPreview && !it.sending }.forEach { item ->
                     val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, replyId) { media, targetReply ->
-                        conversation.sendMedia(item.chatId, media, "", targetReply).map { Unit }
+                        conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = forumTopicId).map { Unit }
                     }
                     if (accepted) clearReply()
                 }
@@ -320,7 +325,7 @@ fun ChatScreen(
     val editMessage = messages.firstOrNull { it.id == editId }
     // A swipe reply needs an idle composer on screen: no search, deletion, edit, recording or open action menu, and no
     // send in flight, because a finished send clears the reply target it used.
-    val swipeReplyAllowed = chat.canPost && !searching && !deleting && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
+    val swipeReplyAllowed = canPostHere && !searching && !deleting && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
         !sending && !attachments.sending && !recordingQueueSending && pendingVideoNotes.isEmpty()
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
@@ -406,7 +411,7 @@ fun ChatScreen(
     // Reverse LazyColumn: larger visible indexes are OLDER messages. Prefetch when the user approaches
     // the loaded edge, but wait for the unread/focused opening to settle, and stop on errors until retry.
     // beginLoad() in the repository also prevents duplicate in-flight requests.
-    LaunchedEffect(chat.id, conversation, listState) {
+    LaunchedEffect(chat.id, forumTopicId, conversation, listState) {
         snapshotFlow {
             shouldAutoLoadOlderMessages(
                 lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: -1,
@@ -417,7 +422,10 @@ fun ChatScreen(
                 openingSettled = scrollPosition.readBoundaryChecked
             )
         }.distinctUntilChanged().collect { shouldLoad ->
-            if (shouldLoad) conversation.loadOlderMessages(chat.id)
+            if (shouldLoad) {
+                if (forumTopicId > 0L) conversation.loadOlderForumTopicMessages(chat.id, forumTopicId)
+                else conversation.loadOlderMessages(chat.id)
+            }
         }
     }
     // Появление кружка в ленте прокручивает к низу, как и исходящее сообщение.
@@ -428,7 +436,7 @@ fun ChatScreen(
         // A message sent while the chat opens drops the boundary: the list goes to the bottom and the boundary is not placed.
         val arrived = scrollPosition.seenNewestId != 0L && newest != null && newest.id != scrollPosition.seenNewestId
         scrollPosition.seenNewestId = newest?.id ?: 0L
-        if (chat.unreadCount > 0 && !scrollPosition.readBoundaryChecked) {
+        if ((if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0 && !scrollPosition.readBoundaryChecked) {
             if (arrived && newest?.isOutgoing == true) scrollPosition.readBoundaryChecked = true
             else return@LaunchedEffect
         }
@@ -441,13 +449,13 @@ fun ChatScreen(
         if (focusMessageId != 0L) scrollPosition.focusClaimed = true
         if (scrollPosition.readBoundaryChecked || history.isLoading || messages.isEmpty()) return@LaunchedEffect
         val boundary = history.lastReadInboxMessageId
-        val step = unreadOpenStep(chat.unreadCount, boundary, rawMessageItems, scrollPosition.readBoundaryWindowRequested, scrollPosition.focusClaimed)
+        val step = unreadOpenStep(if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount, boundary, rawMessageItems, scrollPosition.readBoundaryWindowRequested, scrollPosition.focusClaimed)
         when (step) {
             // A focused message settles the opening itself (see settleFocusedOpening), so read marks wait for its jump.
             UnreadOpenStep.Done -> if (!scrollPosition.focusClaimed) scrollPosition.readBoundaryChecked = true
             UnreadOpenStep.RequestWindow -> {
                 scrollPosition.readBoundaryWindowRequested = true
-                scope.launch { conversation.loadMessagesAround(chat.id, boundary).onFailure { scrollPosition.readBoundaryChecked = true } }
+                scope.launch { (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, boundary) else conversation.loadMessagesAround(chat.id, boundary)).onFailure { scrollPosition.readBoundaryChecked = true } }
             }
             is UnreadOpenStep.Scroll -> {
                 // Scrolling by an offset needs the viewport height, which exists only after the first layout.
@@ -517,7 +525,7 @@ fun ChatScreen(
         searchBusy = searching && needle.isNotEmpty()
         if (!searching || needle.isEmpty()) return@LaunchedEffect
         delay(300)
-        conversation.searchMessages(chat.id, needle, 0L)
+        (if (forumTopicId > 0L) conversation.searchForumTopicMessages(chat.id, forumTopicId, needle, 0L) else conversation.searchMessages(chat.id, needle, 0L))
             .onSuccess { page -> searchResults = page.messages; searchNextId = page.nextFromMessageId }
             .onFailure { searchError = it.userMessage(context, R.string.chat_search_failed) }
         searchBusy = false
@@ -526,7 +534,7 @@ fun ChatScreen(
         val needle = searchQuery.trim()
         scope.launch {
             searchBusy = true
-            conversation.searchMessages(chat.id, needle, searchNextId)
+            (if (forumTopicId > 0L) conversation.searchForumTopicMessages(chat.id, forumTopicId, needle, searchNextId) else conversation.searchMessages(chat.id, needle, searchNextId))
                 .onSuccess { page -> if (searchQuery.trim() == needle) { searchResults = searchResults + page.messages; searchNextId = page.nextFromMessageId } }
                 .onFailure { if (searchQuery.trim() == needle) { searchError = it.userMessage(context, R.string.chat_search_failed) } }
             if (searchQuery.trim() == needle) { searchBusy = false }
@@ -542,7 +550,7 @@ fun ChatScreen(
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
         if (index >= 0) { scope.launch { try { listState.animateScrollToItem(index); highlighted = messageId } finally { settleFocusedOpening() } }; return }
         scope.launch {
-            conversation.loadMessagesAround(chat.id, messageId)
+            (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, messageId) else conversation.loadMessagesAround(chat.id, messageId))
                 .onSuccess { applied -> if (applied) pendingJumpId = messageId else settleFocusedOpening() }
                 .onFailure { error = it.userMessage(context, failure); settleFocusedOpening() }
         }
@@ -564,7 +572,7 @@ fun ChatScreen(
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
-        else ChatTopBar(chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true }, observeFile, onDownloadFile)
+        else ChatTopBar(chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true }, observeFile, onDownloadFile, forumTopicTitle)
         reactionOwner?.takeIf { !deleting }?.let { owner ->
             MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
                 setReaction(owner.id, option, addToRecent = true)
@@ -580,7 +588,7 @@ fun ChatScreen(
             }
         }
         PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected,
-            ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary)
+            ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary, forumTopicId = forumTopicId)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -608,7 +616,8 @@ fun ChatScreen(
                         onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
                 } else {
                     val message = listItem.messages.single()
-                    MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
+                    if (message.serviceText != null) ServiceMessageChip(message.serviceText)
+                    else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                         highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                         onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                         onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
@@ -617,7 +626,7 @@ fun ChatScreen(
             history.error?.let { historyError -> item(key = "history_error") {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(historyError.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp))
-                    TextButton(onClick = { conversation.loadOlderMessages(chat.id) }) {
+                    TextButton(onClick = { if (forumTopicId > 0L) conversation.loadOlderForumTopicMessages(chat.id, forumTopicId) else conversation.loadOlderMessages(chat.id) }) {
                         Text(stringResource(R.string.common_retry))
                     }
                 }
@@ -634,7 +643,7 @@ fun ChatScreen(
         val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
         if (away || history.hasNewerMessages) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).clip(RoundedCornerShape(50)).background(palette.surface)
             .border(1.dp, palette.divider, RoundedCornerShape(50)).clickable {
-                if (history.hasNewerMessages) { conversation.loadLatestMessages(chat.id); scope.launch { listState.scrollToItem(0) } }
+                if (history.hasNewerMessages) { if (forumTopicId > 0L) conversation.loadForumTopicHistory(chat.id, forumTopicId) else conversation.loadLatestMessages(chat.id); scope.launch { listState.scrollToItem(0) } }
                 else scope.launch { listState.animateScrollToItem(0) }
             }
             .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -691,8 +700,8 @@ fun ChatScreen(
         // Мини-плеер стоит над полем ввода и остаётся на месте при поиске и при выборе сообщений. Без поля ввода он внизу экрана, поэтому отступает от системной навигации.
         NowPlayingBar(bottomInset = deleting || searching)
         // Chats the user cannot write to get no composer, only a plain notice, as in Telegram.
-        if (!deleting && !searching && !chat.canPost) ReadOnlyChatBar()
-        if (!deleting && !searching && chat.canPost) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        if (!deleting && !searching && !canPostHere) ReadOnlyChatBar()
+        if (!deleting && !searching && canPostHere) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) AttachmentButton(attachments, enabled = !sending)
@@ -739,7 +748,7 @@ fun ChatScreen(
                         else -> scope.launch {
                             sending = true; error = null
                             try {
-                                val result = conversation.sendMessage(chat.id, draft, replyId, draftEntities)
+                                val result = conversation.sendMessage(chat.id, draft, replyId, draftEntities, forumTopicId = forumTopicId)
                                 if (result.isSuccess) {
                                     updateDraft { com.beykus.beygram.domain.model.MessageDraft() }
                                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
@@ -774,7 +783,7 @@ fun ChatScreen(
             onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName) },
             onSend = {
                 val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, replyId) { media, targetReply ->
-                    conversation.sendMedia(video.chatId, media, "", targetReply).map { Unit }
+                    conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = forumTopicId).map { Unit }
                 }
                 if (accepted) clearReply()
             }
@@ -837,7 +846,7 @@ private fun ReadOnlyChatBar() {
 }
 
 @Composable
-private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
+private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null) {
     val palette = beyGramPalette()
     // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
     val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
@@ -847,7 +856,7 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
             ChatAvatar(chat, 40.dp, observeFile, downloadFile, Modifier.clickable(onClick = onInfo))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f).clickable(onClick = onInfo)) {
-                Text(chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(forumTopicTitle ?: chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(chatPresenceLine(chat, info, lastSeenStyle, now).resolve(), color = palette.textSecondary, fontSize = 13.sp)
             }
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
@@ -927,5 +936,24 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
             )
         }
         MessageReactionChips(message.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(message.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
+    }
+}
+
+
+/** Telegram service actions have no sender bubble, read checks or swipe-to-reply affordances. */
+@Composable
+internal fun ServiceMessageChip(text: String) {
+    val palette = beyGramPalette()
+    Box(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
+        Text(
+            text = text,
+            textAlign = TextAlign.Center,
+            color = palette.textSecondary,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            modifier = Modifier.clip(RoundedCornerShape(14.dp))
+                .background(palette.surface.copy(alpha = 0.87f))
+                .padding(horizontal = 13.dp, vertical = 7.dp)
+        )
     }
 }

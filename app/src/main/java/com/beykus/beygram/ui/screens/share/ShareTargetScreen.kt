@@ -73,7 +73,7 @@ internal fun ShareTargetScreen(
     loadTopics: suspend (chatId: Long) -> Result<List<ForumTopic>?>,
     sendText: suspend (chatId: Long, topicId: Long, text: String) -> Result<Unit>,
     sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>,
-    onSent: (chatId: Long) -> Unit,
+    onSent: (chatId: Long, topicId: Long) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
@@ -110,7 +110,7 @@ internal fun ShareTargetScreen(
             .onFailure { topicsError = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_topics_failed) }
     }
     // Отправка могла закончиться, пока экрана не было (поворот): тогда открываем чат, куда ушло сообщение.
-    LaunchedEffect(session.sent) { if (session.sent) onSent(session.sentChatId) }
+    LaunchedEffect(session.sent) { if (session.sent) onSent(session.sentChatId, topicId) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
