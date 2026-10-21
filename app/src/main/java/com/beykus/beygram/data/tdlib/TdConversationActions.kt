@@ -101,6 +101,8 @@ internal class TdConversationActions(
                         isClosed = it.info.isClosed,
                         canWrite = !it.info.isClosed || it.info.isOutgoing || manageTopics,
                         order = it.order,
+                        lastReadInboxMessageId = it.lastReadInboxMessageId,
+                        lastReadOutboxMessageId = it.lastReadOutboxMessageId,
                         lastMessagePreview = (it.lastMessage?.content as? TdApi.MessageText)?.text?.text.orEmpty()
                     )
                 }
