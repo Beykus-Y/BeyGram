@@ -954,9 +954,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
 }
 
 
-/** Telegram service actions have no sender bubble, read checks or swipe-to-reply affordances. */
-@Composable
-internal /** A Telegram call is an event with a direction and result, not an empty message bubble. */
+/** A Telegram call is an event with a direction and result, not an empty message bubble. */
 @Composable
 private fun CallMessageChip(text: String, time: String) {
     val palette = beyGramPalette()
@@ -980,7 +978,9 @@ private fun CallMessageChip(text: String, time: String) {
     }
 }
 
-fun ServiceMessageChip(text: String, userId: Long = 0L, onOpenUser: (Long) -> Unit = {}) {
+/** Telegram service actions have no sender bubble, read checks or swipe-to-reply affordances. */
+@Composable
+internal fun ServiceMessageChip(text: String, userId: Long = 0L, onOpenUser: (Long) -> Unit = {}) {
     val palette = beyGramPalette()
     Box(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 7.dp), contentAlignment = Alignment.Center) {
         Text(
