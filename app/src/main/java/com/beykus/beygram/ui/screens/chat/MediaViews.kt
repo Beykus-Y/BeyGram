@@ -95,6 +95,10 @@ import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.playback.playbackItem
+import com.beykus.beygram.playback.playbackKey
+import com.beykus.beygram.ui.screens.playback.TrackArtwork
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingControls
 import com.beykus.beygram.ui.screens.playback.ViewerNowPlayingColors
@@ -234,6 +238,12 @@ internal fun MediaPreview(
     val imageFile = if (media.isSecret) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
     LaunchedEffect(thumbId, revealed) {
         if (!media.isSecret && revealed && isVisual && (thumbId != media.fileId || media.mimeType.startsWith("image/") && file.size <= 300_000)) downloadFile(thumbId)
+        if (!media.isSecret && media.kind == MediaKind.Audio && thumbId != media.fileId) downloadFile(thumbId)
+    }
+    LaunchedEffect(media.fileId, thumb.localPath) {
+        if (media.kind == MediaKind.Audio && thumbId != media.fileId) {
+            thumb.localPath?.let { PlaybackEngine.updateArtwork(media.playbackKey(), it) }
+        }
     }
     // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
     val audioTitle = media.kind.label(context)
@@ -242,13 +252,13 @@ internal fun MediaPreview(
     val row = remember(media.fileId) { Any() }
     val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
     fun playAudio() {
-        if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle, origin))
+        if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null))
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
         if (waitingForAudio && audioPath != null) {
             pendingPlaybackRow.value = null
-            startAudio(context, media.playbackItem(audioPath, audioTitle, origin))
+            startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null))
         }
     }
     DisposableEffect(row) {
@@ -295,19 +305,62 @@ internal fun MediaPreview(
                 modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
             )
         }
+    } else if (media.kind == MediaKind.Audio) {
+        val playingFlow = remember(media.fileId) {
+            PlaybackEngine.state.map { it.item?.key == media.playbackKey() && it.playing }.distinctUntilChanged()
+        }
+        val musicPlaying by playingFlow.collectAsStateWithLifecycle(initialValue = false)
+        val title = media.title.ifBlank { media.fileName.ifBlank { stringResource(R.string.media_kind_audio) } }
+        val cover = if (thumbId != media.fileId) thumb.localPath else null
+        Row(
+            Modifier.width(280.dp).clip(RoundedCornerShape(12.dp))
+                .combinedClickable(onClick = { playAudio() }, onLongClick = onLongPress)
+                .padding(top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TrackArtwork(artworkPath = cover, audioPath = audioPath, modifier = Modifier.size(44.dp),
+                background = palette.accentSoft, tint = palette.accentInk)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(media.performer.ifBlank {
+                    formatMediaSize(file.size) + if (media.durationSeconds > 0) " · " + duration(media.durationSeconds) else ""
+                }, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (media.performer.isNotBlank() && media.durationSeconds > 0) {
+                    Text(duration(media.durationSeconds), color = palette.textSecondary, fontSize = 11.sp)
+                }
+                if (file.isDownloading || file.isUploading) {
+                    LinearProgressIndicator(progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                }
+            }
+            IconButton(onClick = { playAudio() }, modifier = Modifier.size(42.dp)) {
+                if (file.isDownloading || waitingForAudio) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = palette.accent)
+                } else {
+                    Icon(if (musicPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = stringResource(if (musicPlaying) R.string.common_pause else R.string.common_play),
+                        tint = palette.accentInk)
+                }
+            }
+            IconButton(onClick = onOpen, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = palette.textSecondary)
+            }
+        }
     } else {
-        Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = { if (media.kind == MediaKind.Audio) playAudio() else onOpen() }, onLongClick = onLongPress).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (media.kind == MediaKind.Audio) Icons.Rounded.MusicNote else Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
+        Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
                 modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(10.dp))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(if (media.kind == MediaKind.Audio) media.fileName.ifBlank { stringResource(R.string.media_kind_audio) } else media.fileName.ifBlank { stringResource(R.string.media_kind_file) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "", color = palette.textSecondary, fontSize = 13.sp)
-                if (file.isDownloading || file.isUploading) LinearProgressIndicator(progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
-            }
-            // Тап по музыке запускает её в общем плеере, а действия с вложением (поделиться, сохранить, переслать) открываются отсюда.
-            if (media.kind == MediaKind.Audio) IconButton(onClick = onOpen) {
-                Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = palette.textSecondary)
+                Text(media.fileName.ifBlank { stringResource(R.string.media_kind_file) }, color = palette.textPrimary, fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · " + duration(media.durationSeconds) else "",
+                    color = palette.textSecondary, fontSize = 13.sp)
+                if (file.isDownloading || file.isUploading) LinearProgressIndicator(
+                    progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
             }
         }
     }
@@ -504,7 +557,7 @@ private fun MediaViewerPage(
     LaunchedEffect(media.fileId, concealed, active, fullFileOnlyWhenActive) {
         if (concealed) return@LaunchedEffect
         // The profile gallery downloads adjacent previews; the full file waits for an active page.
-        if (tgs || media.mimeType.startsWith("image/") || media.mimeType.startsWith("video/")) previewId?.let(downloadFile)
+        if (tgs || media.mimeType.startsWith("image/") || media.mimeType.startsWith("video/") || media.kind == MediaKind.Audio) previewId?.let(downloadFile)
         if (!fullFileOnlyWhenActive || active) downloadFile(media.fileId)
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -551,7 +604,7 @@ private fun MediaViewerPage(
             media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = controlsVisible && active)
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
-            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, active) { currentOnViewed(item.messageId) }
+            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, if (previewId != null) thumb.localPath else null, active) { currentOnViewed(item.messageId) }
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -807,9 +860,9 @@ private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Un
 
 /** Звук в просмотрщике идёт через общий плеер. Открытие ничего не запускает, поэтому текущий трек не прерывается. */
 @Composable
-private fun AudioInPlayer(media: MessageMedia, path: String, active: Boolean, onViewed: () -> Unit) {
+private fun AudioInPlayer(media: MessageMedia, path: String, artworkPath: String?, active: Boolean, onViewed: () -> Unit) {
     val context = LocalContext.current
-    val item = media.playbackItem(path, media.kind.label(context))
+    val item = media.playbackItem(path, media.kind.label(context), artworkPath = artworkPath)
     val state by PlaybackEngine.state.collectAsStateWithLifecycle()
     val currentOnViewed by rememberUpdatedState(onViewed)
     // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.

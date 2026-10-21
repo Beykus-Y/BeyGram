@@ -40,6 +40,9 @@ data class PlaybackItem(
     val title: String,
     val durationSeconds: Int,
     val origin: PlaybackOrigin? = null,
+    /** Local TDLib album cover path; no remote lookup or third-party service. */
+    val artworkPath: String? = null,
+    val performer: String = "",
     /** Секретное вложение: играет только пока открыт его чат и не повторяется после конца. */
     val secret: Boolean = false
 )
@@ -106,7 +109,7 @@ internal fun resumePositionMs(waiting: InterruptedMusic?, key: String): Long = w
 internal fun MessageMedia.playbackKey(): String = "$kind:$fileId"
 
 /** Файл из сообщения как элемент общего плеера. [origin] указывает сообщение, в котором лежит файл. */
-fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: PlaybackOrigin? = null): PlaybackItem = PlaybackItem(
+fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: PlaybackOrigin? = null, artworkPath: String? = null): PlaybackItem = PlaybackItem(
     key = playbackKey(),
     kind = kind,
     path = path,
@@ -114,6 +117,8 @@ fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: Playb
     title = if (kind == MediaKind.Audio && (title.isNotBlank() || performer.isNotBlank())) listOf(performer, title.ifBlank { fileName }).filter { it.isNotBlank() }.joinToString(" — ") else fileName.ifBlank { fallbackTitle },
     durationSeconds = durationSeconds,
     origin = origin,
+    artworkPath = if (kind == MediaKind.Audio) artworkPath else null,
+    performer = if (kind == MediaKind.Audio) performer else "",
     secret = isSecret
 )
 
@@ -130,6 +135,15 @@ object PlaybackEngine {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
+
+    /** A cover thumbnail may finish downloading after playback has already started. */
+    fun updateArtwork(key: String, path: String) {
+        _state.update { playback ->
+            val item = playback.item
+            if (item == null || item.key != key || item.artworkPath == path) playback
+            else playback.copy(item = item.copy(artworkPath = path))
+        }
+    }
     private val _showInChat = MutableSharedFlow<PlaybackOrigin>(extraBufferCapacity = 1)
     /** Запросы открыть чат с сообщением текущего файла. Их разбирает корневой экран приложения. */
     val showInChat: SharedFlow<PlaybackOrigin> = _showInChat.asSharedFlow()
