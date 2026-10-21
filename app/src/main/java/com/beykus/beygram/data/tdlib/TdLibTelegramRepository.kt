@@ -753,7 +753,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     async {
                         limiter.withPermit {
                             val preview = try {
-                                tdRequests(TdApi.GetChat(id)).toChatPreview()
+                                val loaded = tdRequests(TdApi.GetChat(id))
+                                val cached = loaded.toChatPreview()
+                                // Retain successful off-list metadata, including for the next page
+                                // and for opening a result. Do not force it into a visible chat list.
+                                if (cached != null) chatCache[id] = cached
+                                cached
+                            } catch (_: TimeoutCancellationException) {
+                                null // Metadata lookup timed out; preserve the search hits.
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (_: Exception) {
