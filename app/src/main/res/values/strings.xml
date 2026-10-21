@@ -1118,6 +1118,9 @@
     <string name="forum_topics_subtitle">Темы обсуждения</string>
     <string name="forum_topics_empty">Пока нет доступных тем</string>
     <string name="forum_topic_closed">Тема закрыта</string>
+    <string name="forum_topic_pinned">Закреплённая тема</string>
+    <string name="forum_topic_regular">Тема обсуждения</string>
+    <string name="forum_topic_unread_count">Непрочитанных сообщений: %1$d</string>
     <string name="forum_topic_no_messages">Нет сообщений в теме</string>
     <string name="forum_create">Новая тема</string>
     <string name="forum_manage">Управление темой</string>

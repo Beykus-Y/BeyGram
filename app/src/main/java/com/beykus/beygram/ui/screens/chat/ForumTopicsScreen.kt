@@ -10,6 +10,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.LockOutline
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,10 +85,37 @@ fun ForumTopicsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    val pinnedDescription = stringResource(R.string.forum_topic_pinned)
+                    val closedDescription = stringResource(R.string.forum_topic_closed)
+                    val regularDescription = stringResource(R.string.forum_topic_regular)
+                    val statusDescription = when {
+                        topic.isPinned && topic.isClosed -> "$pinnedDescription, $closedDescription"
+                        topic.isPinned -> pinnedDescription
+                        topic.isClosed -> closedDescription
+                        else -> regularDescription
+                    }
                     Box(
-                        Modifier.size(46.dp).clip(RoundedCornerShape(16.dp)).background(palette.accentSoft),
+                        Modifier.size(46.dp)
+                            .semantics { contentDescription = statusDescription }
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(palette.accentSoft),
                         contentAlignment = Alignment.Center
-                    ) { Text(if (topic.isPinned) "📌" else "💬", fontSize = 22.sp) }
+                    ) {
+                        Icon(
+                            imageVector = if (topic.isPinned) Icons.Rounded.PushPin else Icons.Rounded.Forum,
+                            contentDescription = null,
+                            tint = palette.accent,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        if (topic.isClosed) {
+                            Icon(
+                                imageVector = Icons.Rounded.LockOutline,
+                                contentDescription = null,
+                                tint = palette.textSecondary,
+                                modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp).size(14.dp)
+                            )
+                        }
+                    }
                     Column(Modifier.weight(1f)) {
                         Text(topic.title, color = palette.textPrimary, fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -96,7 +128,9 @@ fun ForumTopicsScreen(
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (topic.unreadCount > 0) {
+                        val unreadDescription = stringResource(R.string.forum_topic_unread_count, topic.unreadCount)
                         Box(Modifier.clip(RoundedCornerShape(50)).background(palette.accent)
+                            .semantics { contentDescription = unreadDescription }
                             .padding(horizontal = 9.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
                             Text(topic.unreadCount.toString(), color = palette.onAccent, fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold)

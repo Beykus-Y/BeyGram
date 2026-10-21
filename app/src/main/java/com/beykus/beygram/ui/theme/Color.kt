@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 
 /**
  * The colour roles of one theme. Each colour family has a light and a dark set.
@@ -24,6 +25,40 @@ data class BeyGramTokens(
     val warnInk: Color,
     val danger: Color
 )
+
+/**
+ * Material 3 container elevations derived from the brand surfaces.
+ *
+ * In light mode a raised container becomes slightly darker; in dark mode it
+ * becomes lighter. The lowest AMOLED container stays exactly black.
+ * Both presets and wallpaper-based tokens use the same ramp.
+ */
+internal data class SurfaceContainerTones(
+    val lowest: Color,
+    val low: Color,
+    val normal: Color,
+    val high: Color,
+    val highest: Color
+)
+
+internal fun BeyGramTokens.surfaceContainerTones(dark: Boolean): SurfaceContainerTones =
+    if (dark) {
+        SurfaceContainerTones(
+            lowest = bg,
+            low = lerp(bg, surface, 0.6f),
+            normal = surface,
+            high = lerp(surface, surface2, 0.55f),
+            highest = surface2
+        )
+    } else {
+        SurfaceContainerTones(
+            lowest = surface,
+            low = lerp(surface, surface2, 0.2f),
+            normal = lerp(surface, surface2, 0.4f),
+            high = lerp(surface, surface2, 0.7f),
+            highest = surface2
+        )
+    }
 
 /** The light set of the Warm preset. */
 val LightTokens = BeyGramTokens(

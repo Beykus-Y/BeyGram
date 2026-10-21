@@ -20,13 +20,11 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.CallMade
 import androidx.compose.material.icons.rounded.CallMissed
 import androidx.compose.material.icons.rounded.CallReceived
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,7 +61,7 @@ import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
 
-/** История звонков только для чтения. Звонить и принимать звонки приложение пока не умеет, поэтому кнопка неактивна. */
+/** История звонков только для чтения; пока вызовы не поддерживаются, не показываем кнопку действия. */
 @Composable
 fun CallsScreen(
     loadCalls: suspend (offset: String) -> Result<CallHistoryPage>,
@@ -151,10 +149,11 @@ private fun CallRow(call: CallRecord, observeFile: (Int) -> StateFlow<MediaFileS
                 Text(call.summary(), color = statusTint, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(formatCallDate(call.dateSeconds), color = palette.textSecondary, fontSize = 12.sp)
-            IconButton(onClick = {}, enabled = false) { Icon(Icons.Rounded.Call, stringResource(R.string.calls_call_description), tint = palette.textSecondary) }
-        }
+        Text(
+            formatCallDate(call.dateSeconds),
+            color = palette.textSecondary,
+            fontSize = 12.sp
+        )
     }
 }
 
