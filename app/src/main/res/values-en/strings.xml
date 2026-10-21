@@ -220,4 +220,20 @@
     <string name="folder_shareable_hint">This is a shared Telegram folder. Category filters and excluding read, archived or individual chats are unavailable.</string>
     <string name="folder_create_unconfirmed">Folder creation could not be confirmed. Telegram may have created it. Check the folder list before trying again.</string>
     <string name="folder_changed_while_editing">This folder changed on another device. Return to the list and reopen it to avoid overwriting newer changes.</string>
+    <string name="theme_swatch_violet">Violet</string>
+    <string name="theme_swatch_blue">Blue</string>
+    <string name="theme_swatch_sky">Sky blue</string>
+    <string name="theme_swatch_teal">Teal</string>
+    <string name="theme_swatch_green">Green</string>
+    <string name="theme_swatch_orange">Orange</string>
+    <string name="theme_swatch_pink">Pink</string>
+    <string name="theme_swatch_terracotta">Terracotta</string>
+    <string name="theme_swatch_lavender">Lavender</string>
+    <string name="theme_swatch_ice_blue">Pale blue</string>
+    <string name="theme_swatch_cyan">Light cyan</string>
+    <string name="theme_swatch_mint">Mint</string>
+    <string name="theme_swatch_pale_green">Light green</string>
+    <string name="theme_swatch_peach">Peach</string>
+    <string name="theme_swatch_blush">Blush pink</string>
+    <string name="theme_swatch_dark_violet">Dark violet</string>
 </resources>

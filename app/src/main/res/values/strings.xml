@@ -1145,4 +1145,20 @@
     <string name="service_members_added_named">В группу добавлен(а) %1$s</string>
     <string name="service_member_removed_named">Из группы удалён(а) %1$s</string>
     <string name="service_unknown_member">Участник #%1$s</string>
+    <string name="theme_swatch_violet">Фиолетовый</string>
+    <string name="theme_swatch_blue">Синий</string>
+    <string name="theme_swatch_sky">Голубой</string>
+    <string name="theme_swatch_teal">Бирюзовый</string>
+    <string name="theme_swatch_green">Зелёный</string>
+    <string name="theme_swatch_orange">Оранжевый</string>
+    <string name="theme_swatch_pink">Розовый</string>
+    <string name="theme_swatch_terracotta">Терракотовый</string>
+    <string name="theme_swatch_lavender">Лавандовый</string>
+    <string name="theme_swatch_ice_blue">Нежно-голубой</string>
+    <string name="theme_swatch_cyan">Светло-бирюзовый</string>
+    <string name="theme_swatch_mint">Мятный</string>
+    <string name="theme_swatch_pale_green">Светло-зелёный</string>
+    <string name="theme_swatch_peach">Персиковый</string>
+    <string name="theme_swatch_blush">Пудрово-розовый</string>
+    <string name="theme_swatch_dark_violet">Тёмно-фиолетовый</string>
 </resources>
