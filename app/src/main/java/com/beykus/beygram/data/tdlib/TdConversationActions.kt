@@ -90,7 +90,9 @@ internal class TdConversationActions(
         var offsetMessageId = 0L
         var offsetTopicId = 0
         var pages = 0
+        val visitedCursors = mutableSetOf<Triple<Int, Long, Int>>()
         while (true) {
+            if (!visitedCursors.add(Triple(offsetDate, offsetMessageId, offsetTopicId))) break
             val page = request(TdApi.GetForumTopics(chatId, "", offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
             page.topics.filter { !it.info.isHidden }
                 .mapTo(topics) {
@@ -116,7 +118,7 @@ internal class TdConversationActions(
             offsetMessageId = page.nextOffsetMessageId
             offsetTopicId = page.nextOffsetForumTopicId
         }
-        topics.sortedByDescending { it.order }
+        uniqueForumTopics(topics)
     }
 
     /** All mutations go through TDLib; the server is the final authority for permissions. */
@@ -445,3 +447,7 @@ private fun recordSendFailure(kind: String, error: Throwable) {
         attrs = mapOf("kind" to kind, "reason" to reason)
     )
 }
+
+/** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */
+internal fun uniqueForumTopics(topics: List<ForumTopic>): List<ForumTopic> =
+    topics.distinctBy(ForumTopic::id).sortedByDescending(ForumTopic::order)
