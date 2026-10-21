@@ -242,4 +242,7 @@
     <string name="wallpaper_preset_silver_mist">Silver Mist</string>
     <string name="wallpaper_preset_emerald_tide">Emerald Tide</string>
     <string name="wallpaper_preview_title">Chat preview</string>
+    <string name="video_diagnostics_center_screen_title">Video-note diagnostics</string>
+    <string name="video_diagnostics_center_open">Open diagnostics center</string>
+    <string name="video_diagnostics_center_intro">Camera, FPS, loss tests and reports live here. Run checks only when needed.</string>
 </resources>

@@ -1145,4 +1145,7 @@
     <string name="service_members_added_named">В группу добавлен(а) %1$s</string>
     <string name="service_member_removed_named">Из группы удалён(а) %1$s</string>
     <string name="service_unknown_member">Участник #%1$s</string>
+    <string name="video_diagnostics_center_screen_title">Диагностика видеокружков</string>
+    <string name="video_diagnostics_center_open">Открыть центр диагностики</string>
+    <string name="video_diagnostics_center_intro">Проверки камеры, FPS, потерь и отчёты находятся здесь. Запускайте тесты только по необходимости.</string>
 </resources>
