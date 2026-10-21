@@ -68,6 +68,12 @@ class UnavailableTelegramRepository : TelegramRepository {
         MutableStateFlow<Map<Int, com.beykus.beygram.domain.model.TelegramFolderLoadState>>(emptyMap()).asStateFlow()
     override suspend fun loadMoreFolderChats(folderId: Int): Result<Unit> = unavailable()
     override suspend fun setFolderChatPinned(folderId: Int, chatId: Long, pinned: Boolean): Result<Unit> = unavailable()
+
+    override suspend fun getFolderDraft(folderId: Int): Result<com.beykus.beygram.domain.model.TelegramFolderDraft> = unavailable()
+    override suspend fun saveFolderDraft(draft: com.beykus.beygram.domain.model.TelegramFolderDraft): Result<Int> = unavailable()
+    override suspend fun deleteServerFolder(folderId: Int): Result<Unit> = unavailable()
+    override suspend fun reorderServerFolders(ids: List<Int>, mainPosition: Int): Result<Unit> = unavailable()
+
     override val connectionState: StateFlow<TelegramConnectionState> = MutableStateFlow(TelegramConnectionState.Unknown).asStateFlow()
     override val myProfile: StateFlow<ProfileState> = noProfile
     override val bioLengthLimit: StateFlow<Int> = MutableStateFlow(70).asStateFlow()
