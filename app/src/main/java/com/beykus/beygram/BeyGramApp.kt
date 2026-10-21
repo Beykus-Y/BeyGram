@@ -352,8 +352,10 @@ private fun BeyGramAppContent(
                         if (media.size == 1) repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId)
                         else repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId)
                     },
-                    onSent = { chatId ->
+                    onSent = { chatId, topicId ->
                         onIncomingShareHandled(incomingShare.requestId)
+                        selectedTopicChatId = chatId
+                        selectedForumTopicId = topicId
                         selectedChatId = chatId
                         chatBackRouteName = AppRoute.Chats.name
                         routeName = AppRoute.Chat.name
