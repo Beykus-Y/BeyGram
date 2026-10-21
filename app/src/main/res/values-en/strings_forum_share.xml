@@ -29,6 +29,8 @@
     <string name="forum_topic_history_hint">Open a topic to view its history</string>
     <string name="forum_topic_name">Topic name</string>
     <string name="forum_topic_no_messages">No messages in this topic</string>
+    <string name="forum_topic_recent_activity">Latest message</string>
+    <string name="forum_topic_preview_unavailable">Could not load the preview</string>
     <string name="forum_topic_pinned">Pinned topic</string>
     <string name="forum_topic_regular">Discussion topic</string>
     <string name="forum_topic_unread_count">Unread messages: %1$d</string>
