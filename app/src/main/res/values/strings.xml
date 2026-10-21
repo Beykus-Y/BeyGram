@@ -1145,4 +1145,8 @@
     <string name="service_members_added_named">В группу добавлен(а) %1$s</string>
     <string name="service_member_removed_named">Из группы удалён(а) %1$s</string>
     <string name="service_unknown_member">Участник #%1$s</string>
+    <string name="global_search_chat_unknown">Чат недоступен</string>
+    <string name="global_search_chat_private">Личный</string>
+    <string name="global_search_chat_group">Группа</string>
+    <string name="global_search_chat_channel">Канал</string>
 </resources>
