@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -19,6 +20,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.GlobalChatType
 import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.GlobalSearchPeriod
@@ -40,14 +46,17 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.domain.search.appendDistinctBy
+import com.beykus.beygram.ui.components.Avatar
+import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.screens.chat.MessageContextDialog
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
+import java.text.DateFormat
+import java.util.Date
 
 private const val SEARCH_DEBOUNCE_MILLIS = 400L
 
@@ -61,21 +70,25 @@ fun GlobalSearchScreen(
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
+    onOpenMessage: (chatId: Long, messageId: Long) -> Unit,
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val currentLocale = context.resources.configuration.locales[0]
+    val dateFormat = remember(currentLocale) { DateFormat.getDateInstance(DateFormat.MEDIUM, currentLocale) }
     var query by rememberSaveable { mutableStateOf(initialQuery) }
     // Фильтры сбрасываются при повороте экрана вместе с выдачей: они не сохраняются через rememberSaveable.
     var filter by remember { mutableStateOf(GlobalSearchFilter()) }
     var hits by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    var chatContexts by remember { mutableStateOf<Map<Long, ChatPreview>>(emptyMap()) }
     var nextOffset by remember { mutableStateOf("") }
     var loadingMore by remember { mutableStateOf(false) }
     var moreFailed by remember { mutableStateOf(false) }
     var pagingJob by remember { mutableStateOf<Job?>(null) }
     var searching by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
-    var opened by remember { mutableStateOf<ChatMessage?>(null) }
     BackHandler(onBack = onBack)
 
     LaunchedEffect(query, filter) {
@@ -85,6 +98,7 @@ fun GlobalSearchScreen(
         loadingMore = false
         moreFailed = false
         hits = emptyList()
+        chatContexts = emptyMap()
         nextOffset = ""
         failed = false
         if (query.isBlank()) return@LaunchedEffect
@@ -93,6 +107,7 @@ fun GlobalSearchScreen(
         conversation.searchGlobalMessages(query, "", filter)
             .onSuccess { page ->
                 hits = page.messages
+                chatContexts = page.chats
                 nextOffset = page.nextOffset
             }
             .onFailure { failed = true }
@@ -136,12 +151,48 @@ fun GlobalSearchScreen(
         }
         LazyColumn(Modifier.fillMaxWidth()) {
             items(hits, key = { "${it.chatId}:${it.id}" }) { message ->
-                Column(
-                    Modifier.fillMaxWidth().clickable { opened = message }.padding(horizontal = 20.dp, vertical = 12.dp)
+                val chat = chatContexts[message.chatId]
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clickable { onOpenMessage(message.chatId, message.id) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    val preview = message.text.ifBlank { if (message.media != null) stringResource(R.string.global_search_attachment) else "" }
-                    Text(preview, color = palette.textPrimary, fontSize = 15.sp, maxLines = 2)
-                    Text(message.time, color = palette.textSecondary, fontSize = 12.sp)
+                    if (chat != null) {
+                        ChatAvatar(chat, 42.dp, observeFile, downloadFile)
+                    } else {
+                        Avatar("?", Color(palette.accent.value), 42.dp)
+                    }
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                chat?.title ?: stringResource(R.string.global_search_chat_unknown),
+                                color = palette.textPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (chat != null) {
+                                val typeLabel = when {
+                                    chat.isChannel -> R.string.global_search_chat_channel
+                                    chat.isGroup -> R.string.global_search_chat_group
+                                    else -> R.string.global_search_chat_private
+                                }
+                                Text(stringResource(typeLabel), color = palette.textSecondary, fontSize = 11.sp)
+                            }
+                        }
+                        if (message.senderName.isNotBlank()) {
+                            Text(message.senderName, color = palette.accentInk, fontSize = 12.sp, maxLines = 1)
+                        }
+                        val preview = message.text.ifBlank {
+                            if (message.media != null) stringResource(R.string.global_search_attachment) else ""
+                        }
+                        Text(preview, color = palette.textPrimary, fontSize = 14.sp, maxLines = 2)
+                        val date = if (message.dateSeconds > 0) dateFormat.format(Date(message.dateSeconds * 1000L)) else ""
+                        val timestamp = listOf(date, message.time).filter { it.isNotBlank() }.joinToString(" · ")
+                        Text(timestamp, color = palette.textSecondary, fontSize = 12.sp)
+                    }
                 }
             }
             if (nextOffset.isNotEmpty() && hits.isNotEmpty()) {
@@ -157,6 +208,7 @@ fun GlobalSearchScreen(
                                 conversation.searchGlobalMessages(requestedQuery, nextOffset, requestedFilter)
                                     .onSuccess { page ->
                                         hits = appendDistinctBy(hits, page.messages) { it.chatId to it.id }
+                                        chatContexts = chatContexts + page.chats
                                         nextOffset = page.nextOffset
                                     }
                                     .onFailure { moreFailed = true }
@@ -173,16 +225,6 @@ fun GlobalSearchScreen(
         }
     }
 
-    opened?.let { message ->
-        MessageContextDialog(
-            chatId = message.chatId,
-            targetId = message.id,
-            conversation = conversation,
-            observeFile = observeFile,
-            downloadFile = downloadFile,
-            onClose = { opened = null }
-        )
-    }
 }
 
 @Composable
