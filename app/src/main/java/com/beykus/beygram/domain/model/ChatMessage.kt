@@ -22,7 +22,9 @@ data class ChatMessage(
     /** Text of a Telegram service event; unlike a regular chat message it renders as a centered event chip. */
     val serviceText: String? = null,
     /** User referred to by a service action, if available, for clickable profile navigation. */
-    val serviceUserId: Long = 0L
+    val serviceUserId: Long = 0L,
+    /** TDLib forum topic id for opening a global search hit in its original topic. */
+    val forumTopicId: Long = 0L
 )
 
 /**
@@ -65,7 +67,12 @@ data class MessageContext(val chatId: Long, val title: String, val targetId: Lon
 data class MessageSearchPage(val messages: List<ChatMessage>, val nextFromMessageId: Long)
 
 /** Страница общего поиска по всем чатам аккаунта. [nextOffset] пустой, когда страницы кончились. */
-data class GlobalMessagePage(val messages: List<ChatMessage>, val nextOffset: String)
+data class GlobalMessagePage(
+    val messages: List<ChatMessage>,
+    val nextOffset: String,
+    /** Cached or lazily resolved chat details, keyed by TDLib chatId. */
+    val chats: Map<Long, ChatPreview> = emptyMap()
+)
 data class MessageLimits(val text: Int = 4096, val caption: Int = 1024)
 
 data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)

@@ -718,8 +718,8 @@ fun ChatScreen(
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
-            if (recordingActive && recordingLocked) Box(Modifier.size(44.dp).clip(CircleShape)
-                .background(palette.accent).clickable(enabled = !busy) {
+            if (recordingActive && recordingLocked) Box(Modifier.size(48.dp).clip(CircleShape)
+                .background(palette.accent).clickable(enabled = !busy, role = androidx.compose.ui.semantics.Role.Button) {
                     if (recordingMode == ComposerRecordingMode.Voice) audioNote.finishLocked() else videoNote.sendLocked()
                 }, contentAlignment = Alignment.Center) {
                 Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.recorder_send), tint = Color.White, modifier = Modifier.size(21.dp))
@@ -728,6 +728,15 @@ fun ChatScreen(
                 mode = recordingMode, active = recordingActive, canceling = recordingCanceling, enabled = !sending && !busy,
                 onTap = { if (!recordingActive) recordingSettings.setRecordingMode(if (recordingMode == ComposerRecordingMode.Voice) ComposerRecordingMode.Video else ComposerRecordingMode.Voice) },
                 onStart = { if (!recordingActive) startRecording() },
+                // Accessibility activation starts hands-free and locks synchronously.
+                // If permission is missing or the camera refuses to start, lock() is a no-op.
+                // The user can grant access and activate the control again.
+                onAccessibleStart = {
+                    if (!recordingActive) {
+                        startRecording()
+                        if (recordingMode == ComposerRecordingMode.Voice) audioNote.lock() else videoNote.lock()
+                    }
+                },
                 onCanceling = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.onDrag(it) else videoNote.onDrag(it) },
                 onLock = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.lock() else videoNote.lock() },
                 onRelease = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.release(it) else videoNote.release(it) }

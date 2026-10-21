@@ -11,6 +11,14 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -42,6 +50,7 @@ internal fun RecordingControlButton(
     enabled: Boolean,
     onTap: () -> Unit,
     onStart: () -> Unit,
+    onAccessibleStart: () -> Unit,
     onCanceling: (Boolean) -> Unit,
     onLock: () -> Unit,
     onRelease: (Boolean) -> Unit,
@@ -52,6 +61,7 @@ internal fun RecordingControlButton(
     val dragY = remember { mutableFloatStateOf(0f) }
     val tap by rememberUpdatedState(onTap)
     val start by rememberUpdatedState(onStart)
+    val accessibleStart by rememberUpdatedState(onAccessibleStart)
     val cancelState by rememberUpdatedState(onCanceling)
     val lock by rememberUpdatedState(onLock)
     val release by rememberUpdatedState(onRelease)
@@ -59,7 +69,34 @@ internal fun RecordingControlButton(
     val cancelDistance = with(LocalDensity.current) { 92.dp.toPx() }
     val lockDistance = with(LocalDensity.current) { 72.dp.toPx() }
     val longPressTimeout = LocalViewConfiguration.current.longPressTimeoutMillis
-    Box(Modifier.size(44.dp).pointerInput(enabled, longPressTimeout) {
+    val startLabel = stringResource(
+        if (mode == ComposerRecordingMode.Voice) R.string.recording_a11y_start_voice
+        else R.string.recording_a11y_start_video
+    )
+    val lockLabel = stringResource(R.string.recording_a11y_lock)
+    val modeLabel = stringResource(R.string.recording_a11y_switch_mode)
+    val cancelLabel = stringResource(R.string.recording_a11y_cancel)
+    val sendLabel = stringResource(R.string.recording_a11y_send)
+
+    // Semantics OnClick is used by TalkBack/Switch Access; it is deliberately
+    // separate from raw tap/long-press so physical Telegram-style gestures stay intact.
+    Box(Modifier.size(48.dp).semantics(mergeDescendants = true) {
+            role = Role.Button
+            contentDescription = if (active) lockLabel else startLabel
+            if (!enabled) disabled()
+            else {
+                onClick(label = if (active) lockLabel else startLabel) {
+                    if (active) lock() else accessibleStart()
+                    true
+                }
+                customActions = if (active) listOf(
+                    CustomAccessibilityAction(cancelLabel) { release(true); true },
+                    CustomAccessibilityAction(sendLabel) { release(false); true }
+                ) else listOf(
+                    CustomAccessibilityAction(modeLabel) { tap(); true }
+                )
+            }
+        }.pointerInput(enabled, longPressTimeout) {
             if (!enabled) return@pointerInput
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
@@ -119,10 +156,10 @@ internal fun RecordingControlButton(
                 }
             }
         }, contentAlignment = Alignment.Center) {
-        Box(Modifier.size(44.dp).graphicsLayer { translationX = dragX.floatValue; translationY = dragY.floatValue }
+        Box(Modifier.size(48.dp).graphicsLayer { translationX = dragX.floatValue; translationY = dragY.floatValue }
             .clip(CircleShape).background(if (active || canceling) palette.danger else palette.surface2), contentAlignment = Alignment.Center) {
             Icon(if (mode == ComposerRecordingMode.Voice) Icons.Rounded.Mic else Icons.Rounded.Videocam,
-                contentDescription = stringResource(if (mode == ComposerRecordingMode.Voice) R.string.voice_recorder_start_description else R.string.recorder_start_description),
+                contentDescription = null,
                 tint = if (active || canceling) Color.White else palette.textSecondary, modifier = Modifier.size(23.dp))
         }
     }

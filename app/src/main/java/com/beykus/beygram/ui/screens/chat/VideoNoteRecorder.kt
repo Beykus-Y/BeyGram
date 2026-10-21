@@ -793,7 +793,7 @@ internal fun VideoNoteSwitchCameraButton(recorder: VideoNoteRecorder, enabled: B
 @Composable
 internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modifier = Modifier, onCancel: () -> Unit) {
     val palette = beyGramPalette()
-    Row(modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface2).padding(horizontal = 12.dp),
+    Row(modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface2).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Spacer(Modifier.size(9.dp).clip(CircleShape).background(palette.danger))
         Icon(Icons.Rounded.Videocam, null, tint = palette.danger, modifier = Modifier.size(19.dp))
@@ -806,8 +806,9 @@ internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modif
             modifier = Modifier.weight(1f)
         )
         if (recorder.locked) {
-            Text(stringResource(R.string.recorder_cancel), color = palette.warningText, fontSize = 13.sp,
-                modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable(onClick = onCancel).padding(horizontal = 8.dp, vertical = 7.dp))
+            androidx.compose.material3.TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.recorder_cancel), color = palette.warningText, fontSize = 13.sp)
+            }
         }
     }
 }

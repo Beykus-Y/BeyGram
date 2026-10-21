@@ -82,6 +82,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
@@ -741,7 +743,38 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long) =
         conversationActions.search(chatId, query, fromMessageId, forumTopicId)
     override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter) =
-        conversationActions.searchGlobal(query, offset, filter)
+        conversationActions.searchGlobal(query, offset, filter).map { page ->
+            // One metadata lookup per distinct uncached chat, never per message. Bounded
+            // concurrency prevents a page of old hits from flooding the TDLib request lane.
+            val missing = page.messages.map { it.chatId }.distinct().filter { chatCache[it] == null }
+            val limiter = Semaphore(6)
+            val fetched = coroutineScope {
+                missing.map { id ->
+                    async {
+                        limiter.withPermit {
+                            val preview = try {
+                                val loaded = tdRequests(TdApi.GetChat(id))
+                                val cached = loaded.toChatPreview()
+                                // Retain successful off-list metadata, including for the next page
+                                // and for opening a result. Do not force it into a visible chat list.
+                                if (cached != null) chatCache[id] = cached
+                                cached
+                            } catch (_: TimeoutCancellationException) {
+                                null // Metadata lookup timed out; preserve the search hits.
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                null // A deleted or inaccessible chat must not hide the hit.
+                            }
+                            id to preview
+                        }
+                    }
+                }.awaitAll().mapNotNull { (id, preview) -> preview?.let { id to it } }.toMap()
+            }
+            page.copy(chats = page.messages.mapNotNull { hit ->
+                (chatCache[hit.chatId] ?: fetched[hit.chatId])?.let { hit.chatId to it }
+            }.toMap())
+        }
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean) = conversationActions.shared(chatId, kind, fromMessageId, newer)
         .onSuccess { page -> listedMediaFiles.remember(page.messages.flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }) }
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
@@ -1620,6 +1653,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         reactions = messageReactions(interactionInfo),
         serviceText = service,
         serviceUserId = event?.userId ?: 0L,
+        forumTopicId = forumId(this),
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
@@ -1659,6 +1693,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             unreadCount = unreadCount,
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
+            isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,
             isSavedMessages = saved,
             isPinned = mainPosition?.isPinned == true,
             order = mainPosition?.order ?: 0L,
