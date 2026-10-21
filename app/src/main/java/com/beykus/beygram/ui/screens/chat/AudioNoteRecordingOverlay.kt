@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,8 +47,9 @@ internal fun AudioNoteRecordingDock(recorder: AudioNoteRecorder, modifier: Modif
             modifier = Modifier.weight(1f)
         )
         if (recorder.locked) {
-            Text(stringResource(R.string.recorder_cancel), color = palette.warningText, fontSize = 13.sp,
-                modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable(onClick = onCancel).padding(horizontal = 8.dp, vertical = 7.dp))
+            TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.recorder_cancel), color = palette.warningText, fontSize = 13.sp)
+            }
         } else {
             Text(stringResource(R.string.recorder_swipe_up_lock), color = palette.textSecondary, fontSize = 11.sp)
         }
