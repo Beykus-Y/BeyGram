@@ -495,10 +495,14 @@ private fun BeyGramAppContent(
         if (chat == null) {
             chatsTab()
         } else {
-            val activeTopicId = if (selectedTopicChatId == selectedChatId) selectedForumTopicId else 0L
             var topicsResult by remember(repository, selectedChatId) {
                 mutableStateOf<Result<List<com.beykus.beygram.domain.model.ForumTopic>?>?>(null)
             }
+            // A removed topic or a forum turned into a regular group must fall back to the parent chat.
+            val activeTopicId = if (
+                selectedTopicChatId == selectedChatId &&
+                topicsResult?.getOrNull()?.any { it.id == selectedForumTopicId } == true
+            ) selectedForumTopicId else 0L
             var topicsReload by remember(repository, selectedChatId) { mutableIntStateOf(0) }
             LaunchedEffect(repository, selectedChatId, topicsReload) {
                 topicsResult = repository.forumTopics(selectedChatId)
