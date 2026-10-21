@@ -31,11 +31,19 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.ui.components.beyGramPalette
 
+/** Preview requests are tied to the visible rows; their states belong to one forum screen. */
+private sealed interface TopicPreviewState {
+    data class Loaded(val text: String?) : TopicPreviewState
+    data object Unavailable : TopicPreviewState
+}
+
 /** Topic actions are permission-gated in the UI; TDLib checks the rights again on the server. */
 @Composable
 fun ForumTopicsScreen(
+    chatId: Long,
     chatTitle: String,
     topics: List<ForumTopic>,
+    loadPreview: suspend (Long) -> Result<String?>,
     canCreate: Boolean,
     busy: Boolean,
     actionError: String?,
@@ -52,6 +60,7 @@ fun ForumTopicsScreen(
     var editing by remember { mutableStateOf<ForumTopic?>(null) }
     var deleting by remember { mutableStateOf<ForumTopic?>(null) }
     var name by remember { mutableStateOf("") }
+    val topicPreviews = remember(chatId) { mutableStateMapOf<Long, TopicPreviewState>() }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(
@@ -80,6 +89,17 @@ fun ForumTopicsScreen(
             }
         } else LazyColumn(Modifier.fillMaxSize()) {
             items(topics.distinctBy(ForumTopic::id), key = { "forum-topic:${it.id}" }) { topic ->
+                // Only visible rows fetch missing snippets; a long forum does not fan out
+                // hundreds of concurrent history requests just to build its list.
+                LaunchedEffect(chatId, topic.id, topic.lastMessagePreview, topic.isClosed) {
+                    if (!topic.isClosed && topic.lastMessagePreview.isBlank() && topic.id !in topicPreviews) {
+                        val result = loadPreview(topic.id)
+                        topicPreviews[topic.id] = result.fold(
+                            onSuccess = { TopicPreviewState.Loaded(it) },
+                            onFailure = { TopicPreviewState.Unavailable }
+                        )
+                    }
+                }
                 val pinnedDescription = stringResource(R.string.forum_topic_pinned)
                 val closedDescription = stringResource(R.string.forum_topic_closed)
                 val regularDescription = stringResource(R.string.forum_topic_regular)
@@ -125,10 +145,17 @@ fun ForumTopicsScreen(
                     Column(Modifier.weight(1f)) {
                         Text(topic.title, color = palette.textPrimary, fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val preview = topicPreviews[topic.id]
                         val subtitle = when {
                             topic.isClosed -> stringResource(R.string.forum_topic_closed)
                             topic.lastMessagePreview.isNotBlank() -> topic.lastMessagePreview
-                            else -> stringResource(R.string.forum_topic_history_hint)
+                            preview is TopicPreviewState.Loaded && preview.text == null ->
+                                stringResource(R.string.forum_topic_no_messages)
+                            preview is TopicPreviewState.Loaded && !preview.text.isNullOrBlank() ->
+                                preview.text.orEmpty()
+                            preview is TopicPreviewState.Loaded -> stringResource(R.string.forum_topic_recent_activity)
+                            preview is TopicPreviewState.Unavailable -> stringResource(R.string.forum_topic_preview_unavailable)
+                            else -> stringResource(R.string.chat_history_loading)
                         }
                         Text(subtitle, color = palette.textSecondary, fontSize = 13.sp,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
