@@ -163,6 +163,7 @@ internal class VideoNoteRecorder(
     /** What the preview asked for; logged next to the recording range so a mismatch is visible. */
     private var previewFpsRange: IntRange? = null
     private var captureCameraId: String? = null
+    private var captureSourceSize: Pair<Int, Int>? = null
     /** Persistent-запись не отвязывается от VideoCapture при перепривязке камеры. Если устройство её не умеет, переключение скрывается. */
     private var persistentSupported = true
     private var take: VideoTake? = null
@@ -443,19 +444,22 @@ internal class VideoNoteRecorder(
             VideoQualityPreset.Custom -> settings.customSide
         }
         val bitrate = videoCameraBitrate(settings)
-        val quality = if (side > 480) Quality.HD else Quality.SD
+        val requestedQuality = if (side > 480) Quality.HD else Quality.SD
         val supportedFps = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges
         captureCameraId = VideoNoteCameraSurvey.cameraId(cameraProvider.getCameraInfo(selector))
         // Camera2 normal ranges and H.264 capabilities constrain claims, but cannot guarantee
         // Preview+VideoCapture session combinations or low-light exposure behaviour.
         // The settings screen's diagnostics call the same function, so both always agree.
-        val decision = VideoNoteCameraSurvey.recordingDecision(
+        val plan = VideoNoteCameraSurvey.recordingPlan(
             context, settings, captureCameraId, supportedFps.map { it.lower..it.upper }
         )
+        val decision = plan.decision
+        val quality = if (plan.quality == com.beykus.beygram.data.media.VideoNoteSourceQuality.SD) Quality.SD else requestedQuality
+        captureSourceSize = plan.width to plan.height
         val chosenFps = decision.selected
         val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         captureFpsDecision = decision
-        Log.i(TAG, "video_fps requested=${decision.requested} selected=$chosenFps cause=${decision.cause}")
+        Log.i(TAG, "video_fps requested=${decision.requested} selected=$chosenFps cause=${decision.cause} quality=$quality")
         val qualitySelector = QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(quality))
         val captureBuilder = VideoCapture.Builder(
             Recorder.Builder()
@@ -567,7 +571,9 @@ internal class VideoNoteRecorder(
             captureBitrate = videoCameraBitrate(settings)
         )
         if (settings.diagnosticsEnabled) {
-            val (sourceWidth, sourceHeight) = VideoNoteCameraSurvey.sourceSize(settings)
+            val (sourceWidth, sourceHeight) = captureSourceSize ?: VideoNoteCameraSurvey.sourceSize(settings)
+            VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_source_plan,
+                if (sourceWidth == 640 && sourceHeight == 480) "SD" else "HD", sourceWidth, sourceHeight))
             VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_camera, captureCameraId ?: "?", sourceWidth, sourceHeight))
             val manager = context.getSystemService(CameraManager::class.java)
             captureCameraId?.let { id ->

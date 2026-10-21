@@ -248,4 +248,5 @@
     <string name="diag_full_report_highspeed">=== Скоростная съёмка ===</string>
     <string name="hs_running">Идёт проверка скоростной съёмки…</string>
     <string name="vn_entry_av_unreadable">Звуковая дорожка в файле есть, но прочитать её отсчёты не удалось: это ограничение проверки, а не доказательство, что звука нет.</string>
+    <string name="vn_entry_source_plan">Режим CameraX: %1$s, ожидаемый размер %2$d×%3$d. Это выбранная конфигурация, а не измеренный RAW. Реальный размер — в отчёте файла.</string>
 </resources>
