@@ -139,4 +139,10 @@
     <string name="updates_size">APK size: %1$.1f MB</string>
     <string name="updates_stable_only">Channel: Stable · Manual checks only</string>
     <string name="updates_title">Updates</string>
+    <string name="updates_preparing_install">Verifying APK before installation…</string>
+    <string name="updates_confirm_android_install">Confirm the update in the Android installer.</string>
+    <string name="updates_allow_unknown_sources">Allow installs from BeyGram in Android settings, then return and tap Install.</string>
+    <string name="updates_error_launch_installer">Could not open the Android installer.</string>
+    <string name="updates_error_check">Could not check GitHub Releases.</string>
+    <string name="updates_error_download">APK download failed.</string>
 </resources>
