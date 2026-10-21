@@ -7,7 +7,7 @@ import org.junit.Test
 
 class DirectShareShortcutsTest {
     private fun chat(id: Long, order: Long, post: Boolean = true) =
-        ChatPreview(id = id, title = "Chat $id", initials = "C", lastMessage = UiText.Plain(""),
+        ChatPreview(id = id, title = "Chat $id", initials = "C", lastMessage = UiText.Raw(""),
             lastMessageTime = "", unreadCount = 0, avatarColorArgb = 0L, order = order, canPost = post)
 
     @Test fun directSharePicksFourRecentWritableChats() {
