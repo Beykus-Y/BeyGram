@@ -34,3 +34,10 @@
 On Android 10 and Android 13+, switch RU → EN → System → RU **without force stopping** the app. Check immediate recomposition after activity recreation, configuration changes, back navigation to a previously opened screen, error dialogs, TalkBack announcements and truncation with large fonts. On Android 13+, confirm the system app-language setting stays in sync. Test English with a non-Russian system language to detect fallback to the default language.
 
 The above is a checklist, **not evidence of completed device tests**. Keep issue #228 open until real-device screenshot review catches any hard-coded user-facing strings outside `strings*.xml`.
+
+## Codex follow-up checks
+
+- On Android 10–12, set a language different from the system and verify foreground notification strings in the background Telegram and Mihomo services.
+- With the app language set to English, verify both the notification titles and inline actions as well as Saved Messages, outgoing-preview labels, message delivery statuses and TalkBack descriptions.
+- Follow the complete GitHub Releases installation path and test APK preparation, system installer confirmation, unknown-source permission and failure messages in both locales.
+- Device tests remain manual; the resource coverage tests verify presence and format arguments but not every screen's runtime context.
