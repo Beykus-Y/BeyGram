@@ -273,6 +273,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId)
     override fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft> = messageDrafts.observe(chatId)
+    override fun observeForumTopicDraft(chatId: Long, forumTopicId: Long): StateFlow<MessageDraft> = messageDrafts.observeTopic(chatId, forumTopicId)
+    override fun updateForumTopicDraft(chatId: Long, forumTopicId: Long, transform: (MessageDraft) -> MessageDraft) =
+        messageDrafts.updateTopic(chatId, forumTopicId, transform)
     override fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft) =
         messageDrafts.update(chatId, transform)
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
