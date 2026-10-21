@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -190,8 +191,6 @@ fun ChatsScreen(
     }
     val regularChats = remember(filteredChats, pinnedChats) { filteredChats.filterNot { it in pinnedChats } }
     val unreadTotal = remember(displayedChats) { displayedChats.sumOf { it.unreadCount } }
-    // A server folder already has its own tab title: do not label its rows 'All chats'.
-    val showAllHeader = activeFolderId == null && (pinnedChats.isNotEmpty() || query.isBlank())
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
     val listState = rememberSaveable(activeFolderId, saver = LazyListState.Saver) { LazyListState() }
@@ -369,9 +368,14 @@ fun ChatsScreen(
                     }
                 }
             } else {
-                if (showAllHeader && regularChats.isNotEmpty()) {
-                    item(key = "all_header") {
-                        Text(stringResource(R.string.chats_section_all), modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
+                // A pinned group needs a quiet separator, not a second "All chats" label
+                // beneath the already selected Telegram folder tab.
+                if (pinnedChats.isNotEmpty() && regularChats.isNotEmpty()) {
+                    item(key = "pinned_separator") {
+                        HorizontalDivider(
+                            color = palette.divider,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                        )
                     }
                 }
                 items(regularChats, key = { it.id }) { chat ->

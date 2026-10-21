@@ -31,6 +31,35 @@ class BeyGramTokensTest {
         }
     }
 
+    @Test fun materialSurfaceContainersHaveFiveReadableElevationLevels() {
+        val palettes = listOf(
+            LightTokens to false,
+            DarkTokens to true,
+            GraphiteLightTokens to false,
+            GraphiteDarkTokens to true,
+            DarkTokens.toAmoled() to true,
+            GraphiteDarkTokens.toAmoled() to true
+        )
+        palettes.forEach { (tokens, dark) ->
+            val scheme = tokens.toColorScheme(dark)
+            val levels = listOf(
+                scheme.surfaceContainerLowest, scheme.surfaceContainerLow,
+                scheme.surfaceContainer, scheme.surfaceContainerHigh, scheme.surfaceContainerHighest
+            )
+            assertEquals("Distinct M3 surface roles for dark=$dark", 5, levels.distinct().size)
+            assertEquals(if (dark) tokens.bg else tokens.surface, levels.first())
+            assertEquals(tokens.surface2, levels.last())
+            levels.forEach { color ->
+                assertTrue("Primary text on elevated surface, dark=$dark", contrastRatio(tokens.text, color) >= MinTextContrast)
+                assertTrue("Secondary text on elevated surface, dark=$dark", contrastRatio(tokens.muted, color) >= MinTextContrast)
+            }
+            val luminances = levels.map { it.luminance() }
+            val ordered = if (dark) luminances.zipWithNext().all { (a, b) -> a < b }
+                else luminances.zipWithNext().all { (a, b) -> a > b }
+            assertTrue("Material elevation ordering for dark=$dark", ordered)
+        }
+    }
+
     @Test fun materialSchemeTakesItsRolesFromTheSameTokens() {
         val light = LightTokens.toColorScheme(dark = false)
         assertEquals(LightTokens.bg, light.background)
