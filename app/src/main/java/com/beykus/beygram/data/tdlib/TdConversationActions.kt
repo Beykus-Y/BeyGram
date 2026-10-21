@@ -103,26 +103,26 @@ internal class TdConversationActions(
     }
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {
-        if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
-        if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_message_too_long))
-        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(text, entities); this.clearDraft = clearDraft }, replyId, forumTopicId)
+        val bounded = boundTelegramText(text, entities, limits.value.text)
+        if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
+        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft }, replyId, forumTopicId)
     }.onFailure { recordSendFailure("text", it) }
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
-        if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
-        send(chatId, media.toInputContent(caption, entities), replyId, forumTopicId)
+        val bounded = boundTelegramText(caption, entities, limits.value.caption)
+        send(chatId, media.toInputContent(bounded.text, bounded.entities), replyId, forumTopicId)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
         require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
-        if (caption.codePointCount(0, caption.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
+        val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
             request(TdApi.GetMessage(chatId, it))
         }
         val messages = request(TdApi.SendMessageAlbum().apply {
             this.chatId = chatId
-            inputMessageContents = media.mapIndexed { index, item -> item.toInputContent(if (index == 0) caption else "", if (index == 0) entities else emptyList()) }.toTypedArray()
+            inputMessageContents = media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
@@ -166,19 +166,27 @@ internal class TdConversationActions(
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))
         val original = request(TdApi.GetMessage(chatId, messageId))
         if (!(properties.canBeEdited && original.isOutgoing && editable(original.content))) throw UserMessageException(UiText.Res(R.string.err_message_cannot_edit))
-        val message = if (original.content is TdApi.MessageText) {
-            if (text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_edit_text_empty))
-            if (text.codePointCount(0, text.length) > limits.value.text) throw UserMessageException(UiText.Res(R.string.err_edit_text_too_long))
-            request(TdApi.EditMessageText(chatId, messageId, null, TdApi.InputMessageText().apply { this.text = formattedText(text, entities) }))
+        val isText = original.content is TdApi.MessageText
+        val bounded = boundTelegramText(text, entities, if (isText) limits.value.text else limits.value.caption)
+        if (isText && bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_edit_text_empty))
+        // An appended suffix can disappear after clipping. Do not send an unchanged edit:
+        // Telegram rejects EditMessageText/Caption with MESSAGE_NOT_MODIFIED.
+        val previous = messageFormattedText(original.content)
+        if (previous?.text == bounded.text &&
+            previous.domainEntities().sortedWith(compareBy({ it.offset }, { it.length })) ==
+            bounded.entities.sortedWith(compareBy({ it.offset }, { it.length }))) {
+            return@conversationResult Unit
+        }
+        val message = if (isText) {
+            request(TdApi.EditMessageText(chatId, messageId, null, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities) }))
         } else {
-            if (text.codePointCount(0, text.length) > limits.value.caption) throw UserMessageException(UiText.Res(R.string.err_caption_too_long))
             val above = when (val c = original.content) {
                 is TdApi.MessagePhoto -> c.showCaptionAboveMedia
                 is TdApi.MessageVideo -> c.showCaptionAboveMedia
                 is TdApi.MessageAnimation -> c.showCaptionAboveMedia
                 else -> false
             }
-            request(TdApi.EditMessageCaption(chatId, messageId, null, formattedText(text, entities), above))
+            request(TdApi.EditMessageCaption(chatId, messageId, null, formattedText(bounded.text, bounded.entities), above))
         }
         history.put(map(message)); hydrateReply(message)
     }

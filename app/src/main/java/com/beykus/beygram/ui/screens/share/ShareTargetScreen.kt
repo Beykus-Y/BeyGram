@@ -95,7 +95,7 @@ internal fun ShareTargetScreen(
     val limit = if (session.staged.isNotEmpty()) captionLimit else IncomingShareParser.MAX_TEXT_LENGTH
     val tooLong = session.draft.codePointCount(0, session.draft.length) > limit
     // Без готовых файлов текст уйдёт, только если файлов не было или пользователь убрал их все сам; при сбое подготовки не отправляем.
-    val canSend = !tooLong && !session.sending && !session.staging &&
+    val canSend = !session.sending && !session.staging &&
         (session.staged.isNotEmpty() || (session.draft.isNotBlank() && (!hasFiles || session.error == null)))
 
     LaunchedEffect(session) { session.startStaging(context, appScope) }
@@ -266,11 +266,11 @@ internal fun ShareTargetScreen(
                         placeholder = { Text(stringResource(if (hasFiles) R.string.share_caption_placeholder else R.string.share_text_placeholder)) },
                         enabled = !session.sending,
                         minLines = 3,
-                        isError = tooLong,
+                        isError = false,
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (tooLong) {
-                        Text(stringResource(R.string.share_text_too_long, limit), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.share_truncated_notice, limit), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                     session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                     if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }

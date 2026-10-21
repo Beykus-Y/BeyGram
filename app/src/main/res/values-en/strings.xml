@@ -182,4 +182,6 @@
     <string name="share_saved_target">Private chat with yourself</string>
     <string name="share_select_chat">Tap to select</string>
     <string name="share_send_review_hint">Nothing is sent until you confirm. Use Back to change recipient.</string>
+    <string name="chat_truncated_notice">Only the first %1$d characters will be sent. The rest will be trimmed.</string>
+    <string name="share_truncated_notice">Only the first %1$d characters will be sent. The rest will be trimmed.</string>
 </resources>

@@ -1065,4 +1065,6 @@
     <string name="share_saved_target">Личный чат с собой</string>
     <string name="share_select_chat">Нажмите, чтобы выбрать</string>
     <string name="share_send_review_hint">Сообщение отправится только после подтверждения. Адресата можно изменить кнопкой «Назад».</string>
+    <string name="chat_truncated_notice">При отправке останутся первые %1$d символов. Остальной текст будет обрезан.</string>
+    <string name="share_truncated_notice">Будут отправлены первые %1$d символов. Остальное будет обрезано.</string>
 </resources>
