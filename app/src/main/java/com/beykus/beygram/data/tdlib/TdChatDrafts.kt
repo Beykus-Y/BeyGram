@@ -36,9 +36,11 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val guard = Any()
     private val states = ConcurrentHashMap<Long, MutableStateFlow<MessageDraft>>()
-    // Topic drafts are kept independently from the parent chat composer.
-    // Initial forum support persists these locally; TDLib cloud syncing is a separate follow-up.
+    // Each topic has its own local state and cloud-write queue; parent chat drafts stay untouched.
     private val topicStates = ConcurrentHashMap<Pair<Long, Long>, MutableStateFlow<MessageDraft>>()
+    private val topicRevisions = ConcurrentHashMap<Pair<Long, Long>, AtomicLong>()
+    private val topicLocks = ConcurrentHashMap<Pair<Long, Long>, Mutex>()
+    private val topicDirty = ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
     private fun topicKey(chatId: Long, topicId: Long) = "topic_${chatId}_${topicId}"
     private fun topicState(chatId: Long, topicId: Long): MutableStateFlow<MessageDraft> =
         topicStates.computeIfAbsent(chatId to topicId) {
@@ -47,6 +49,7 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
         }
     fun observeTopic(chatId: Long, topicId: Long): StateFlow<MessageDraft> = topicState(chatId, topicId).asStateFlow()
     fun updateTopic(chatId: Long, topicId: Long, transform: (MessageDraft) -> MessageDraft) = synchronized(guard) {
+        val key = chatId to topicId
         val flow = topicState(chatId, topicId)
         val updated = transform(flow.value)
         val next = updated.copy(entities = validTextEntities(updated.text, updated.entities))
@@ -54,6 +57,64 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
             flow.value = next
             prefs.edit().putString(topicKey(chatId, topicId),
                 MessageDraftCodec.encode(StoredMessageDraft(next, System.currentTimeMillis()))).apply()
+            topicDirty.add(key)
+            topicRevisions.computeIfAbsent(key) { AtomicLong() }.incrementAndGet()
+            scheduleTopic(chatId, topicId, WRITE_DELAY_MS)
+        }
+    }
+
+    /** Server refreshes do not discard newer local edits. A null remote draft is a valid cloud clear. */
+    fun receiveTopic(chatId: Long, topicId: Long, raw: TdApi.DraftMessage?) {
+        if (topicId <= 0L) return
+        val remote = fromTd(raw) ?: return
+        val remoteTime = (raw?.date ?: 0).toLong() * 1000L
+        val key = chatId to topicId
+        synchronized(guard) {
+            val flow = topicState(chatId, topicId)
+            val local = prefs.getString(topicKey(chatId, topicId), null)?.let(MessageDraftCodec::decode)
+            if (flow.value == remote) {
+                topicDirty.remove(key)
+                if (local != null && !local.synced) prefs.edit().putString(topicKey(chatId, topicId),
+                    MessageDraftCodec.encode(local.copy(synced = true))).apply()
+                return
+            }
+            if (key in topicDirty) return
+            if (MessageDraftSync.keepsUnsentLocal(local, remote, remoteTime)) {
+                topicDirty.add(key)
+                scheduleTopic(chatId, topicId, WRITE_DELAY_MS)
+                return
+            }
+            flow.value = remote
+            prefs.edit().putString(topicKey(chatId, topicId),
+                MessageDraftCodec.encode(StoredMessageDraft(remote, remoteTime, synced = true))).apply()
+        }
+    }
+
+    private fun scheduleTopic(chatId: Long, topicId: Long, waitMillis: Long) {
+        val key = chatId to topicId
+        val generation = topicRevisions.computeIfAbsent(key) { AtomicLong() }.get()
+        scope.launch {
+            if (waitMillis > 0L) delay(waitMillis)
+            topicLocks.computeIfAbsent(key) { Mutex() }.withLock {
+                if (topicRevisions[key]?.get() != generation || key !in topicDirty) return@withLock
+                val snapshot = topicState(chatId, topicId).value
+                val ok = runCatching {
+                    request(TdApi.SetChatDraftMessage().apply {
+                        this.chatId = chatId
+                        this.topicId = TdApi.MessageTopicForum(topicId.toInt())
+                        draftMessage = toTd(snapshot)
+                    })
+                }.isSuccess
+                if (ok) synchronized(guard) {
+                    if (topicRevisions[key]?.get() == generation && topicState(chatId, topicId).value == snapshot) {
+                        topicDirty.remove(key)
+                        prefs.getString(topicKey(chatId, topicId), null)?.let(MessageDraftCodec::decode)?.let { saved ->
+                            prefs.edit().putString(topicKey(chatId, topicId),
+                                MessageDraftCodec.encode(saved.copy(synced = true))).apply()
+                        }
+                    }
+                }
+            }
         }
     }
     private val revisions = ConcurrentHashMap<Long, AtomicLong>()
@@ -105,6 +166,7 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
 
     fun connectionReady() {
         dirty.forEach { schedule(it, 0L) }
+        topicDirty.forEach { (chatId, topicId) -> scheduleTopic(chatId, topicId, 0L) }
     }
 
     /**
@@ -190,6 +252,9 @@ internal class TdChatDrafts(context: Context, client: () -> Client) {
     fun signedOut() {
         synchronized(guard) {
             revisions.values.forEach { it.incrementAndGet() }
+            topicRevisions.values.forEach { it.incrementAndGet() }
+            topicDirty.clear()
+            topicStates.values.forEach { it.value = MessageDraft() }
             dirty.clear()
             editedWhileOpen.clear()
             states.values.forEach { it.value = MessageDraft() }
