@@ -1115,4 +1115,8 @@
     <string name="service_videochat_ended">Видеочат завершён</string>
     <string name="service_autodelete_changed">Изменён срок автоудаления сообщений</string>
     <string name="service_background_changed">Фон чата изменён</string>
+    <string name="forum_topics_subtitle">Темы обсуждения</string>
+    <string name="forum_topics_empty">Пока нет доступных тем</string>
+    <string name="forum_topic_closed">Тема закрыта</string>
+    <string name="forum_topic_no_messages">Нет сообщений в теме</string>
 </resources>
