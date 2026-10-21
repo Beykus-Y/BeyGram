@@ -678,7 +678,7 @@ fun ChatScreen(
         val fieldLimit = when { editing -> editLimit; attachments.active -> limits.caption; else -> limits.text }
         val overLimit = fieldText.codePointCount(0, fieldText.length) > fieldLimit
         val busy = sending || editBusy || attachments.sending
-        val canSend = !busy && !overLimit && when {
+        val canSend = !busy && when {
             editing -> fieldText != editMessage?.text && (editMessage?.media != null || fieldText.isNotBlank())
             attachments.active -> attachments.pending.isNotEmpty() && !attachments.importing
             else -> fieldText.isNotBlank()
@@ -704,7 +704,7 @@ fun ChatScreen(
                 onChange = { if (editing) editText = it else typedDraft(it) },
                 onEntitiesChange = { if (editing) editEntities = it else updateDraft { state -> state.copy(entities = it) } },
                 placeholder = if (attachments.active) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
-                locked = busy, isError = overLimit, modifier = Modifier.weight(1f), focusRequest = replyFocusRequest)
+                locked = busy, isError = false, modifier = Modifier.weight(1f), focusRequest = replyFocusRequest)
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
@@ -753,6 +753,11 @@ fun ChatScreen(
                     tint = palette.onAccent.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
             }
         }
+        if (!recordingActive && overLimit) Text(
+            stringResource(R.string.chat_truncated_notice, fieldLimit),
+            color = palette.warningText, fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
+        )
         if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation)
         }
     }
