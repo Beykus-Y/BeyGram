@@ -104,7 +104,9 @@ internal fun GroupProfileScreen(
         GroupProfileToolbar(title, collapse, onBack = onBack, onDelete = onDelete, onDeleted = onDeleted)
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
         // Ошибку показываем над списком: в конце длинной вкладки она оказалась бы за сотнями строк.
-        state.error?.let { error -> Text(error.resolve(), color = palette.danger, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+        state.error?.let { error ->
+            ProfileLoadError(error.resolve(), state.isLoading, onRefresh)
+        }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(bottom = 28.dp)) {
             item(key = "header") {
                 Column(
