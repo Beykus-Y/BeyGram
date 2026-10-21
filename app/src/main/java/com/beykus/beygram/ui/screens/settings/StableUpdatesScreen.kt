@@ -92,7 +92,7 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
             is UpdateStatus.PreparingInstall -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.padding(end = 16.dp))
-                    Text("Проверяем APK перед установкой…", color = palette.textPrimary)
+                    Text(stringResource(R.string.updates_preparing_install), color = palette.textPrimary)
                 }
             }
             is UpdateStatus.Ready -> {
