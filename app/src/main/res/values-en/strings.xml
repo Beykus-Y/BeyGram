@@ -175,4 +175,11 @@
     <string name="loss_evidence_verified">Old local copy removed and a fresh download verified</string>
     <string name="loss_evidence_unverified">Could not verify a fresh download independent of local cache</string>
     <string name="loss_camera_report_heading">BeyGram — camera capability survey (without recording)</string>
+    <string name="share_pick_destination">Choose a recipient</string>
+    <string name="share_review_before_send">Review before sending</string>
+    <string name="share_preview_title">What you are sharing</string>
+    <string name="share_files_count">Attachments: %1$d</string>
+    <string name="share_saved_target">Private chat with yourself</string>
+    <string name="share_select_chat">Tap to select</string>
+    <string name="share_send_review_hint">Nothing is sent until you confirm. Use Back to change recipient.</string>
 </resources>
