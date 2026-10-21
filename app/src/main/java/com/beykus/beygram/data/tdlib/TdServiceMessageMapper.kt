@@ -8,7 +8,33 @@ import org.drinkless.tdlib.TdApi
  * Converts TDLib service content to text for both the chat timeline and chat-list preview.
  * Unsupported regular content is deliberately not identified as a service event.
  */
+internal data class TdServiceEvent(val text: String, val userId: Long = 0L)
+
+/** The event actor or affected member is preserved separately so the UI can open their profile. */
 internal class TdServiceMessageMapper(private val context: Context) {
+    fun event(message: TdApi.Message, nameForUser: (Long) -> String): TdServiceEvent? {
+        val base = text(message.content) ?: return null
+        val actor = (message.senderId as? TdApi.MessageSenderUser)?.userId ?: 0L
+        val userId = when (val content = message.content) {
+            is TdApi.MessageChatJoinByLink, is TdApi.MessageChatJoinByRequest -> actor
+            is TdApi.MessageChatAddMembers -> content.memberUserIds.singleOrNull() ?: 0L
+            is TdApi.MessageChatDeleteMember -> content.userId
+            else -> 0L
+        }
+        if (userId <= 0L) return TdServiceEvent(base)
+        val name = nameForUser(userId).ifBlank {
+            context.getString(R.string.service_unknown_member, userId.toString())
+        }
+        val label = when (message.content) {
+            is TdApi.MessageChatJoinByLink -> context.getString(R.string.service_join_link_named, name)
+            is TdApi.MessageChatJoinByRequest -> context.getString(R.string.service_join_request_named, name)
+            is TdApi.MessageChatAddMembers -> context.getString(R.string.service_members_added_named, name)
+            is TdApi.MessageChatDeleteMember -> context.getString(R.string.service_member_removed_named, name)
+            else -> base
+        }
+        return TdServiceEvent(label, userId)
+    }
+
     fun text(content: TdApi.MessageContent): String? = when (content) {
         is TdApi.MessageBasicGroupChatCreate -> context.getString(R.string.service_group_created)
         is TdApi.MessageSupergroupChatCreate -> context.getString(R.string.service_supergroup_created)
