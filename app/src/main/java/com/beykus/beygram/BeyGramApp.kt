@@ -562,6 +562,7 @@ private fun BeyGramAppContent(
                         forumTopicId = activeTopicId,
                         forumTopicTitle = selectedTopic?.title,
                         topicCanPost = selectedTopic?.canWrite ?: true,
+                        topicUnreadCount = selectedTopic?.unreadCount ?: 0,
                         focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L }
                     )
                 }
