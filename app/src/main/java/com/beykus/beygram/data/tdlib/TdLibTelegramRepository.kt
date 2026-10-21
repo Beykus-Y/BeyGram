@@ -935,6 +935,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         store.beginLoad(chatId)?.let { requestForumHistory(chatId, forumTopicId, oldest, it) }
     }
 
+    override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> =
+        conversationActions.latestForumTopicPreview(chatId, forumTopicId)
+
     override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = requestResult {
         val store = topicStore(chatId, forumTopicId)
         val result = tdRequests(TdApi.GetForumTopicHistory().apply {

@@ -121,6 +121,24 @@ internal class TdConversationActions(
         uniqueForumTopics(topics)
     }
 
+    /**
+     * GetForumTopics can omit lastMessage for long-inactive topics or return non-text content.
+     * Request the newest message only for a visible topic without a usable preview.
+     * This does not alter the full, separately paged topic history.
+     */
+    suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> =
+        conversationResult<String?> {
+            if (forumTopicId <= 0L) return@conversationResult null
+            val messages = request(TdApi.GetForumTopicHistory().apply {
+                this.chatId = chatId
+                this.forumTopicId = forumTopicId.toInt()
+                fromMessageId = 0L
+                offset = 0
+                limit = 1
+            })
+            messages.messages.orEmpty().filterNotNull().firstOrNull()?.let { forumTopicMessagePreview(map(it)) }
+        }
+
     /** All mutations go through TDLib; the server is the final authority for permissions. */
     suspend fun canCreateTopic(chatId: Long): Result<Boolean> = conversationResult {
         val chat = request(TdApi.GetChat(chatId))
@@ -451,3 +469,9 @@ private fun recordSendFailure(kind: String, error: Throwable) {
 /** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */
 internal fun uniqueForumTopics(topics: List<ForumTopic>): List<ForumTopic> =
     topics.distinctBy(ForumTopic::id).sortedByDescending(ForumTopic::order)
+
+/** A blank string means a message exists but has no textual snippet (for example a photo). */
+internal fun forumTopicMessagePreview(message: ChatMessage): String =
+    message.text.trim().ifBlank {
+        message.media?.fileName?.trim().orEmpty().ifBlank { message.serviceText?.trim().orEmpty() }
+    }

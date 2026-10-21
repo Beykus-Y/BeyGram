@@ -32,6 +32,7 @@ class ForumTopicsAccessibilityTest {
         composeRule.setContent {
             BeyGramTheme {
                 ForumTopicsScreen(
+                    chatId = 1L, loadPreview = { Result.success(null) },
                     chatTitle = "Test forum", topics = topics, canCreate = false,
                     busy = false, actionError = null,
                     onBack = {}, onTopic = { opened += it.id },

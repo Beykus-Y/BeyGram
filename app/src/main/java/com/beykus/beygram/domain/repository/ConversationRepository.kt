@@ -21,6 +21,7 @@ interface ConversationRepository {
     fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory>
     fun loadForumTopicHistory(chatId: Long, forumTopicId: Long)
     fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long)
+    suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?>
     suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean>
     fun openChat(chatId: Long)
     fun closeChat(chatId: Long)
