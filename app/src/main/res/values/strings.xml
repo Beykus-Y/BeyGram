@@ -1196,6 +1196,8 @@
     <string name="updates_error_check">Не удалось проверить GitHub Releases.</string>
     <string name="updates_error_download">Ошибка загрузки APK.</string>
     <string name="forum_topics_partial_load_failed">Часть тем не загрузилась. Уже полученные темы доступны.</string>
+    <string name="share_saved_quick_action">Избранное</string>
+    <string name="share_recent_destinations">Недавние и другие чаты</string>
     <string name="sessions_load_timeout">Не удалось получить сеансы за отведённое время. Проверь подключение и нажми «Повторить».</string>
     <string name="sessions_action_timeout">Нет подтверждения от Telegram. Обнови список перед повторной попыткой: действие могло выполниться.</string>
 </resources>
