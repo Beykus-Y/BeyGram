@@ -181,4 +181,39 @@ class CreateGroupScreenTest {
             .performClick()
         composeRule.runOnIdle { assertEquals(1, verified) }
     }
+
+    @Test
+    fun rejectedGroupCreationShowsInlineErrorAndKeepsActionReachable() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fileState = MutableStateFlow(MediaFileState(id = 0))
+        var attempts = 0
+        composeRule.setContent {
+            BeyGramTheme {
+                CreateGroupScreen(
+                    loadContacts = { Result.success(contacts) },
+                    creationState = GroupCreationState.Idle,
+                    startGroupCreation = { _, _ ->
+                        attempts++
+                        Result.failure(IllegalStateException("simulated failure"))
+                    },
+                    acknowledgeGroupCreation = {},
+                    acknowledgeUncertainGroupCreation = {},
+                    observeFile = { fileState },
+                    downloadFile = {},
+                    onBack = {},
+                    onCreated = { _, _ -> }
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Tester 1").performClick()
+        composeRule.onNodeWithTag("group_title_input").performTextInput("Test group")
+        composeRule.onNodeWithTag("group_create_submit").performClick()
+        composeRule.onNodeWithText(context.getString(R.string.new_chat_group_failed))
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("group_create_submit")
+            .assertIsDisplayed()
+            .assertIsEnabled()
+        composeRule.runOnIdle { assertEquals(1, attempts) }
+    }
 }
