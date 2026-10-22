@@ -77,7 +77,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            BeyGramTheme(darkTheme = isDarkTheme, tokens = resolveTokens(config, systemDark)) {
+            BeyGramTheme(
+                darkTheme = isDarkTheme,
+                tokens = resolveTokens(config, systemDark),
+                messageTextSizeSp = config.messageTextSizeSp
+            ) {
                 // Bubble shape and list density come from the same saved choice as the colours.
                 CompositionLocalProvider(
                     LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density),

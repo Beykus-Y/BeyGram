@@ -30,9 +30,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,6 +52,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.BubbleStyle
 import com.beykus.beygram.data.appearance.ListDensity
+import com.beykus.beygram.data.appearance.DEFAULT_MESSAGE_TEXT_SIZE_SP
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
@@ -85,8 +88,10 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
     var bubbleColor by rememberSaveable { mutableStateOf(saved.outgoingBubbleColor) }
     var style by rememberSaveable { mutableStateOf(saved.bubbleStyle) }
     var density by rememberSaveable { mutableStateOf(saved.density) }
+    var textSize by rememberSaveable { mutableIntStateOf(saved.messageTextSizeSp) }
     // Keeps the palette and brightness that the editor does not change.
-    val draft = saved.copy(accentColor = accent, outgoingBubbleColor = bubbleColor, bubbleStyle = style, density = density)
+    val draft = saved.copy(accentColor = accent, outgoingBubbleColor = bubbleColor, bubbleStyle = style,
+        density = density, messageTextSizeSp = textSize)
     val tokens = resolveTokens(draft, systemDark)
     val issues = contrastIssues(tokens, bubbleColor)
     val metrics = bubbleMetricsFor(style, density)
@@ -103,7 +108,7 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SectionTitle(stringResource(R.string.theme_preview_title))
-            BeyGramTheme(darkTheme = draft.mode.isDark(systemDark), tokens = tokens) {
+            BeyGramTheme(darkTheme = draft.mode.isDark(systemDark), tokens = tokens, messageTextSizeSp = textSize) {
                 ThemePreview(bubbleRadius = metrics.cornerRadius, spacing = metrics.itemSpacing)
             }
             if (issues.any) {
@@ -127,6 +132,18 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
                 ChoiceRow(stringResource(R.string.theme_editor_shape_square), style == BubbleStyle.Square) { style = BubbleStyle.Square }
             }
 
+            SectionTitle(stringResource(R.string.theme_editor_text_size, textSize))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface)
+                .padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Slider(
+                    value = textSize.toFloat(),
+                    onValueChange = { textSize = it.toInt().coerceIn(12, 22) },
+                    valueRange = 12f..22f,
+                    steps = 9
+                )
+                Text(stringResource(R.string.theme_editor_text_size_hint), color = palette.textSecondary, fontSize = 12.sp)
+            }
+
             SectionTitle(stringResource(R.string.theme_editor_density))
             ChoiceGroup {
                 ChoiceRow(stringResource(R.string.theme_editor_density_compact), density == ListDensity.Compact) { density = ListDensity.Compact }
@@ -140,6 +157,7 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
                     bubbleColor = null
                     style = BubbleStyle.Rounded
                     density = ListDensity.Comfortable
+                    textSize = DEFAULT_MESSAGE_TEXT_SIZE_SP
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {

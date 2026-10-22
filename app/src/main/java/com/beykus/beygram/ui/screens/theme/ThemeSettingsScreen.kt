@@ -99,7 +99,8 @@ fun ThemeSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SectionTitle(stringResource(R.string.theme_preview_title))
-            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
+            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark),
+                messageTextSizeSp = draft.messageTextSizeSp) {
                 ThemePreview(bubbleRadius = previewMetrics.cornerRadius, spacing = previewMetrics.itemSpacing, wallpaper = wallpaper)
             }
 
@@ -176,6 +177,7 @@ internal fun ThemePreview(
     wallpaper: ChatWallpaper = ChatWallpaper.None
 ) {
     val palette = beyGramPalette()
+    val messageSize = com.beykus.beygram.ui.theme.LocalMessageTextSize.current
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.screen),
         verticalArrangement = Arrangement.spacedBy(0.dp)
@@ -248,6 +250,7 @@ private fun PreviewBubble(
     reply: String? = null, media: Boolean = false
 ) {
     val palette = beyGramPalette()
+    val messageSize = com.beykus.beygram.ui.theme.LocalMessageTextSize.current
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start
@@ -276,7 +279,7 @@ private fun PreviewBubble(
                         modifier = Modifier.size(29.dp))
                 }
             }
-            Text(text, color = palette.textPrimary, fontSize = 15.sp)
+            Text(text, color = palette.textPrimary, fontSize = messageSize, lineHeight = (messageSize.value * 1.375f).sp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically) {
                 Text(time, color = palette.textSecondary, fontSize = 11.sp)
