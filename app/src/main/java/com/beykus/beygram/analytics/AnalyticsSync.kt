@@ -11,6 +11,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.random.Random
 
+/** The timer may wake up during Retry-After; only an explicit settings change can override it. */
+internal fun canAttemptAnalyticsSync(nowMillis: Long, nextAttemptAt: Long, forced: Boolean): Boolean =
+    forced || nowMillis >= nextAttemptAt
+
 /**
  * Фоновая синхронизация аналитики. Не просит ни кода, ни бота и не ждёт входа в Telegram:
  * регистрация идёт при первом запуске, а состояние меняется только при изменении версии,
@@ -19,10 +23,6 @@ import kotlin.random.Random
  * Все отправки проходят через один [lock]. Повтор того же логического состояния использует
  * сохранённые ревизию и тело, новое состояние получает большую ревизию.
  */
-/** The timer may wake up during Retry-After; only an explicit settings change can override it. */
-internal fun canAttemptAnalyticsSync(nowMillis: Long, nextAttemptAt: Long, forced: Boolean): Boolean =
-    forced || nowMillis >= nextAttemptAt
-
 object AnalyticsSync {
     private const val TAG = "AnalyticsSync"
     private const val HEARTBEAT_MS = 24L * 60 * 60 * 1000
@@ -46,12 +46,13 @@ object AnalyticsSync {
     @Synchronized
     fun install(context: Context, scope: CoroutineScope, baseUrl: String = BuildConfig.DIAGNOSTICS_API_BASE_URL) {
         if (this.scope != null) return
-        store = AnalyticsStore(context)
+        val installedStore = AnalyticsStore(context)
+        store = installedStore
         api = AnalyticsApi(baseUrl)
         this.scope = scope
         // The throttle survives process death. Wake once at the persisted deadline; a 30-minute
         // periodic check alone would delay a retry or incorrectly bypass a long Retry-After.
-        val remainingMs = (store!!.nextAttemptAt - System.currentTimeMillis()).coerceAtLeast(0L)
+        val remainingMs = (installedStore.nextAttemptAt - System.currentTimeMillis()).coerceAtLeast(0L)
         if (remainingMs > 0L) {
             retryJob = scope.launch { delay(remainingMs); sync() }
         }
