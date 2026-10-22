@@ -178,7 +178,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean): Result<Unit> = unavailable()
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = unavailable()
 
-    override suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = unavailable()
+    override suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit): Result<List<ForumTopic>?> = unavailable()
     override suspend fun canCreateForumTopic(chatId: Long): Result<Boolean> = unavailable()
     override suspend fun createForumTopic(chatId: Long, name: String): Result<Long> = unavailable()
     override suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit> = unavailable()

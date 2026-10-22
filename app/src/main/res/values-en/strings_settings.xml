@@ -57,4 +57,6 @@
     <string name="settings_video_side">%1$d × %1$d</string>
     <string name="settings_video_standard">Standard</string>
     <string name="settings_video_standard_detail">384 × 384 · 30 FPS · 1000 kbps</string>
+    <string name="sessions_load_timeout">Session loading timed out. Check your connection and try again.</string>
+    <string name="sessions_action_timeout">Telegram did not confirm the action. Refresh the list before retrying; it may already have succeeded.</string>
 </resources>

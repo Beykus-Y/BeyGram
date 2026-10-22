@@ -6,7 +6,11 @@ import android.net.Uri
  * Содержимое, которое другое приложение передало через «Поделиться». Пока оно не отправлено, живёт только в памяти активности.
  * [uris] — файлы из `EXTRA_STREAM`/`ClipData`; их копируем в приватную папку только при показе экрана выбора.
  */
-data class IncomingShare(val requestId: Long, val text: String, val uris: List<Uri> = emptyList())
+data class IncomingShare(
+    val requestId: Long, val text: String, val uris: List<Uri> = emptyList(),
+    /** Suggested recipient from Android Direct Share, never a sending authorization. */
+    val targetChatId: Long = 0L
+)
 
 /** Файлы из «Поделиться», которые приняты, и число отброшенных адресов. */
 data class ShareUriCheck(val accepted: List<Uri>, val rejected: Int)
@@ -20,7 +24,7 @@ object IncomingShareParser {
 
     private const val ACTION_SEND = "android.intent.action.SEND"
     private const val ACTION_SEND_MULTIPLE = "android.intent.action.SEND_MULTIPLE"
-    private const val MIME_TEXT_PLAIN = "text/plain"
+    private const val MIME_TEXT_PREFIX = "text/"
     private const val SCHEME_CONTENT = "content"
 
     /** FileProvider Prod и Dev: их файлы BeyGram отдаёт только себе, другим приложениям через «Поделиться» не отдаём. */
@@ -45,13 +49,13 @@ object IncomingShareParser {
 
     /**
      * Разбирает входящий `SEND` или `SEND_MULTIPLE`. Если есть файлы, возвращает их вместе с подписью-текстом.
-     * Чистый текст принимается только с типом text/plain. Пустой запрос возвращает null.
+     * Чистый текст принимается с любым типом из семейства text: экран проверки показывает его до отправки. Пустой запрос возвращает null.
      */
     fun from(action: String?, mimeType: String?, text: CharSequence?, uris: List<Uri>, requestId: Long): IncomingShare? {
         if (action != ACTION_SEND && action != ACTION_SEND_MULTIPLE) return null
         val value = text?.toString()?.trim()?.takeIf { it.isNotEmpty() }
         if (uris.isNotEmpty()) return IncomingShare(requestId, value.orEmpty(), uris)
-        if (mimeType?.startsWith(MIME_TEXT_PLAIN) != true || value == null) return null
+        if (mimeType?.startsWith(MIME_TEXT_PREFIX) != true || value == null) return null
         return IncomingShare(requestId, value)
     }
 

@@ -49,14 +49,14 @@ internal class TdCallHistory(private val client: () -> Client, private val profi
             avatarColorArgb = chatId.stableColor(),
             isVideo = call.isVideo,
             isOutgoing = isOutgoing,
-            status = call.discardReason.toStatus(call.duration, isOutgoing),
+            status = call.discardReason.toCallStatus(call.duration, isOutgoing),
             durationSeconds = call.duration,
             dateSeconds = date.toLong()
         )
     }
 }
 
-private fun TdApi.CallDiscardReason?.toStatus(duration: Int, isOutgoing: Boolean): CallStatus = when {
+internal fun TdApi.CallDiscardReason?.toCallStatus(duration: Int, isOutgoing: Boolean): CallStatus = when {
     duration > 0 -> CallStatus.Answered
     this is TdApi.CallDiscardReasonDeclined -> CallStatus.Declined
     // TDLib помечает пропущенным вызов, завершённый до начала разговора: входящий пропущен, исходящий остался без ответа.

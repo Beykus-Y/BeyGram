@@ -45,7 +45,9 @@ class VideoNoteProcessor(private val context: Context) {
         val sourceInfo = withContext(Dispatchers.IO) { metadata(source) }
         val sourceDurationMs = sourceInfo.durationMs
         require(sourceDurationMs > 0L) { "Не удалось прочитать длительность записи" }
-        val target = settings.targetProfile()
+        val target = settings.targetProfile().let { profile ->
+            profile.copy(side = videoNoteOutputSide(profile.side, sourceInfo.width, sourceInfo.height))
+        }
         withContext(Dispatchers.IO) { outputDirectory.mkdirs() }
         // CameraX пишет кадр целиком, включая углы вне круга, а TDLib принимает кружок только в H.264: поэтому файл всегда перекодируется.
         val result = mutableListOf<OutgoingMedia>()
@@ -197,6 +199,13 @@ class VideoNoteProcessor(private val context: Context) {
         VideoQualityPreset.Custom -> TargetProfile(customSide, customVideoBitrateKbps * 1_000, customAudioBitrateKbps * 1_000)
     }
 
+}
+
+/** Never upscale CameraX SD source after its square crop: the short side limits detail. */
+internal fun videoNoteOutputSide(requested: Int, width: Int, height: Int): Int {
+    // Metadata may omit the size (some firmware, a just-finalized file). Keep the requested side instead of failing the note.
+    if (width <= 0 || height <= 0) return minOf(requested, 640)
+    return minOf(requested, width, height, 640)
 }
 
 /** Предел длительности кружка в Telegram. */

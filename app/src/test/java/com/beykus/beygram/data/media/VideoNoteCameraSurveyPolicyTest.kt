@@ -7,6 +7,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoNoteCameraSurveyPolicyTest {
+    @Test fun qualityFallbackOnlyOnSupportedNormalSD60() {
+        assertEquals(VideoNoteSourceQuality.SD, videoNoteSourceForHighFps(false, true, true, true))
+        assertEquals(VideoNoteSourceQuality.SD, videoNoteSourceForHighFps(true, true, false, true))
+        assertEquals(VideoNoteSourceQuality.HD, videoNoteSourceForHighFps(null, true, null, true))
+        assertEquals(VideoNoteSourceQuality.HD, videoNoteSourceForHighFps(false, null, false, true))
+        assertEquals(VideoNoteSourceQuality.HD, videoNoteSourceForHighFps(false, true, false, false))
+    }
+
+    @Test fun streamLimitIsNotMisreportedAsEncoderLimit() {
+        val decision = safeVideoNoteFpsSelection(
+            55..60, listOf(30..30, 30..60), listOf(30..30, 30..60), true, false
+        )
+        assertEquals(30..30, decision.selected)
+        assertEquals(VideoNoteFpsCause.STREAM_REJECTS_60, decision.cause)
+    }
+
     @Test fun cameraWithNormal60AndEncoderPreserves60() {
         val decision = safeVideoNoteFpsSelection(
             55..60, listOf(15..30, 30..30, 30..60), listOf(15..30, 30..30, 30..60), true

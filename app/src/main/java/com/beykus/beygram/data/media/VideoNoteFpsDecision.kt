@@ -13,6 +13,8 @@ internal enum class VideoNoteFpsCause {
     NO_NORMAL_60,
     /** A normal 60 FPS range exists, but the H.264 encoder rejects 60 FPS at the source size. */
     ENCODER_REJECTS_60,
+    /** MediaRecorder stream size/frame duration does not advertise 60 for this source size. */
+    STREAM_REJECTS_60,
     /** Nothing compatible was advertised; the camera default is used and must be measured. */
     NO_COMPATIBLE_RANGE
 }
@@ -34,7 +36,8 @@ internal fun safeVideoNoteFpsSelection(
     requested: IntRange,
     cameraXRanges: Collection<IntRange>,
     camera2NormalRanges: Collection<IntRange>?,
-    encoderSupports60: Boolean?
+    encoderSupports60: Boolean?,
+    streamSupports60: Boolean? = null
 ): VideoNoteFpsDecision {
     val regular = cameraXRanges.filter { range ->
         range.first <= requested.last && (camera2NormalRanges == null ||
@@ -42,7 +45,7 @@ internal fun safeVideoNoteFpsSelection(
     }
     val wants60 = requested.last >= 50
     val normal60 = regular.any { it.last >= 60 }
-    val can60 = wants60 && normal60 && encoderSupports60 != false
+    val can60 = wants60 && normal60 && encoderSupports60 != false && streamSupports60 != false
     val available = if (wants60 && !can60) regular.filter { it.last <= 30 }
         .ifEmpty { regular.filter { it.last < 50 } }
     else regular
@@ -52,6 +55,7 @@ internal fun safeVideoNoteFpsSelection(
     val picked = chooseSupportedFrameRateRange(target, available)
     val cause = when {
         picked == null -> VideoNoteFpsCause.NO_COMPATIBLE_RANGE
+        wants60 && !can60 && normal60 && streamSupports60 == false -> VideoNoteFpsCause.STREAM_REJECTS_60
         wants60 && !can60 && normal60 -> VideoNoteFpsCause.ENCODER_REJECTS_60
         wants60 && !can60 -> VideoNoteFpsCause.NO_NORMAL_60
         picked.last < requested.last -> VideoNoteFpsCause.CAMERA_RANGE_FALLBACK

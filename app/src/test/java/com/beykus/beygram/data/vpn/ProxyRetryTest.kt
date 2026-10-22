@@ -1,12 +1,41 @@
 package com.beykus.beygram.data.vpn
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.awaitCancellation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProxyRetryTest {
+    @Test
+    fun transientProxyStatusWaitsForRunning() = runBlocking {
+        val states = flowOf(
+            ProxyRuntimeState(ProxyRuntimeStatus.STARTING),
+            ProxyRuntimeState(ProxyRuntimeStatus.RUNNING)
+        )
+        assertEquals(ProxyRuntimeStatus.RUNNING, awaitSettledProxyState(states, 1000)?.status)
+    }
+
+    @Test
+    fun permanentlyStartingProxyTimesOutAndYieldsUserChoice() = runBlocking {
+        val states = flow<ProxyRuntimeState> {
+            emit(ProxyRuntimeState(ProxyRuntimeStatus.STARTING))
+            awaitCancellation()
+        }
+        assertEquals(null, awaitSettledProxyState(states, 20L))
+    }
+
+    @Test
+    fun failedProxySettlesImmediately() = runBlocking {
+        assertEquals(
+            ProxyRuntimeStatus.FAILED,
+            awaitSettledProxyState(flowOf(ProxyRuntimeState(ProxyRuntimeStatus.FAILED)), 1000)?.status
+        )
+    }
+
     @Test
     fun stopsAtFirstSuccess() = runBlocking {
         val tries = mutableListOf<Int>()

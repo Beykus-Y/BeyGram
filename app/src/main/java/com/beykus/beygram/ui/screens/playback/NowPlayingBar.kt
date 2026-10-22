@@ -56,6 +56,7 @@ import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.ui.screens.chat.duration
 
 /** Цвета управления плеером: на светлом листе приложения и на тёмном фоне просмотрщика. */
@@ -97,9 +98,11 @@ fun NowPlayingBar(bottomInset: Boolean = false) {
             Modifier.fillMaxWidth().clickable { sheetOpen = true }.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Rounded.MusicNote, contentDescription = null, tint = palette.accentInk,
-                modifier = Modifier.size(40.dp).background(palette.accentSoft, CircleShape).padding(10.dp)
+            TrackArtwork(
+                artworkPath = item.artworkPath,
+                audioPath = item.path.takeIf { item.kind == MediaKind.Audio },
+                modifier = Modifier.size(40.dp),
+                background = palette.accentSoft, tint = palette.accentInk
             )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
@@ -175,9 +178,11 @@ internal fun NowPlayingControls(
     modifier: Modifier = Modifier
 ) {
     Column(modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(
-            Icons.Rounded.MusicNote, contentDescription = null, tint = colors.accent,
-            modifier = Modifier.size(96.dp).background(colors.accentSoft, CircleShape).padding(28.dp)
+        TrackArtwork(
+            artworkPath = item.artworkPath,
+            audioPath = item.path.takeIf { item.kind == MediaKind.Audio },
+            modifier = Modifier.size(144.dp),
+            background = colors.accentSoft, tint = colors.accent, symbolSize = 56.dp
         )
         Spacer(Modifier.height(16.dp))
         Text(item.title, color = colors.primary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)

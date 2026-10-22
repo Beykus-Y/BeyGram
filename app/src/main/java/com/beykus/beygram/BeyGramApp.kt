@@ -52,6 +52,7 @@ import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
+import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.chats.CreateChannelScreen
 import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
@@ -92,6 +93,7 @@ import com.beykus.beygram.ui.screens.proxy.ProxyRestoreDialog
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
 import com.beykus.beygram.share.IncomingShare
 import com.beykus.beygram.share.ShareSessions
+import com.beykus.beygram.share.DirectShareShortcuts
 import com.beykus.beygram.ui.screens.share.ShareTargetScreen
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -170,8 +172,13 @@ private fun BeyGramAppContent(
     incomingShare: IncomingShare?,
     onIncomingShareHandled: (Long) -> Unit
 ) {
+    val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
     val authState by repository.authState.collectAsStateWithLifecycle()
+    // Observe shortcuts from process scope so they stay fresh while this Activity is stopped.
+    LaunchedEffect(repository) {
+        (context.applicationContext as BeyGramApplication).startDirectShare(repository)
+    }
     val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
     val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
     val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
@@ -232,7 +239,6 @@ private fun BeyGramAppContent(
         }
     }
     // Скрытый архив остаётся скрытым после перезапуска: флаг лежит в настройках приложения.
-    val context = LocalContext.current
     val chatPreferences = remember(context) { context.applicationContext.getSharedPreferences("chats", Context.MODE_PRIVATE) }
     var archiveHidden by remember { mutableStateOf(chatPreferences.getBoolean("archive_hidden", false)) }
     val onArchiveHiddenChange: (Boolean) -> Unit = { hidden ->
@@ -351,6 +357,7 @@ private fun BeyGramAppContent(
             key(incomingShare.requestId) {
                 ShareTargetScreen(
                     requestId = incomingShare.requestId,
+                    initialChatId = incomingShare.targetChatId,
                     text = incomingShare.text,
                     uris = incomingShare.uris,
                     session = shareSession,
@@ -523,6 +530,8 @@ private fun BeyGramAppContent(
                 )
             ) selectedForumTopicId else 0L
             var topicsReload by remember(repository, selectedChatId) { mutableIntStateOf(0) }
+            var topicsLoading by remember(repository, selectedChatId) { mutableStateOf(true) }
+            var topicsLoadError by remember(repository, selectedChatId) { mutableStateOf(false) }
             var canCreateTopic by remember(repository, selectedChatId) { mutableStateOf(false) }
             var forumBusy by remember(repository, selectedChatId) { mutableStateOf(false) }
             var forumActionError by remember(repository, selectedChatId) { mutableStateOf<String?>(null) }
@@ -542,7 +551,21 @@ private fun BeyGramAppContent(
                 }
             }
             LaunchedEffect(repository, selectedChatId, topicsReload) {
-                topicsResult = repository.forumTopics(selectedChatId)
+                topicsLoading = true
+                topicsLoadError = false
+                try {
+                    // No total cap: every TDLib page has its own request timeout, so a large but slow forum is not reported as failed.
+                    val completed = repository.forumTopics(selectedChatId) { partial ->
+                        // The user can open a topic as soon as the first page arrives. A reload merges into the list on
+                        // screen, so a retry does not shrink it to the first page.
+                        topicsResult = Result.success(mergeForumTopics(topicsResult?.getOrNull(), partial))
+                    }
+                    // Keep rendered pages on a late failure but clearly offer retry.
+                    if (completed.isSuccess || topicsResult == null) topicsResult = completed
+                    if (completed.isFailure && topicsResult?.isSuccess == true) topicsLoadError = true
+                } finally {
+                    topicsLoading = false
+                }
             }
             val topics = topicsResult?.getOrNull()
             val selectedTopic = topics?.firstOrNull { it.id == activeTopicId }
@@ -571,9 +594,9 @@ private fun BeyGramAppContent(
                 }
             }
             when {
-                topicsResult == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                topicsResult == null -> ForumTopicsLoadingScreen(
+                    chatTitle = chat.title, onBack = { routeName = chatBackRouteName }
+                )
                 topicsResult?.isFailure == true && activeTopicId == 0L -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(stringResource(R.string.share_topics_failed))
@@ -587,6 +610,9 @@ private fun BeyGramAppContent(
                     topics = topics,
                     canCreate = canCreateTopic,
                     busy = forumBusy,
+                    loadingTopics = topicsLoading,
+                    loadError = topicsLoadError,
+                    onRetryLoad = { topicsReload++ },
                     actionError = forumActionError,
                     onBack = { routeName = chatBackRouteName },
                     onTopic = { topic -> selectedTopicChatId = selectedChatId; selectedForumTopicId = topic.id },
@@ -983,4 +1009,14 @@ private fun BeyGramAppContent(
     noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
         text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
     ProxyRestoreDialog(vpnBackend = vpnBackend)
+}
+
+/** Fresh topics first, then topics already on screen that a reload has not returned yet. */
+private fun mergeForumTopics(
+    shown: List<com.beykus.beygram.domain.model.ForumTopic>?,
+    fresh: List<com.beykus.beygram.domain.model.ForumTopic>
+): List<com.beykus.beygram.domain.model.ForumTopic> {
+    if (shown.isNullOrEmpty()) return fresh
+    val freshIds = fresh.mapTo(HashSet()) { it.id }
+    return fresh + shown.filter { it.id !in freshIds }
 }
