@@ -640,6 +640,7 @@
     <string name="recorder_screen_light_on">Включить подсветку экраном</string>
     <string name="recorder_screen_light_off">Выключить подсветку экраном</string>
     <string name="recorder_light_failed">Не удалось включить вспышку камеры</string>
+    <string name="recorder_light_off_failed">Не удалось выключить вспышку. Повторите попытку</string>
     <string name="recorder_start_failed">Не удалось начать запись</string>
     <string name="recorder_zoom_value">%1$.1f×</string>
     <string name="recorder_swipe_left_cancel">Влево — отменить</string>
