@@ -65,6 +65,7 @@ import com.beykus.beygram.ui.text.resolve
 @Composable
 internal fun ShareTargetScreen(
     requestId: Long,
+    initialChatId: Long = 0L,
     text: String,
     uris: List<Uri>,
     session: ShareSession,
@@ -82,6 +83,16 @@ internal fun ShareTargetScreen(
     val importer = remember(context) { OutgoingMediaImporter(context) }
 
     var targetId by rememberSaveable(requestId) { mutableStateOf(0L) }
+    var shortcutApplied by rememberSaveable(requestId) { mutableStateOf(false) }
+    // TDLib chat list arrives asynchronously on a cold start: apply the Direct Share
+    // target only when it becomes an actual writable chat. Never override user choice.
+    LaunchedEffect(initialChatId, chats) {
+        if (!shortcutApplied && targetId == 0L && initialChatId != 0L &&
+            chats.any { it.id == initialChatId && it.canPost }) {
+            targetId = initialChatId
+            shortcutApplied = true
+        }
+    }
     var query by rememberSaveable { mutableStateOf("") }
     // Тема группы с темами; 0 — чат без тем, тема не нужна.
     var topicId by rememberSaveable(requestId) { mutableStateOf(0L) }

@@ -78,12 +78,16 @@
                 <action android:name="android.intent.action.SEND" />
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/*" />
+                <data android:mimeType="text/plain" />
                 <data android:mimeType="image/*" />
                 <data android:mimeType="video/*" />
                 <data android:mimeType="audio/*" />
                 <data android:mimeType="application/*" />
             </intent-filter>
+            <!-- Android 10+ Sharing Shortcuts: categories in shortcuts.xml match dynamic targets. -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/sharing_shortcuts" />
         </activity>
     </application>
 
