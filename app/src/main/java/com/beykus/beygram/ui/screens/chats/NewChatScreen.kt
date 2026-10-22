@@ -325,7 +325,7 @@ internal fun CreateGroupScreen(
                 Modifier.weight(0.5f, fill = false)
                     .fillMaxWidth().background(palette.screen)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 if (creationState is GroupCreationState.NeedsVerification) {
                     Text(
@@ -354,7 +354,7 @@ internal fun CreateGroupScreen(
         HorizontalDivider(color = palette.divider)
         Column(
             Modifier.fillMaxWidth().background(palette.screen)
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             Button(
                 enabled = canCreate && creationState !is GroupCreationState.NeedsVerification &&
