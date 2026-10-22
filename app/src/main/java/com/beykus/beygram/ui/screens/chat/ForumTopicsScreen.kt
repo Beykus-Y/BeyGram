@@ -93,6 +93,8 @@ fun ForumTopicsScreen(
     canCreate: Boolean,
     busy: Boolean,
     loadingTopics: Boolean = false,
+    loadError: Boolean = false,
+    onRetryLoad: () -> Unit = {},
     actionError: String?,
     onBack: () -> Unit,
     onTopic: (ForumTopic) -> Unit,
@@ -139,6 +141,16 @@ fun ForumTopicsScreen(
         }
         HorizontalDivider(color = palette.divider)
         if (busy || loadingTopics) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+        if (loadError) Row(
+            Modifier.fillMaxWidth().background(palette.surface2).padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(stringResource(R.string.forum_topics_partial_load_failed),
+                color = palette.textPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            TextButton(enabled = !loadingTopics, onClick = onRetryLoad) {
+                Text(stringResource(R.string.common_retry), color = palette.accent)
+            }
+        }
         if (actionError != null) {
             Text(actionError, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
                 color = MaterialTheme.colorScheme.error, fontSize = 13.sp)

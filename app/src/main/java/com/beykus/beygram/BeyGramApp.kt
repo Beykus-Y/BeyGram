@@ -533,6 +533,7 @@ private fun BeyGramAppContent(
             ) selectedForumTopicId else 0L
             var topicsReload by remember(repository, selectedChatId) { mutableIntStateOf(0) }
             var topicsLoading by remember(repository, selectedChatId) { mutableStateOf(true) }
+            var topicsLoadError by remember(repository, selectedChatId) { mutableStateOf(false) }
             var canCreateTopic by remember(repository, selectedChatId) { mutableStateOf(false) }
             var forumBusy by remember(repository, selectedChatId) { mutableStateOf(false) }
             var forumActionError by remember(repository, selectedChatId) { mutableStateOf<String?>(null) }
@@ -553,6 +554,7 @@ private fun BeyGramAppContent(
             }
             LaunchedEffect(repository, selectedChatId, topicsReload) {
                 topicsLoading = true
+                topicsLoadError = false
                 try {
                     val completed = withTimeout(20_000L) {
                         repository.forumTopics(selectedChatId) { partial ->
@@ -560,10 +562,12 @@ private fun BeyGramAppContent(
                             topicsResult = Result.success(partial)
                         }
                     }
-                    // Preserve the last successfully delivered page if later pagination fails.
+                    // Keep rendered pages on a late failure but clearly offer retry.
                     if (completed.isSuccess || topicsResult == null) topicsResult = completed
+                    if (completed.isFailure && topicsResult?.isSuccess == true) topicsLoadError = true
                 } catch (timeout: TimeoutCancellationException) {
                     if (topicsResult == null) topicsResult = Result.failure(timeout)
+                    else topicsLoadError = true
                 } finally {
                     topicsLoading = false
                 }
@@ -612,6 +616,8 @@ private fun BeyGramAppContent(
                     canCreate = canCreateTopic,
                     busy = forumBusy,
                     loadingTopics = topicsLoading,
+                    loadError = topicsLoadError,
+                    onRetryLoad = { topicsReload++ },
                     actionError = forumActionError,
                     onBack = { routeName = chatBackRouteName },
                     onTopic = { topic -> selectedTopicChatId = selectedChatId; selectedForumTopicId = topic.id },
