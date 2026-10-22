@@ -28,6 +28,16 @@ internal class TdAccountStorageLayout(private val privateFilesDir: File) {
         require(canonicalAccount.toPath().startsWith(canonicalPrivate.toPath())) {
             "Account storage escapes app-private directory"
         }
+        if (accountId != LEGACY_ACCOUNT_ID) {
+            // A secondary ID must refer to its *own* direct child, never an alias
+            // for the legacy DB, a sibling account or a redirected secondary root.
+            val expectedSecondary = canonicalPrivate.resolve("tdlib-accounts")
+            require(secondaryRoot.canonicalFile == expectedSecondary &&
+                canonicalAccount.parentFile == expectedSecondary &&
+                canonicalAccount.name == accountId) {
+                "Secondary account directory aliases another TDLib session"
+            }
+        }
         val db = canonicalAccount.resolve("database").canonicalFile
         val files = canonicalAccount.resolve("files").canonicalFile
         require(db.toPath().startsWith(canonicalAccount.toPath()) &&
@@ -48,18 +58,30 @@ internal data class TdAccountDirectories(val database: File, val files: File)
  * account directories alone does not enable multi-account support.
  */
 internal class TdAccountDatabaseLeases {
-    private val opened = mutableSetOf<File>()
-    @Synchronized
+    companion object {
+        /** Single process-wide set, shared even across accidentally duplicated owners. */
+        private val opened = mutableSetOf<File>()
+    }
+
     fun acquire(database: File): Lease {
         val path = database.canonicalFile
-        check(opened.add(path)) { "TDLib database is already in use" }
+        synchronized(opened) {
+            check(opened.add(path)) { "TDLib database is already in use" }
+        }
         return Lease(path)
     }
-    inner class Lease internal constructor(private val path: File) : AutoCloseable {
+
+    /**
+     * Deliberately NOT AutoCloseable: .use { Client.create(...) } would release
+     * the DB while TDLib still owns it. Keep the lease for the client's entire
+     * lifecycle and release only after AuthorizationStateClosed/client shutdown.
+     * A later integration PR must wire the actual shutdown callback.
+     */
+    class Lease internal constructor(private val path: File) {
         private var released = false
-        @Synchronized override fun close() {
+        @Synchronized fun releaseAfterClientClosed() {
             if (released) return
-            synchronized(this@TdAccountDatabaseLeases) {
+            synchronized(opened) {
                 if (!released) {
                     opened.remove(path)
                     released = true

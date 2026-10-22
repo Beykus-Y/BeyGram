@@ -56,6 +56,36 @@ class TdAccountStorageLayoutTest {
         ids.forEach { assertTrue(layout.forAccount(it).database.path.startsWith(app.canonicalPath)) }
     }
 
+    @Test fun existingSymlinkAliasCannotReuseLegacyOrSiblingAccountDirectory() = withTemporaryFilesDir { app ->
+        val layout = TdAccountStorageLayout(app)
+        app.resolve("tdlib").mkdirs()
+        val secondaryRoot = app.resolve("tdlib-accounts").apply { mkdirs() }
+        val alias = secondaryRoot.resolve("a-legacy")
+        java.nio.file.Files.createSymbolicLink(alias.toPath(), java.nio.file.Paths.get("../tdlib"))
+        try {
+            try { layout.forAccount("a-legacy"); fail("Symlink to legacy must be refused") }
+            catch (_: IllegalArgumentException) {}
+        } finally { alias.delete() }
+
+        secondaryRoot.resolve("a-real").mkdirs()
+        val siblingAlias = secondaryRoot.resolve("a-fake")
+        java.nio.file.Files.createSymbolicLink(siblingAlias.toPath(), java.nio.file.Paths.get("a-real"))
+        try {
+            try { layout.forAccount("a-fake"); fail("Symlink to another account must be refused") }
+            catch (_: IllegalArgumentException) {}
+        } finally { siblingAlias.delete() }
+    }
+
+    @Test fun separateLeaseManagerInstancesStillGuardOneProcessDatabase() = withTemporaryFilesDir { app ->
+        val db = TdAccountStorageLayout(app).forAccount("a-shared").database
+        val first = TdAccountDatabaseLeases().acquire(db)
+        try {
+            try { TdAccountDatabaseLeases().acquire(db); fail("Separate owners must not double-open TDLib") }
+            catch (_: IllegalStateException) {}
+        } finally { first.releaseAfterClientClosed() }
+        TdAccountDatabaseLeases().acquire(db).releaseAfterClientClosed()
+    }
+
     @Test fun duplicateDatabaseLeaseIsRejectedEvenForDifferentPathSpelling() = withTemporaryFilesDir { app ->
         val db = TdAccountStorageLayout(app).forAccount("a-001").database
         val leases = TdAccountDatabaseLeases()
@@ -65,7 +95,7 @@ class TdAccountStorageLayoutTest {
                 leases.acquire(File(db, "../database"))
                 fail("Two TDLib clients must never open the same database")
             } catch (_: IllegalStateException) { }
-        } finally { first.close(); first.close() }
-        leases.acquire(db).close()
+        } finally { first.releaseAfterClientClosed(); first.releaseAfterClientClosed() }
+        leases.acquire(db).releaseAfterClientClosed()
     }
 }
