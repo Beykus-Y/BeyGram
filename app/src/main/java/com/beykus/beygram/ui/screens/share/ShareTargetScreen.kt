@@ -202,41 +202,6 @@ internal fun ShareTargetScreen(
                 session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }
                 val quickSaved = if (query.isBlank()) chats.firstOrNull { it.isSavedMessages && it.canPost } else null
-                quickSaved?.let { saved ->
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                            .clickable {
-                                targetId = saved.id
-                                topicId = 0L
-                                session.error = null
-                            }
-                    ) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(
-                                Modifier.size(46.dp).clip(RoundedCornerShape(15.dp))
-                                    .background(MaterialTheme.colorScheme.primary),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("★", color = MaterialTheme.colorScheme.onPrimary,
-                                    style = MaterialTheme.typography.titleMedium)
-                            }
-                            Column(Modifier.weight(1f)) {
-                                Text(stringResource(R.string.share_saved_quick_action),
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    style = MaterialTheme.typography.titleSmall)
-                                Text(stringResource(R.string.share_saved_target),
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                }
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -245,15 +210,57 @@ internal fun ShareTargetScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 val shown = shareTargetCandidates(chats, query, excludeSaved = quickSaved != null)
-                if (shown.isNotEmpty() && query.isBlank()) {
-                    Text(stringResource(R.string.share_recent_destinations),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelMedium)
-                }
-                if (shown.isEmpty()) {
+                if (shown.isEmpty() && quickSaved == null) {
                     Text(stringResource(R.string.share_no_chats), style = MaterialTheme.typography.bodyMedium)
                 }
                 LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    if (quickSaved != null) {
+                        item(key = "quick-saved") {
+                        quickSaved?.let { saved ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                                    .clickable {
+                                        targetId = saved.id
+                                        topicId = 0L
+                                        session.error = null
+                                    }
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Box(
+                                        Modifier.size(46.dp).clip(RoundedCornerShape(15.dp))
+                                            .background(MaterialTheme.colorScheme.primary),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("★", color = MaterialTheme.colorScheme.onPrimary,
+                                            style = MaterialTheme.typography.titleMedium)
+                                    }
+                                    Column(Modifier.weight(1f)) {
+                                        Text(stringResource(R.string.share_saved_quick_action),
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            style = MaterialTheme.typography.titleSmall)
+                                        Text(stringResource(R.string.share_saved_target),
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                                }
+                    }
+                    if (shown.isNotEmpty() && query.isBlank()) {
+                        item(key = "recent-heading") {
+                            Text(stringResource(R.string.share_recent_destinations),
+                                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
                     items(shown, key = { it.id }) { chat ->
                         Row(
                             modifier = Modifier.fillMaxWidth()
