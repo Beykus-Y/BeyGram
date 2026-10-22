@@ -763,6 +763,8 @@
     <string name="settings_group_devices_privacy">Устройства и приватность</string>
     <string name="settings_group_network">Сеть</string>
     <string name="settings_group_data_diagnostics">Данные и диагностика</string>
+    <string name="analytics_title">Статистика использования</string>
+    <string name="analytics_description">Передаём версию приложения, канал сборки, версию Android, модель устройства, число авторизованных аккаунтов и активность установки. Сообщения, чаты, контакты и логи не передаются. Выключение удаляет вашу статистику на сервере.</string>
     <string name="settings_group_updates">Обновления</string>
     <string name="start_connection_checking">Проверяем доступность Telegram…</string>
     <string name="start_connection_connected">Связь с Telegram установлена</string>
