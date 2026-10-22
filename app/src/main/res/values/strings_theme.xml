@@ -49,4 +49,10 @@
     <string name="theme_preview_service">Сегодня изменена тема оформления</string>
     <string name="theme_editor_text_size">Размер текста сообщений: %1$d sp</string>
     <string name="theme_editor_text_size_hint">Меняется только текст сообщений. Системный масштаб шрифта сохраняется.</string>
+    <string name="theme_editor_corner_radius">Скругление пузырей: %1$d dp</string>
+    <string name="theme_editor_corner_radius_by_shape">Как у выбранной формы</string>
+    <string name="theme_editor_line_spacing">Межстрочный интервал</string>
+    <string name="theme_editor_line_spacing_compact">Плотный</string>
+    <string name="theme_editor_line_spacing_normal">Обычный</string>
+    <string name="theme_editor_line_spacing_relaxed">Свободный</string>
 </resources>

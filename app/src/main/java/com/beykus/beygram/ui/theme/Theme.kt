@@ -13,12 +13,16 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.data.appearance.MessageLineSpacing
 
 /** Tokens of the theme in effect. [BeyGramTheme] provides them; screens read them through beyGramPalette(). */
 val LocalBeyGramTokens = compositionLocalOf { LightTokens }
 
 /** Resolved chat message size; system fontScale still applies normally in Compose. */
 val LocalMessageTextSize: androidx.compose.runtime.ProvidableCompositionLocal<TextUnit> = compositionLocalOf { 16.sp }
+
+/** Line height of message text as a multiple of its size. The default is the 1.375 BeyGram has always used. */
+val LocalMessageLineSpacing: androidx.compose.runtime.ProvidableCompositionLocal<Float> = compositionLocalOf { MessageLineSpacing.Normal.multiplier }
 
 /** Material's colour scheme with every role taken from these tokens. */
 /** Keeps Material3 component colours in sync with the same BeyGram semantic tokens.
@@ -83,13 +87,15 @@ fun BeyGramTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     tokens: BeyGramTokens = if (darkTheme) DarkTokens else LightTokens,
     messageTextSizeSp: Int = 16,
+    messageLineSpacing: MessageLineSpacing = MessageLineSpacing.Normal,
     content: @Composable () -> Unit
 ) {
     val colorScheme = remember(tokens, darkTheme) { tokens.toColorScheme(darkTheme) }
 
     CompositionLocalProvider(
         LocalBeyGramTokens provides tokens,
-        LocalMessageTextSize provides messageTextSizeSp.coerceIn(12, 22).sp
+        LocalMessageTextSize provides messageTextSizeSp.coerceIn(12, 22).sp,
+        LocalMessageLineSpacing provides messageLineSpacing.multiplier
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
