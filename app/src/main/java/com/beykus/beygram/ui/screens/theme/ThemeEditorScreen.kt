@@ -53,6 +53,9 @@ import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.BubbleStyle
 import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.data.appearance.DEFAULT_MESSAGE_TEXT_SIZE_SP
+import com.beykus.beygram.data.appearance.MAX_BUBBLE_CORNER_RADIUS_DP
+import com.beykus.beygram.data.appearance.MIN_BUBBLE_CORNER_RADIUS_DP
+import com.beykus.beygram.data.appearance.MessageLineSpacing
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
@@ -89,12 +92,16 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
     var style by rememberSaveable { mutableStateOf(saved.bubbleStyle) }
     var density by rememberSaveable { mutableStateOf(saved.density) }
     var textSize by rememberSaveable { mutableIntStateOf(saved.messageTextSizeSp) }
+    var cornerRadius by rememberSaveable { mutableStateOf(saved.bubbleCornerRadiusDp) }
+    var lineSpacing by rememberSaveable { mutableStateOf(saved.messageLineSpacing) }
     // Keeps the palette and brightness that the editor does not change.
     val draft = saved.copy(accentColor = accent, outgoingBubbleColor = bubbleColor, bubbleStyle = style,
-        density = density, messageTextSizeSp = textSize)
+        density = density, messageTextSizeSp = textSize, bubbleCornerRadiusDp = cornerRadius, messageLineSpacing = lineSpacing)
     val tokens = resolveTokens(draft, systemDark)
     val issues = contrastIssues(tokens, bubbleColor)
-    val metrics = bubbleMetricsFor(style, density)
+    val metrics = bubbleMetricsFor(style, density, cornerRadius)
+    // The slider starts from the radius the shape gives, so the first drag moves from what the user already sees.
+    val shapeRadius = bubbleMetricsFor(style, density).cornerRadius.value.toInt()
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
     fun requestBack() {
         if (draft != saved) confirmDiscard = true else onBack()
@@ -108,7 +115,8 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SectionTitle(stringResource(R.string.theme_preview_title))
-            BeyGramTheme(darkTheme = draft.mode.isDark(systemDark), tokens = tokens, messageTextSizeSp = textSize) {
+            BeyGramTheme(darkTheme = draft.mode.isDark(systemDark), tokens = tokens, messageTextSizeSp = textSize,
+                messageLineSpacing = lineSpacing) {
                 ThemePreview(bubbleRadius = metrics.cornerRadius, spacing = metrics.itemSpacing)
             }
             if (issues.any) {
@@ -132,6 +140,26 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
                 ChoiceRow(stringResource(R.string.theme_editor_shape_square), style == BubbleStyle.Square) { style = BubbleStyle.Square }
             }
 
+            SectionTitle(stringResource(R.string.theme_editor_corner_radius, cornerRadius ?: shapeRadius))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface)
+                .padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Slider(
+                    value = (cornerRadius ?: shapeRadius).toFloat(),
+                    onValueChange = { cornerRadius = it.toInt().coerceIn(MIN_BUBBLE_CORNER_RADIUS_DP, MAX_BUBBLE_CORNER_RADIUS_DP) },
+                    valueRange = MIN_BUBBLE_CORNER_RADIUS_DP.toFloat()..MAX_BUBBLE_CORNER_RADIUS_DP.toFloat(),
+                    steps = MAX_BUBBLE_CORNER_RADIUS_DP - MIN_BUBBLE_CORNER_RADIUS_DP - 1
+                )
+                Text(
+                    stringResource(R.string.theme_editor_corner_radius_by_shape),
+                    color = if (cornerRadius == null) palette.accent else palette.textSecondary,
+                    fontSize = 14.sp,
+                    fontWeight = if (cornerRadius == null) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .selectable(selected = cornerRadius == null, role = Role.RadioButton) { cornerRadius = null }
+                        .wrapContentHeight(Alignment.CenterVertically)
+                )
+            }
+
             SectionTitle(stringResource(R.string.theme_editor_text_size, textSize))
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface)
                 .padding(horizontal = 16.dp, vertical = 6.dp)) {
@@ -142,6 +170,13 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
                     steps = 9
                 )
                 Text(stringResource(R.string.theme_editor_text_size_hint), color = palette.textSecondary, fontSize = 12.sp)
+            }
+
+            SectionTitle(stringResource(R.string.theme_editor_line_spacing))
+            ChoiceGroup {
+                ChoiceRow(stringResource(R.string.theme_editor_line_spacing_compact), lineSpacing == MessageLineSpacing.Compact) { lineSpacing = MessageLineSpacing.Compact }
+                ChoiceRow(stringResource(R.string.theme_editor_line_spacing_normal), lineSpacing == MessageLineSpacing.Normal) { lineSpacing = MessageLineSpacing.Normal }
+                ChoiceRow(stringResource(R.string.theme_editor_line_spacing_relaxed), lineSpacing == MessageLineSpacing.Relaxed) { lineSpacing = MessageLineSpacing.Relaxed }
             }
 
             SectionTitle(stringResource(R.string.theme_editor_density))
@@ -158,6 +193,8 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
                     style = BubbleStyle.Rounded
                     density = ListDensity.Comfortable
                     textSize = DEFAULT_MESSAGE_TEXT_SIZE_SP
+                    cornerRadius = null
+                    lineSpacing = MessageLineSpacing.Normal
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {

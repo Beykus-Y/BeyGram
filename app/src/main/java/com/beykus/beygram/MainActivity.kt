@@ -80,11 +80,12 @@ class MainActivity : ComponentActivity() {
             BeyGramTheme(
                 darkTheme = isDarkTheme,
                 tokens = resolveTokens(config, systemDark),
-                messageTextSizeSp = config.messageTextSizeSp
+                messageTextSizeSp = config.messageTextSizeSp,
+                messageLineSpacing = config.messageLineSpacing
             ) {
                 // Bubble shape and list density come from the same saved choice as the colours.
                 CompositionLocalProvider(
-                    LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density),
+                    LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp),
                     LocalChatListDensity provides chatListDensityFor(config.density),
                     LocalChatWallpaper provides config.wallpaper
                 ) {
