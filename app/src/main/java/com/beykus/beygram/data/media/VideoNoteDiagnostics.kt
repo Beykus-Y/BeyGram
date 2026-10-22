@@ -195,9 +195,18 @@ object VideoNoteDiagnostics {
     }
 
     /** Crop region and zoom the camera applied: input for comparing the field of view between sizes. */
-    fun recordCrop(id: String, crop: String?, zoom: Float?) {
-        if (crop == null) return
-        append(id, text(R.string.vn_entry_crop, crop, zoom?.let { String.format(Locale.US, "%.2f", it) } ?: "?"))
+    fun recordCrop(
+        id: String, crop: String?, zoom: Float?,
+        firstCrop: String? = null, firstZoom: Float? = null, changed: Boolean = false
+    ) {
+        if (crop == null && firstCrop == null) return
+        val formattedZoom: (Float?) -> String = { value ->
+            value?.let { String.format(Locale.US, "%.2f", it) } ?: "?"
+        }
+        if (crop != null) append(id, text(R.string.vn_entry_crop, crop, formattedZoom(zoom)))
+        append(id, text(R.string.vn_entry_fov_observed,
+            firstCrop ?: "?", formattedZoom(firstZoom), crop ?: "?", formattedZoom(zoom),
+            text(if (changed) R.string.vn_entry_fov_changed else R.string.vn_entry_fov_unchanged)))
     }
 
     suspend fun inspect(id: String, stage: String, file: File, output: Boolean = false) {
