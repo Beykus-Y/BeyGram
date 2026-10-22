@@ -15,7 +15,11 @@ data class AppearanceConfig(
     val messageTextSizeSp: Int = DEFAULT_MESSAGE_TEXT_SIZE_SP,
     /** Bubble corner radius in dp chosen in the editor, or null to keep the radius of the bubble shape. */
     val bubbleCornerRadiusDp: Int? = null,
-    val messageLineSpacing: MessageLineSpacing = MessageLineSpacing.Normal
+    val messageLineSpacing: MessageLineSpacing = MessageLineSpacing.Normal,
+    /** Text colour of messages in bubbles, or null for the theme's text colour. */
+    val messageTextColor: Int? = null,
+    /** Colour of the message time and the sending clock in bubbles, or null for the theme's muted colour. */
+    val messageTimeColor: Int? = null
 )
 
 const val DEFAULT_MESSAGE_TEXT_SIZE_SP = 16

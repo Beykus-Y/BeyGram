@@ -55,4 +55,14 @@
     <string name="theme_editor_line_spacing_compact">Плотный</string>
     <string name="theme_editor_line_spacing_normal">Обычный</string>
     <string name="theme_editor_line_spacing_relaxed">Свободный</string>
+    <string name="theme_editor_message_text">Цвет текста сообщений</string>
+    <string name="theme_editor_message_time">Цвет времени в сообщениях</string>
+    <string name="theme_editor_colour_ink">Тёмный</string>
+    <string name="theme_editor_colour_white">Белый</string>
+    <string name="theme_editor_colour_indigo">Индиго</string>
+    <string name="theme_editor_colour_lavender">Лавандовый</string>
+    <string name="theme_editor_colour_violet">Фиолетовый</string>
+    <string name="theme_editor_colour_light_grey">Светло-серый</string>
+    <string name="theme_editor_colour_grey">Серый</string>
+    <string name="theme_editor_warning_message_colour">Этот цвет плохо читается на пузырях сообщений. Выберите другой.</string>
 </resources>

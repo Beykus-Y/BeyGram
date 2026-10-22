@@ -22,7 +22,7 @@ fun tokensFor(preset: ThemePreset, mode: ThemeMode, systemDark: Boolean): BeyGra
 /** The tokens for a saved choice: the preset and brightness, then the colours the user changed in the editor. */
 fun tokensFor(config: AppearanceConfig, systemDark: Boolean): BeyGramTokens =
     tokensFor(config.preset, config.mode, systemDark)
-        .withOverrides(config.accentColor, config.outgoingBubbleColor, config.mode.isDark(systemDark))
+        .withOverrides(config.accentColor, config.outgoingBubbleColor, config.mode.isDark(systemDark), config.messageTextColor, config.messageTimeColor)
 
 internal fun BeyGramTokens.toAmoled(): BeyGramTokens = copy(
     bg = Color(0xFF000000),

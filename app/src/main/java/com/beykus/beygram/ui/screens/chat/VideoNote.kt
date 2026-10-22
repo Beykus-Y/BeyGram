@@ -106,9 +106,9 @@ internal fun PendingVideoNoteBubble(pending: PendingVideoNote) {
                 Modifier.padding(top = 4.dp).background(palette.surface, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(time, color = palette.textSecondary, fontSize = 12.sp)
+                Text(time, color = palette.messageTime, fontSize = 12.sp)
                 Spacer(Modifier.width(3.dp))
-                Icon(Icons.Rounded.Schedule, contentDescription = stringResource(R.string.chat_sending_description), tint = palette.accent, modifier = Modifier.size(14.dp))
+                Icon(Icons.Rounded.Schedule, contentDescription = stringResource(R.string.chat_sending_description), tint = palette.messageTime, modifier = Modifier.size(14.dp))
             }
         }
     }
@@ -236,11 +236,12 @@ internal fun VideoNoteBubble(
             PlaybackSpeedMenu(Modifier.padding(start = 8.dp))
             if (time.isNotBlank()) {
                 Spacer(Modifier.width(12.dp))
-                Text(time, color = palette.textSecondary, fontSize = 12.sp)
+                Text(time, color = palette.messageTime, fontSize = 12.sp)
             }
             if (statusIcon != null) {
                 Spacer(Modifier.width(3.dp))
-                Icon(statusIcon, contentDescription = statusDescription, tint = palette.accent, modifier = Modifier.size(14.dp))
+                // The sending clock takes the time colour and the read ticks keep the accent, as in BubbleMeta.
+                Icon(statusIcon, contentDescription = statusDescription, tint = if (statusIcon == Icons.Rounded.Schedule) palette.messageTime else palette.accent, modifier = Modifier.size(14.dp))
             }
         }
     }

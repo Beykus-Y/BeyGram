@@ -28,6 +28,8 @@ private val WallpaperKey = stringPreferencesKey("chat_wallpaper")
 private val MessageTextSizeKey = intPreferencesKey("message_text_size_sp")
 private val BubbleCornerRadiusKey = intPreferencesKey("bubble_corner_radius_dp")
 private val MessageLineSpacingKey = stringPreferencesKey("message_line_spacing")
+private val MessageTextColorKey = intPreferencesKey("message_text_color")
+private val MessageTimeColorKey = intPreferencesKey("message_time_color")
 
 private val Context.appearanceDataStore by preferencesDataStore(
     name = "appearance",
@@ -52,7 +54,9 @@ class AppearanceSettingsStore(context: Context) {
                 wallpaper = chatWallpaperFromStored(preferences[WallpaperKey]),
                 messageTextSizeSp = validMessageTextSize(preferences[MessageTextSizeKey] ?: DEFAULT_MESSAGE_TEXT_SIZE_SP),
                 bubbleCornerRadiusDp = validBubbleCornerRadius(preferences[BubbleCornerRadiusKey]),
-                messageLineSpacing = messageLineSpacingFromStored(preferences[MessageLineSpacingKey])
+                messageLineSpacing = messageLineSpacingFromStored(preferences[MessageLineSpacingKey]),
+                messageTextColor = preferences[MessageTextColorKey],
+                messageTimeColor = preferences[MessageTimeColorKey]
             )
         }
 
@@ -71,6 +75,10 @@ class AppearanceSettingsStore(context: Context) {
             val radius = validBubbleCornerRadius(config.bubbleCornerRadiusDp)
             if (radius != null) preferences[BubbleCornerRadiusKey] = radius else preferences.remove(BubbleCornerRadiusKey)
             preferences[MessageLineSpacingKey] = config.messageLineSpacing.name
+            val textColor = config.messageTextColor
+            if (textColor != null) preferences[MessageTextColorKey] = textColor else preferences.remove(MessageTextColorKey)
+            val timeColor = config.messageTimeColor
+            if (timeColor != null) preferences[MessageTimeColorKey] = timeColor else preferences.remove(MessageTimeColorKey)
         }
     }
 }

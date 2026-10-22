@@ -38,7 +38,7 @@ fun resolveTokens(preset: ThemePreset, mode: ThemeMode, systemDark: Boolean): Be
 @Composable
 fun resolveTokens(config: AppearanceConfig, systemDark: Boolean): BeyGramTokens =
     resolveTokens(config.preset, config.mode, systemDark)
-        .withOverrides(config.accentColor, config.outgoingBubbleColor, config.mode.isDark(systemDark))
+        .withOverrides(config.accentColor, config.outgoingBubbleColor, config.mode.isDark(systemDark), config.messageTextColor, config.messageTimeColor)
 
 /**
  * Maps a Material colour scheme onto the BeyGram roles. Backgrounds and the accent come from the scheme;
