@@ -894,7 +894,8 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
 internal fun videoNoteZoomTarget(requested: Float, minimum: Float?, maximum: Float?): Float {
     val fallback = 1f
     val value = if (requested.isFinite()) requested else fallback
-    val low = minimum?.takeIf { it.isFinite() && it > 0f } ?: fallback
-    val high = maximum?.takeIf { it.isFinite() && it >= low } ?: maxOf(low, fallback)
-    return value.coerceIn(low, high)
+    // ZoomState is asynchronous. Do not invent an upper limit of 1× before it arrives.
+    if (minimum == null || maximum == null || !minimum.isFinite() ||
+        !maximum.isFinite() || minimum <= 0f || maximum < minimum) return value.coerceAtLeast(1f)
+    return value.coerceIn(minimum, maximum)
 }
