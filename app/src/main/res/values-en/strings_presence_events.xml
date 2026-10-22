@@ -51,7 +51,7 @@
     <string name="service_background_changed">Chat background changed</string>
     <string name="service_call_answered">%1$s · %2$s · %3$s</string>
     <string name="service_call_missed">Missed · %1$s</string>
-    <string name="service_call_declined">Declined · %1$s</string>
+    <string name="service_call_declined">%1$s · %2$s · declined</string>
     <string name="service_call_no_answer">%1$s · %2$s · no answer</string>
     <string name="service_group_created">Group created</string>
     <string name="service_join_link">Member joined via invite link</string>

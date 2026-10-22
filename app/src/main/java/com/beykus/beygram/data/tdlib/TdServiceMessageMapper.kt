@@ -60,7 +60,7 @@ internal class TdServiceMessageMapper(private val baseContext: Context) {
         return when (call.discardReason.toCallStatus(call.duration, isOutgoing)) {
             CallStatus.Answered -> context.getString(R.string.service_call_answered, direction, kind, callEventDuration(call.duration))
             CallStatus.Missed -> context.getString(R.string.service_call_missed, kind)
-            CallStatus.Declined -> context.getString(R.string.service_call_declined, kind)
+            CallStatus.Declined -> context.getString(R.string.service_call_declined, direction, kind)
             CallStatus.NoAnswer -> context.getString(R.string.service_call_no_answer, direction, kind)
         }
     }

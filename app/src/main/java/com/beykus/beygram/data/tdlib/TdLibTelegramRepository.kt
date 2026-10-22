@@ -1192,6 +1192,16 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 }
                 messageHistory.update(update.chatId, update.messageId, transform)
                 updateForumMessage(update.chatId, update.messageId, transform)
+                // TDLib can finalize a call without emitting UpdateChatLastMessage.
+                // Re-render only while this message remains the chat's last.
+                val preview = chatCache[update.chatId]
+                if (preview?.lastMessageId == update.messageId && update.newContent is TdApi.MessageCall) {
+                    val rendered = UiText.Raw(serviceMessages.callText(update.newContent, preview.lastMessageOutgoing))
+                    if (preview.lastMessage != rendered) {
+                        chatCache[update.chatId] = preview.copy(lastMessage = rendered)
+                        publishChat(update.chatId)
+                    }
+                }
             }
             is TdApi.UpdateMessageContentOpened -> {
                 messageHistory.update(update.chatId, update.messageId) { it.copy(media = it.media?.copy(isViewed = true)) }
