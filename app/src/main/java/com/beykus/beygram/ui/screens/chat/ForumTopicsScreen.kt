@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -24,20 +25,28 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.ui.components.beyGramPalette
 
-/** Preview requests are tied to the visible rows; their states belong to one forum screen. */
+/** Preview queries are limited to mounted rows; one transient failure can be retried explicitly. */
 private sealed interface TopicPreviewState {
     data class Loaded(val text: String?) : TopicPreviewState
     data object Unavailable : TopicPreviewState
 }
 
-/** Topic actions are permission-gated in the UI; TDLib checks the rights again on the server. */
+/** Pure list layout: only the pinned group is moved ahead of other Telegram-ordered topics. */
+internal fun orderedForumTopics(topics: List<ForumTopic>): List<ForumTopic> {
+    val unique = topics.distinctBy(ForumTopic::id)
+    return unique.filter(ForumTopic::isPinned) + unique.filterNot(ForumTopic::isPinned)
+}
+
+/** Consistent BeyGram topic list, preserving TDLib action and paging behaviour. */
 @Composable
 fun ForumTopicsScreen(
     chatId: Long,
@@ -61,137 +70,102 @@ fun ForumTopicsScreen(
     var deleting by remember { mutableStateOf<ForumTopic?>(null) }
     var name by remember { mutableStateOf("") }
     val topicPreviews = remember(chatId) { mutableStateMapOf<Long, TopicPreviewState>() }
+    val ordered = remember(topics) { orderedForumTopics(topics) }
+    val pinned = remember(ordered) { ordered.filter(ForumTopic::isPinned) }
+    val regular = remember(ordered) { ordered.filterNot(ForumTopic::isPinned) }
+    val savedPosition: ChatScrollPositionViewModel = viewModel(key = "forum-scroll-$chatId")
+    val listState = rememberLazyListState(savedPosition.firstVisibleItemIndex, savedPosition.firstVisibleItemScrollOffset)
+    DisposableEffect(listState) {
+        onDispose {
+            savedPosition.firstVisibleItemIndex = listState.firstVisibleItemIndex
+            savedPosition.firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+        }
+    }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(
-            Modifier.fillMaxWidth().background(palette.surface).padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp),
+            Modifier.fillMaxWidth().background(palette.surface).padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
             }
             Column(Modifier.weight(1f)) {
-                Text(chatTitle, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(stringResource(R.string.forum_topics_subtitle), color = palette.textSecondary, fontSize = 13.sp)
+                Text(chatTitle, color = palette.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(stringResource(R.string.forum_topics_count, ordered.size), color = palette.textSecondary, fontSize = 13.sp)
             }
             if (canCreate) IconButton(enabled = !busy, onClick = { name = ""; editing = null; creating = true }) {
                 Icon(Icons.Rounded.Add, stringResource(R.string.forum_create), tint = palette.accent)
             }
         }
         HorizontalDivider(color = palette.divider)
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (actionError != null) Text(actionError,
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
-        if (topics.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(stringResource(R.string.forum_topics_empty), color = palette.textSecondary)
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+        if (actionError != null) {
+            Text(actionError, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
+                color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+        }
+        if (ordered.isEmpty()) {
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 32.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(Icons.Rounded.Forum, contentDescription = null, tint = palette.accent,
+                    modifier = Modifier.size(56.dp).clip(RoundedCornerShape(18.dp))
+                        .background(palette.accentSoft).padding(12.dp))
+                Spacer(Modifier.height(16.dp))
+                Text(stringResource(R.string.forum_topics_empty), color = palette.textPrimary,
+                    fontSize = 18.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.forum_topics_empty_hint), color = palette.textSecondary,
+                    textAlign = TextAlign.Center, fontSize = 14.sp)
+                if (canCreate) {
+                    Spacer(Modifier.height(20.dp))
+                    TextButton(enabled = !busy, onClick = { name = ""; editing = null; creating = true }) {
+                        Icon(Icons.Rounded.Add, contentDescription = null, tint = palette.accent)
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.forum_create), color = palette.accent)
+                    }
+                }
             }
-        } else LazyColumn(Modifier.fillMaxSize()) {
-            items(topics.distinctBy(ForumTopic::id), key = { "forum-topic:${it.id}" }) { topic ->
-                // Only visible rows fetch missing snippets; a long forum does not fan out
-                // hundreds of concurrent history requests just to build its list.
-                LaunchedEffect(chatId, topic.id, topic.lastMessagePreview, topic.isClosed) {
-                    if (!topic.isClosed && topic.lastMessagePreview.isBlank() && topic.id !in topicPreviews) {
-                        val result = loadPreview(topic.id)
-                        topicPreviews[topic.id] = result.fold(
-                            onSuccess = { TopicPreviewState.Loaded(it) },
-                            onFailure = { TopicPreviewState.Unavailable }
-                        )
-                    }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (pinned.isNotEmpty()) item(key = "pinned-topic-heading") {
+                    ForumSectionTitle(stringResource(R.string.forum_topics_pinned_section), pinned.size)
                 }
-                val pinnedDescription = stringResource(R.string.forum_topic_pinned)
-                val closedDescription = stringResource(R.string.forum_topic_closed)
-                val regularDescription = stringResource(R.string.forum_topic_regular)
-                val topicStatus = when {
-                    topic.isPinned && topic.isClosed -> "$pinnedDescription, $closedDescription"
-                    topic.isPinned -> pinnedDescription
-                    topic.isClosed -> closedDescription
-                    else -> regularDescription
+                items(pinned, key = { "forum-topic:${it.id}" }) { topic ->
+                    ForumTopicItem(
+                        chatId, topic, topicPreviews[topic.id], loadPreview,
+                        onRetryPreview = { topicPreviews.remove(topic.id) },
+                        onPreviewResult = { topicPreviews[topic.id] = it },
+                        busy = busy, onTopic = onTopic,
+                        onRename = { name = topic.title; editing = topic },
+                        onClosed = { onClosed(topic, !topic.isClosed) },
+                        onPinned = { onPinned(topic, !topic.isPinned) },
+                        onDelete = { deleting = topic }
+                    )
                 }
-                val unreadDescription = if (topic.unreadCount > 0) {
-                    stringResource(R.string.forum_topic_unread_count, topic.unreadCount)
-                } else null
-                // This is state, not a replacement for the merged topic title and preview.
-                val topicStateDescription = listOfNotNull(topicStatus, unreadDescription).joinToString(", ")
-                Row(
-                    Modifier.fillMaxWidth().clickable(enabled = !busy) { onTopic(topic) }
-                        .semantics { stateDescription = topicStateDescription }
-                        .padding(start = 18.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        Modifier.size(46.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(palette.accentSoft),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (topic.isPinned) Icons.Rounded.PushPin else Icons.Rounded.Forum,
-                            contentDescription = null,
-                            tint = palette.accent,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        if (topic.isClosed) {
-                            Icon(
-                                imageVector = Icons.Rounded.Lock,
-                                contentDescription = null,
-                                tint = palette.textSecondary,
-                                modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp).size(14.dp)
-                            )
-                        }
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text(topic.title, color = palette.textPrimary, fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val preview = topicPreviews[topic.id]
-                        val subtitle = when {
-                            topic.isClosed -> stringResource(R.string.forum_topic_closed)
-                            topic.lastMessagePreview.isNotBlank() -> topic.lastMessagePreview
-                            preview is TopicPreviewState.Loaded && preview.text == null ->
-                                stringResource(R.string.forum_topic_no_messages)
-                            preview is TopicPreviewState.Loaded && !preview.text.isNullOrBlank() ->
-                                preview.text.orEmpty()
-                            preview is TopicPreviewState.Loaded -> stringResource(R.string.forum_topic_recent_activity)
-                            preview is TopicPreviewState.Unavailable -> stringResource(R.string.forum_topic_preview_unavailable)
-                            else -> stringResource(R.string.chat_history_loading)
-                        }
-                        Text(subtitle, color = palette.textSecondary, fontSize = 13.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (topic.unreadCount > 0) {
-                        // The row's stateDescription already announces this; avoid a duplicate label.
-                        Box(Modifier.clip(RoundedCornerShape(50)).background(palette.accent)
-                            .clearAndSetSemantics { }
-                            .padding(horizontal = 9.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
-                            Text(topic.unreadCount.toString(), color = palette.onAccent, fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    if (topic.canManage || topic.canPin) {
-                        var expanded by remember(topic.id) { mutableStateOf(false) }
-                        Box {
-                            IconButton(enabled = !busy, onClick = { expanded = true }) {
-                                Icon(Icons.Rounded.MoreVert, stringResource(R.string.forum_manage), tint = palette.textSecondary)
-                            }
-                            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                                if (topic.canManage) {
-                                    DropdownMenuItem(text = { Text(stringResource(R.string.forum_rename)) }, onClick = {
-                                        expanded = false; name = topic.title; editing = topic
-                                    })
-                                    DropdownMenuItem(text = { Text(stringResource(if (topic.isClosed) R.string.forum_reopen else R.string.forum_close)) },
-                                        onClick = { expanded = false; onClosed(topic, !topic.isClosed) })
-                                    if (topic.id != 1L) DropdownMenuItem(text = { Text(stringResource(R.string.forum_delete)) },
-                                        onClick = { expanded = false; deleting = topic })
-                                }
-                                if (topic.canPin) DropdownMenuItem(text = { Text(stringResource(if (topic.isPinned) R.string.forum_unpin else R.string.forum_pin)) },
-                                    onClick = { expanded = false; onPinned(topic, !topic.isPinned) })
-                            }
-                        }
-                    }
+                if (regular.isNotEmpty()) item(key = "regular-topic-heading") {
+                    ForumSectionTitle(stringResource(R.string.forum_topics_regular_section), regular.size)
                 }
-                HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 77.dp))
+                items(regular, key = { "forum-topic:${it.id}" }) { topic ->
+                    ForumTopicItem(
+                        chatId, topic, topicPreviews[topic.id], loadPreview,
+                        onRetryPreview = { topicPreviews.remove(topic.id) },
+                        onPreviewResult = { topicPreviews[topic.id] = it },
+                        busy = busy, onTopic = onTopic,
+                        onRename = { name = topic.title; editing = topic },
+                        onClosed = { onClosed(topic, !topic.isClosed) },
+                        onPinned = { onPinned(topic, !topic.isPinned) },
+                        onDelete = { deleting = topic }
+                    )
+                }
             }
         }
     }
@@ -219,5 +193,133 @@ fun ForumTopicsScreen(
             } },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.common_cancel)) } }
         )
+    }
+}
+
+
+@Composable
+private fun ForumSectionTitle(title: String, count: Int) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f))
+        Text(count.toString(), color = palette.textSecondary, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun ForumTopicItem(
+    chatId: Long,
+    topic: ForumTopic,
+    preview: TopicPreviewState?,
+    loadPreview: suspend (Long) -> Result<String?>,
+    onRetryPreview: () -> Unit,
+    onPreviewResult: (TopicPreviewState) -> Unit,
+    busy: Boolean,
+    onTopic: (ForumTopic) -> Unit,
+    onRename: () -> Unit,
+    onClosed: () -> Unit,
+    onPinned: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val palette = beyGramPalette()
+    // A failed preview stays visible until the user retries; never retry indefinitely.
+    LaunchedEffect(chatId, topic.id, topic.lastMessagePreview, topic.isClosed, preview) {
+        if (!topic.isClosed && topic.lastMessagePreview.isBlank() && preview == null) {
+            val result = loadPreview(topic.id)
+            onPreviewResult(result.fold(
+                onSuccess = { TopicPreviewState.Loaded(it) },
+                onFailure = { TopicPreviewState.Unavailable }
+            ))
+        }
+    }
+    val pinnedDescription = stringResource(R.string.forum_topic_pinned)
+    val closedDescription = stringResource(R.string.forum_topic_closed)
+    val regularDescription = stringResource(R.string.forum_topic_regular)
+    val topicStatus = when {
+        topic.isPinned && topic.isClosed -> "$pinnedDescription, $closedDescription"
+        topic.isPinned -> pinnedDescription
+        topic.isClosed -> closedDescription
+        else -> regularDescription
+    }
+    val unreadDescription = if (topic.unreadCount > 0)
+        stringResource(R.string.forum_topic_unread_count, topic.unreadCount) else null
+    val topicStateDescription = listOfNotNull(topicStatus, unreadDescription).joinToString(", ")
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface)
+            .clickable(enabled = !busy) { onTopic(topic) }
+            .semantics { stateDescription = topicStateDescription }
+            .padding(start = 12.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(palette.accentSoft),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (topic.isPinned) Icons.Rounded.PushPin else Icons.Rounded.Forum,
+                contentDescription = null, tint = palette.accent, modifier = Modifier.size(24.dp)
+            )
+            if (topic.isClosed) {
+                Icon(Icons.Rounded.Lock, contentDescription = null, tint = palette.textSecondary,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp).size(14.dp))
+            }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(topic.title, color = palette.textPrimary, fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val subtitle = when {
+                topic.lastMessagePreview.isNotBlank() -> topic.lastMessagePreview
+                preview is TopicPreviewState.Loaded && preview.text == null -> stringResource(R.string.forum_topic_no_messages)
+                preview is TopicPreviewState.Loaded && !preview.text.isNullOrBlank() -> preview.text.orEmpty()
+                preview is TopicPreviewState.Loaded -> stringResource(R.string.forum_topic_recent_activity)
+                topic.isClosed -> stringResource(R.string.forum_topic_closed)
+                preview is TopicPreviewState.Unavailable -> stringResource(R.string.forum_topic_preview_unavailable)
+                else -> stringResource(R.string.chat_history_loading)
+            }
+            Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 2,
+                overflow = TextOverflow.Ellipsis)
+            if (topic.isClosed && topic.lastMessagePreview.isNotBlank()) {
+                Text(closedDescription, color = palette.textSecondary, fontSize = 11.sp)
+            }
+            if (preview is TopicPreviewState.Unavailable && !topic.isClosed && topic.lastMessagePreview.isBlank()) {
+                TextButton(onClick = onRetryPreview, enabled = !busy, contentPadding = PaddingValues(0.dp)) {
+                    Text(stringResource(R.string.common_retry), color = palette.accent, fontSize = 12.sp)
+                }
+            }
+        }
+        if (topic.unreadCount > 0) {
+            Box(Modifier.clip(RoundedCornerShape(50)).background(palette.accent)
+                .clearAndSetSemantics {}.padding(horizontal = 9.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center) {
+                Text(topic.unreadCount.toString(), color = palette.onAccent, fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold)
+            }
+        }
+        if (topic.canManage || topic.canPin) {
+            var expanded by remember(topic.id) { mutableStateOf(false) }
+            Box {
+                IconButton(enabled = !busy, onClick = { expanded = true }) {
+                    Icon(Icons.Rounded.MoreVert, stringResource(R.string.forum_manage), tint = palette.textSecondary)
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    if (topic.canManage) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.forum_rename)) },
+                            onClick = { expanded = false; onRename() })
+                        DropdownMenuItem(text = { Text(stringResource(if (topic.isClosed) R.string.forum_reopen else R.string.forum_close)) },
+                            onClick = { expanded = false; onClosed() })
+                        if (topic.id != 1L) DropdownMenuItem(text = { Text(stringResource(R.string.forum_delete)) },
+                            onClick = { expanded = false; onDelete() })
+                    }
+                    if (topic.canPin) DropdownMenuItem(
+                        text = { Text(stringResource(if (topic.isPinned) R.string.forum_unpin else R.string.forum_pin)) },
+                        onClick = { expanded = false; onPinned() })
+                }
+            }
+        }
     }
 }

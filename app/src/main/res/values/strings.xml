@@ -1126,6 +1126,10 @@
     <string name="service_autodelete_changed">Изменён срок автоудаления сообщений</string>
     <string name="service_background_changed">Фон чата изменён</string>
     <string name="forum_topics_subtitle">Темы обсуждения</string>
+    <string name="forum_topics_count">Тем: %1$d</string>
+    <string name="forum_topics_pinned_section">ЗАКРЕПЛЁННЫЕ</string>
+    <string name="forum_topics_regular_section">ОБСУЖДЕНИЯ</string>
+    <string name="forum_topics_empty_hint">Пока здесь пусто. Новые темы появятся в этом списке.</string>
     <string name="forum_topics_empty">Пока нет доступных тем</string>
     <string name="forum_topic_closed">Тема закрыта</string>
     <string name="forum_topic_pinned">Закреплённая тема</string>

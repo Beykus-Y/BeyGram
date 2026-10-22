@@ -34,6 +34,10 @@
     <string name="forum_topic_pinned">Pinned topic</string>
     <string name="forum_topic_regular">Discussion topic</string>
     <string name="forum_topic_unread_count">Unread messages: %1$d</string>
+    <string name="forum_topics_count">Topics: %1$d</string>
+    <string name="forum_topics_pinned_section">PINNED</string>
+    <string name="forum_topics_regular_section">DISCUSSIONS</string>
+    <string name="forum_topics_empty_hint">Nothing here yet. New topics will appear in this list.</string>
     <string name="forum_topics_empty">No available topics yet</string>
     <string name="forum_topics_subtitle">Discussion topics</string>
     <string name="forum_unpin">Unpin topic</string>
