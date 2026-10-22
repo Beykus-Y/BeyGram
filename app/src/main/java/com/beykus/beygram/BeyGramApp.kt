@@ -92,6 +92,7 @@ import com.beykus.beygram.ui.screens.proxy.ProxyRestoreDialog
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
 import com.beykus.beygram.share.IncomingShare
 import com.beykus.beygram.share.ShareSessions
+import com.beykus.beygram.share.DirectShareShortcuts
 import com.beykus.beygram.ui.screens.share.ShareTargetScreen
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -170,8 +171,13 @@ private fun BeyGramAppContent(
     incomingShare: IncomingShare?,
     onIncomingShareHandled: (Long) -> Unit
 ) {
+    val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
     val authState by repository.authState.collectAsStateWithLifecycle()
+    // Observe shortcuts from process scope so they stay fresh while this Activity is stopped.
+    LaunchedEffect(repository) {
+        (context.applicationContext as BeyGramApplication).startDirectShare(repository)
+    }
     val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
     val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
     val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
@@ -232,7 +238,6 @@ private fun BeyGramAppContent(
         }
     }
     // Скрытый архив остаётся скрытым после перезапуска: флаг лежит в настройках приложения.
-    val context = LocalContext.current
     val chatPreferences = remember(context) { context.applicationContext.getSharedPreferences("chats", Context.MODE_PRIVATE) }
     var archiveHidden by remember { mutableStateOf(chatPreferences.getBoolean("archive_hidden", false)) }
     val onArchiveHiddenChange: (Boolean) -> Unit = { hidden ->
@@ -351,6 +356,7 @@ private fun BeyGramAppContent(
             key(incomingShare.requestId) {
                 ShareTargetScreen(
                     requestId = incomingShare.requestId,
+                    initialChatId = incomingShare.targetChatId,
                     text = incomingShare.text,
                     uris = incomingShare.uris,
                     session = shareSession,

@@ -529,8 +529,11 @@ internal class VideoNoteRecorder(
 
     /** Диапазон зума берётся у конкретной камеры: ультраширокая и фронтальная имеют разные границы. */
     private fun applyZoom(bound: Camera, ratio: Float) {
-        val range = bound.cameraInfo.zoomState.value ?: return
-        zoomRatio = ratio.coerceIn(range.minZoomRatio, range.maxZoomRatio)
+        val range = bound.cameraInfo.zoomState.value
+        // LiveData may still be empty after bind: never silently skip the initial 1x request.
+        // We only know that the request was issued, not that Camera2 applied it. The sensor
+        // capture results in diagnostics are the evidence for the actual zoom used.
+        zoomRatio = videoNoteZoomTarget(ratio, range?.minZoomRatio, range?.maxZoomRatio)
         bound.cameraControl.setZoomRatio(zoomRatio)
     }
 
@@ -587,9 +590,10 @@ internal class VideoNoteRecorder(
             captureBitrate = videoCameraBitrate(settings)
         )
         if (settings.diagnosticsEnabled) {
+            VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_fov_viewport))
             val (sourceWidth, sourceHeight) = captureSourceSize ?: VideoNoteCameraSurvey.sourceSize(settings)
             VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_source_plan,
-                if (sourceWidth == 640 && sourceHeight == 480) "SD" else "HD", sourceWidth, sourceHeight))
+                captureQuality?.name ?: "?", sourceWidth, sourceHeight))
             VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_camera, captureCameraId ?: "?", sourceWidth, sourceHeight))
             val manager = context.getSystemService(CameraManager::class.java)
             captureCameraId?.let { id ->
@@ -660,7 +664,9 @@ internal class VideoNoteRecorder(
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
         val sensor = sensorTap.finish(captureFpsRange?.upper ?: 30)
         if (current.settings.diagnosticsEnabled) {
-            VideoNoteDiagnostics.recordCrop(current.sessionName, sensor?.crop, sensor?.zoom)
+            VideoNoteDiagnostics.recordCrop(current.sessionName, sensor?.crop, sensor?.zoom,
+                sensor?.firstCrop, sensor?.firstZoom,
+                sensor?.cropChanged == true || sensor?.zoomChanged == true)
             VideoNoteDiagnostics.recordSensor(current.sessionName, sensor?.stats, sensor?.truncated == true)
         }
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
@@ -903,4 +909,15 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
             Text(stringResource(R.string.recorder_swipe_left_cancel), color = if (recorder.canceling) palette.danger else palette.textSecondary, fontSize = 14.sp)
         }
     }
+}
+
+/** Only use the advertised zoom bounds once ZoomState is ready. The first 1x request
+ * must still be sent before LiveData publishes its initial value. */
+internal fun videoNoteZoomTarget(requested: Float, minimum: Float?, maximum: Float?): Float {
+    val fallback = 1f
+    val value = if (requested.isFinite()) requested else fallback
+    // ZoomState is asynchronous. Do not invent an upper limit of 1× before it arrives.
+    if (minimum == null || maximum == null || !minimum.isFinite() ||
+        !maximum.isFinite() || minimum <= 0f || maximum < minimum) return value.coerceAtLeast(1f)
+    return value.coerceIn(minimum, maximum)
 }

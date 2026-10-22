@@ -60,6 +60,30 @@ class VideoNoteSensorTapTest {
         assertEquals(10, result.stats.frames)
     }
 
+    @Test fun fovSamplesRetainFirstAndLastWithoutAssumingExtraZoom() {
+        val tap = VideoNoteSensorTap()
+        tap.begin()
+        tap.record(0L, 20_000_000L, "0,0 4000x3000", 1.0f)
+        tap.record(frameNs, 20_000_000L, "500,0 3000x3000", 1.25f)
+        val result = tap.finish(30)!!
+        assertEquals("0,0 4000x3000", result.firstCrop)
+        assertEquals("500,0 3000x3000", result.crop)
+        assertEquals(1.0f, result.firstZoom!!, 0f)
+        assertEquals(1.25f, result.zoom!!, 0f)
+        assertTrue(result.cropChanged)
+        assertTrue(result.zoomChanged)
+    }
+
+    @Test fun stableZoomDoesNotReportChangesFromSensorNoise() {
+        val tap = VideoNoteSensorTap()
+        tap.begin()
+        tap.record(0L, null, "0,0 2000x2000", 1.0f)
+        tap.record(frameNs, null, "0,0 2000x2000", 1.01f)
+        val result = tap.finish(30)!!
+        assertFalse(result.cropChanged)
+        assertFalse(result.zoomChanged)
+    }
+
     @Test fun cameraSwitchStartsANewSegment() {
         val tap = VideoNoteSensorTap()
         tap.begin()

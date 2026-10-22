@@ -76,6 +76,22 @@ class PlaybackQueueTest {
     }
 
     @Test
+    fun audioPlaybackItemPreservesArtworkAndArtist() {
+        val media = MessageMedia(MediaKind.Audio, fileId = 42, title = "Song", performer = "Artist")
+        val item = media.playbackItem("/files/song.mp3", "Music", artworkPath = "/covers/song.jpg")
+        assertEquals("/covers/song.jpg", item.artworkPath)
+        assertEquals("Artist", item.performer)
+        assertEquals("Artist — Song", item.title)
+    }
+
+    @Test
+    fun voicePlaybackNeverReceivesArtwork() {
+        val voice = MessageMedia(MediaKind.Voice, fileId = 9)
+        val item = voice.playbackItem("/files/voice.ogg", "Voice", artworkPath = "/covers/should-not-appear.jpg")
+        assertNull(item.artworkPath)
+    }
+
+    @Test
     fun musicIsTitledByPerformerAndTrackTitle() {
         val media = MessageMedia(MediaKind.Audio, fileId = 1, fileName = "file.mp3", title = "Song", performer = "Artist")
         assertEquals("Artist — Song", media.playbackItem("/file.mp3", "Аудио").title)

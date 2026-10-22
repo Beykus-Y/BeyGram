@@ -6,7 +6,11 @@ import android.net.Uri
  * Содержимое, которое другое приложение передало через «Поделиться». Пока оно не отправлено, живёт только в памяти активности.
  * [uris] — файлы из `EXTRA_STREAM`/`ClipData`; их копируем в приватную папку только при показе экрана выбора.
  */
-data class IncomingShare(val requestId: Long, val text: String, val uris: List<Uri> = emptyList())
+data class IncomingShare(
+    val requestId: Long, val text: String, val uris: List<Uri> = emptyList(),
+    /** Suggested recipient from Android Direct Share, never a sending authorization. */
+    val targetChatId: Long = 0L
+)
 
 /** Файлы из «Поделиться», которые приняты, и число отброшенных адресов. */
 data class ShareUriCheck(val accepted: List<Uri>, val rejected: Int)
