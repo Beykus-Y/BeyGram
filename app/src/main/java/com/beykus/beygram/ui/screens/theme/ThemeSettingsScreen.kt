@@ -279,11 +279,11 @@ private fun PreviewBubble(
                         modifier = Modifier.size(29.dp))
                 }
             }
-            Text(text, color = palette.textPrimary, fontSize = messageSize,
+            Text(text, color = palette.messageText, fontSize = messageSize,
                 lineHeight = (messageSize.value * com.beykus.beygram.ui.theme.LocalMessageLineSpacing.current).sp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically) {
-                Text(time, color = palette.textSecondary, fontSize = 11.sp)
+                Text(time, color = palette.messageTime, fontSize = 11.sp)
                 if (outgoing) Icon(Icons.Rounded.DoneAll, null, tint = palette.accent,
                     modifier = Modifier.padding(start = 3.dp).size(14.dp))
             }

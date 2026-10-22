@@ -130,7 +130,7 @@ internal fun BubbleMeta(message: ChatMessage, isRead: Boolean, retryAvailable: B
     val textColor = when {
         overlay -> Color.White
         failed -> palette.warningText
-        else -> palette.textSecondary
+        else -> palette.messageTime
     }
     val modifier = if (overlay) Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 6.dp, vertical = 2.dp)
         else Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
@@ -141,7 +141,7 @@ internal fun BubbleMeta(message: ChatMessage, isRead: Boolean, retryAvailable: B
             modifier = Modifier.clickable(onClick = onRetry))
         if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
             Spacer(Modifier.width(3.dp))
-            Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = if (overlay) Color.White else palette.textSecondary,
+            Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = if (overlay) Color.White else palette.messageTime,
                 modifier = Modifier.size(14.dp))
         }
         if (message.isOutgoing && message.sendState == MessageSendState.Sent) {

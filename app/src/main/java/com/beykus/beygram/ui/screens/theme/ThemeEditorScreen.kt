@@ -80,7 +80,23 @@ private val BubbleNames = listOf(
 )
 
 /**
- * The editor of the look: accent, outgoing bubble colour, bubble shape and list density.
+ * Text and time colours offered in each theme. Each set reads on that theme's bubbles; a pick is still checked against the real bubbles.
+ */
+private val LightTextChoices = listOf(0xFF1A1714, 0xFF4B33B5).map { it.toInt() }
+private val LightTextNames = listOf(R.string.theme_editor_colour_ink, R.string.theme_editor_colour_indigo)
+private val DarkTextChoices = listOf(0xFFFFFFFF, 0xFFCFC4FF).map { it.toInt() }
+private val DarkTextNames = listOf(R.string.theme_editor_colour_white, R.string.theme_editor_colour_lavender)
+private val LightTimeChoices = listOf(0xFF67625B, 0xFF4B33B5, 0xFF1A1714).map { it.toInt() }
+private val LightTimeNames = listOf(
+    R.string.theme_editor_colour_grey, R.string.theme_editor_colour_indigo, R.string.theme_editor_colour_ink
+)
+private val DarkTimeChoices = listOf(0xFFC9C2BB, 0xFFCFC4FF, 0xFFFFFFFF).map { it.toInt() }
+private val DarkTimeNames = listOf(
+    R.string.theme_editor_colour_light_grey, R.string.theme_editor_colour_lavender, R.string.theme_editor_colour_white
+)
+
+/**
+ * The editor of the look: accent, bubble colours, bubble shape and corner radius, text size, line spacing and list density.
  * The preview follows every change. The choice reaches the rest of the app only after «Применить»; leaving the screen drops it.
  */
 @Composable
@@ -94,11 +110,14 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
     var textSize by rememberSaveable { mutableIntStateOf(saved.messageTextSizeSp) }
     var cornerRadius by rememberSaveable { mutableStateOf(saved.bubbleCornerRadiusDp) }
     var lineSpacing by rememberSaveable { mutableStateOf(saved.messageLineSpacing) }
+    var messageTextColor by rememberSaveable { mutableStateOf(saved.messageTextColor) }
+    var messageTimeColor by rememberSaveable { mutableStateOf(saved.messageTimeColor) }
     // Keeps the palette and brightness that the editor does not change.
     val draft = saved.copy(accentColor = accent, outgoingBubbleColor = bubbleColor, bubbleStyle = style,
-        density = density, messageTextSizeSp = textSize, bubbleCornerRadiusDp = cornerRadius, messageLineSpacing = lineSpacing)
+        density = density, messageTextSizeSp = textSize, bubbleCornerRadiusDp = cornerRadius, messageLineSpacing = lineSpacing,
+        messageTextColor = messageTextColor, messageTimeColor = messageTimeColor)
     val tokens = resolveTokens(draft, systemDark)
-    val issues = contrastIssues(tokens, bubbleColor)
+    val issues = contrastIssues(tokens, bubbleColor, messageTextColor, messageTimeColor)
     val metrics = bubbleMetricsFor(style, density, cornerRadius)
     // The slider starts from the radius the shape gives, so the first drag moves from what the user already sees.
     val shapeRadius = bubbleMetricsFor(style, density).cornerRadius.value.toInt()
@@ -121,7 +140,13 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
             }
             if (issues.any) {
                 Text(
-                    stringResource(if (issues.bubbleText) R.string.theme_editor_warning_bubble else R.string.theme_editor_warning_accent),
+                    stringResource(
+                        when {
+                            issues.bubbleText -> R.string.theme_editor_warning_bubble
+                            issues.messageColour -> R.string.theme_editor_warning_message_colour
+                            else -> R.string.theme_editor_warning_accent
+                        }
+                    ),
                     color = palette.danger,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(horizontal = 4.dp)
@@ -132,6 +157,19 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
             ColorChoices(AccentChoices, AccentNames, accent, stringResource(R.string.theme_editor_default)) { accent = it }
             SectionTitle(stringResource(R.string.theme_editor_bubble_color))
             ColorChoices(BubbleChoices, BubbleNames, bubbleColor, stringResource(R.string.theme_editor_default)) { bubbleColor = it }
+            val darkTheme = draft.mode.isDark(systemDark)
+            SectionTitle(stringResource(R.string.theme_editor_message_text))
+            ColorChoices(
+                if (darkTheme) DarkTextChoices else LightTextChoices,
+                if (darkTheme) DarkTextNames else LightTextNames,
+                messageTextColor, stringResource(R.string.theme_editor_default)
+            ) { messageTextColor = it }
+            SectionTitle(stringResource(R.string.theme_editor_message_time))
+            ColorChoices(
+                if (darkTheme) DarkTimeChoices else LightTimeChoices,
+                if (darkTheme) DarkTimeNames else LightTimeNames,
+                messageTimeColor, stringResource(R.string.theme_editor_default)
+            ) { messageTimeColor = it }
 
             SectionTitle(stringResource(R.string.theme_editor_bubble_shape))
             ChoiceGroup {
@@ -195,6 +233,8 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
                     textSize = DEFAULT_MESSAGE_TEXT_SIZE_SP
                     cornerRadius = null
                     lineSpacing = MessageLineSpacing.Normal
+                    messageTextColor = null
+                    messageTimeColor = null
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -205,7 +245,7 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = ::requestBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.theme_editor_cancel)) }
-            Button(onClick = { onSave(draft); onBack() }, enabled = draft != current && !issues.bubbleText, modifier = Modifier.weight(1f)) {
+            Button(onClick = { onSave(draft); onBack() }, enabled = draft != current && !issues.blocking, modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.theme_apply))
             }
         }

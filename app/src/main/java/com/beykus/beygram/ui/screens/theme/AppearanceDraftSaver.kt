@@ -31,12 +31,14 @@ internal val AppearanceDraftSaver: Saver<AppearanceConfig?, Any> = listSaver<App
                 it.wallpaper.encode(),
                 it.messageTextSizeSp.toString(),
                 it.bubbleCornerRadiusDp?.toString().orEmpty(),
-                it.messageLineSpacing.name
+                it.messageLineSpacing.name,
+                it.messageTextColor?.toString().orEmpty(),
+                it.messageTimeColor?.toString().orEmpty()
             )
         }.orEmpty()
     },
     restore = { parts ->
-        if (parts.size !in 7..10) null else AppearanceConfig(
+        if (parts.size !in 7..12) null else AppearanceConfig(
             preset = themePresetFromStored(parts[0]),
             mode = themeModeFromStored(parts[1]),
             bubbleStyle = bubbleStyleFromStored(parts[2]),
@@ -46,7 +48,9 @@ internal val AppearanceDraftSaver: Saver<AppearanceConfig?, Any> = listSaver<App
             wallpaper = chatWallpaperFromStored(parts[6]),
             messageTextSizeSp = validMessageTextSize(parts.getOrNull(7)?.toIntOrNull() ?: DEFAULT_MESSAGE_TEXT_SIZE_SP),
             bubbleCornerRadiusDp = validBubbleCornerRadius(parts.getOrNull(8)?.toIntOrNull()),
-            messageLineSpacing = messageLineSpacingFromStored(parts.getOrNull(9))
+            messageLineSpacing = messageLineSpacingFromStored(parts.getOrNull(9)),
+            messageTextColor = parts.getOrNull(10)?.toIntOrNull(),
+            messageTimeColor = parts.getOrNull(11)?.toIntOrNull()
         )
     }
 )
