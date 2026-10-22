@@ -187,6 +187,7 @@ internal class VideoNoteRecorder(
     /** Callback от старой камеры не должен включать подсветку уже после переключения/закрытия. */
     private var lightRequest = 0
     private val lightLifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onPause(owner: LifecycleOwner) { clearLight() }
         override fun onStop(owner: LifecycleOwner) { clearLight() }
     }
 
@@ -983,7 +984,7 @@ private fun VideoNoteScreenBrightness(active: Boolean) {
             window.attributes = attrs
         }
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) restore()
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) restore()
         }
         if (active) owner.lifecycle.addObserver(observer)
         onDispose {
