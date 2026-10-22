@@ -22,6 +22,7 @@ import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.TorchState
 import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
@@ -209,10 +210,10 @@ internal class VideoNoteRecorder(
     /** Текущий фонарик управляется через CameraX, без отдельного CameraManager и конкурирующей камеры. */
     fun toggleLight() {
         if (!active || !started || camera == null || lightMode == VideoNoteLightMode.Unavailable) return
-        setLightEnabled(!lightEnabled)
+        requestLight(!lightEnabled)
     }
 
-    private fun setLightEnabled(enabled: Boolean) {
+    private fun requestLight(enabled: Boolean) {
         val bound = camera ?: return
         val mode = lightMode
         if (mode == VideoNoteLightMode.Unavailable) return
@@ -232,10 +233,18 @@ internal class VideoNoteRecorder(
     }
 
     private fun onTorchFailure(bound: Camera, token: Int, enabling: Boolean, cause: Throwable) {
-        if (token != lightRequest || camera !== bound || !enabling) return
-        Log.w(TAG, "video_note_torch_failed front=$preferFrontCamera", cause)
+        // Ignore callbacks from a replaced camera or superseded torch requests.
+        if (token != lightRequest || camera !== bound) return
+        Log.w(TAG, "video_note_torch_failed front=$preferFrontCamera enabling=$enabling", cause)
+        if (!enabling) {
+            // A rejected disable request does not prove the lamp is off. When CameraX
+            // has not published OFF, keep the button lit so users can retry.
+            lightEnabled = bound.cameraInfo.torchState.value != TorchState.OFF
+            if (lightEnabled) onError(context.getString(R.string.recorder_light_off_failed))
+            return
+        }
         if (preferFrontCamera) {
-            // Некоторые фронтальные камеры заявляют flash unit, но не умеют torch в VideoCapture.
+            // Some front cameras report a flash unit but reject torch for VideoCapture.
             lightMode = VideoNoteLightMode.Screen
             lightEnabled = true
         } else {
@@ -246,11 +255,20 @@ internal class VideoNoteRecorder(
 
     /** Сброс токена защищает от поздних ответов enableTorch при смене камеры и завершении записи. */
     private fun clearLight(resetMode: Boolean = false) {
-        ++lightRequest
+        val bound = camera
+        val hadTorch = lightMode == VideoNoteLightMode.Torch && bound != null
+        val token = ++lightRequest
         lightEnabled = false
-        if (lightMode == VideoNoteLightMode.Torch) {
-            runCatching { camera?.cameraControl?.enableTorch(false) }
-                .onFailure { Log.w(TAG, "video_note_torch_disable_failed", it) }
+        if (hadTorch && bound != null) {
+            try {
+                val future = bound.cameraControl.enableTorch(false)
+                future.addListener({
+                    val failure = runCatching { future.get() }.exceptionOrNull()
+                    if (failure != null) onTorchFailure(bound, token, enabling = false, cause = failure)
+                }, ContextCompat.getMainExecutor(context))
+            } catch (error: Exception) {
+                onTorchFailure(bound, token, enabling = false, cause = error)
+            }
         }
         if (resetMode) lightMode = VideoNoteLightMode.Unavailable
     }
@@ -301,7 +319,7 @@ internal class VideoNoteRecorder(
             unbound = true
             bind(cameraProvider, selector, current.settings, capture)
             preferFrontCamera = targetFront
-            if (previouslyLit && lightMode != VideoNoteLightMode.Unavailable) setLightEnabled(true)
+            if (previouslyLit && lightMode != VideoNoteLightMode.Unavailable) requestLight(true)
             Log.i(TAG, "video_camera_switched front=$preferFrontCamera")
             // Timestamps of different camera devices are not comparable: measure the new camera on its own.
             if (sensorTap.isActive()) sensorTap.begin()
@@ -319,7 +337,7 @@ internal class VideoNoteRecorder(
             val restored = runCatching { bind(cameraProvider, previousSelector, current.settings, capture) }
             if (restored.isSuccess) {
                 // Запись продолжается с прежней камерой: persistent-запись пережила отвязку, кадр возвращён.
-                if (previouslyLit && lightMode != VideoNoteLightMode.Unavailable) setLightEnabled(true)
+                if (previouslyLit && lightMode != VideoNoteLightMode.Unavailable) requestLight(true)
                 onError(context.getString(R.string.recorder_camera_switch_failed))
                 return
             }
