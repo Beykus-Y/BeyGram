@@ -14,7 +14,7 @@ internal data class ExportSignatureHint(val extension: String, val mimeType: Str
 
 internal fun detectExportSignature(header: ByteArray): ExportSignatureHint? {
     fun starts(vararg bytes: Int): Boolean = header.size >= bytes.size &&
-        bytes.indices.all { index -> header[index].toInt() and 0xff == bytes[index] }
+        bytes.indices.all { index -> (header[index].toInt() and 0xff) == bytes[index] }
     fun ascii(prefix: String, offset: Int = 0): Boolean =
         header.size >= offset + prefix.length &&
             prefix.indices.all { header[offset + it].toInt() == prefix[it].code }
