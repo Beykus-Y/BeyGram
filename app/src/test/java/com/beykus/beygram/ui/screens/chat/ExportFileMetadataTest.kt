@@ -45,6 +45,20 @@ class ExportFileMetadataTest {
         assertEquals(null, detectExportSignature("ID3".toByteArray()))
     }
 
+    @Test fun signatureReaderHandlesFilePrefixAndMissingFiles() {
+        val file = java.io.File.createTempFile("beygram-export-test-", ".cache")
+        try {
+            val bytes = "%PDF-1.5\\n".toByteArray() + ByteArray(2048) { 42 }
+            file.writeBytes(bytes)
+            assertEquals(ExportSignatureHint("pdf", "application/pdf"), readExportSignature(file))
+            // Inspection must never modify the downloaded Telegram cache content.
+            assertEquals(bytes.toList(), file.readBytes().toList())
+        } finally {
+            file.delete()
+        }
+        assertEquals(null, readExportSignature(file))
+    }
+
     @Test fun originalFilenameNeverGetsBinAppended() {
         assertEquals("archive.zip", metadata("archive.zip").displayName)
         assertEquals("report.PDF", metadata("report.PDF").displayName)
