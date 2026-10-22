@@ -49,4 +49,21 @@
     <string name="theme_preview_service">Сегодня изменена тема оформления</string>
     <string name="theme_editor_text_size">Размер текста сообщений: %1$d sp</string>
     <string name="theme_editor_text_size_hint">Меняется только текст сообщений. Системный масштаб шрифта сохраняется.</string>
+    <string name="theme_editor_corner_radius">Скругление пузырей: %1$d dp</string>
+    <string name="theme_editor_corner_radius_by_shape">Как у выбранной формы</string>
+    <string name="theme_editor_line_spacing">Межстрочный интервал</string>
+    <string name="theme_editor_line_spacing_compact">Плотный</string>
+    <string name="theme_editor_line_spacing_normal">Обычный</string>
+    <string name="theme_editor_line_spacing_relaxed">Свободный</string>
+    <string name="theme_editor_message_text">Цвет текста сообщений</string>
+    <string name="theme_editor_message_time">Цвет времени в сообщениях</string>
+    <string name="theme_editor_colour_ink">Тёмный</string>
+    <string name="theme_editor_colour_white">Белый</string>
+    <string name="theme_editor_colour_indigo">Индиго</string>
+    <string name="theme_editor_colour_lavender">Лавандовый</string>
+    <string name="theme_editor_colour_violet">Фиолетовый</string>
+    <string name="theme_editor_colour_light_grey">Светло-серый</string>
+    <string name="theme_editor_colour_grey">Серый</string>
+    <string name="theme_editor_warning_message_colour">Этот цвет плохо читается на пузырях сообщений. Выберите другой.</string>
+    <string name="theme_editor_undo">Отменить изменение</string>
 </resources>

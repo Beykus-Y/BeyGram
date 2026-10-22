@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.diagnostics.connectionDiagnosticsText
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -84,6 +86,8 @@ fun DiagnosticsScreen(
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)
         ) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+                AnalyticsSwitchRow()
+                HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
                 DiagnosticsLink(
                     icon = Icons.Rounded.BugReport,
                     title = stringResource(R.string.diagnostics_report_problem),
@@ -153,6 +157,20 @@ fun DiagnosticsScreen(
                 TextButton(onClick = { viewingData = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
             }
         )
+    }
+}
+
+@Composable
+private fun AnalyticsSwitchRow() {
+    val palette = beyGramPalette()
+    var enabled by remember { mutableStateOf(AnalyticsSync.isEnabled()) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 13.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.analytics_title), color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            // Turning it off also deletes this installation's record on the server.
+            Switch(checked = enabled, onCheckedChange = { enabled = it; AnalyticsSync.setEnabled(it) })
+        }
+        Text(stringResource(R.string.analytics_description), color = palette.textSecondary, fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 6.dp))
     }
 }
 

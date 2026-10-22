@@ -9,4 +9,6 @@
     <string name="wallpaper_import_failed">Unable to open this photo</string>
     <string name="wallpaper_horizontal_hint">Swipe left or right to explore more wallpapers</string>
     <string name="wallpaper_reset">Clear wallpaper</string>
+    <string name="wallpaper_blur">Blur photo</string>
+    <string name="wallpaper_blur_hint">Works on Android 12 and newer. Older versions darken the photo more instead.</string>
 </resources>

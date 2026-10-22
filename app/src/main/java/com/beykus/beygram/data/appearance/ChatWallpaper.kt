@@ -12,8 +12,11 @@ sealed interface ChatWallpaper {
     /** A built-in, resolution-independent vector wallpaper. */
     data class Preset(val id: String, val intensityPercent: Int = DEFAULT_PATTERN_INTENSITY) : ChatWallpaper
 
-    /** A picture kept in the app's own storage under [fileName]. [dimPercent] darkens it, 0..[MAX_DIM_PERCENT]. */
-    data class Photo(val fileName: String, val dimPercent: Int = DEFAULT_DIM_PERCENT) : ChatWallpaper
+    /**
+     * A picture kept in the app's own storage under [fileName]. [dimPercent] darkens it, 0..[MAX_DIM_PERCENT].
+     * [blurred] softens it on Android 12 and newer; older systems darken it a little more instead.
+     */
+    data class Photo(val fileName: String, val dimPercent: Int = DEFAULT_DIM_PERCENT, val blurred: Boolean = false) : ChatWallpaper
 
     companion object {
         const val DEFAULT_PATTERN_INTENSITY = 24
@@ -43,7 +46,7 @@ fun ChatWallpaper.encode(): String = when (this) {
     is ChatWallpaper.Solid -> "solid:${color.toUInt().toString(16)}"
     is ChatWallpaper.Gradient -> "gradient:${top.toUInt().toString(16)}:${bottom.toUInt().toString(16)}"
     is ChatWallpaper.Preset -> "preset:$id:${intensityPercent.coerceIn(0, ChatWallpaper.MAX_PATTERN_INTENSITY)}"
-    is ChatWallpaper.Photo -> "photo:$dimPercent:$fileName"
+    is ChatWallpaper.Photo -> if (blurred) "blurphoto:$dimPercent:$fileName" else "photo:$dimPercent:$fileName"
 }
 
 /** Reads what [encode] wrote. Missing or damaged values read as [ChatWallpaper.None]. */
@@ -64,11 +67,11 @@ fun chatWallpaperFromStored(stored: String?): ChatWallpaper {
                 ChatWallpaper.Preset(id, intensity.coerceIn(0, ChatWallpaper.MAX_PATTERN_INTENSITY))
             } else null
         }
-        "photo" -> {
+        "photo", "blurphoto" -> {
             val dim = parts.getOrNull(1)?.toIntOrNull()
             val name = parts.getOrNull(2)
             if (dim != null && !name.isNullOrBlank() && isSafeWallpaperFileName(name)) {
-                ChatWallpaper.Photo(name, dim.coerceIn(0, ChatWallpaper.MAX_DIM_PERCENT))
+                ChatWallpaper.Photo(name, dim.coerceIn(0, ChatWallpaper.MAX_DIM_PERCENT), blurred = parts[0] == "blurphoto")
             } else null
         }
         else -> null

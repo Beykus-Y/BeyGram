@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.theme.LocalMessageLineSpacing
 import com.beykus.beygram.ui.theme.LocalMessageTextSize
 
 internal fun entitySpan(kind: TextStyleKind, accent: Color, secondary: Color): SpanStyle = when (kind) {
@@ -80,6 +81,7 @@ internal fun FormattedMessageText(message: ChatMessage, modifier: Modifier = Mod
 private fun RichTextPart(messageId: Long, part: MessageTextPart, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     val messageSize = LocalMessageTextSize.current
+    val lineSpacing = LocalMessageLineSpacing.current
     val uri = LocalUriHandler.current
     val context = LocalContext.current
     var revealed by remember(messageId, part) { mutableStateOf(false) }
@@ -145,12 +147,12 @@ private fun RichTextPart(messageId: Long, part: MessageTextPart, modifier: Modif
                     val seed = (row * 73856093) xor (column * 19349663) xor messageId.toInt()
                     val dx = ((seed ushr 2) and 15) / 15f * step
                     val dy = ((seed ushr 6) and 15) / 15f * step
-                    drawCircle(palette.textPrimary.copy(alpha = 0.25f + (seed and 7) / 14f), radius,
+                    drawCircle(palette.messageText.copy(alpha = 0.25f + (seed and 7) / 14f), radius,
                         Offset(bounds.left + column * step + dx, bounds.top + row * step + dy))
                 }
             }
         }
-    }, color = palette.textPrimary, fontSize = messageSize,
+    }, color = palette.messageText, fontSize = messageSize,
         fontFamily = if (part.block == TextStyleKind.Pre) FontFamily.Monospace else FontFamily.Default,
-        lineHeight = (messageSize.value * 1.375f).sp, onTextLayout = { layout = it })
+        lineHeight = (messageSize.value * lineSpacing).sp, onTextLayout = { layout = it })
 }

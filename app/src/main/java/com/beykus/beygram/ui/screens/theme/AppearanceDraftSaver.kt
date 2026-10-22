@@ -7,9 +7,11 @@ import com.beykus.beygram.data.appearance.bubbleStyleFromStored
 import com.beykus.beygram.data.appearance.chatWallpaperFromStored
 import com.beykus.beygram.data.appearance.encode
 import com.beykus.beygram.data.appearance.listDensityFromStored
+import com.beykus.beygram.data.appearance.messageLineSpacingFromStored
 import com.beykus.beygram.data.appearance.themeModeFromStored
 import com.beykus.beygram.data.appearance.themePresetFromStored
 import com.beykus.beygram.data.appearance.DEFAULT_MESSAGE_TEXT_SIZE_SP
+import com.beykus.beygram.data.appearance.validBubbleCornerRadius
 import com.beykus.beygram.data.appearance.validMessageTextSize
 
 /**
@@ -27,12 +29,16 @@ internal val AppearanceDraftSaver: Saver<AppearanceConfig?, Any> = listSaver<App
                 it.accentColor?.toString().orEmpty(),
                 it.outgoingBubbleColor?.toString().orEmpty(),
                 it.wallpaper.encode(),
-                it.messageTextSizeSp.toString()
+                it.messageTextSizeSp.toString(),
+                it.bubbleCornerRadiusDp?.toString().orEmpty(),
+                it.messageLineSpacing.name,
+                it.messageTextColor?.toString().orEmpty(),
+                it.messageTimeColor?.toString().orEmpty()
             )
         }.orEmpty()
     },
     restore = { parts ->
-        if (parts.size !in 7..8) null else AppearanceConfig(
+        if (parts.size !in 7..12) null else AppearanceConfig(
             preset = themePresetFromStored(parts[0]),
             mode = themeModeFromStored(parts[1]),
             bubbleStyle = bubbleStyleFromStored(parts[2]),
@@ -40,7 +46,11 @@ internal val AppearanceDraftSaver: Saver<AppearanceConfig?, Any> = listSaver<App
             accentColor = parts[4].toIntOrNull(),
             outgoingBubbleColor = parts[5].toIntOrNull(),
             wallpaper = chatWallpaperFromStored(parts[6]),
-            messageTextSizeSp = validMessageTextSize(parts.getOrNull(7)?.toIntOrNull() ?: DEFAULT_MESSAGE_TEXT_SIZE_SP)
+            messageTextSizeSp = validMessageTextSize(parts.getOrNull(7)?.toIntOrNull() ?: DEFAULT_MESSAGE_TEXT_SIZE_SP),
+            bubbleCornerRadiusDp = validBubbleCornerRadius(parts.getOrNull(8)?.toIntOrNull()),
+            messageLineSpacing = messageLineSpacingFromStored(parts.getOrNull(9)),
+            messageTextColor = parts.getOrNull(10)?.toIntOrNull(),
+            messageTimeColor = parts.getOrNull(11)?.toIntOrNull()
         )
     }
 )

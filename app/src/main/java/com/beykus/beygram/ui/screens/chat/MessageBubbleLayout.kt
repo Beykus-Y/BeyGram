@@ -70,17 +70,21 @@ internal fun bubbleShape(outgoing: Boolean, metrics: BubbleMetrics): RoundedCorn
     return if (outgoing) RoundedCornerShape(corner, corner, tail, corner) else RoundedCornerShape(corner, corner, corner, tail)
 }
 
-/** Размеры для выбранной формы пузырей и плотности. Скруглённые пузыри при комфортной плотности дают прежний вид. */
-internal fun bubbleMetricsFor(style: BubbleStyle, density: ListDensity): BubbleMetrics {
+/**
+ * Размеры для выбранной формы пузырей, плотности и радиуса. Скруглённые пузыри при комфортной плотности дают прежний вид.
+ * [cornerRadiusDp] — радиус, выбранный в редакторе; null оставляет радиус формы.
+ */
+internal fun bubbleMetricsFor(style: BubbleStyle, density: ListDensity, cornerRadiusDp: Int? = null): BubbleMetrics {
     val shaped = when (style) {
         BubbleStyle.Rounded -> BubbleMetrics()
         BubbleStyle.Soft -> BubbleMetrics(cornerRadius = 14.dp, tailRadius = 4.dp, replyRadius = 9.dp)
         BubbleStyle.Square -> BubbleMetrics(cornerRadius = 8.dp, tailRadius = 2.dp, replyRadius = 4.dp)
     }
+    val cornered = if (cornerRadiusDp != null) shaped.copy(cornerRadius = cornerRadiusDp.dp) else shaped
     return when (density) {
-        ListDensity.Compact -> shaped.copy(itemSpacing = 4.dp, listPadding = 8.dp)
-        ListDensity.Comfortable -> shaped
-        ListDensity.Spacious -> shaped.copy(itemSpacing = 12.dp, listPadding = 20.dp)
+        ListDensity.Compact -> cornered.copy(itemSpacing = 4.dp, listPadding = 8.dp)
+        ListDensity.Comfortable -> cornered
+        ListDensity.Spacious -> cornered.copy(itemSpacing = 12.dp, listPadding = 20.dp)
     }
 }
 
@@ -126,7 +130,7 @@ internal fun BubbleMeta(message: ChatMessage, isRead: Boolean, retryAvailable: B
     val textColor = when {
         overlay -> Color.White
         failed -> palette.warningText
-        else -> palette.textSecondary
+        else -> palette.messageTime
     }
     val modifier = if (overlay) Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 6.dp, vertical = 2.dp)
         else Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
@@ -137,7 +141,7 @@ internal fun BubbleMeta(message: ChatMessage, isRead: Boolean, retryAvailable: B
             modifier = Modifier.clickable(onClick = onRetry))
         if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
             Spacer(Modifier.width(3.dp))
-            Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = if (overlay) Color.White else palette.textSecondary,
+            Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = if (overlay) Color.White else palette.messageTime,
                 modifier = Modifier.size(14.dp))
         }
         if (message.isOutgoing && message.sendState == MessageSendState.Sent) {

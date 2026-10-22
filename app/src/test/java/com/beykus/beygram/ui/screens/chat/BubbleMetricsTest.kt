@@ -44,4 +44,17 @@ class BubbleMetricsTest {
         assertTrue(BubbleMetrics().itemSpacing < spacious.itemSpacing)
         assertTrue(compact.listPadding < spacious.listPadding)
     }
+
+    @Test fun chosenCornerRadiusReplacesOnlyTheCorners() {
+        val chosen = bubbleMetricsFor(BubbleStyle.Soft, ListDensity.Comfortable, cornerRadiusDp = 24)
+        assertEquals(24.dp, chosen.cornerRadius)
+        assertEquals(bubbleMetricsFor(BubbleStyle.Soft, ListDensity.Comfortable).tailRadius, chosen.tailRadius)
+    }
+
+    @Test fun noChosenCornerRadiusKeepsTheShapeRadius() {
+        assertEquals(
+            bubbleMetricsFor(BubbleStyle.Square, ListDensity.Compact),
+            bubbleMetricsFor(BubbleStyle.Square, ListDensity.Compact, cornerRadiusDp = null)
+        )
+    }
 }

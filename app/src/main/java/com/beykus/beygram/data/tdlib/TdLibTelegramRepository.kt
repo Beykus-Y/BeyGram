@@ -6,6 +6,7 @@ import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
@@ -64,6 +65,7 @@ import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -80,6 +82,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
@@ -1393,6 +1396,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 }
                 syncArchiveReturnSetting()
                 profiles.refreshMe()
+                chatListScope.launch {
+                    // Telemetry only reports the own ID, so it waits for the profile instead of blocking Ready.
+                    // Wait for this refresh to finish: after a logout the old profile is still in the state until then.
+                    val me = runCatching {
+                        withTimeout(60_000) { profiles.me.first { !it.isLoading && it.error == null && it.info != null }.info }
+                    }.getOrNull()
+                    AnalyticsSync.onAccountsChanged(listOfNotNull(me?.id?.takeIf { it > 0 }))
+                }
                 conversationActions.initialize()
                 conversationEffects.authorized()
                 notificationFeed.initialize()
@@ -1400,6 +1411,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
+                AnalyticsSync.onAccountsChanged(emptyList())
                 groupRequestGeneration.incrementAndGet()
                 groupCreationPrefs.edit().remove("unconfirmed").apply()
                 _groupCreation.value = GroupCreationState.Idle

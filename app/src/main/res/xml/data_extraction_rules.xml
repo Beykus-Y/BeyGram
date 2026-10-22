@@ -5,6 +5,8 @@
         <exclude domain="sharedpref" path="chat_message_drafts.xml" />
         <!-- The loopback SOCKS credentials are per installation; a restored copy would share them with another device. -->
         <exclude domain="sharedpref" path="mihomo-loopback.xml" />
+        <!-- Analytics identity is per installation; restoring it elsewhere would merge two devices into one record. -->
+        <exclude domain="sharedpref" path="analytics.xml" />
         <!-- The diagnostics report draft is session-local; restoring it on another device makes no sense. -->
         <exclude domain="file" path="diagnostics-report" />
         <!-- Pending sends only: RAW video notes live in no_backup, restored queue files would be orphans. -->
@@ -14,6 +16,8 @@
         <exclude domain="sharedpref" path="vpn-settings.xml" />
         <exclude domain="sharedpref" path="chat_message_drafts.xml" />
         <exclude domain="sharedpref" path="mihomo-loopback.xml" />
+        <!-- Analytics identity is per installation; restoring it elsewhere would merge two devices into one record. -->
+        <exclude domain="sharedpref" path="analytics.xml" />
         <exclude domain="file" path="diagnostics-report" />
         <exclude domain="file" path="uploads" />
     </device-transfer>

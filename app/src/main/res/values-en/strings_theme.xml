@@ -49,4 +49,21 @@
     <string name="theme_preview_service">Chat appearance changed today</string>
     <string name="theme_editor_text_size">Message text size: %1$d sp</string>
     <string name="theme_editor_text_size_hint">Only message text changes. Android system font scaling is respected.</string>
+    <string name="theme_editor_corner_radius">Bubble corner radius: %1$d dp</string>
+    <string name="theme_editor_corner_radius_by_shape">Follow the bubble shape</string>
+    <string name="theme_editor_line_spacing">Line spacing</string>
+    <string name="theme_editor_line_spacing_compact">Tight</string>
+    <string name="theme_editor_line_spacing_normal">Normal</string>
+    <string name="theme_editor_line_spacing_relaxed">Relaxed</string>
+    <string name="theme_editor_message_text">Message text colour</string>
+    <string name="theme_editor_message_time">Time colour in messages</string>
+    <string name="theme_editor_colour_ink">Ink</string>
+    <string name="theme_editor_colour_white">White</string>
+    <string name="theme_editor_colour_indigo">Indigo</string>
+    <string name="theme_editor_colour_lavender">Lavender</string>
+    <string name="theme_editor_colour_violet">Violet</string>
+    <string name="theme_editor_colour_light_grey">Light grey</string>
+    <string name="theme_editor_colour_grey">Grey</string>
+    <string name="theme_editor_warning_message_colour">This colour is hard to read on message bubbles. Choose another one.</string>
+    <string name="theme_editor_undo">Undo change</string>
 </resources>
