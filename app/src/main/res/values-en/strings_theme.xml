@@ -65,4 +65,5 @@
     <string name="theme_editor_colour_light_grey">Light grey</string>
     <string name="theme_editor_colour_grey">Grey</string>
     <string name="theme_editor_warning_message_colour">This colour is hard to read on message bubbles. Choose another one.</string>
+    <string name="theme_editor_undo">Undo change</string>
 </resources>
