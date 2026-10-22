@@ -47,4 +47,6 @@
     <string name="theme_preview_reply">Анна · Как тебе новая тема?</string>
     <string name="theme_preview_media_caption">Вот предварительный макет</string>
     <string name="theme_preview_service">Сегодня изменена тема оформления</string>
+    <string name="theme_editor_text_size">Размер текста сообщений: %1$d sp</string>
+    <string name="theme_editor_text_size_hint">Меняется только текст сообщений. Системный масштаб шрифта сохраняется.</string>
 </resources>

@@ -47,4 +47,6 @@
     <string name="theme_preview_reply">Anna · What do you think of this theme?</string>
     <string name="theme_preview_media_caption">Here is the first mockup</string>
     <string name="theme_preview_service">Chat appearance changed today</string>
+    <string name="theme_editor_text_size">Message text size: %1$d sp</string>
+    <string name="theme_editor_text_size_hint">Only message text changes. Android system font scaling is respected.</string>
 </resources>

@@ -10,5 +10,14 @@ data class AppearanceConfig(
     val accentColor: Int? = null,
     /** ARGB colour of outgoing bubbles chosen in the editor, or null to derive it from the accent. */
     val outgoingBubbleColor: Int? = null,
-    val wallpaper: ChatWallpaper = ChatWallpaper.None
+    val wallpaper: ChatWallpaper = ChatWallpaper.None,
+    /** 12–22 sp before Android's system fontScale; 16 sp preserves the legacy appearance. */
+    val messageTextSizeSp: Int = DEFAULT_MESSAGE_TEXT_SIZE_SP
 )
+
+const val DEFAULT_MESSAGE_TEXT_SIZE_SP = 16
+const val MIN_MESSAGE_TEXT_SIZE_SP = 12
+const val MAX_MESSAGE_TEXT_SIZE_SP = 22
+
+/** Invalid persisted values never reach Compose's bubble measurement. */
+fun validMessageTextSize(size: Int): Int = size.coerceIn(MIN_MESSAGE_TEXT_SIZE_SP, MAX_MESSAGE_TEXT_SIZE_SP)

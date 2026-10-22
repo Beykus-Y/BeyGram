@@ -11,9 +11,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 
 /** Tokens of the theme in effect. [BeyGramTheme] provides them; screens read them through beyGramPalette(). */
 val LocalBeyGramTokens = compositionLocalOf { LightTokens }
+
+/** Resolved chat message size; system fontScale still applies normally in Compose. */
+val LocalMessageTextSize: androidx.compose.runtime.ProvidableCompositionLocal<TextUnit> = compositionLocalOf { 16.sp }
 
 /** Material's colour scheme with every role taken from these tokens. */
 /** Keeps Material3 component colours in sync with the same BeyGram semantic tokens.
@@ -77,11 +82,15 @@ internal fun readableOnColor(fill: Color): Color =
 fun BeyGramTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     tokens: BeyGramTokens = if (darkTheme) DarkTokens else LightTokens,
+    messageTextSizeSp: Int = 16,
     content: @Composable () -> Unit
 ) {
     val colorScheme = remember(tokens, darkTheme) { tokens.toColorScheme(darkTheme) }
 
-    CompositionLocalProvider(LocalBeyGramTokens provides tokens) {
+    CompositionLocalProvider(
+        LocalBeyGramTokens provides tokens,
+        LocalMessageTextSize provides messageTextSizeSp.coerceIn(12, 22).sp
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = Typography,
