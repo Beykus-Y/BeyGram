@@ -164,6 +164,7 @@ internal class VideoNoteRecorder(
     private var previewFpsRange: IntRange? = null
     private var captureCameraId: String? = null
     private var captureSourceSize: Pair<Int, Int>? = null
+    private var captureQuality: com.beykus.beygram.data.media.VideoNoteSourceQuality? = null
     /** Persistent-запись не отвязывается от VideoCapture при перепривязке камеры. Если устройство её не умеет, переключение скрывается. */
     private var persistentSupported = true
     private var take: VideoTake? = null
@@ -207,6 +208,19 @@ internal class VideoNoteRecorder(
                 val compatible = targetSupported.any { range -> range.first <= captureFps.lower && captureFps.upper <= range.last }
                 if (!compatible) {
                     Log.i(TAG, "video_camera_switch_refused fps=$captureFps supported=$targetSupported")
+                    VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_switch_refused))
+                    onError(context.getString(R.string.recorder_camera_switch_failed))
+                    return
+                }
+            }
+            if (captureFps != null && captureFps.upper >= 50) {
+                val size = captureSourceSize
+                val selectedQuality = captureQuality
+                val targetInfo = cameraProvider.getCameraInfo(selector)
+                if (size == null || selectedQuality == null || !VideoNoteCameraSurvey.compatibleHighFpsSwitch(
+                        context, targetInfo, selectedQuality, size, captureFps.lower..captureFps.upper
+                    )) {
+                    Log.i(TAG, "video_camera_switch_refused incompatible high-FPS quality/stream")
                     VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_switch_refused))
                     onError(context.getString(R.string.recorder_camera_switch_failed))
                     return
@@ -451,11 +465,13 @@ internal class VideoNoteRecorder(
         // Preview+VideoCapture session combinations or low-light exposure behaviour.
         // The settings screen's diagnostics call the same function, so both always agree.
         val plan = VideoNoteCameraSurvey.recordingPlan(
-            context, settings, captureCameraId, supportedFps.map { it.lower..it.upper }
+            context, settings, captureCameraId, supportedFps.map { it.lower..it.upper },
+            cameraProvider.getCameraInfo(selector)
         )
         val decision = plan.decision
         val quality = if (plan.quality == com.beykus.beygram.data.media.VideoNoteSourceQuality.SD) Quality.SD else requestedQuality
         captureSourceSize = plan.width to plan.height
+        captureQuality = plan.quality
         val chosenFps = decision.selected
         val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         captureFpsDecision = decision

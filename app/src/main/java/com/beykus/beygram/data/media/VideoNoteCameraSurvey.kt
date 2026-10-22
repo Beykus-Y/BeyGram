@@ -12,6 +12,8 @@ import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
 import com.beykus.beygram.R
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -32,7 +34,7 @@ internal fun videoNoteSourceForHighFps(
 ): VideoNoteSourceQuality = if ((hd60 == false || hdEncoder60 == false) &&
     sd60 == true && sdEncoder60 == true) VideoNoteSourceQuality.SD else VideoNoteSourceQuality.HD
 
-internal data class RecordingLens(val facing: ProbeFacing, val cameraId: String?, val ranges: List<IntRange>)
+internal data class RecordingLens(val facing: ProbeFacing, val cameraId: String?, val ranges: List<IntRange>, val cameraInfo: CameraInfo? = null)
 
 /**
  * Read-only hardware survey. Advertised ranges describe camera capabilities, not guaranteed
@@ -66,35 +68,66 @@ internal object VideoNoteCameraSurvey {
 
     /** Choose SD at high FPS only if HD is explicitly unable to do it and SD
      * has a compatible normal camera stream plus H.264 encoder. */
-    fun recordingPlan(context: Context, settings: VideoMessageSettings, cameraId: String?, cameraRanges: List<IntRange>): VideoNoteRecordingPlan {
+    fun recordingPlan(context: Context, settings: VideoMessageSettings, cameraId: String?, cameraRanges: List<IntRange>, cameraInfo: CameraInfo? = null): VideoNoteRecordingPlan {
         val requested = settings.requestedFrameRateRange()
         val manager = context.getSystemService(CameraManager::class.java)
         val characteristics = cameraId?.let { id -> runCatching { manager.getCameraCharacteristics(id) }.getOrNull() }
         val normalRanges = characteristics?.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
             ?.map { it.lower..it.upper }
-        val (originalWidth, originalHeight) = sourceSize(settings)
+        val (requestedWidth, requestedHeight) = sourceSize(settings)
+        val nativeQuality = if (requestedWidth > 640) VideoNoteSourceQuality.HD else VideoNoteSourceQuality.SD
+        // CameraX Quality.SD may mean 720×480 rather than 640×480. Never test
+        // an invented size against Camera2 and assume the Recorder will select it.
+        val actualHd = qualityResolution(cameraInfo, Quality.HD)
+        val actualSd = qualityResolution(cameraInfo, Quality.SD)
+        val original = if (nativeQuality == VideoNoteSourceQuality.HD) actualHd else actualSd
         val high = requested.last >= 50
         val cameraAllows60 = cameraRanges.any { it.last >= 60 } &&
             normalRanges?.any { it.last >= 60 } != false
-        val hdEncoder = if (high) encoderSupportsAvc(originalWidth, originalHeight, 60) else null
-        val quality = if (high && originalWidth > 640 && cameraAllows60) {
+        val hdEncoder = if (high && original != null) encoderSupportsAvc(original.first, original.second, 60)
+            else null
+        val sdEncoder = if (high && actualSd != null) encoderSupportsAvc(actualSd.first, actualSd.second, 60)
+            else null
+        val quality = if (high && nativeQuality == VideoNoteSourceQuality.HD &&
+            cameraAllows60 && actualHd != null && actualSd != null) {
             videoNoteSourceForHighFps(
-                sourceSupports60(characteristics, originalWidth, originalHeight),
-                sourceSupports60(characteristics, 640, 480),
-                hdEncoder, encoderSupportsAvc(640, 480, 60)
+                sourceSupports60(characteristics, actualHd.first, actualHd.second),
+                sourceSupports60(characteristics, actualSd.first, actualSd.second),
+                hdEncoder, sdEncoder
             )
-        } else if (originalWidth <= 640) VideoNoteSourceQuality.SD else VideoNoteSourceQuality.HD
-        val (width, height) = if (quality == VideoNoteSourceQuality.SD) 640 to 480
-            else originalWidth to originalHeight
-        // A *fallback* to SD already checked its encoder; a native SD profile
-        // must still check the encoder rather than assuming it supports 60.
-        val encoder = if (quality == VideoNoteSourceQuality.SD && originalWidth > 640) true else hdEncoder
+        } else nativeQuality
+        val resolved = if (quality == VideoNoteSourceQuality.SD) actualSd else actualHd
+        val (width, height) = resolved ?: (requestedWidth to requestedHeight)
+        val encoder = if (quality == VideoNoteSourceQuality.SD) sdEncoder else hdEncoder
         // Camera2 stream ceiling is a filter, not a guarantee Preview + capture will sustain 60.
-        val stream60 = if (high) sourceSupports60(characteristics, width, height) else null
+        val stream60 = if (high && resolved != null) sourceSupports60(characteristics, width, height) else null
         val selected = safeVideoNoteFpsSelection(
             requested, cameraRanges, normalRanges, encoder, stream60
         )
         return VideoNoteRecordingPlan(selected, quality, width, height)
+    }
+
+    private fun qualityResolution(info: CameraInfo?, quality: Quality): Pair<Int, Int>? =
+        info?.let { runCatching { QualitySelector.getResolution(it, quality) }.getOrNull() }
+            ?.let { it.width to it.height }
+
+    /** Validate active Recorder quality before switching lenses, not only the AE range.
+     * A failed check leaves the persistent recording bound to its original lens. */
+    fun compatibleHighFpsSwitch(
+        context: Context, target: CameraInfo, quality: VideoNoteSourceQuality,
+        currentSize: Pair<Int, Int>, range: IntRange
+    ): Boolean {
+        val requestedQuality = if (quality == VideoNoteSourceQuality.SD) Quality.SD else Quality.HD
+        val actual = qualityResolution(target, requestedQuality) ?: return false
+        if (actual != currentSize) return false
+        val cameraId = cameraId(target) ?: return false
+        val characteristics = runCatching {
+            context.getSystemService(CameraManager::class.java).getCameraCharacteristics(cameraId)
+        }.getOrNull() ?: return false
+        val ae = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+            ?.any { it.lower <= range.first && it.upper >= range.last } == true
+        return ae && sourceSupports60(characteristics, actual.first, actual.second) == true &&
+            encoderSupportsAvc(actual.first, actual.second, 60) == true
     }
 
     /** Null = unknown; no stream duration metadata cannot be treated as proof of 60. */
@@ -114,7 +147,7 @@ internal object VideoNoteCameraSurvey {
             .mapNotNull { (facing, selector) ->
                 val info = runCatching { selector.filter(provider.availableCameraInfos).firstOrNull() }.getOrNull()
                     ?: return@mapNotNull null
-                RecordingLens(facing, cameraId(info), info.supportedFrameRateRanges.map { it.lower..it.upper })
+                RecordingLens(facing, cameraId(info), info.supportedFrameRateRanges.map { it.lower..it.upper }, info)
             }
     }.getOrDefault(emptyList())
 
@@ -144,7 +177,7 @@ internal object VideoNoteCameraSurvey {
         val lenses = recordingLenses(context)
         if (lenses.isEmpty()) appendLine(context.getString(R.string.camera_report_recording_unavailable))
         lenses.forEach { lens ->
-            val plan = recordingPlan(context, settings, lens.cameraId, lens.ranges)
+            val plan = recordingPlan(context, settings, lens.cameraId, lens.ranges, lens.cameraInfo)
             val decision = plan.decision
             appendLine(context.getString(R.string.vn_entry_source_plan, plan.quality.name, plan.width, plan.height))
             appendLine(context.getString(R.string.camera_report_recording_lens,
