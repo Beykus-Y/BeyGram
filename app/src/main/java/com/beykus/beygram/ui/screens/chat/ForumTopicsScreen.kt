@@ -46,6 +46,43 @@ internal fun orderedForumTopics(topics: List<ForumTopic>): List<ForumTopic> {
     return unique.filter(ForumTopic::isPinned) + unique.filterNot(ForumTopic::isPinned)
 }
 
+/** A responsive forum shell, shown before TDLib delivers its first topic page.
+ * Never keep an un-navigable fullscreen spinner over a slow network. */
+@Composable
+fun ForumTopicsLoadingScreen(chatTitle: String, onBack: () -> Unit) {
+    val palette = beyGramPalette()
+    BackHandler(onBack = onBack)
+    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Row(
+            Modifier.fillMaxWidth().background(palette.surface).padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
+            }
+            Text(chatTitle, color = palette.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(5) {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                        .background(palette.surface).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(palette.accentSoft))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.fillMaxWidth(0.7f).height(13.dp).clip(RoundedCornerShape(7.dp)).background(palette.surface2))
+                        Box(Modifier.fillMaxWidth(0.9f).height(10.dp).clip(RoundedCornerShape(7.dp)).background(palette.surface2))
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Consistent BeyGram topic list, preserving TDLib action and paging behaviour. */
 @Composable
 fun ForumTopicsScreen(
@@ -55,6 +92,7 @@ fun ForumTopicsScreen(
     loadPreview: suspend (Long) -> Result<String?>,
     canCreate: Boolean,
     busy: Boolean,
+    loadingTopics: Boolean = false,
     actionError: String?,
     onBack: () -> Unit,
     onTopic: (ForumTopic) -> Unit,
@@ -100,7 +138,7 @@ fun ForumTopicsScreen(
             }
         }
         HorizontalDivider(color = palette.divider)
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+        if (busy || loadingTopics) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         if (actionError != null) {
             Text(actionError, modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
                 color = MaterialTheme.colorScheme.error, fontSize = 13.sp)

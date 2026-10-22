@@ -52,6 +52,7 @@ import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
+import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.chats.CreateChannelScreen
 import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
@@ -99,6 +100,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 
 /** Экраны, где мини-плеер встроен в свою разметку: над нижним меню или над полем ввода. На остальных экранах он стоит снизу. */
 private val playerBarHostRoutes = setOf(AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat)
@@ -529,6 +532,7 @@ private fun BeyGramAppContent(
                 )
             ) selectedForumTopicId else 0L
             var topicsReload by remember(repository, selectedChatId) { mutableIntStateOf(0) }
+            var topicsLoading by remember(repository, selectedChatId) { mutableStateOf(true) }
             var canCreateTopic by remember(repository, selectedChatId) { mutableStateOf(false) }
             var forumBusy by remember(repository, selectedChatId) { mutableStateOf(false) }
             var forumActionError by remember(repository, selectedChatId) { mutableStateOf<String?>(null) }
@@ -548,7 +552,21 @@ private fun BeyGramAppContent(
                 }
             }
             LaunchedEffect(repository, selectedChatId, topicsReload) {
-                topicsResult = repository.forumTopics(selectedChatId)
+                topicsLoading = true
+                try {
+                    val completed = withTimeout(20_000L) {
+                        repository.forumTopics(selectedChatId) { partial ->
+                            // The user can open a topic as soon as the first page arrives.
+                            topicsResult = Result.success(partial)
+                        }
+                    }
+                    // Preserve the last successfully delivered page if later pagination fails.
+                    if (completed.isSuccess || topicsResult == null) topicsResult = completed
+                } catch (timeout: TimeoutCancellationException) {
+                    if (topicsResult == null) topicsResult = Result.failure(timeout)
+                } finally {
+                    topicsLoading = false
+                }
             }
             val topics = topicsResult?.getOrNull()
             val selectedTopic = topics?.firstOrNull { it.id == activeTopicId }
@@ -577,9 +595,9 @@ private fun BeyGramAppContent(
                 }
             }
             when {
-                topicsResult == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                topicsResult == null -> ForumTopicsLoadingScreen(
+                    chatTitle = chat.title, onBack = { routeName = chatBackRouteName }
+                )
                 topicsResult?.isFailure == true && activeTopicId == 0L -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(stringResource(R.string.share_topics_failed))
@@ -593,6 +611,7 @@ private fun BeyGramAppContent(
                     topics = topics,
                     canCreate = canCreateTopic,
                     busy = forumBusy,
+                    loadingTopics = topicsLoading,
                     actionError = forumActionError,
                     onBack = { routeName = chatBackRouteName },
                     onTopic = { topic -> selectedTopicChatId = selectedChatId; selectedForumTopicId = topic.id },
