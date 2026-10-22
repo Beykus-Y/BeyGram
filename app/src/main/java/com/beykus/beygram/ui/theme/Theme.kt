@@ -34,7 +34,12 @@ internal fun BeyGramTokens.toColorScheme(dark: Boolean): ColorScheme {
         surfaceContainer = containers.normal, surfaceContainerHigh = containers.high,
         surfaceContainerHighest = containers.highest,
         outline = line, outlineVariant = line,
-        inverseSurface = text, inverseOnSurface = bg, inversePrimary = onAccent,
+        inverseSurface = text, inverseOnSurface = bg, inversePrimary = accessibleInversePrimary(accent, accentInk, text),
+        primaryFixed = accentSoft, primaryFixedDim = bubbleOut,
+        onPrimaryFixed = accentInk, onPrimaryFixedVariant = accentInk,
+        secondaryFixed = accentSoft, secondaryFixedDim = bubbleOut,
+        onSecondaryFixed = accentInk, onSecondaryFixedVariant = accentInk,
+        tertiaryFixed = ok, tertiaryFixedDim = ok, onTertiaryFixed = okInk, onTertiaryFixedVariant = okInk,
         error = danger, onError = readableOnColor(danger), errorContainer = errorFill, onErrorContainer = text,
         scrim = Color.Black
     ) else lightColorScheme(
@@ -48,7 +53,12 @@ internal fun BeyGramTokens.toColorScheme(dark: Boolean): ColorScheme {
         surfaceContainer = containers.normal, surfaceContainerHigh = containers.high,
         surfaceContainerHighest = containers.highest,
         outline = line, outlineVariant = line,
-        inverseSurface = text, inverseOnSurface = bg, inversePrimary = onAccent,
+        inverseSurface = text, inverseOnSurface = bg, inversePrimary = accessibleInversePrimary(accent, accentInk, text),
+        primaryFixed = accentSoft, primaryFixedDim = bubbleOut,
+        onPrimaryFixed = accentInk, onPrimaryFixedVariant = accentInk,
+        secondaryFixed = accentSoft, secondaryFixedDim = bubbleOut,
+        onSecondaryFixed = accentInk, onSecondaryFixedVariant = accentInk,
+        tertiaryFixed = ok, tertiaryFixedDim = ok, onTertiaryFixed = okInk, onTertiaryFixedVariant = okInk,
         error = danger, onError = readableOnColor(danger), errorContainer = errorFill, onErrorContainer = text,
         scrim = Color.Black
     )
@@ -79,3 +89,11 @@ fun BeyGramTheme(
         )
     }
 }
+
+/** Inverse surface is often near black in light mode and near white in dark mode. */
+internal fun accessibleInversePrimary(primary: Color, secondary: Color, inverseSurface: Color): Color =
+    when {
+        contrastRatio(primary, inverseSurface) >= MinTextContrast -> primary
+        contrastRatio(secondary, inverseSurface) >= MinTextContrast -> secondary
+        else -> readableOnColor(inverseSurface)
+    }
