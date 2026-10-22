@@ -13,6 +13,52 @@ class ExportFileMetadataTest {
     private fun metadata(name: String, mime: String = "application/octet-stream") =
         resolveExportFileMetadata(name, mime, "Файл", extensions::get, mimes::get)
 
+    @Test fun signaturesRecoverKnownTypesWithoutOriginalExtension() {
+        val cases = listOf(
+            "%PDF-1.7".toByteArray() to ExportSignatureHint("pdf", "application/pdf"),
+            byteArrayOf(-119,80,78,71,13,10,26,10) to ExportSignatureHint("png", "image/png"),
+            byteArrayOf(-1, -40, -1, 0) to ExportSignatureHint("jpg", "image/jpeg"),
+            "GIF89a".toByteArray() to ExportSignatureHint("gif", "image/gif"),
+            byteArrayOf(80, 75, 3, 4) to ExportSignatureHint("zip", "application/zip"),
+            "OggS".toByteArray() to ExportSignatureHint("ogg", "application/ogg"),
+            "fLaC".toByteArray() to ExportSignatureHint("flac", "audio/flac")
+        )
+        cases.forEach { (header, expected) ->
+            assertEquals(expected, detectExportSignature(header))
+            val m = resolveExportFileMetadata("", "application/octet-stream", "Файл",
+                extensions::get, mimes::get, expected)
+            assertEquals("Файл.${expected.extension}", m.displayName)
+            assertEquals(expected.mimeType, m.mimeType)
+        }
+    }
+
+    @Test fun declaredMetadataAlwaysWinsAndUnknownBytesRemainGeneric() {
+        val pdf = ExportSignatureHint("pdf", "application/pdf")
+        val knownName = resolveExportFileMetadata("book.epub", "application/octet-stream", "Файл",
+            extensions::get, mimes::get, pdf)
+        assertEquals("book.epub", knownName.displayName)
+        assertEquals("application/octet-stream", knownName.mimeType)
+        assertEquals("clip.jpg", resolveExportFileMetadata("clip", "image/jpeg", "Файл",
+            extensions::get, mimes::get, pdf).displayName)
+        assertEquals(null, detectExportSignature(byteArrayOf(0, 1, 2, 3, 4)))
+        // An ID3 tag alone may prefix non-MP3 audio, and OggS is a container.
+        assertEquals(null, detectExportSignature("ID3".toByteArray()))
+    }
+
+    @Test fun signatureReaderHandlesFilePrefixAndMissingFiles() {
+        val file = java.io.File.createTempFile("beygram-export-test-", ".cache")
+        try {
+            val bytes = "%PDF-1.5\\n".toByteArray() + ByteArray(2048) { 42 }
+            file.writeBytes(bytes)
+            assertEquals(ExportSignatureHint("pdf", "application/pdf"), readExportSignature(file))
+            // Inspection must never modify the downloaded Telegram cache content.
+            assertEquals(bytes.toList(), file.readBytes().toList())
+        } finally {
+            file.delete()
+        }
+        assertEquals(null, readExportSignature(file))
+    }
+
     @Test fun originalFilenameNeverGetsBinAppended() {
         assertEquals("archive.zip", metadata("archive.zip").displayName)
         assertEquals("report.PDF", metadata("report.PDF").displayName)

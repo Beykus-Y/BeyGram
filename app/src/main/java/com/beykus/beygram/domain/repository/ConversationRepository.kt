@@ -33,7 +33,7 @@ interface ConversationRepository {
     suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit>
     suspend fun isForumChat(chatId: Long): Result<Boolean>
     /** Темы группы с темами; null, если чат не группа с темами. Берётся первая страница, до 100 тем. */
-    suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?>
+    suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit = {}): Result<List<ForumTopic>?>
     suspend fun canCreateForumTopic(chatId: Long): Result<Boolean>
     suspend fun createForumTopic(chatId: Long, name: String): Result<Long>
     suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit>

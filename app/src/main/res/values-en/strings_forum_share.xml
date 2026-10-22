@@ -57,4 +57,5 @@
     <string name="share_text_too_long">Text exceeds %1$d characters. Shorten it to send.</string>
     <string name="share_title">Send to BeyGram</string>
     <string name="share_topics_failed">Could not load topics. Try again.</string>
+    <string name="forum_topics_partial_load_failed">Some topics did not load. Available topics remain accessible.</string>
 </resources>

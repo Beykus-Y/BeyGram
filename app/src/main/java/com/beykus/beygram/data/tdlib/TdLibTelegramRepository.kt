@@ -1108,8 +1108,18 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
 
-    override suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> =
-        conversationActions.forumTopics(chatId).onSuccess { topics ->
+    override suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit): Result<List<ForumTopic>?> =
+        conversationActions.forumTopics(chatId, { partial ->
+            // A partially visible topic can be opened immediately: initialize its
+            // read watermark before any UI callback can navigate into that topic.
+            partial.forEach { topic ->
+                topicStore(chatId, topic.id).apply {
+                    readInbox(chatId, topic.lastReadInboxMessageId)
+                    readOutbox(chatId, topic.lastReadOutboxMessageId)
+                }
+            }
+            onPage(partial)
+        }).onSuccess { topics ->
             topics?.forEach { topic ->
                 topicStore(chatId, topic.id).apply {
                     readInbox(chatId, topic.lastReadInboxMessageId)

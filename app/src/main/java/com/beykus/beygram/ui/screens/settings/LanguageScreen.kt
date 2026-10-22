@@ -1,7 +1,8 @@
 package com.beykus.beygram.ui.screens.settings
 
 import android.app.Activity
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,7 +21,7 @@ fun LanguageScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val palette = beyGramPalette()
     var selected by remember { mutableStateOf(AppLocale.selected(context)) }
-    Column {
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.feature_language), onBack)
         AppLocale.supported.forEach { language ->
             val title = when (language) {
@@ -28,21 +29,19 @@ fun LanguageScreen(onBack: () -> Unit) {
                 AppLocale.RUSSIAN -> "Русский"
                 else -> "English"
             }
-            Row(Modifier.fillMaxWidth().clickable {
-                if (selected != language) {
-                    selected = language
-                    AppLocale.update(context, language)
-                    (context as? Activity)?.recreate()
-                }
-            }.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                Text(title, modifier = Modifier.weight(1f), color = palette.textPrimary)
-                RadioButton(selected = selected == language, onClick = {
-                    if (selected != language) {
-                        selected = language
-                        AppLocale.update(context, language)
-                        (context as? Activity)?.recreate()
+            Row(
+                Modifier.fillMaxWidth()
+                    .selectable(selected = selected == language, role = Role.RadioButton) {
+                        if (selected != language) {
+                            selected = language
+                            AppLocale.update(context, language)
+                            (context as? Activity)?.recreate()
+                        }
                     }
-                })
+                    .padding(horizontal = 18.dp, vertical = 14.dp)
+            ) {
+                Text(title, modifier = Modifier.weight(1f), color = palette.textPrimary)
+                RadioButton(selected = selected == language, onClick = null)
             }
         }
         Text(stringResource(R.string.feature_language_hint), color = palette.textSecondary, modifier = Modifier.padding(18.dp))
