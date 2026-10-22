@@ -635,7 +635,7 @@
     <string name="recorder_switch_to_back_description">Переключить на заднюю камеру</string>
     <string name="recorder_switch_to_front_description">Переключить на переднюю камеру</string>
     <string name="recorder_light_unavailable">Вспышка недоступна для этой камеры</string>
-    <string name="recorder_torch_on">Включить вспышку задней камеры</string>
+    <string name="recorder_torch_on">Включить вспышку камеры</string>
     <string name="recorder_torch_off">Выключить вспышку камеры</string>
     <string name="recorder_screen_light_on">Включить подсветку экраном</string>
     <string name="recorder_screen_light_off">Выключить подсветку экраном</string>
