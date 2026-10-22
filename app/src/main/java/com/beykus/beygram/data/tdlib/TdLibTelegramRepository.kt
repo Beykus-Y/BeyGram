@@ -833,6 +833,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
     private val historyRequests = ConcurrentHashMap<Long, Long>()
     private val chatListScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Profile lookup belongs to a single authorized session, never the whole chat-list scope. */
+    @Volatile private var analyticsProfileJob: Job? = null
     private val chatListPublisher = CoalescedPublisher(chatListScope, CHAT_LIST_PUBLISH_DELAY_MS) {
         // Main-list ordering comes from Telegram, including pins and draft activity.
         val previews = chatCache.values.map { it.withMute() }
@@ -1395,14 +1397,17 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     }
                 }
                 syncArchiveReturnSetting()
+                analyticsProfileJob?.cancel()
                 profiles.refreshMe()
-                chatListScope.launch {
-                    // Telemetry only reports the own ID, so it waits for the profile instead of blocking Ready.
-                    // Wait for this refresh to finish: after a logout the old profile is still in the state until then.
+                analyticsProfileJob = chatListScope.launch {
+                    // Cancelling the session-specific job prevents a late profile result from
+                    // reintroducing the logged-out account into the analytics payload.
                     val me = runCatching {
                         withTimeout(60_000) { profiles.me.first { !it.isLoading && it.error == null && it.info != null }.info }
                     }.getOrNull()
-                    AnalyticsSync.onAccountsChanged(listOfNotNull(me?.id?.takeIf { it > 0 }))
+                    if (_authState.value == AuthState.Ready) {
+                        AnalyticsSync.onAccountsChanged(listOfNotNull(me?.id?.takeIf { it > 0 }))
+                    }
                 }
                 conversationActions.initialize()
                 conversationEffects.authorized()
@@ -1411,6 +1416,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
+                analyticsProfileJob?.cancel()
+                analyticsProfileJob = null
                 AnalyticsSync.onAccountsChanged(emptyList())
                 groupRequestGeneration.incrementAndGet()
                 groupCreationPrefs.edit().remove("unconfirmed").apply()
@@ -1422,6 +1429,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 cacheMaintenance.signedOut()
             }
             is TdApi.AuthorizationStateClosed -> {
+                analyticsProfileJob?.cancel()
+                analyticsProfileJob = null
+                AnalyticsSync.onAccountsChanged(emptyList())
                 clearFolderState()
                 _authState.value = AuthState.WaitingForPhone
                 conversationEffects.signedOut()
