@@ -29,6 +29,16 @@ class VideoNoteRecorderPolicyTest {
         assertFalse(videoSwitchCameraAvailable(persistentSupported = true, hasFrontCamera = true, hasBackCamera = false))
     }
 
+    @Test fun frontWithoutHardwareTorchUsesScreenLight() {
+        assertEquals(VideoNoteLightMode.Screen, videoNoteLightMode(front = true, hasFlashUnit = false))
+    }
+    @Test fun hardwareTorchWinsForEitherLens() {
+        assertEquals(VideoNoteLightMode.Torch, videoNoteLightMode(front = true, hasFlashUnit = true))
+        assertEquals(VideoNoteLightMode.Torch, videoNoteLightMode(front = false, hasFlashUnit = true))
+    }
+    @Test fun backWithoutHardwareFlashDoesNotPretendToIlluminate() {
+        assertEquals(VideoNoteLightMode.Unavailable, videoNoteLightMode(front = false, hasFlashUnit = false))
+    }
     @Test fun healthyRecordingSends() {
         assertEquals(Send, videoTakeOutcome(error = 0, discard = false, durationSeconds = 5, stopRequested = true))
     }
