@@ -49,7 +49,7 @@ object IncomingShareParser {
 
     /**
      * Разбирает входящий `SEND` или `SEND_MULTIPLE`. Если есть файлы, возвращает их вместе с подписью-текстом.
-     * Чистый текст принимается с любым типом text/*: экран проверки показывает его до отправки. Пустой запрос возвращает null.
+     * Чистый текст принимается с любым типом из семейства text: экран проверки показывает его до отправки. Пустой запрос возвращает null.
      */
     fun from(action: String?, mimeType: String?, text: CharSequence?, uris: List<Uri>, requestId: Long): IncomingShare? {
         if (action != ACTION_SEND && action != ACTION_SEND_MULTIPLE) return null
