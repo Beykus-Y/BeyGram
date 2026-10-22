@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
@@ -52,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -246,6 +249,9 @@ internal fun CreateGroupScreen(
     val memberIds = remember(selectedIds, contacts) { selectedNewGroupMembers(selectedIds, contacts).toList() }
     val canCreate = canSubmitNewGroup(title, memberIds, creating) && !loading
 
+    val hasCreationFeedback = creationState is GroupCreationState.NeedsVerification ||
+        creationState == GroupCreationState.Failed || creationError != null
+
     Column(
         Modifier.fillMaxSize().background(palette.screen)
             .windowInsetsPadding(
@@ -269,6 +275,7 @@ internal fun CreateGroupScreen(
                     enabled = !creating,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
+                        .testTag("group_title_input")
                 )
             }
             item(key = "selected_count") {
@@ -310,48 +317,56 @@ internal fun CreateGroupScreen(
             }
         }
 
-        // Keep failed/uncertain results next to the action, not after 100+ contacts.
-        // Bottom safeDrawing and IME insets on the parent keep this footer above
-        // system navigation and the on-screen keyboard.
+        // The status area participates in the remaining-height weights with contacts:
+        // it can never push the fixed bottom CTA off screen. On compact displays it
+        // scrolls independently (including the "checked" verification action).
+        if (hasCreationFeedback) {
+            Column(
+                Modifier.weight(0.5f, fill = false)
+                    .fillMaxWidth().background(palette.screen)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+            ) {
+                if (creationState is GroupCreationState.NeedsVerification) {
+                    Text(
+                        stringResource(R.string.new_chat_group_unchanged_unknown),
+                        color = palette.danger,
+                        fontSize = 13.sp,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                    )
+                    TextButton(onClick = acknowledgeUncertainGroupCreation) {
+                        Text(stringResource(R.string.new_chat_group_checked))
+                    }
+                } else if (creationState == GroupCreationState.Failed) {
+                    Text(
+                        stringResource(R.string.new_chat_group_failed),
+                        color = palette.danger,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+                creationError?.let { text ->
+                    Text(text, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+                }
+            }
+        }
+        // Insets are consumed by the enclosing screen. Keep only the submit
+        // button at a fixed height to reserve space for the contact list.
         HorizontalDivider(color = palette.divider)
         Column(
             Modifier.fillMaxWidth().background(palette.screen)
-                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
-            if (creationState is GroupCreationState.NeedsVerification) {
-                Text(
-                    stringResource(R.string.new_chat_group_unchanged_unknown),
-                    color = palette.danger,
-                    fontSize = 13.sp,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
-                )
-                TextButton(onClick = acknowledgeUncertainGroupCreation) {
-                    Text(stringResource(R.string.new_chat_group_checked))
-                }
-            } else if (creationState == GroupCreationState.Failed) {
-                Text(
-                    stringResource(R.string.new_chat_group_failed),
-                    color = palette.danger,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-            }
-            creationError?.let { text ->
-                Text(text, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
-            }
             Button(
                 enabled = canCreate && creationState !is GroupCreationState.NeedsVerification &&
                     creationState !is GroupCreationState.Created,
                 onClick = {
                     val participants = selectedNewGroupMembers(selectedIds, contacts).toList()
-                    if (creationState is GroupCreationState.NeedsVerification ||
-                        creationState is GroupCreationState.Created ||
-                        !canSubmitNewGroup(title, participants, creating)
-                    ) return@Button
+                    if (!canSubmitNewGroup(title, participants, creating)) return@Button
                     creationError = null
                     startGroupCreation(title.trim(), participants)
                         .onFailure { creationError = it.userMessage(context, R.string.new_chat_group_failed) }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().testTag("group_create_submit")
             ) {
                 if (creating) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), color = palette.onAccent, strokeWidth = 2.dp)
