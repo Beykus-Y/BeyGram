@@ -137,7 +137,7 @@ internal object VideoNoteCameraSurvey {
         val supported = map.getOutputSizes(MediaRecorder::class.java)?.contains(size) ?: return null
         if (!supported) return false
         val ns = runCatching { map.getOutputMinFrameDuration(MediaRecorder::class.java, size) }.getOrNull()
-        return ns?.takeIf { it > 0 }?.let { it <= 1_000_000_000L / 59L }
+        return ns?.takeIf { it > 0 }?.let { it <= (1_000_000_000L + 59L) / 60L }
     }
 
     /** Lenses the recorder picks for front and back. Blocks briefly; call off the main thread. */
