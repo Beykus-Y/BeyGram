@@ -589,7 +589,7 @@ internal class VpnBackend private constructor(
         private const val TDLIB_STATE_ATTEMPTS = 3
         private const val TDLIB_STATE_RETRY_MILLIS = 2_000L
         private const val RESTORE_SETTLE_TIMEOUT_MILLIS = 40_000L
-private const val MAX_RESTORE_ATTEMPTS = 5
+        private const val MAX_RESTORE_ATTEMPTS = 5
         private const val RESTORE_RETRY_MILLIS = 2_000L
 
         @Volatile private var instance: VpnBackend? = null

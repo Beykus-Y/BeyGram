@@ -19,7 +19,6 @@ class ExportFileMetadataTest {
             byteArrayOf(-119,80,78,71,13,10,26,10) to ExportSignatureHint("png", "image/png"),
             byteArrayOf(-1, -40, -1, 0) to ExportSignatureHint("jpg", "image/jpeg"),
             "GIF89a".toByteArray() to ExportSignatureHint("gif", "image/gif"),
-            byteArrayOf(80, 75, 3, 4) to ExportSignatureHint("zip", "application/zip"),
             "OggS".toByteArray() to ExportSignatureHint("ogg", "application/ogg"),
             "fLaC".toByteArray() to ExportSignatureHint("flac", "audio/flac")
         )
@@ -57,6 +56,16 @@ class ExportFileMetadataTest {
             file.delete()
         }
         assertEquals(null, readExportSignature(file))
+    }
+
+    @Test fun zipPrefixDoesNotNameUnnamedFiles() {
+        // DOCX, APK and EPUB share the ZIP prefix, so a file without a name must not become .zip.
+        val zipPrefix = byteArrayOf(80, 75, 3, 4)
+        assertEquals(null, detectExportSignature(zipPrefix))
+        val unnamed = resolveExportFileMetadata("", "application/octet-stream", "Файл",
+            extensions::get, mimes::get, detectExportSignature(zipPrefix))
+        assertEquals("Файл", unnamed.displayName)
+        assertEquals("application/octet-stream", unnamed.mimeType)
     }
 
     @Test fun originalFilenameNeverGetsBinAppended() {

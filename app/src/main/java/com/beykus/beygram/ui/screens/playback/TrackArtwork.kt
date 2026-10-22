@@ -47,6 +47,14 @@ private object ArtworkCache {
     }
 }
 
+/** Both sources belong to the key: a miss for the cover alone must not hide an audio file that arrives later. */
+internal fun artworkCacheKey(artFile: File?, audioFile: File?): String? {
+    if (artFile == null && audioFile == null) return null
+    return listOf(artFile, audioFile).joinToString("|") { file ->
+        file?.let { "${it.absolutePath}:${it.length()}:${it.lastModified()}" } ?: "-"
+    }
+}
+
 private fun BitmapFactory.Options.finishSampling(): BitmapFactory.Options {
     var sample = 1
     while (outWidth / sample > MAX_COVER_SIZE * 2 || outHeight / sample > MAX_COVER_SIZE * 2) {
@@ -147,9 +155,7 @@ internal fun TrackArtwork(
             // mtime/size ensures a just-downloaded TDLib thumbnail invalidates a miss.
             val artFile = artworkPath?.let(::File)?.takeIf { it.isFile }
             val audioFile = audioPath?.let(::File)?.takeIf { it.isFile }
-            val key = (artFile ?: audioFile)?.let { f ->
-                "${f.absolutePath}:${f.length()}:${f.lastModified()}"
-            }
+            val key = artworkCacheKey(artFile, audioFile)
             if (key != null && ArtworkCache.contains(key)) ArtworkCache.get(key)
             else {
                 val image = runCatching {

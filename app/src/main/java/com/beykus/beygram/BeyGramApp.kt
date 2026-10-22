@@ -100,8 +100,6 @@ import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.TimeoutCancellationException
 
 /** Экраны, где мини-плеер встроен в свою разметку: над нижним меню или над полем ввода. На остальных экранах он стоит снизу. */
 private val playerBarHostRoutes = setOf(AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat)
@@ -556,18 +554,15 @@ private fun BeyGramAppContent(
                 topicsLoading = true
                 topicsLoadError = false
                 try {
-                    val completed = withTimeout(20_000L) {
-                        repository.forumTopics(selectedChatId) { partial ->
-                            // The user can open a topic as soon as the first page arrives.
-                            topicsResult = Result.success(partial)
-                        }
+                    // No total cap: every TDLib page has its own request timeout, so a large but slow forum is not reported as failed.
+                    val completed = repository.forumTopics(selectedChatId) { partial ->
+                        // The user can open a topic as soon as the first page arrives. A reload merges into the list on
+                        // screen, so a retry does not shrink it to the first page.
+                        topicsResult = Result.success(mergeForumTopics(topicsResult?.getOrNull(), partial))
                     }
                     // Keep rendered pages on a late failure but clearly offer retry.
                     if (completed.isSuccess || topicsResult == null) topicsResult = completed
                     if (completed.isFailure && topicsResult?.isSuccess == true) topicsLoadError = true
-                } catch (timeout: TimeoutCancellationException) {
-                    if (topicsResult == null) topicsResult = Result.failure(timeout)
-                    else topicsLoadError = true
                 } finally {
                     topicsLoading = false
                 }
@@ -1014,4 +1009,14 @@ private fun BeyGramAppContent(
     noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
         text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
     ProxyRestoreDialog(vpnBackend = vpnBackend)
+}
+
+/** Fresh topics first, then topics already on screen that a reload has not returned yet. */
+private fun mergeForumTopics(
+    shown: List<com.beykus.beygram.domain.model.ForumTopic>?,
+    fresh: List<com.beykus.beygram.domain.model.ForumTopic>
+): List<com.beykus.beygram.domain.model.ForumTopic> {
+    if (shown.isNullOrEmpty()) return fresh
+    val freshIds = fresh.mapTo(HashSet()) { it.id }
+    return fresh + shown.filter { it.id !in freshIds }
 }

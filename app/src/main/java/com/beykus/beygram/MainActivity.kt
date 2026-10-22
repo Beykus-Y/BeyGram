@@ -118,7 +118,8 @@ class MainActivity : ComponentActivity() {
         // with no shared content, open that chat, not an empty share dialog.
         if (intent?.action == Intent.ACTION_VIEW && intent.hasExtra(DirectShareShortcuts.LAUNCH_CHAT)) {
             val chatId = intent.getLongExtra(DirectShareShortcuts.LAUNCH_CHAT, 0L)
-            if (chatId != 0L) notificationRequest = NotificationOpenRequest(
+            // Any app can send this action, so a chat opens only while it is still a published shortcut.
+            if (chatId != 0L && DirectShareShortcuts.isPublished(this, chatId)) notificationRequest = NotificationOpenRequest(
                 SystemClock.elapsedRealtimeNanos(), chatId
             )
             return

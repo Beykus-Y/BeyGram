@@ -216,13 +216,12 @@ internal fun ShareTargetScreen(
                 LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     if (quickSaved != null) {
                         item(key = "quick-saved") {
-                        quickSaved?.let { saved ->
                             Surface(
                                 color = MaterialTheme.colorScheme.primaryContainer,
                                 shape = RoundedCornerShape(16.dp),
                                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
                                     .clickable {
-                                        targetId = saved.id
+                                        targetId = quickSaved.id
                                         topicId = 0L
                                         session.error = null
                                     }
@@ -251,7 +250,6 @@ internal fun ShareTargetScreen(
                                 }
                             }
                         }
-                                }
                     }
                     if (shown.isNotEmpty() && query.isBlank()) {
                         item(key = "recent-heading") {

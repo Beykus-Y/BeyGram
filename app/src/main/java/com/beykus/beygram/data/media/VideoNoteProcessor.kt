@@ -203,7 +203,8 @@ class VideoNoteProcessor(private val context: Context) {
 
 /** Never upscale CameraX SD source after its square crop: the short side limits detail. */
 internal fun videoNoteOutputSide(requested: Int, width: Int, height: Int): Int {
-    require(requested > 0 && width > 0 && height > 0) { "Invalid video dimensions" }
+    // Metadata may omit the size (some firmware, a just-finalized file). Keep the requested side instead of failing the note.
+    if (width <= 0 || height <= 0) return minOf(requested, 640)
     return minOf(requested, width, height, 640)
 }
 

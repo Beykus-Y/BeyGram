@@ -113,6 +113,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 internal fun MediaKind.label(context: Context): String = when (this) {
     MediaKind.Photo -> context.getString(R.string.media_kind_photo)
@@ -221,6 +222,9 @@ private const val BLUR_PREVIEW_DIMENSION = 24
 /** Строка, которая ждёт загрузки после нажатия на музыку или голосовое. Ждёт только последнее нажатое, и начинает играть только её строка, даже если такой же файл стоит в другом сообщении. */
 internal val pendingPlaybackRow = mutableStateOf<Any?>(null)
 
+/** Track keys whose cover is still being awaited. Process-wide, so repeated taps share one observer per track. */
+private val artworkWaits: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
 @Composable
 internal fun MediaPreview(
     media: MessageMedia,
@@ -257,13 +261,20 @@ internal fun MediaPreview(
     val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
     fun playAudio() {
         if (media.kind == MediaKind.Audio && thumbId != media.fileId && thumb.localPath == null && !media.isSecret) {
-            // The row can disappear while artwork downloads; the process-scoped observer
-            // keeps the player cover updated independently of this Compose composition.
-            (context.applicationContext as BeyGramApplication).applicationScope.launch {
-                val downloaded = withTimeoutOrNull(90_000L) {
-                    observeFile(thumbId).first { it.localPath != null }.localPath
+            // One wait per track: taps while the cover downloads must not stack observers. The process-scoped
+            // observer keeps the player cover updated after this row leaves the composition.
+            val key = media.playbackKey()
+            if (artworkWaits.add(key)) {
+                (context.applicationContext as BeyGramApplication).applicationScope.launch {
+                    try {
+                        val downloaded = withTimeoutOrNull(90_000L) {
+                            observeFile(thumbId).first { it.localPath != null }.localPath
+                        }
+                        downloaded?.let { PlaybackEngine.updateArtwork(key, it) }
+                    } finally {
+                        artworkWaits.remove(key)
+                    }
                 }
-                downloaded?.let { PlaybackEngine.updateArtwork(media.playbackKey(), it) }
             }
             downloadFile(thumbId)
         }

@@ -28,6 +28,10 @@ class IncomingShareParserTest {
         assertNull(IncomingShareParser.from(sendMultiple, null, null, emptyList(), 1L))
     }
 
+    @Test fun otherTextTypesKeepTheirPlainText() {
+        assertEquals(IncomingShare(1L, "a,b"), IncomingShareParser.from(send, "text/csv", "a,b", emptyList(), 1L))
+    }
+
     @Test fun foreignContentIsAccepted() {
         assertTrue(IncomingShareParser.isForeignContent("content", "com.example.files", "com.beykus.beygram"))
         assertTrue(IncomingShareParser.isForeignContent("content", "media", "com.beykus.beygram.dev"))

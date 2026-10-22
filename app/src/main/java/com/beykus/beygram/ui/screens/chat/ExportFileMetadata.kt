@@ -25,8 +25,7 @@ internal fun detectExportSignature(header: ByteArray): ExportSignatureHint? {
         starts(0xff, 0xd8, 0xff) -> ExportSignatureHint("jpg", "image/jpeg")
         ascii("GIF87a") || ascii("GIF89a") -> ExportSignatureHint("gif", "image/gif")
         ascii("RIFF") && ascii("WEBP", 8) -> ExportSignatureHint("webp", "image/webp")
-        starts(0x50, 0x4b, 0x03, 0x04) || starts(0x50, 0x4b, 0x05, 0x06) ||
-            starts(0x50, 0x4b, 0x07, 0x08) -> ExportSignatureHint("zip", "application/zip")
+        // ZIP is deliberately not identified: APK, DOCX and EPUB share its prefix, so the bytes alone cannot name the type.
         ascii("OggS") -> ExportSignatureHint("ogg", "application/ogg")
         ascii("fLaC") -> ExportSignatureHint("flac", "audio/flac")
         else -> null

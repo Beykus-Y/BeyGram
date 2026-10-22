@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,6 +39,11 @@ internal object DirectShareShortcuts {
         id?.takeIf { it.startsWith(PREFIX) }
             ?.removePrefix(PREFIX)?.toLongOrNull()?.takeIf { it != 0L } ?: 0L
 
+    /** A launcher tap sends only the chat id: open it only while that chat is still a published shortcut. */
+    fun isPublished(context: Context, chatId: Long): Boolean =
+        runCatching { ShortcutManagerCompat.getDynamicShortcuts(context).any { it.id == idForChat(chatId) } }
+            .getOrDefault(false)
+
     /** Main list order comes from Telegram, unlike alphabetical order in the regular picker. */
     fun pickTargets(chats: List<ChatPreview>): List<ChatPreview> =
         chats.asSequence().filter { it.canPost && it.order > 0L && it.title.isNotBlank() }
@@ -48,12 +54,19 @@ internal object DirectShareShortcuts {
     /** Process-wide observer: TDLib updates keep shortcuts fresh without an open Activity. */
     fun observe(context: Context, repository: TelegramRepository, scope: CoroutineScope): Job =
         scope.launch {
+            // Compared as sets: a reorder inside the top four must not republish, since ShortcutManager rate-limits that.
             combine(repository.authState, repository.chats) { auth, chats ->
-                if (auth == AuthState.Ready) pickTargets(chats).map { it.id to it.title }
-                else null
-            }.distinctUntilChanged().collectLatest { identity ->
+                when {
+                    // Ready can arrive before the chat list loads; an empty set then means "still loading", so it keeps the last one.
+                    auth == AuthState.Ready -> pickTargets(chats).map { it.id to it.title }.toSet().takeIf { it.isNotEmpty() }
+                    // Only a sign-out clears shortcuts. Idle, loading, timeouts and errors keep the last published set.
+                    auth is AuthState.WaitingForPhone || auth is AuthState.WaitingForCode ||
+                        auth is AuthState.WaitingForPassword -> emptySet()
+                    else -> null
+                }
+            }.filterNotNull().distinctUntilChanged().collectLatest { identity ->
                 withContext(Dispatchers.IO) {
-                    if (identity == null) clear(context)
+                    if (identity.isEmpty()) clear(context)
                     else {
                         val targets = pickTargets(repository.chats.value)
                         // The compat API signals rate limiting with false rather than an exception.
