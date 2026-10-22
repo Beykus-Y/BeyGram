@@ -16,9 +16,18 @@ internal object AppLocale {
     const val ENGLISH = "en"
     val supported = listOf(SYSTEM, RUSSIAN, ENGLISH)
 
-    fun selected(context: Context): String =
-        context.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY, SYSTEM).orEmpty()
-            .takeIf { it in supported } ?: SYSTEM
+    /** Android 13+ system App Languages can change outside BeyGram. The OS owns
+     * the effective app locale; SharedPreferences is the fallback only when unavailable. */
+    fun selected(context: Context): String {
+        val saved = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .getString(KEY, SYSTEM).orEmpty()
+        val systemAppLocale = if (Build.VERSION.SDK_INT >= 33) {
+            context.getSystemService(LocaleManager::class.java)?.applicationLocales?.let { locales ->
+                if (locales.isEmpty) "" else locales[0]?.toLanguageTag().orEmpty()
+            }
+        } else null
+        return resolveAppLanguage(systemAppLocale, saved)
+    }
 
     fun context(base: Context): Context {
         val language = selected(base)
@@ -37,4 +46,14 @@ internal object AppLocale {
                 else LocaleList.forLanguageTags(language)
         }
     }
+}
+
+/**
+ * null: platform per-app language unavailable, preserve a supported stored preference.
+ * empty: Android explicitly chose "Follow system", even if an old preference remains.
+ * Unknown locales fall back to system instead of showing a false Russian/English choice.
+ */
+internal fun resolveAppLanguage(platformTag: String?, storedTag: String): String {
+    val chosen = platformTag?.substringBefore('-')?.substringBefore('_') ?: storedTag
+    return chosen.takeIf { it in AppLocale.supported } ?: AppLocale.SYSTEM
 }
