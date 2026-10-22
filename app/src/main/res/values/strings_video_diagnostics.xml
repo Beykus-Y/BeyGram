@@ -252,4 +252,6 @@
     <string name="vn_entry_fov_observed">FOV Camera2 (начало → конец): crop %1$s → %3$s, zoom %2$s → %4$s; изменения: %5$s. SCALER_CROP_REGION не отражает всю обрезку CameraX ViewPort; сравните превью, RAW и отправленный файл.</string>
     <string name="vn_entry_fov_changed">есть</string>
     <string name="vn_entry_fov_unchanged">не обнаружены</string>
+    <string name="vn_entry_source_plan">Режим CameraX: %1$s, ожидаемый размер %2$d×%3$d. Это выбранная конфигурация, а не измеренный RAW. Реальный размер — в отчёте файла.</string>
+    <string name="fps_cause_stream_60">Поток камеры в выбранном разрешении не подтверждает 60 FPS; выбран поддерживаемый fallback (без принудительного дублирования кадров)</string>
 </resources>

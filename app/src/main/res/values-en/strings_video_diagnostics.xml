@@ -251,4 +251,6 @@
     <string name="vn_entry_fov_observed">Camera2 FOV (first → last): crop %1$s → %3$s, zoom %2$s → %4$s; changed: %5$s. SCALER_CROP_REGION does not show the full CameraX ViewPort crop. Compare preview, RAW and downloaded output.</string>
     <string name="vn_entry_fov_changed">yes</string>
     <string name="vn_entry_fov_unchanged">not observed</string>
+    <string name="vn_entry_source_plan">CameraX mode: %1$s, expected size %2$d×%3$d. This is a requested configuration, not measured RAW; check actual file dimensions.</string>
+    <string name="fps_cause_stream_60">The selected camera stream size does not advertise 60 FPS; compatible fallback selected (no duplicate frames)</string>
 </resources>
