@@ -4,11 +4,16 @@ import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.beykus.beygram.R
@@ -38,8 +43,6 @@ class CreateGroupScreenTest {
 
     @Test
     fun createActionRemainsVisibleWithLongContactListAndSubmitsSelection() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val createLabel = context.getString(R.string.new_chat_group_create)
         val submitted = mutableListOf<Pair<String, List<Long>>>()
         val fileState = MutableStateFlow(MediaFileState(id = 0))
 
@@ -64,12 +67,12 @@ class CreateGroupScreenTest {
         composeRule.waitForIdle()
 
         // The footer stays in the viewport even though the list has 120 items.
-        composeRule.onNodeWithText(createLabel)
+        composeRule.onNodeWithTag("group_create_submit")
             .assertIsDisplayed()
             .assertIsNotEnabled()
         composeRule.onNodeWithText("Tester 1").performClick()
-        composeRule.onAllNodes(hasSetTextAction())[0].performTextInput("Test group")
-        composeRule.onNodeWithText(createLabel)
+        composeRule.onNodeWithTag("group_title_input").performTextInput("Test group")
+        composeRule.onNodeWithTag("group_create_submit")
             .assertIsDisplayed()
             .assertIsEnabled()
             .assertHasClickAction()
@@ -108,7 +111,7 @@ class CreateGroupScreenTest {
 
         composeRule.onNodeWithText(context.getString(R.string.new_chat_group_unchanged_unknown))
             .assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.new_chat_group_create))
+        composeRule.onNodeWithTag("group_create_submit")
             .assertIsDisplayed()
             .assertIsNotEnabled()
         composeRule.onNodeWithText(context.getString(R.string.new_chat_group_checked))
@@ -118,5 +121,64 @@ class CreateGroupScreenTest {
             assertEquals(1, verified)
             assertEquals(0, submitted)
         }
+    }
+
+    @Test
+    fun failedCreationFeedbackVisibleWithoutScrollingThroughContacts() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fileState = MutableStateFlow(MediaFileState(id = 0))
+        composeRule.setContent {
+            BeyGramTheme {
+                CreateGroupScreen(
+                    loadContacts = { Result.success(contacts) },
+                    creationState = GroupCreationState.Failed,
+                    startGroupCreation = { _, _ -> Result.success(Unit) },
+                    acknowledgeGroupCreation = {},
+                    acknowledgeUncertainGroupCreation = {},
+                    observeFile = { fileState },
+                    downloadFile = {},
+                    onBack = {},
+                    onCreated = { _, _ -> }
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText(context.getString(R.string.new_chat_group_failed))
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("group_create_submit").assertIsDisplayed()
+    }
+
+    @Test
+    fun verificationActionCanScrollIntoViewAtConstrainedHeight() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fileState = MutableStateFlow(MediaFileState(id = 0))
+        var verified = 0
+        composeRule.setContent {
+            BeyGramTheme {
+                // Simulate a small-height landscape/IME viewport with a long list.
+                Box(Modifier.height(300.dp)) {
+                    CreateGroupScreen(
+                        loadContacts = { Result.success(contacts) },
+                        creationState = GroupCreationState.NeedsVerification,
+                        startGroupCreation = { _, _ -> Result.success(Unit) },
+                        acknowledgeGroupCreation = {},
+                        acknowledgeUncertainGroupCreation = { verified++ },
+                        observeFile = { fileState },
+                        downloadFile = {},
+                        onBack = {},
+                        onCreated = { _, _ -> }
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("group_create_submit")
+            .assertIsDisplayed()
+            .assertIsNotEnabled()
+        composeRule.onNodeWithText(context.getString(R.string.new_chat_group_checked))
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.runOnIdle { assertEquals(1, verified) }
     }
 }
