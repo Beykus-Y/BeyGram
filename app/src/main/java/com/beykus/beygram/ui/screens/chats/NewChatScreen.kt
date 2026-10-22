@@ -248,15 +248,19 @@ internal fun CreateGroupScreen(
 
     Column(
         Modifier.fillMaxSize().background(palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(
+                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
+                )
+            )
             .imePadding()
     ) {
         ProfileToolbar(stringResource(R.string.new_chat_group), onBack)
-        // A single scroll owner makes title, search, contacts, error and submit
-        // button reachable with the keyboard open, even in landscape/split screen.
+        // Only the form and contacts scroll. The primary action must remain visible
+        // independently of the length of the Telegram contact list.
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp)
         ) {
             item(key = "group_name") {
                 OutlinedTextField(
@@ -304,42 +308,56 @@ internal fun CreateGroupScreen(
                     selectedIds = ArrayList(toggledGroupMembers(selectedIds, contact.userId))
                 }
             }
+        }
+
+        // Keep failed/uncertain results next to the action, not after 100+ contacts.
+        // Bottom safeDrawing and IME insets on the parent keep this footer above
+        // system navigation and the on-screen keyboard.
+        HorizontalDivider(color = palette.divider)
+        Column(
+            Modifier.fillMaxWidth().background(palette.screen)
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        ) {
             if (creationState is GroupCreationState.NeedsVerification) {
-                item(key = "uncertain") {
-                    Text(stringResource(R.string.new_chat_group_unchanged_unknown),
-                        color = palette.danger, fontSize = 13.sp,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp))
-                    TextButton(onClick = acknowledgeUncertainGroupCreation) {
-                        Text(stringResource(R.string.new_chat_group_checked))
-                    }
+                Text(
+                    stringResource(R.string.new_chat_group_unchanged_unknown),
+                    color = palette.danger,
+                    fontSize = 13.sp,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                )
+                TextButton(onClick = acknowledgeUncertainGroupCreation) {
+                    Text(stringResource(R.string.new_chat_group_checked))
                 }
             } else if (creationState == GroupCreationState.Failed) {
-                item(key = "create_failed") {
-                    Text(stringResource(R.string.new_chat_group_failed), color = palette.danger)
-                }
+                Text(
+                    stringResource(R.string.new_chat_group_failed),
+                    color = palette.danger,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
             }
             creationError?.let { text ->
-                item(key = "client_error") { Text(text, color = palette.danger, fontSize = 13.sp) }
+                Text(text, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
             }
-            item(key = "create_action") {
-                Button(
-                    enabled = canCreate && creationState !is GroupCreationState.NeedsVerification &&
-                        creationState !is GroupCreationState.Created,
-                    onClick = {
-                        val participants = selectedNewGroupMembers(selectedIds, contacts).toList()
-                        if (!canSubmitNewGroup(title, participants, creating)) return@Button
-                        creationError = null
-                        startGroupCreation(title.trim(), participants)
-                            .onFailure { creationError = it.userMessage(context, R.string.new_chat_group_failed) }
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
-                ) {
-                    if (creating) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = palette.onAccent, strokeWidth = 2.dp)
-                        Spacer(Modifier.width(10.dp))
-                    }
-                    Text(stringResource(if (creating) R.string.common_saving else R.string.new_chat_group_create))
+            Button(
+                enabled = canCreate && creationState !is GroupCreationState.NeedsVerification &&
+                    creationState !is GroupCreationState.Created,
+                onClick = {
+                    val participants = selectedNewGroupMembers(selectedIds, contacts).toList()
+                    if (creationState is GroupCreationState.NeedsVerification ||
+                        creationState is GroupCreationState.Created ||
+                        !canSubmitNewGroup(title, participants, creating)
+                    ) return@Button
+                    creationError = null
+                    startGroupCreation(title.trim(), participants)
+                        .onFailure { creationError = it.userMessage(context, R.string.new_chat_group_failed) }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (creating) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = palette.onAccent, strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
                 }
+                Text(stringResource(if (creating) R.string.common_saving else R.string.new_chat_group_create))
             }
         }
     }
