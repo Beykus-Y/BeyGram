@@ -33,6 +33,8 @@ object AnalyticsSync {
     @Volatile private var api: AnalyticsApi? = null
     @Volatile private var scope: CoroutineScope? = null
     @Volatile private var accountDebounce: Job? = null
+    /** Единственная отложенная повторная попытка; новая заменяет старую, цепочки не растут. */
+    @Volatile private var retryJob: Job? = null
     /** Число подряд неудачных попыток; меняется только под [lock]. */
     private var failures = 0
 
@@ -62,7 +64,9 @@ object AnalyticsSync {
         val store = store ?: return
         store.enabled = enabled
         if (!enabled) {
-            if (store.identity() != null) store.pendingDeletion = true
+            // Set unconditionally: a sync that is already past its enabled check may create an identity right now.
+            // The deletion then runs under [lock] on the next sync, and it is a no-op when no identity exists.
+            store.pendingDeletion = true
         } else if (store.blocked) {
             store.blocked = false
             store.pendingDeletion = true
@@ -167,7 +171,10 @@ object AnalyticsSync {
         return (capped * (0.8 + Random.nextDouble() * 0.4)).toLong()
     }
 
+    /** Вызывается под [lock]; предыдущая отложенная попытка отменяется. */
     private fun scheduleRetry(delayMs: Long) {
-        requestAfter(delayMs)
+        val scope = scope ?: return
+        retryJob?.cancel()
+        retryJob = scope.launch { delay(delayMs); sync() }
     }
 }

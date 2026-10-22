@@ -1398,7 +1398,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 profiles.refreshMe()
                 chatListScope.launch {
                     // Telemetry only reports the own ID, so it waits for the profile instead of blocking Ready.
-                    val me = runCatching { withTimeout(60_000) { profiles.me.first { it.info != null }.info } }.getOrNull()
+                    // Wait for this refresh to finish: after a logout the old profile is still in the state until then.
+                    val me = runCatching {
+                        withTimeout(60_000) { profiles.me.first { !it.isLoading && it.error == null && it.info != null }.info }
+                    }.getOrNull()
                     AnalyticsSync.onAccountsChanged(listOfNotNull(me?.id?.takeIf { it > 0 }))
                 }
                 conversationActions.initialize()
