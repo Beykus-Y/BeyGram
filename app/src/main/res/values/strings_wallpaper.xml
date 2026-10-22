@@ -29,4 +29,6 @@
     <string name="wallpaper_preset_silver_mist">Серебряный туман</string>
     <string name="wallpaper_preset_emerald_tide">Изумрудная волна</string>
     <string name="wallpaper_preview_title">Предпросмотр беседы</string>
+    <string name="wallpaper_horizontal_hint">Проведите влево или вправо, чтобы посмотреть другие обои</string>
+    <string name="wallpaper_reset">Сбросить фон</string>
 </resources>

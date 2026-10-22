@@ -27,6 +27,8 @@ import android.net.Uri
 import com.beykus.beygram.share.IncomingShare
 import com.beykus.beygram.share.IncomingShareParser
 import com.beykus.beygram.share.ShareSessions
+import com.beykus.beygram.share.DirectShareShortcuts
+import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
@@ -53,7 +55,7 @@ class MainActivity : ComponentActivity() {
             val restoredFiles = restoredUris(savedInstanceState)
             // После фильтра файлов запрос может остаться пустым: тогда пустой диалог не показываем.
             if (savedInstanceState.containsKey("share_text") && (restoredText.isNotEmpty() || restoredFiles.isNotEmpty())) {
-                incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), restoredText, restoredFiles)
+                incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), restoredText, restoredFiles, savedInstanceState.getLong("share_chat_id"))
             }
         } else {
             acceptNotificationIntent(intent)
@@ -75,7 +77,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            BeyGramTheme(darkTheme = isDarkTheme, tokens = resolveTokens(config, systemDark)) {
+            BeyGramTheme(
+                darkTheme = isDarkTheme,
+                tokens = resolveTokens(config, systemDark),
+                messageTextSizeSp = config.messageTextSizeSp
+            ) {
                 // Bubble shape and list density come from the same saved choice as the colours.
                 CompositionLocalProvider(
                     LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density),
@@ -103,16 +109,30 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
         notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId) }
-        incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text); outState.putParcelableArrayList("share_uris", ArrayList(it.uris)) }
+        incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text); outState.putParcelableArrayList("share_uris", ArrayList(it.uris)); outState.putLong("share_chat_id", it.targetChatId) }
         super.onSaveInstanceState(outState)
     }
     /** Текст и файлы из другого приложения: сохраняем до выбора чата; отправка начнётся только после подтверждения на экране. */
     private fun acceptShareIntent(intent: Intent?) {
+        // The same dynamic shortcut also appears in some launcher long-press menus:
+        // with no shared content, open that chat, not an empty share dialog.
+        if (intent?.action == Intent.ACTION_VIEW && intent.hasExtra(DirectShareShortcuts.LAUNCH_CHAT)) {
+            val chatId = intent.getLongExtra(DirectShareShortcuts.LAUNCH_CHAT, 0L)
+            if (chatId != 0L) notificationRequest = NotificationOpenRequest(
+                SystemClock.elapsedRealtimeNanos(), chatId
+            )
+            return
+        }
         val files = IncomingShareParser.checkUris(streamUris(intent), packageName)
         if (files.rejected > 0) Toast.makeText(this, R.string.share_file_rejected, Toast.LENGTH_LONG).show()
         val shared = IncomingShareParser.from(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT), files.accepted, SystemClock.elapsedRealtimeNanos())
         // Чужой intent без содержимого не должен стирать уже принятый запрос.
-        if (shared != null) incomingShare = shared
+        if (shared != null) {
+            // A shortcut only preselects the review screen; actual eligibility is checked against
+            // the current TDLib chat list and the user must still press Send.
+            val shortcut = intent?.getStringExtra(ShortcutManagerCompat.EXTRA_SHORTCUT_ID)
+            incomingShare = shared.copy(targetChatId = DirectShareShortcuts.chatIdForShortcut(shortcut))
+        }
     }
 
     private fun streamUris(intent: Intent?): List<Uri> {
@@ -122,7 +142,7 @@ class MainActivity : ComponentActivity() {
             Intent.ACTION_SEND_MULTIPLE -> multipleStreams(intent)
             else -> emptyList()
         }
-        return IncomingShareParser.collectStreams(intent.action, streams, clipUris(intent))
+        return IncomingShareParser.collectStreams(intent.action, streams + listOfNotNull(intent.data), clipUris(intent))
     }
 
     private fun clipUris(intent: Intent): List<Uri> {

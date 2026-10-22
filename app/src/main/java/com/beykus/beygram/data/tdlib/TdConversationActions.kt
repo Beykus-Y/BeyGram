@@ -76,7 +76,7 @@ internal class TdConversationActions(
      * Темы группы с темами, в которые можно писать; null для всего остального. TDLib отдаёт до 100 тем за запрос, поэтому идём по страницам.
      * Закрытые темы видны, если их создал этот аккаунт или он управляет темами: в закрытую тему пишут создатель и администраторы с этим правом.
      */
-    suspend fun forumTopics(chatId: Long): Result<List<ForumTopic>?> = conversationResult<List<ForumTopic>?> {
+    suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit = {}): Result<List<ForumTopic>?> = conversationResult<List<ForumTopic>?> {
         val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup ?: return@conversationResult null
         val supergroup = request(TdApi.GetSupergroup(type.supergroupId))
         if (!supergroup.isForum) return@conversationResult null
@@ -112,6 +112,9 @@ internal class TdConversationActions(
                         lastMessagePreview = (it.lastMessage?.content as? TdApi.MessageText)?.text?.text.orEmpty()
                     )
                 }
+            // Present page one without waiting for slow/large forum pagination.
+            // Snapshot immutable data before the next suspendable TDLib request.
+            onPage(uniqueForumTopics(topics))
             pages++
             if (page.topics.isEmpty() || page.nextOffsetForumTopicId == 0 || pages == MAX_FORUM_TOPIC_PAGES) break
             offsetDate = page.nextOffsetDate

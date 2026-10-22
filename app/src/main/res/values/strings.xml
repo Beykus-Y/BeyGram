@@ -634,6 +634,13 @@
     <string name="recorder_start_description">Записать кружок</string>
     <string name="recorder_switch_to_back_description">Переключить на заднюю камеру</string>
     <string name="recorder_switch_to_front_description">Переключить на переднюю камеру</string>
+    <string name="recorder_light_unavailable">Вспышка недоступна для этой камеры</string>
+    <string name="recorder_torch_on">Включить вспышку камеры</string>
+    <string name="recorder_torch_off">Выключить вспышку камеры</string>
+    <string name="recorder_screen_light_on">Включить подсветку экраном</string>
+    <string name="recorder_screen_light_off">Выключить подсветку экраном</string>
+    <string name="recorder_light_failed">Не удалось включить вспышку камеры</string>
+    <string name="recorder_light_off_failed">Не удалось выключить вспышку. Повторите попытку</string>
     <string name="recorder_start_failed">Не удалось начать запись</string>
     <string name="recorder_zoom_value">%1$.1f×</string>
     <string name="recorder_swipe_left_cancel">Влево — отменить</string>
@@ -1103,6 +1110,10 @@
     <string name="folder_shareable_hint">Это общая папка Telegram. Для неё недоступны фильтры по категориям, исключение прочитанных, архивных и отдельных чатов.</string>
     <string name="folder_create_unconfirmed">Не удалось подтвердить создание. Папка могла появиться в Telegram. Проверьте список папок перед новой попыткой.</string>
     <string name="folder_changed_while_editing">Папка была изменена на другом устройстве. Вернитесь к списку и откройте её заново, чтобы не потерять изменения.</string>
+    <string name="service_call_answered">%1$s · %2$s · %3$s</string>
+    <string name="service_call_missed">Пропущенный · %1$s</string>
+    <string name="service_call_declined">%1$s · %2$s · отклонён</string>
+    <string name="service_call_no_answer">%1$s · %2$s · без ответа</string>
     <string name="service_group_created">Группа создана</string>
     <string name="service_supergroup_created">Супергруппа создана</string>
     <string name="service_title_changed">Название группы изменено: %1$s</string>
@@ -1122,6 +1133,10 @@
     <string name="service_autodelete_changed">Изменён срок автоудаления сообщений</string>
     <string name="service_background_changed">Фон чата изменён</string>
     <string name="forum_topics_subtitle">Темы обсуждения</string>
+    <string name="forum_topics_count">Тем: %1$d</string>
+    <string name="forum_topics_pinned_section">ЗАКРЕПЛЁННЫЕ</string>
+    <string name="forum_topics_regular_section">ОБСУЖДЕНИЯ</string>
+    <string name="forum_topics_empty_hint">Пока здесь пусто. Новые темы появятся в этом списке.</string>
     <string name="forum_topics_empty">Пока нет доступных тем</string>
     <string name="forum_topic_closed">Тема закрыта</string>
     <string name="forum_topic_pinned">Закреплённая тема</string>
@@ -1187,4 +1202,9 @@
     <string name="updates_error_launch_installer">Не удалось открыть установщик Android.</string>
     <string name="updates_error_check">Не удалось проверить GitHub Releases.</string>
     <string name="updates_error_download">Ошибка загрузки APK.</string>
+    <string name="forum_topics_partial_load_failed">Часть тем не загрузилась. Уже полученные темы доступны.</string>
+    <string name="share_saved_quick_action">Избранное</string>
+    <string name="share_recent_destinations">Недавние и другие чаты</string>
+    <string name="sessions_load_timeout">Не удалось получить сеансы за отведённое время. Проверь подключение и нажми «Повторить».</string>
+    <string name="sessions_action_timeout">Нет подтверждения от Telegram. Обнови список перед повторной попыткой: действие могло выполниться.</string>
 </resources>

@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -9,33 +11,68 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 
 /** Tokens of the theme in effect. [BeyGramTheme] provides them; screens read them through beyGramPalette(). */
 val LocalBeyGramTokens = compositionLocalOf { LightTokens }
 
+/** Resolved chat message size; system fontScale still applies normally in Compose. */
+val LocalMessageTextSize: androidx.compose.runtime.ProvidableCompositionLocal<TextUnit> = compositionLocalOf { 16.sp }
+
 /** Material's colour scheme with every role taken from these tokens. */
+/** Keeps Material3 component colours in sync with the same BeyGram semantic tokens.
+ * Unspecified Material3 defaults used to leak unrelated purple/error/secondary colours. */
 internal fun BeyGramTokens.toColorScheme(dark: Boolean): ColorScheme {
     val containers = surfaceContainerTones(dark)
-    return if (dark) {
-        darkColorScheme(
-            primary = accent, onPrimary = onAccent, primaryContainer = accentSoft, onPrimaryContainer = accentInk,
-            secondary = muted, tertiary = okInk, background = bg, surface = surface, surfaceVariant = surface2,
-            onBackground = text, onSurface = text, onSurfaceVariant = muted, outline = line, outlineVariant = line, error = danger,
-            surfaceContainerLowest = containers.lowest, surfaceContainerLow = containers.low, surfaceContainer = containers.normal,
-            surfaceContainerHigh = containers.high, surfaceContainerHighest = containers.highest,
-            secondaryContainer = accentSoft, onSecondaryContainer = accentInk
-        )
-    } else {
-        lightColorScheme(
-            primary = accent, onPrimary = onAccent, primaryContainer = accentSoft, onPrimaryContainer = accentInk,
-            secondary = muted, tertiary = okInk, background = bg, surface = surface, surfaceVariant = surface2,
-            onBackground = text, onSurface = text, onSurfaceVariant = muted, outline = line, outlineVariant = line, error = danger,
-            surfaceContainerLowest = containers.lowest, surfaceContainerLow = containers.low, surfaceContainer = containers.normal,
-            surfaceContainerHigh = containers.high, surfaceContainerHighest = containers.highest,
-            secondaryContainer = accentSoft, onSecondaryContainer = accentInk
-        )
-    }
+    val errorFill = lerp(surface, danger, if (dark) 0.17f else 0.10f)
+    val bright = if (dark) surface2 else surface
+    val dim = if (dark) bg else surface2
+    val scheme = if (dark) darkColorScheme(
+        primary = accent, onPrimary = onAccent, primaryContainer = accentSoft, onPrimaryContainer = accentInk,
+        secondary = accentInk, onSecondary = accentSoft, secondaryContainer = accentSoft, onSecondaryContainer = accentInk,
+        tertiary = okInk, onTertiary = ok, tertiaryContainer = ok, onTertiaryContainer = okInk,
+        background = bg, onBackground = text, surface = surface, onSurface = text,
+        surfaceVariant = surface2, onSurfaceVariant = muted,
+        surfaceTint = accent, surfaceBright = bright, surfaceDim = dim,
+        surfaceContainerLowest = containers.lowest, surfaceContainerLow = containers.low,
+        surfaceContainer = containers.normal, surfaceContainerHigh = containers.high,
+        surfaceContainerHighest = containers.highest,
+        outline = line, outlineVariant = line,
+        inverseSurface = text, inverseOnSurface = bg, inversePrimary = accessibleInversePrimary(accent, accentInk, text),
+        primaryFixed = accentSoft, primaryFixedDim = bubbleOut,
+        onPrimaryFixed = accentInk, onPrimaryFixedVariant = accentInk,
+        secondaryFixed = accentSoft, secondaryFixedDim = bubbleOut,
+        onSecondaryFixed = accentInk, onSecondaryFixedVariant = accentInk,
+        tertiaryFixed = ok, tertiaryFixedDim = ok, onTertiaryFixed = okInk, onTertiaryFixedVariant = okInk,
+        error = danger, onError = readableOnColor(danger), errorContainer = errorFill, onErrorContainer = text,
+        scrim = Color.Black
+    ) else lightColorScheme(
+        primary = accent, onPrimary = onAccent, primaryContainer = accentSoft, onPrimaryContainer = accentInk,
+        secondary = accentInk, onSecondary = accentSoft, secondaryContainer = accentSoft, onSecondaryContainer = accentInk,
+        tertiary = okInk, onTertiary = ok, tertiaryContainer = ok, onTertiaryContainer = okInk,
+        background = bg, onBackground = text, surface = surface, onSurface = text,
+        surfaceVariant = surface2, onSurfaceVariant = muted,
+        surfaceTint = accent, surfaceBright = bright, surfaceDim = dim,
+        surfaceContainerLowest = containers.lowest, surfaceContainerLow = containers.low,
+        surfaceContainer = containers.normal, surfaceContainerHigh = containers.high,
+        surfaceContainerHighest = containers.highest,
+        outline = line, outlineVariant = line,
+        inverseSurface = text, inverseOnSurface = bg, inversePrimary = accessibleInversePrimary(accent, accentInk, text),
+        primaryFixed = accentSoft, primaryFixedDim = bubbleOut,
+        onPrimaryFixed = accentInk, onPrimaryFixedVariant = accentInk,
+        secondaryFixed = accentSoft, secondaryFixedDim = bubbleOut,
+        onSecondaryFixed = accentInk, onSecondaryFixedVariant = accentInk,
+        tertiaryFixed = ok, tertiaryFixedDim = ok, onTertiaryFixed = okInk, onTertiaryFixedVariant = okInk,
+        error = danger, onError = readableOnColor(danger), errorContainer = errorFill, onErrorContainer = text,
+        scrim = Color.Black
+    )
+    return scheme
 }
+
+/** High-contrast error button label, independent of the currently selected accent. */
+internal fun readableOnColor(fill: Color): Color =
+    if (contrastRatio(Color.White, fill) >= contrastRatio(Color.Black, fill)) Color.White else Color.Black
 
 /**
  * Provides one token set together with the Material colour scheme built from it, so screens never mix values from two themes.
@@ -45,11 +82,15 @@ internal fun BeyGramTokens.toColorScheme(dark: Boolean): ColorScheme {
 fun BeyGramTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     tokens: BeyGramTokens = if (darkTheme) DarkTokens else LightTokens,
+    messageTextSizeSp: Int = 16,
     content: @Composable () -> Unit
 ) {
     val colorScheme = remember(tokens, darkTheme) { tokens.toColorScheme(darkTheme) }
 
-    CompositionLocalProvider(LocalBeyGramTokens provides tokens) {
+    CompositionLocalProvider(
+        LocalBeyGramTokens provides tokens,
+        LocalMessageTextSize provides messageTextSizeSp.coerceIn(12, 22).sp
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = Typography,
@@ -57,3 +98,11 @@ fun BeyGramTheme(
         )
     }
 }
+
+/** Inverse surface is often near black in light mode and near white in dark mode. */
+internal fun accessibleInversePrimary(primary: Color, secondary: Color, inverseSurface: Color): Color =
+    when {
+        contrastRatio(primary, inverseSurface) >= MinTextContrast -> primary
+        contrastRatio(secondary, inverseSurface) >= MinTextContrast -> secondary
+        else -> readableOnColor(inverseSurface)
+    }

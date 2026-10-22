@@ -1,7 +1,9 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.media.MediaMetadataRetriever
 import android.hardware.camera2.CameraCaptureSession
@@ -20,6 +22,7 @@ import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.TorchState
 import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
@@ -47,6 +50,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cameraswitch
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FlashOff
+import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -65,6 +70,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
@@ -149,6 +157,11 @@ internal class VideoNoteRecorder(
     /** Запись фактически началась: CameraX сообщил о Start. До этого переключать камеру нельзя. */
     var started by mutableStateOf(false)
         private set
+    /** Подсветка привязана к выбранной камере: torch для камер с фонариком, экран — для фронтальной без него. */
+    var lightMode by mutableStateOf(VideoNoteLightMode.Unavailable)
+        private set
+    var lightEnabled by mutableStateOf(false)
+        private set
     /** Кратность зума текущей камеры. Жест масштабирования меняет её до и во время записи; при смене камеры сбрасывается к 1x. */
     var zoomRatio by mutableFloatStateOf(1f)
         private set
@@ -163,6 +176,8 @@ internal class VideoNoteRecorder(
     /** What the preview asked for; logged next to the recording range so a mismatch is visible. */
     private var previewFpsRange: IntRange? = null
     private var captureCameraId: String? = null
+    private var captureSourceSize: Pair<Int, Int>? = null
+    private var captureQuality: com.beykus.beygram.data.media.VideoNoteSourceQuality? = null
     /** Persistent-запись не отвязывается от VideoCapture при перепривязке камеры. Если устройство её не умеет, переключение скрывается. */
     private var persistentSupported = true
     private var take: VideoTake? = null
@@ -170,8 +185,15 @@ internal class VideoNoteRecorder(
     private var startedAt = 0L
     private var maxDurationMs = NORMAL_MAX_DURATION_MS
     private var attempt = 0
+    /** Callback от старой камеры не должен включать подсветку уже после переключения/закрытия. */
+    private var lightRequest = 0
+    private val lightLifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onPause(owner: LifecycleOwner) { clearLight() }
+        override fun onStop(owner: LifecycleOwner) { clearLight() }
+    }
 
     init {
+        lifecycleOwner.lifecycle.addObserver(lightLifecycleObserver)
         if (VIDEO_NOTE_RECORDING_ENABLED) probeCameras()
     }
 
@@ -185,6 +207,72 @@ internal class VideoNoteRecorder(
         }, ContextCompat.getMainExecutor(context))
     }
 
+    /** Текущий фонарик управляется через CameraX, без отдельного CameraManager и конкурирующей камеры. */
+    fun toggleLight() {
+        if (!active || !started || camera == null || lightMode == VideoNoteLightMode.Unavailable) return
+        requestLight(!lightEnabled)
+    }
+
+    private fun requestLight(enabled: Boolean) {
+        val bound = camera ?: return
+        val mode = lightMode
+        if (mode == VideoNoteLightMode.Unavailable) return
+        val token = ++lightRequest
+        lightEnabled = enabled
+        if (mode != VideoNoteLightMode.Torch) return
+        val future = try {
+            bound.cameraControl.enableTorch(enabled)
+        } catch (error: Exception) {
+            onTorchFailure(bound, token, enabled, error)
+            return
+        }
+        future.addListener({
+            val failure = runCatching { future.get() }.exceptionOrNull()
+            if (failure != null) onTorchFailure(bound, token, enabled, failure)
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    private fun onTorchFailure(bound: Camera, token: Int, enabling: Boolean, cause: Throwable) {
+        // Ignore callbacks from a replaced camera or superseded torch requests.
+        if (token != lightRequest || camera !== bound) return
+        Log.w(TAG, "video_note_torch_failed front=$preferFrontCamera enabling=$enabling", cause)
+        if (!enabling) {
+            // A rejected disable request does not prove the lamp is off. When CameraX
+            // has not published OFF, keep the button lit so users can retry.
+            lightEnabled = bound.cameraInfo.torchState.value != TorchState.OFF
+            if (lightEnabled) onError(context.getString(R.string.recorder_light_off_failed))
+            return
+        }
+        if (preferFrontCamera) {
+            // Some front cameras report a flash unit but reject torch for VideoCapture.
+            lightMode = VideoNoteLightMode.Screen
+            lightEnabled = true
+        } else {
+            lightEnabled = false
+            onError(context.getString(R.string.recorder_light_failed))
+        }
+    }
+
+    /** Сброс токена защищает от поздних ответов enableTorch при смене камеры и завершении записи. */
+    private fun clearLight(resetMode: Boolean = false) {
+        val bound = camera
+        val hadTorch = lightMode == VideoNoteLightMode.Torch && bound != null
+        val token = ++lightRequest
+        lightEnabled = false
+        if (hadTorch && bound != null) {
+            try {
+                val future = bound.cameraControl.enableTorch(false)
+                future.addListener({
+                    val failure = runCatching { future.get() }.exceptionOrNull()
+                    if (failure != null) onTorchFailure(bound, token, enabling = false, cause = failure)
+                }, ContextCompat.getMainExecutor(context))
+            } catch (error: Exception) {
+                onTorchFailure(bound, token, enabling = false, cause = error)
+            }
+        }
+        if (resetMode) lightMode = VideoNoteLightMode.Unavailable
+    }
+
     /** Смена камеры только во время записи: один Recorder и VideoCapture живут всю запись, при переключении перепривязывается та же пара. */
     fun switchCamera() {
         val cameraProvider = provider ?: return
@@ -194,6 +282,7 @@ internal class VideoNoteRecorder(
         val previousSelector = if (preferFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
         // hasCamera/getCameraInfo умеют бросаться, поэтому весь этап capability-проверок тоже внутри try.
         var unbound = false
+        val previouslyLit = lightEnabled
         try {
             val targetFront = !preferFrontCamera
             val selector = if (targetFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
@@ -211,12 +300,26 @@ internal class VideoNoteRecorder(
                     return
                 }
             }
+            if (captureFps != null && captureFps.upper >= 50) {
+                val size = captureSourceSize
+                val selectedQuality = captureQuality
+                val targetInfo = cameraProvider.getCameraInfo(selector)
+                if (size == null || selectedQuality == null || !VideoNoteCameraSurvey.compatibleHighFpsSwitch(
+                        context, targetInfo, selectedQuality, size, captureFps.lower..captureFps.upper
+                    )) {
+                    Log.i(TAG, "video_camera_switch_refused incompatible high-FPS quality/stream")
+                    VideoNoteDiagnostics.append(current.sessionName, context.getString(R.string.vn_entry_switch_refused))
+                    onError(context.getString(R.string.recorder_camera_switch_failed))
+                    return
+                }
+            }
             Log.i(TAG, "video_camera_switch_started front=$targetFront")
             zoomRatio = 1f
             unbindCamera()
             unbound = true
             bind(cameraProvider, selector, current.settings, capture)
             preferFrontCamera = targetFront
+            if (previouslyLit && lightMode != VideoNoteLightMode.Unavailable) requestLight(true)
             Log.i(TAG, "video_camera_switched front=$preferFrontCamera")
             // Timestamps of different camera devices are not comparable: measure the new camera on its own.
             if (sensorTap.isActive()) sensorTap.begin()
@@ -234,6 +337,7 @@ internal class VideoNoteRecorder(
             val restored = runCatching { bind(cameraProvider, previousSelector, current.settings, capture) }
             if (restored.isSuccess) {
                 // Запись продолжается с прежней камерой: persistent-запись пережила отвязку, кадр возвращён.
+                if (previouslyLit && lightMode != VideoNoteLightMode.Unavailable) requestLight(true)
                 onError(context.getString(R.string.recorder_camera_switch_failed))
                 return
             }
@@ -278,6 +382,7 @@ internal class VideoNoteRecorder(
         locked = false
         canceling = false
         started = false
+        clearLight(resetMode = true)
         zoomRatio = 1f
         elapsedMs = 0L
         val current = ++attempt
@@ -364,6 +469,8 @@ internal class VideoNoteRecorder(
     }
 
     fun dispose() {
+        lifecycleOwner.lifecycle.removeObserver(lightLifecycleObserver)
+        clearLight()
         if (active) stop(preview = true)
         locked = false
         timer?.cancel()
@@ -390,6 +497,7 @@ internal class VideoNoteRecorder(
     )
 
     private fun fail(message: String) {
+        clearLight()
         active = false
         locked = false
         canceling = false
@@ -402,6 +510,7 @@ internal class VideoNoteRecorder(
 
     private fun stop(preview: Boolean) {
         if (!active) return
+        clearLight()
         Log.i(TAG, "video_recording_stopping preview=$preview elapsedMs=$elapsedMs")
         active = false
         locked = false
@@ -417,6 +526,7 @@ internal class VideoNoteRecorder(
 
     private fun requestStop(current: VideoTake) {
         if (current.stopRequested) return
+        clearLight()
         current.stopRequested = true
         // Results after this point belong to finalization, not to the recorded file.
         sensorTap.stop()
@@ -443,19 +553,24 @@ internal class VideoNoteRecorder(
             VideoQualityPreset.Custom -> settings.customSide
         }
         val bitrate = videoCameraBitrate(settings)
-        val quality = if (side > 480) Quality.HD else Quality.SD
+        val requestedQuality = if (side > 480) Quality.HD else Quality.SD
         val supportedFps = cameraProvider.getCameraInfo(selector).supportedFrameRateRanges
         captureCameraId = VideoNoteCameraSurvey.cameraId(cameraProvider.getCameraInfo(selector))
         // Camera2 normal ranges and H.264 capabilities constrain claims, but cannot guarantee
         // Preview+VideoCapture session combinations or low-light exposure behaviour.
         // The settings screen's diagnostics call the same function, so both always agree.
-        val decision = VideoNoteCameraSurvey.recordingDecision(
-            context, settings, captureCameraId, supportedFps.map { it.lower..it.upper }
+        val plan = VideoNoteCameraSurvey.recordingPlan(
+            context, settings, captureCameraId, supportedFps.map { it.lower..it.upper },
+            cameraProvider.getCameraInfo(selector)
         )
+        val decision = plan.decision
+        val quality = if (plan.quality == com.beykus.beygram.data.media.VideoNoteSourceQuality.SD) Quality.SD else requestedQuality
+        captureSourceSize = plan.width to plan.height
+        captureQuality = plan.quality
         val chosenFps = decision.selected
         val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         captureFpsDecision = decision
-        Log.i(TAG, "video_fps requested=${decision.requested} selected=$chosenFps cause=${decision.cause}")
+        Log.i(TAG, "video_fps requested=${decision.requested} selected=$chosenFps cause=${decision.cause} quality=$quality")
         val qualitySelector = QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(quality))
         val captureBuilder = VideoCapture.Builder(
             Recorder.Builder()
@@ -499,18 +614,25 @@ internal class VideoNoteRecorder(
             .build()
         val bound = cameraProvider.bindToLifecycle(lifecycleOwner, selector, group)
         camera = bound
+        lightMode = videoNoteLightMode(selector == CameraSelector.DEFAULT_FRONT_CAMERA,
+            runCatching { bound.cameraInfo.hasFlashUnit() }.getOrDefault(false))
+        lightEnabled = false
         applyZoom(bound, zoomRatio)
     }
 
     private fun unbindCamera() {
+        clearLight(resetMode = true)
         provider?.unbindAll()
         camera = null
     }
 
     /** Диапазон зума берётся у конкретной камеры: ультраширокая и фронтальная имеют разные границы. */
     private fun applyZoom(bound: Camera, ratio: Float) {
-        val range = bound.cameraInfo.zoomState.value ?: return
-        zoomRatio = ratio.coerceIn(range.minZoomRatio, range.maxZoomRatio)
+        val range = bound.cameraInfo.zoomState.value
+        // LiveData may still be empty after bind: never silently skip the initial 1x request.
+        // We only know that the request was issued, not that Camera2 applied it. The sensor
+        // capture results in diagnostics are the evidence for the actual zoom used.
+        zoomRatio = videoNoteZoomTarget(ratio, range?.minZoomRatio, range?.maxZoomRatio)
         bound.cameraControl.setZoomRatio(zoomRatio)
     }
 
@@ -567,7 +689,10 @@ internal class VideoNoteRecorder(
             captureBitrate = videoCameraBitrate(settings)
         )
         if (settings.diagnosticsEnabled) {
-            val (sourceWidth, sourceHeight) = VideoNoteCameraSurvey.sourceSize(settings)
+            VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_fov_viewport))
+            val (sourceWidth, sourceHeight) = captureSourceSize ?: VideoNoteCameraSurvey.sourceSize(settings)
+            VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_source_plan,
+                captureQuality?.name ?: "?", sourceWidth, sourceHeight))
             VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_camera, captureCameraId ?: "?", sourceWidth, sourceHeight))
             val manager = context.getSystemService(CameraManager::class.java)
             captureCameraId?.let { id ->
@@ -638,7 +763,9 @@ internal class VideoNoteRecorder(
         val seconds = (event.recordingStats.recordedDurationNanos / 1_000_000_000L).toInt()
         val sensor = sensorTap.finish(captureFpsRange?.upper ?: 30)
         if (current.settings.diagnosticsEnabled) {
-            VideoNoteDiagnostics.recordCrop(current.sessionName, sensor?.crop, sensor?.zoom)
+            VideoNoteDiagnostics.recordCrop(current.sessionName, sensor?.crop, sensor?.zoom,
+                sensor?.firstCrop, sensor?.firstZoom,
+                sensor?.cropChanged == true || sensor?.zoomChanged == true)
             VideoNoteDiagnostics.recordSensor(current.sessionName, sensor?.stats, sensor?.truncated == true)
         }
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
@@ -677,6 +804,15 @@ internal class VideoNoteRecorder(
 
 /** Итог завершённой записи. Отдельная политика, чтобы покрывать её юнит-тестами без CameraX. */
 internal enum class VideoTakeOutcome { Send, Discarded, TooShort, SaveFailed }
+
+/** Фронтальная камера без фонарика использует свет экрана; задняя без вспышки — недоступна. */
+internal enum class VideoNoteLightMode { Unavailable, Torch, Screen }
+
+internal fun videoNoteLightMode(front: Boolean, hasFlashUnit: Boolean): VideoNoteLightMode = when {
+    hasFlashUnit -> VideoNoteLightMode.Torch
+    front -> VideoNoteLightMode.Screen
+    else -> VideoNoteLightMode.Unavailable
+}
 
 /**
  * Ошибка важнее отмены: даже отменённая запись с ошибкой кодека не должна отличаться от сломанной.
@@ -804,6 +940,78 @@ internal fun VideoNoteSwitchCameraButton(recorder: VideoNoteRecorder, enabled: B
     }
 }
 
+/** Кнопка подсветки доступна рядом с переключением камер, поверх квадрата вне обрезанного кругом превью. */
+@Composable
+internal fun VideoNoteLightButton(recorder: VideoNoteRecorder, modifier: Modifier = Modifier) {
+    val palette = beyGramPalette()
+    val available = recorder.lightMode != VideoNoteLightMode.Unavailable
+    val enabled = recorder.active && recorder.started && available
+    val label = when {
+        !available -> R.string.recorder_light_unavailable
+        recorder.lightMode == VideoNoteLightMode.Screen && recorder.lightEnabled -> R.string.recorder_screen_light_off
+        recorder.lightMode == VideoNoteLightMode.Screen -> R.string.recorder_screen_light_on
+        recorder.lightEnabled -> R.string.recorder_torch_off
+        else -> R.string.recorder_torch_on
+    }
+    Box(
+        modifier.size(48.dp).clip(CircleShape)
+            .background(if (recorder.lightEnabled) Color(0xFFFFD54F) else palette.surface2)
+            .clickable(enabled = enabled, onClick = recorder::toggleLight),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            if (recorder.lightEnabled) Icons.Rounded.FlashOn else Icons.Rounded.FlashOff,
+            stringResource(label),
+            tint = if (recorder.lightEnabled) Color.Black else palette.textSecondary.copy(alpha = if (enabled) 1f else 0.38f),
+            modifier = Modifier.size(22.dp)
+        )
+    }
+}
+
+/** На фронтальной камере временно увеличиваем яркость только текущего окна, без изменения системной настройки. */
+@Composable
+private fun VideoNoteScreenBrightness(active: Boolean) {
+    val context = LocalContext.current
+    val owner = LocalLifecycleOwner.current
+    val activity = remember(context) {
+        var current: Context? = context
+        var result: Activity? = null
+        while (current != null) {
+            if (current is Activity) {
+                result = current
+                break
+            }
+            current = (current as? ContextWrapper)?.baseContext
+        }
+        result
+    }
+    DisposableEffect(activity, owner, active) {
+        val window = activity?.window
+        val oldBrightness = if (active) window?.attributes?.screenBrightness else null
+        var restored = false
+        fun restore() {
+            if (restored || oldBrightness == null || window == null) return
+            restored = true
+            val attrs = window.attributes
+            attrs.screenBrightness = oldBrightness
+            window.attributes = attrs
+        }
+        if (active && window != null) {
+            val attrs = window.attributes
+            attrs.screenBrightness = 1f
+            window.attributes = attrs
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) restore()
+        }
+        if (active) owner.lifecycle.addObserver(observer)
+        onDispose {
+            if (active) owner.lifecycle.removeObserver(observer)
+            restore()
+        }
+    }
+}
+
 /** Нижняя панель состояния видеосообщения с явной отменой после фиксации. */
 @Composable
 internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modifier = Modifier, onCancel: () -> Unit) {
@@ -832,8 +1040,10 @@ internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modif
 @Composable
 internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
+    val screenLight = recorder.lightEnabled && recorder.lightMode == VideoNoteLightMode.Screen
+    VideoNoteScreenBrightness(screenLight)
     Column(
-        modifier.fillMaxSize().background(palette.screen),
+        modifier.fillMaxSize().background(if (screenLight) Color.White else palette.screen),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -849,7 +1059,7 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
                 val stroke = 4.dp.toPx()
                 val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
                 val inset = Offset(stroke / 2, stroke / 2)
-                drawArc(palette.divider, startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
+                drawArc(if (screenLight) Color.LightGray else palette.divider, startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
                 drawArc(palette.danger, startAngle = -90f, sweepAngle = 360f * progress, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
             }
             Box(Modifier.fillMaxSize().padding(4.dp).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.TopCenter) {
@@ -865,7 +1075,8 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
                     )
                 }
             }
-            // Кнопка живёт вне контейнера с clip(CircleShape): в углу квадрата она оказалась бы за вписанной окружностью и обрезалась.
+            // Обе кнопки вне clip(CircleShape), иначе углы квадрата отсекут hit target.
+            VideoNoteLightButton(recorder, modifier = Modifier.align(Alignment.BottomStart).padding(14.dp))
             if (recorder.canSwitchCamera) {
                 VideoNoteSwitchCameraButton(
                     recorder,
@@ -876,9 +1087,20 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
         }
         Spacer(Modifier.height(16.dp))
         if (!recorder.locked) {
-            Text(if (recorder.canceling) stringResource(R.string.recorder_release_to_cancel) else stringResource(R.string.recorder_release_to_send), color = palette.textPrimary, fontSize = 14.sp)
-            Text(stringResource(R.string.recorder_swipe_up_lock), color = palette.textSecondary, fontSize = 14.sp)
-            Text(stringResource(R.string.recorder_swipe_left_cancel), color = if (recorder.canceling) palette.danger else palette.textSecondary, fontSize = 14.sp)
+            Text(if (recorder.canceling) stringResource(R.string.recorder_release_to_cancel) else stringResource(R.string.recorder_release_to_send), color = if (screenLight) Color.Black else palette.textPrimary, fontSize = 14.sp)
+            Text(stringResource(R.string.recorder_swipe_up_lock), color = if (screenLight) Color.DarkGray else palette.textSecondary, fontSize = 14.sp)
+            Text(stringResource(R.string.recorder_swipe_left_cancel), color = if (recorder.canceling) palette.danger else if (screenLight) Color.DarkGray else palette.textSecondary, fontSize = 14.sp)
         }
     }
+}
+
+/** Only use the advertised zoom bounds once ZoomState is ready. The first 1x request
+ * must still be sent before LiveData publishes its initial value. */
+internal fun videoNoteZoomTarget(requested: Float, minimum: Float?, maximum: Float?): Float {
+    val fallback = 1f
+    val value = if (requested.isFinite()) requested else fallback
+    // ZoomState is asynchronous. Do not invent an upper limit of 1× before it arrives.
+    if (minimum == null || maximum == null || !minimum.isFinite() ||
+        !maximum.isFinite() || minimum <= 0f || maximum < minimum) return value.coerceAtLeast(1f)
+    return value.coerceIn(minimum, maximum)
 }

@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="recorder_light_unavailable">Flash unavailable for this camera</string>
+    <string name="recorder_torch_on">Turn on camera flash</string>
+    <string name="recorder_torch_off">Turn off camera flash</string>
+    <string name="recorder_screen_light_on">Turn on screen light</string>
+    <string name="recorder_screen_light_off">Turn off screen light</string>
+    <string name="recorder_light_failed">Unable to turn on camera flash</string>
+    <string name="recorder_light_off_failed">Unable to turn off camera flash. Try again</string>
     <string name="chats_title">Chats</string>
     <string name="settings_title">Settings</string>
     <string name="settings_group_interface">Interface</string>

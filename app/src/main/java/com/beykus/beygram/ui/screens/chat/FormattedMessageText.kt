@@ -27,13 +27,14 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.theme.LocalMessageTextSize
 
 internal fun entitySpan(kind: TextStyleKind, accent: Color, secondary: Color): SpanStyle = when (kind) {
     TextStyleKind.Bold -> SpanStyle(fontWeight = FontWeight.Bold)
     TextStyleKind.Italic -> SpanStyle(fontStyle = FontStyle.Italic)
     TextStyleKind.Underline -> SpanStyle(textDecoration = TextDecoration.Underline)
     TextStyleKind.Strike -> SpanStyle(textDecoration = TextDecoration.LineThrough)
-    TextStyleKind.Code, TextStyleKind.Pre -> SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 15.sp, fontFeatureSettings = "liga=0")
+    TextStyleKind.Code, TextStyleKind.Pre -> SpanStyle(fontFamily = FontFamily.Monospace, fontFeatureSettings = "liga=0")
     TextStyleKind.Quote -> SpanStyle()
     TextStyleKind.Url, TextStyleKind.Mention, TextStyleKind.MentionName, TextStyleKind.Email, TextStyleKind.Phone, TextStyleKind.Command, TextStyleKind.Hashtag -> SpanStyle(color = accent)
     else -> SpanStyle()
@@ -78,6 +79,7 @@ internal fun FormattedMessageText(message: ChatMessage, modifier: Modifier = Mod
 @Composable
 private fun RichTextPart(messageId: Long, part: MessageTextPart, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
+    val messageSize = LocalMessageTextSize.current
     val uri = LocalUriHandler.current
     val context = LocalContext.current
     var revealed by remember(messageId, part) { mutableStateOf(false) }
@@ -148,7 +150,7 @@ private fun RichTextPart(messageId: Long, part: MessageTextPart, modifier: Modif
                 }
             }
         }
-    }, color = palette.textPrimary, fontSize = if (part.block == TextStyleKind.Pre) 15.sp else 16.sp,
+    }, color = palette.textPrimary, fontSize = messageSize,
         fontFamily = if (part.block == TextStyleKind.Pre) FontFamily.Monospace else FontFamily.Default,
-        lineHeight = 22.sp, onTextLayout = { layout = it })
+        lineHeight = (messageSize.value * 1.375f).sp, onTextLayout = { layout = it })
 }

@@ -248,4 +248,10 @@
     <string name="diag_full_report_highspeed">=== Скоростная съёмка ===</string>
     <string name="hs_running">Идёт проверка скоростной съёмки…</string>
     <string name="vn_entry_av_unreadable">Звуковая дорожка в файле есть, но прочитать её отсчёты не удалось: это ограничение проверки, а не доказательство, что звука нет.</string>
+    <string name="vn_entry_fov_viewport">FOV: PreviewView FILL_CENTER, общий ViewPort 1:1 для Preview и VideoCapture. Квадратная обрезка ожидаема; её нельзя считать цифровым зумом без сравнения кадров.</string>
+    <string name="vn_entry_fov_observed">FOV Camera2 (начало → конец): crop %1$s → %3$s, zoom %2$s → %4$s; изменения: %5$s. SCALER_CROP_REGION не отражает всю обрезку CameraX ViewPort; сравните превью, RAW и отправленный файл.</string>
+    <string name="vn_entry_fov_changed">есть</string>
+    <string name="vn_entry_fov_unchanged">не обнаружены</string>
+    <string name="vn_entry_source_plan">Режим CameraX: %1$s, ожидаемый размер %2$d×%3$d. Это выбранная конфигурация, а не измеренный RAW. Реальный размер — в отчёте файла.</string>
+    <string name="fps_cause_stream_60">Поток камеры в выбранном разрешении не подтверждает 60 FPS; выбран поддерживаемый fallback (без принудительного дублирования кадров)</string>
 </resources>

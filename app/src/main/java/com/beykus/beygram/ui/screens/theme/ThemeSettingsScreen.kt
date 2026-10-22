@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.RadioButton
@@ -51,6 +54,7 @@ import com.beykus.beygram.data.appearance.WallpaperFiles
 import com.beykus.beygram.data.appearance.ThemePreset
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.ChatWallpaperLayer
+import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.BeyGramTokens
@@ -75,6 +79,7 @@ fun ThemeSettingsScreen(
     val preset = draft.preset.takeUnless { it == ThemePreset.MaterialYou && !SystemColorsAvailable } ?: ThemePreset.Warm
     val mode = draft.mode
     val wallpaper = draft.wallpaper
+    val previewMetrics = bubbleMetricsFor(draft.bubbleStyle, draft.density)
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
     fun requestBack() {
         if (draft != saved) confirmDiscard = true else onBack()
@@ -94,8 +99,9 @@ fun ThemeSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SectionTitle(stringResource(R.string.theme_preview_title))
-            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
-                ThemePreview(wallpaper = wallpaper)
+            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark),
+                messageTextSizeSp = draft.messageTextSizeSp) {
+                ThemePreview(bubbleRadius = previewMetrics.cornerRadius, spacing = previewMetrics.itemSpacing, wallpaper = wallpaper)
             }
 
             SectionTitle(stringResource(R.string.theme_palette_title))
@@ -135,9 +141,11 @@ fun ThemeSettingsScreen(
             }
             SectionTitle(stringResource(R.string.wallpaper_title))
             BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
-                WallpaperSection(selected = wallpaper, saved = saved.wallpaper, onSelect = {
-                    onDraftChange(draft.copy(wallpaper = it))
-                })
+                WallpaperSection(
+                    selected = wallpaper, saved = saved.wallpaper,
+                    bubbleRadius = previewMetrics.cornerRadius, spacing = previewMetrics.itemSpacing,
+                    onSelect = { onDraftChange(draft.copy(wallpaper = it)) }
+                )
             }
             Text(stringResource(R.string.theme_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
         }
@@ -169,6 +177,7 @@ internal fun ThemePreview(
     wallpaper: ChatWallpaper = ChatWallpaper.None
 ) {
     val palette = beyGramPalette()
+    val messageSize = com.beykus.beygram.ui.theme.LocalMessageTextSize.current
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.screen),
         verticalArrangement = Arrangement.spacedBy(0.dp)
@@ -200,7 +209,26 @@ internal fun ThemePreview(
                     )
                 }
                 PreviewBubble(text = stringResource(R.string.theme_preview_incoming), time = stringResource(R.string.theme_preview_time), outgoing = false, radius = bubbleRadius)
-                PreviewBubble(text = stringResource(R.string.theme_preview_outgoing), time = stringResource(R.string.theme_preview_time_reply), outgoing = true, radius = bubbleRadius)
+                PreviewBubble(
+                    text = stringResource(R.string.theme_preview_outgoing),
+                    time = stringResource(R.string.theme_preview_time_reply),
+                    outgoing = true, radius = bubbleRadius,
+                    reply = stringResource(R.string.theme_preview_reply)
+                )
+                PreviewBubble(
+                    text = stringResource(R.string.theme_preview_media_caption),
+                    time = stringResource(R.string.theme_preview_time_reply),
+                    outgoing = false, radius = bubbleRadius,
+                    media = true
+                )
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text(
+                        stringResource(R.string.theme_preview_service),
+                        color = palette.textSecondary, fontSize = 12.sp,
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                            .background(palette.surface2).padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
             }
         }
         // The input surface also stays solid so controls remain legible.
@@ -217,22 +245,47 @@ internal fun ThemePreview(
 }
 
 @Composable
-private fun PreviewBubble(text: String, time: String, outgoing: Boolean, radius: Dp) {
+private fun PreviewBubble(
+    text: String, time: String, outgoing: Boolean, radius: Dp,
+    reply: String? = null, media: Boolean = false
+) {
     val palette = beyGramPalette()
+    val messageSize = com.beykus.beygram.ui.theme.LocalMessageTextSize.current
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start
     ) {
-        Row(
-            Modifier.clip(RoundedCornerShape(radius))
+        Column(
+            Modifier.widthIn(max = 280.dp).clip(RoundedCornerShape(radius))
                 .background(if (outgoing) palette.outgoingBubble else palette.incomingBubble)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(text, color = palette.textPrimary, fontSize = 15.sp)
-            Spacer(Modifier.width(8.dp))
-            Text(time, color = palette.textSecondary, fontSize = 11.sp)
-            if (outgoing) Icon(Icons.Rounded.DoneAll, null, tint = palette.accent, modifier = Modifier.padding(start = 2.dp).size(14.dp))
+            if (reply != null) {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(palette.accentSoft)
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Text(reply, color = palette.accentInk, fontSize = 12.sp)
+                }
+            }
+            if (media) {
+                Box(
+                    Modifier.fillMaxWidth().height(82.dp).clip(RoundedCornerShape(9.dp))
+                        .background(palette.accentSoft),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.Image, contentDescription = null, tint = palette.accentInk,
+                        modifier = Modifier.size(29.dp))
+                }
+            }
+            Text(text, color = palette.textPrimary, fontSize = messageSize, lineHeight = (messageSize.value * 1.375f).sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(time, color = palette.textSecondary, fontSize = 11.sp)
+                if (outgoing) Icon(Icons.Rounded.DoneAll, null, tint = palette.accent,
+                    modifier = Modifier.padding(start = 3.dp).size(14.dp))
+            }
         }
     }
 }

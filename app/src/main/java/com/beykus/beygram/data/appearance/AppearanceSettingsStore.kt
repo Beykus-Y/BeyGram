@@ -25,6 +25,7 @@ private val ListDensityKey = stringPreferencesKey("list_density")
 private val AccentColorKey = intPreferencesKey("accent_color")
 private val OutgoingBubbleColorKey = intPreferencesKey("outgoing_bubble_color")
 private val WallpaperKey = stringPreferencesKey("chat_wallpaper")
+private val MessageTextSizeKey = intPreferencesKey("message_text_size_sp")
 
 private val Context.appearanceDataStore by preferencesDataStore(
     name = "appearance",
@@ -46,7 +47,8 @@ class AppearanceSettingsStore(context: Context) {
                 density = listDensityFromStored(preferences[ListDensityKey]),
                 accentColor = preferences[AccentColorKey],
                 outgoingBubbleColor = preferences[OutgoingBubbleColorKey],
-                wallpaper = chatWallpaperFromStored(preferences[WallpaperKey])
+                wallpaper = chatWallpaperFromStored(preferences[WallpaperKey]),
+                messageTextSizeSp = validMessageTextSize(preferences[MessageTextSizeKey] ?: DEFAULT_MESSAGE_TEXT_SIZE_SP)
             )
         }
 
@@ -61,6 +63,7 @@ class AppearanceSettingsStore(context: Context) {
             val bubble = config.outgoingBubbleColor
             if (bubble != null) preferences[OutgoingBubbleColorKey] = bubble else preferences.remove(OutgoingBubbleColorKey)
             preferences[WallpaperKey] = config.wallpaper.encode()
+            preferences[MessageTextSizeKey] = validMessageTextSize(config.messageTextSizeSp)
         }
     }
 }

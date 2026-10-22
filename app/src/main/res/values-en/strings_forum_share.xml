@@ -34,6 +34,10 @@
     <string name="forum_topic_pinned">Pinned topic</string>
     <string name="forum_topic_regular">Discussion topic</string>
     <string name="forum_topic_unread_count">Unread messages: %1$d</string>
+    <string name="forum_topics_count">Topics: %1$d</string>
+    <string name="forum_topics_pinned_section">PINNED</string>
+    <string name="forum_topics_regular_section">DISCUSSIONS</string>
+    <string name="forum_topics_empty_hint">Nothing here yet. New topics will appear in this list.</string>
     <string name="forum_topics_empty">No available topics yet</string>
     <string name="forum_topics_subtitle">Discussion topics</string>
     <string name="forum_unpin">Unpin topic</string>
@@ -53,4 +57,7 @@
     <string name="share_text_too_long">Text exceeds %1$d characters. Shorten it to send.</string>
     <string name="share_title">Send to BeyGram</string>
     <string name="share_topics_failed">Could not load topics. Try again.</string>
+    <string name="forum_topics_partial_load_failed">Some topics did not load. Available topics remain accessible.</string>
+    <string name="share_saved_quick_action">Saved Messages</string>
+    <string name="share_recent_destinations">Recent and other chats</string>
 </resources>
