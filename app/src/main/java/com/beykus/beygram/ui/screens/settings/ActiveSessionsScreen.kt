@@ -22,6 +22,8 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+
 import java.text.DateFormat
 import java.util.Date
 
@@ -51,11 +53,20 @@ fun ActiveSessionsScreen(
     LaunchedEffect(refresh) {
         loading = true
         error = null
-        load().fold(
-            { sessions = it.sortedWith(compareByDescending<DeviceSession> { s -> s.current }.thenByDescending { s -> s.lastActive }) },
-            { error = it.userMessage(context, R.string.feature_action_failed) }
-        )
-        loading = false
+        try {
+            when (val request = awaitSessionRequest(SESSION_LOAD_TIMEOUT_MS, load)) {
+                is SessionAwait.Completed -> request.result.fold(
+                    { sessions = it.sortedWith(compareByDescending<DeviceSession> { s -> s.current }.thenByDescending { s -> s.lastActive }) },
+                    { error = it.userMessage(context, R.string.feature_action_failed) }
+                )
+                SessionAwait.TimedOut -> error = context.getString(R.string.sessions_load_timeout)
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) {
+            error = failure.userMessage(context, R.string.feature_action_failed)
+        } finally {
+            loading = false
+        }
     }
 
     val current = sessions.firstOrNull { it.current }
@@ -152,11 +163,22 @@ fun ActiveSessionsScreen(
                         busy = true
                         actionError = null
                         try {
-                            val result = if (allOthers) terminateAll() else terminate(requireNotNull(id))
-                            result.fold(
-                                { closeDialog(); refresh++ },
-                                { actionError = it.userMessage(context, R.string.feature_action_failed) }
-                            )
+                            when (val request = awaitSessionRequest(SESSION_ACTION_TIMEOUT_MS) {
+                                if (allOthers) terminateAll() else terminate(requireNotNull(id))
+                            }) {
+                                is SessionAwait.Completed -> request.result.fold(
+                                    { closeDialog(); refresh++ },
+                                    { actionError = it.userMessage(context, R.string.feature_action_failed) }
+                                )
+                                SessionAwait.TimedOut -> {
+                                    // The server may still have accepted a termination. Never
+                                    // silently retry a destructive action without refreshing.
+                                    actionError = context.getString(R.string.sessions_action_timeout)
+                                }
+                            }
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (failure: Exception) {
+                            actionError = failure.userMessage(context, R.string.feature_action_failed)
                         } finally {
                             busy = false
                         }
