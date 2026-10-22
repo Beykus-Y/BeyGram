@@ -65,4 +65,5 @@
     <string name="theme_editor_colour_light_grey">Светло-серый</string>
     <string name="theme_editor_colour_grey">Серый</string>
     <string name="theme_editor_warning_message_colour">Этот цвет плохо читается на пузырях сообщений. Выберите другой.</string>
+    <string name="theme_editor_undo">Отменить изменение</string>
 </resources>
