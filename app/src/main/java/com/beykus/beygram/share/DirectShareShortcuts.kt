@@ -9,6 +9,17 @@ import androidx.core.graphics.drawable.IconCompat
 import com.beykus.beygram.MainActivity
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.repository.TelegramRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Android Sharing Shortcuts (Android 10+), not the obsolete ChooserTargetService.
@@ -19,6 +30,7 @@ internal object DirectShareShortcuts {
     private const val CATEGORY = "com.beykus.beygram.share.direct"
     private const val PREFIX = "beygram-share-chat-"
     private const val MAX_VISIBLE = 4
+    internal const val LAUNCH_CHAT = "beygram.share.target"
 
     fun idForChat(chatId: Long): String = "$PREFIX$chatId"
 
@@ -33,14 +45,35 @@ internal object DirectShareShortcuts {
             .sortedByDescending { it.order }
             .take(MAX_VISIBLE).toList()
 
-    fun publish(context: Context, targets: List<ChatPreview>) {
-        runCatching {
+    /** Process-wide observer: TDLib updates keep shortcuts fresh without an open Activity. */
+    fun observe(context: Context, repository: TelegramRepository, scope: CoroutineScope): Job =
+        scope.launch {
+            combine(repository.authState, repository.chats) { auth, chats ->
+                if (auth == AuthState.Ready) pickTargets(chats).map { it.id to it.title }
+                else null
+            }.distinctUntilChanged().collectLatest { identity ->
+                withContext(Dispatchers.IO) {
+                    if (identity == null) clear(context)
+                    else {
+                        val targets = pickTargets(repository.chats.value)
+                        // The compat API signals rate limiting with false rather than an exception.
+                        // Retry modestly while this publication remains the latest desired state.
+                        for (attempt in 0..2) {
+                            if (publish(context, targets)) break
+                            if (attempt < 2) delay(5000L * (attempt + 1))
+                        }
+                    }
+                }
+            }
+        }
+
+    fun publish(context: Context, targets: List<ChatPreview>): Boolean {
+        return runCatching {
             val cap = ShortcutManagerCompat.getMaxShortcutCountPerActivity(context).coerceAtLeast(0)
             val dynamic = targets.take(cap).mapIndexed { rank, chat ->
                 val intent = Intent(context, MainActivity::class.java)
-                    .setAction(Intent.ACTION_SEND)
-                    .setType("text/plain")
-                    .putExtra("beygram.share.target", chat.id)
+                    .setAction(Intent.ACTION_VIEW)
+                    .putExtra(LAUNCH_CHAT, chat.id)
                 ShortcutInfoCompat.Builder(context, idForChat(chat.id))
                     .setShortLabel(chat.title.take(36))
                     .setLongLabel(chat.title.take(80))
@@ -53,6 +86,7 @@ internal object DirectShareShortcuts {
             }
             ShortcutManagerCompat.setDynamicShortcuts(context, dynamic)
         }.onFailure { Log.w(TAG, "Sharing shortcuts unavailable: ${it.javaClass.simpleName}") }
+            .getOrDefault(false).also { if (!it) Log.w(TAG, "Sharing shortcuts rejected or rate limited") }
     }
 
     fun clear(context: Context) {

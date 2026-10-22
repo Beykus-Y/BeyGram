@@ -174,14 +174,9 @@ private fun BeyGramAppContent(
     val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
     val authState by repository.authState.collectAsStateWithLifecycle()
-    val directShareChats by repository.chats.collectAsStateWithLifecycle()
-    val directShareTargets = remember(directShareChats) { DirectShareShortcuts.pickTargets(directShareChats) }
-    // Ignore message-preview updates when the identities, titles and ordering did not change.
-    val directShareIdentity = directShareTargets.map { Triple(it.id, it.title, it.order) }
-    LaunchedEffect(authState, directShareIdentity) {
-        // Publishing only when the short list changes avoids rate limiting on every TDLib update.
-        if (authState == AuthState.Ready) DirectShareShortcuts.publish(context, directShareTargets)
-        else DirectShareShortcuts.clear(context)
+    // Observe shortcuts from process scope so they stay fresh while this Activity is stopped.
+    LaunchedEffect(repository) {
+        (context.applicationContext as BeyGramApplication).startDirectShare(repository)
     }
     val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
     val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }

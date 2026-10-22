@@ -110,6 +110,15 @@ class MainActivity : ComponentActivity() {
     }
     /** Текст и файлы из другого приложения: сохраняем до выбора чата; отправка начнётся только после подтверждения на экране. */
     private fun acceptShareIntent(intent: Intent?) {
+        // The same dynamic shortcut also appears in some launcher long-press menus:
+        // with no shared content, open that chat, not an empty share dialog.
+        if (intent?.action == Intent.ACTION_VIEW && intent.hasExtra(DirectShareShortcuts.LAUNCH_CHAT)) {
+            val chatId = intent.getLongExtra(DirectShareShortcuts.LAUNCH_CHAT, 0L)
+            if (chatId != 0L) notificationRequest = NotificationOpenRequest(
+                SystemClock.elapsedRealtimeNanos(), chatId
+            )
+            return
+        }
         val files = IncomingShareParser.checkUris(streamUris(intent), packageName)
         if (files.rejected > 0) Toast.makeText(this, R.string.share_file_rejected, Toast.LENGTH_LONG).show()
         val shared = IncomingShareParser.from(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT), files.accepted, SystemClock.elapsedRealtimeNanos())
