@@ -19,6 +19,10 @@ import kotlin.random.Random
  * Все отправки проходят через один [lock]. Повтор того же логического состояния использует
  * сохранённые ревизию и тело, новое состояние получает большую ревизию.
  */
+/** The timer may wake up during Retry-After; only an explicit settings change can override it. */
+internal fun canAttemptAnalyticsSync(nowMillis: Long, nextAttemptAt: Long, forced: Boolean): Boolean =
+    forced || nowMillis >= nextAttemptAt
+
 object AnalyticsSync {
     private const val TAG = "AnalyticsSync"
     private const val HEARTBEAT_MS = 24L * 60 * 60 * 1000
@@ -45,6 +49,12 @@ object AnalyticsSync {
         store = AnalyticsStore(context)
         api = AnalyticsApi(baseUrl)
         this.scope = scope
+        // The throttle survives process death. Wake once at the persisted deadline; a 30-minute
+        // periodic check alone would delay a retry or incorrectly bypass a long Retry-After.
+        val remainingMs = (store!!.nextAttemptAt - System.currentTimeMillis()).coerceAtLeast(0L)
+        if (remainingMs > 0L) {
+            retryJob = scope.launch { delay(remainingMs); sync() }
+        }
         scope.launch {
             while (true) {
                 sync()
@@ -69,9 +79,13 @@ object AnalyticsSync {
             store.pendingDeletion = true
         } else if (store.blocked) {
             store.blocked = false
+            store.credentialRecoveryAttempted = false
             store.pendingDeletion = true
         }
-        requestAfter(0L)
+        // A direct user action overrides the scheduled cooldown; account updates do not.
+        store.nextAttemptAt = 0L
+        retryJob?.cancel()
+        requestAfter(0L, force = true)
     }
 
     /** Список собственных авторизованных ID: пустой список при выходе из аккаунта. */
@@ -81,20 +95,21 @@ object AnalyticsSync {
         requestAfter(ACCOUNT_DEBOUNCE_MS, debounce = true)
     }
 
-    private fun requestAfter(delayMs: Long, debounce: Boolean = false) {
+    private fun requestAfter(delayMs: Long, debounce: Boolean = false, force: Boolean = false) {
         val scope = scope ?: return
         if (debounce) {
             accountDebounce?.cancel()
-            accountDebounce = scope.launch { delay(delayMs); sync() }
+            accountDebounce = scope.launch { delay(delayMs); sync(force = force) }
         } else {
-            scope.launch { delay(delayMs); sync() }
+            scope.launch { delay(delayMs); sync(force = force) }
         }
     }
 
-    private suspend fun sync() {
+    private suspend fun sync(force: Boolean = false) {
         val store = store ?: return
         val api = api ?: return
         lock.withLock {
+            if (!canAttemptAnalyticsSync(System.currentTimeMillis(), store.nextAttemptAt, force)) return
             if (store.pendingDeletion && !deleteRemote(store, api)) return
             if (!store.enabled || store.blocked) return
 
@@ -109,21 +124,34 @@ object AnalyticsSync {
             when (val result = api.sync(identity.credential, request.body)) {
                 AnalyticsResult.Ok -> {
                     store.markSent(request.signature, System.currentTimeMillis())
+                    store.credentialRecoveryAttempted = false
+                    clearRetry(store)
                     failures = 0
                 }
                 // Контракт отклонён: тот же payload бессмыслен, поэтому не держим его в очереди.
                 AnalyticsResult.Invalid -> {
                     Log.w(TAG, "Analytics payload rejected by contract")
                     store.markSent(request.signature, System.currentTimeMillis())
+                    clearRetry(store)
                     failures = 0
                 }
                 AnalyticsResult.Unauthorized -> {
-                    Log.w(TAG, "Analytics credential rejected; waiting for re-enable")
-                    store.blocked = true
-                    store.clearPending()
+                    if (!store.credentialRecoveryAttempted) {
+                        // The stored credential may be stale. Re-register once under a new identity.
+                        // A second 401 blocks retries instead of endlessly generating installations.
+                        Log.w(TAG, "Analytics credential rejected; attempting one fresh registration")
+                        store.resetIdentity()
+                        store.credentialRecoveryAttempted = true
+                        retryLater(null)
+                    } else {
+                        Log.w(TAG, "Analytics credential rejected again; paused until settings toggle")
+                        store.blocked = true
+                        store.clearPending()
+                        clearRetry(store)
+                    }
                 }
                 is AnalyticsResult.Retry -> retryLater(result.afterSeconds)
-                AnalyticsResult.Unavailable -> scheduleRetry(UNAVAILABLE_DELAY_MS)
+                AnalyticsResult.Unavailable, AnalyticsResult.NotFound -> scheduleRetry(UNAVAILABLE_DELAY_MS)
             }
         }
     }
@@ -137,8 +165,12 @@ object AnalyticsSync {
         }
         return when (val result = api.delete(identity.installationId, identity.credential)) {
             // 401 значит, что ни эта запись, ни этот credential серверу больше не нужны.
-            AnalyticsResult.Ok, AnalyticsResult.Unauthorized -> {
+            AnalyticsResult.Ok, AnalyticsResult.Unauthorized,
+            AnalyticsResult.NotFound, AnalyticsResult.Invalid -> {
+                // 404 means already deleted; 422 means the supplied record cannot be deleted
+                // by this credential. Neither response must permanently stall a new install.
                 store.resetIdentity()
+                clearRetry(store)
                 failures = 0
                 true
             }
@@ -160,7 +192,9 @@ object AnalyticsSync {
 
     private fun retryLater(afterSeconds: Long?) {
         failures++
-        val delayMs = afterSeconds?.let { (it * 1000L).coerceAtMost(MAX_BACKOFF_MS) } ?: backoffMs()
+        // Limit multiplication before converting seconds to milliseconds.
+        val delayMs = afterSeconds?.coerceIn(0L, UNAVAILABLE_DELAY_MS / 1000L)?.times(1000L)
+            ?: backoffMs()
         scheduleRetry(delayMs)
     }
 
@@ -171,10 +205,19 @@ object AnalyticsSync {
         return (capped * (0.8 + Random.nextDouble() * 0.4)).toLong()
     }
 
-    /** Вызывается под [lock]; предыдущая отложенная попытка отменяется. */
+    /** Вызывается под [lock]; дедлайн записывается прежде постановки новой попытки. */
     private fun scheduleRetry(delayMs: Long) {
+        val store = store ?: return
         val scope = scope ?: return
+        val effectiveDelayMs = delayMs.coerceAtLeast(MIN_BACKOFF_MS)
+        store.nextAttemptAt = System.currentTimeMillis() + effectiveDelayMs
         retryJob?.cancel()
-        retryJob = scope.launch { delay(delayMs); sync() }
+        retryJob = scope.launch { delay(effectiveDelayMs); sync() }
+    }
+
+    private fun clearRetry(store: AnalyticsStore) {
+        store.nextAttemptAt = 0L
+        retryJob?.cancel()
+        retryJob = null
     }
 }
