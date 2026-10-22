@@ -106,6 +106,7 @@ internal class AnalyticsStore(context: Context) {
             .remove(KEY_SENT_AT)
             .remove(KEY_NEXT_ATTEMPT_AT)
             .putBoolean(KEY_BLOCKED, false)
+            .putBoolean(KEY_CREDENTIAL_RECOVERY_ATTEMPTED, false)
             .putBoolean(KEY_PENDING_DELETION, false)
             .commit()
     }
