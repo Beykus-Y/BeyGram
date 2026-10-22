@@ -1,6 +1,7 @@
 package com.beykus.beygram
 
 import android.app.Application
+import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.vpn.MihomoProxyClient
@@ -31,6 +32,8 @@ class BeyGramApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         MihomoProxyClient.install(this)
+        // Analytics runs on its own store and HTTPS client, so it neither waits for Telegram nor starts TDLib.
+        AnalyticsSync.install(this, applicationScope)
         // Background notifications are the only work that needs TDLib without a screen. Starting the client only when they
         // run keeps a disabled feature from connecting after boot; the backend restores the local proxy for that client.
         if (TelegramNotificationService.shouldRun(this) && TdLibBootstrap(this).readiness().canCreateClient) {

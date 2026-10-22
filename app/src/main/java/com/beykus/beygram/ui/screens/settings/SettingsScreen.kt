@@ -35,8 +35,13 @@ import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Settings grouped by purpose. Routes remain owned by the caller. */
@@ -87,6 +93,8 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsLink(Icons.Rounded.Lock, stringResource(R.string.start_proxy_settings), onProxy)
         }
         SettingsGroup(stringResource(R.string.settings_group_data_diagnostics)) {
+            AnalyticsSwitchRow()
+            SettingsDivider()
             SettingsLink(Icons.Rounded.Storage, stringResource(R.string.settings_storage_title), onStorage)
             SettingsDivider()
             SettingsLink(Icons.Rounded.BugReport, stringResource(R.string.diagnostics_title), onDiagnostics)
@@ -126,6 +134,21 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
 private fun SettingsDivider() {
     val palette = beyGramPalette()
     HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+}
+
+@Composable
+@Composable
+private fun AnalyticsSwitchRow() {
+    val palette = beyGramPalette()
+    var enabled by remember { mutableStateOf(AnalyticsSync.isEnabled()) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 13.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.analytics_title), color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            // Turning it off also deletes this installation's record on the server.
+            Switch(checked = enabled, onCheckedChange = { enabled = it; AnalyticsSync.setEnabled(it) })
+        }
+        Text(stringResource(R.string.analytics_description), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+    }
 }
 
 @Composable
