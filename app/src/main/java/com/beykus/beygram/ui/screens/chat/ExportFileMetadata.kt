@@ -27,9 +27,8 @@ internal fun detectExportSignature(header: ByteArray): ExportSignatureHint? {
         ascii("RIFF") && ascii("WEBP", 8) -> ExportSignatureHint("webp", "image/webp")
         starts(0x50, 0x4b, 0x03, 0x04) || starts(0x50, 0x4b, 0x05, 0x06) ||
             starts(0x50, 0x4b, 0x07, 0x08) -> ExportSignatureHint("zip", "application/zip")
-        ascii("OggS") -> ExportSignatureHint("ogg", "audio/ogg")
+        ascii("OggS") -> ExportSignatureHint("ogg", "application/ogg")
         ascii("fLaC") -> ExportSignatureHint("flac", "audio/flac")
-        ascii("ID3") -> ExportSignatureHint("mp3", "audio/mpeg")
         else -> null
     }
 }

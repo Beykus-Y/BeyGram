@@ -20,7 +20,7 @@ class ExportFileMetadataTest {
             byteArrayOf(-1, -40, -1, 0) to ExportSignatureHint("jpg", "image/jpeg"),
             "GIF89a".toByteArray() to ExportSignatureHint("gif", "image/gif"),
             byteArrayOf(80, 75, 3, 4) to ExportSignatureHint("zip", "application/zip"),
-            "OggS".toByteArray() to ExportSignatureHint("ogg", "audio/ogg"),
+            "OggS".toByteArray() to ExportSignatureHint("ogg", "application/ogg"),
             "fLaC".toByteArray() to ExportSignatureHint("flac", "audio/flac")
         )
         cases.forEach { (header, expected) ->
@@ -41,6 +41,8 @@ class ExportFileMetadataTest {
         assertEquals("clip.jpg", resolveExportFileMetadata("clip", "image/jpeg", "Файл",
             extensions::get, mimes::get, pdf).displayName)
         assertEquals(null, detectExportSignature(byteArrayOf(0, 1, 2, 3, 4)))
+        // An ID3 tag alone may prefix non-MP3 audio, and OggS is a container.
+        assertEquals(null, detectExportSignature("ID3".toByteArray()))
     }
 
     @Test fun originalFilenameNeverGetsBinAppended() {
