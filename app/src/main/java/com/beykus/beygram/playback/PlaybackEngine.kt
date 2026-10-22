@@ -225,7 +225,13 @@ object PlaybackEngine {
             queue = next.items
             queueIndex = next.index
             // «Показать в чате» ведёт к сообщению, с которого файл запустили последним.
-            _state.update { it.copy(item = item) }
+            _state.update { current ->
+                val previous = current.item
+                current.copy(item = item.copy(
+                    artworkPath = item.artworkPath ?: previous?.artworkPath,
+                    performer = item.performer.ifBlank { previous?.performer.orEmpty() }
+                ))
+            }
             togglePlayPause()
         } else {
             // Голосовое или кружок поверх музыки очередь не сбрасывают: музыка продолжится и дальше пойдёт по очереди.

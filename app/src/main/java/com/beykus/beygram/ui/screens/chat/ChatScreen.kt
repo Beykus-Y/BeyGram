@@ -906,7 +906,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
             // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
             BubbleLayout(
                 swipe.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
-                    .then(if (message.media != null && !circle && !sticker) Modifier.width(244.dp) else Modifier).clip(shape)
+                    .then(if (message.media != null && !circle && !sticker)
+                         Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
                     .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                     .then(if (highlighted && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                     .combinedClickable(onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() }, onLongClick = onActions),

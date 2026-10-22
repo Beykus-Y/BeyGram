@@ -2,7 +2,7 @@ package com.beykus.beygram.ui.screens.playback
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.MediaMetadataRetriever
+import java.io.RandomAccessFile
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -37,7 +37,14 @@ private object ArtworkCache {
         override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
     }
     @Synchronized fun get(key: String): Bitmap? = cache.get(key)
-    @Synchronized fun put(key: String, image: Bitmap) { cache.put(key, image) }
+    private val misses = object : LinkedHashMap<String, Boolean>(160, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean = size > 160
+    }
+    @Synchronized fun contains(key: String): Boolean = cache.get(key) != null || misses.containsKey(key)
+    @Synchronized fun put(key: String, image: Bitmap?) {
+        if (image != null) { cache.put(key, image); misses.remove(key) }
+        else misses[key] = true
+    }
 }
 
 private fun BitmapFactory.Options.finishSampling(): BitmapFactory.Options {
@@ -57,19 +64,71 @@ private fun decodeCoverFile(path: String): Bitmap? {
     return BitmapFactory.decodeFile(path, bounds.finishSampling())
 }
 
+/** Read a bounded APIC frame from ID3v2 MP3 without asking MediaMetadataRetriever
+ * to allocate arbitrarily large embeddedPicture bytes. Other formats rely on TDLib art. */
 private fun embeddedCover(path: String): Bitmap? {
-    if (!File(path).isFile) return null
-    val retriever = MediaMetadataRetriever()
-    return try {
-        retriever.setDataSource(path)
-        val bytes = retriever.embeddedPicture ?: return null
-        if (bytes.size > MAX_EMBEDDED_BYTES) return null
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) null
-        else BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds.finishSampling())
-    } finally {
-        retriever.release()
+    val file = File(path)
+    if (!file.isFile) return null
+    return RandomAccessFile(file, "r").use { input ->
+        if (input.length() < 20) return null
+        val header = ByteArray(10)
+        input.readFully(header)
+        if (header[0].toInt() != 73 || header[1].toInt() != 68 || header[2].toInt() != 51) return null
+        val version = header[3].toInt() and 255
+        if (version !in 3..4 || header[5].toInt() and 0x80 != 0) return null
+        fun syncsafe(data: ByteArray, offset: Int): Long {
+            var value = 0L
+            for (i in 0 until 4) {
+                val part = data[offset + i].toInt() and 255
+                if (part >= 128) return -1L
+                value = (value shl 7) or part.toLong()
+            }
+            return value
+        }
+        fun bigEndian(data: ByteArray, offset: Int): Long {
+            var v = 0L
+            for (i in 0 until 4) v = (v shl 8) or (data[offset + i].toInt() and 255).toLong()
+            return v
+        }
+        val total = syncsafe(header, 6)
+        if (total <= 0L || total > 32L * 1024 * 1024) return null
+        val end = minOf(input.length(), total + 10L)
+        // Skip extended headers instead of misparsing a position as a frame header.
+        if ((header[5].toInt() and 0x40) != 0) return null
+        val frameHeader = ByteArray(10)
+        while (input.filePointer + 10L <= end) {
+            input.readFully(frameHeader)
+            val name = String(frameHeader, 0, 4, Charsets.US_ASCII)
+            if (!name.all { it.isLetterOrDigit() }) return null
+            val size = if (version == 4) syncsafe(frameHeader, 4) else bigEndian(frameHeader, 4)
+            if (size <= 0L || input.filePointer + size > end) return null
+            if (name == "APIC") {
+                if (size > MAX_EMBEDDED_BYTES || size < 8) return null
+                val bytes = ByteArray(size.toInt())
+                input.readFully(bytes)
+                val encoding = bytes[0].toInt() and 255
+                if (encoding !in 0..3) return null
+                var pos = 1
+                // MIME string, followed by picture type, description and the image data.
+                while (pos < bytes.size && bytes[pos].toInt() != 0) pos++
+                if (pos + 2 >= bytes.size) return null
+                pos += 2
+                val unit = if (encoding == 1 || encoding == 2) 2 else 1
+                while (pos + unit <= bytes.size) {
+                    val endOfDescription = if (unit == 1) bytes[pos].toInt() == 0
+                        else bytes[pos].toInt() == 0 && bytes[pos + 1].toInt() == 0
+                    pos += unit
+                    if (endOfDescription) break
+                }
+                if (pos >= bytes.size) return null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, pos, bytes.size - pos, bounds)
+                if (bounds.outWidth !in 1..20000 || bounds.outHeight !in 1..20000) return null
+                return BitmapFactory.decodeByteArray(bytes, pos, bytes.size - pos, bounds.finishSampling())
+            }
+            input.seek(input.filePointer + size)
+        }
+        null
     }
 }
 
@@ -85,10 +144,21 @@ internal fun TrackArtwork(
 ) {
     val cover by produceState<Bitmap?>(initialValue = null, key1 = artworkPath, key2 = audioPath) {
         value = withContext(Dispatchers.IO) {
-            val key = if (artworkPath != null) "cover:" + artworkPath else audioPath?.let { "audio:" + it }
-            key?.let { ArtworkCache.get(it) } ?: runCatching {
-                artworkPath?.let(::decodeCoverFile) ?: audioPath?.let(::embeddedCover)
-            }.getOrNull()?.also { image -> if (key != null) ArtworkCache.put(key, image) }
+            // mtime/size ensures a just-downloaded TDLib thumbnail invalidates a miss.
+            val artFile = artworkPath?.let(::File)?.takeIf { it.isFile }
+            val audioFile = audioPath?.let(::File)?.takeIf { it.isFile }
+            val key = (artFile ?: audioFile)?.let { f ->
+                "${f.absolutePath}:${f.length()}:${f.lastModified()}"
+            }
+            if (key != null && ArtworkCache.contains(key)) ArtworkCache.get(key)
+            else {
+                val image = runCatching {
+                    artFile?.absolutePath?.let(::decodeCoverFile)
+                        ?: audioFile?.absolutePath?.let(::embeddedCover)
+                }.getOrNull()
+                if (key != null) ArtworkCache.put(key, image)
+                image
+            }
         }
     }
     Box(modifier.clip(RoundedCornerShape(9.dp)).background(background), contentAlignment = Alignment.Center) {

@@ -87,6 +87,10 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.beykus.beygram.R
+import com.beykus.beygram.BeyGramApplication
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
@@ -252,7 +256,20 @@ internal fun MediaPreview(
     val row = remember(media.fileId) { Any() }
     val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
     fun playAudio() {
-        if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null))
+        if (media.kind == MediaKind.Audio && thumbId != media.fileId && thumb.localPath == null && !media.isSecret) {
+            // The row can disappear while artwork downloads; the process-scoped observer
+            // keeps the player cover updated independently of this Compose composition.
+            (context.applicationContext as BeyGramApplication).applicationScope.launch {
+                val downloaded = withTimeoutOrNull(90_000L) {
+                    observeFile(thumbId).first { it.localPath != null }.localPath
+                }
+                downloaded?.let { PlaybackEngine.updateArtwork(media.playbackKey(), it) }
+            }
+            downloadFile(thumbId)
+        }
+        if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) }
+        else startAudio(context, media.playbackItem(audioPath, audioTitle, origin,
+            artworkPath = if (thumbId != media.fileId) thumb.localPath else null))
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
