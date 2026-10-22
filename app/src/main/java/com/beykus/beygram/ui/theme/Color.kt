@@ -26,7 +26,7 @@ data class BeyGramTokens(
     val danger: Color,
     /** Text of messages in bubbles. Defaults to the theme text; a picked colour replaces it only while it reads. */
     val bubbleText: Color = text,
-    /** Time and status in bubbles. Defaults to the muted colour of the theme. */
+    /** Message time and the sending clock in bubbles. Defaults to the muted colour of the theme. */
     val bubbleTime: Color = muted
 )
 

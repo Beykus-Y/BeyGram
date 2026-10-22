@@ -18,7 +18,7 @@ data class AppearanceConfig(
     val messageLineSpacing: MessageLineSpacing = MessageLineSpacing.Normal,
     /** Text colour of messages in bubbles, or null for the theme's text colour. */
     val messageTextColor: Int? = null,
-    /** Colour of the time and status in bubbles, or null for the theme's muted colour. */
+    /** Colour of the message time and the sending clock in bubbles, or null for the theme's muted colour. */
     val messageTimeColor: Int? = null
 )
 
