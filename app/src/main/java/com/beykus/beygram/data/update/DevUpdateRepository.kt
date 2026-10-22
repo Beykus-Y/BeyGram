@@ -37,7 +37,7 @@ private val devDigestPattern = Regex("^[0-9a-f]{64}$")
  * подписанный закреплённым ключом DEV, и только если манифест совпадает с файлом.
  */
 class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
-    private val releasesApi = "https://api.github.com/repos/Beykus-Y/BeyGram/releases?per_page=100"
+    private val releasesApi = "https://api.github.com/repos/Beykus-Y/BeyGram/releases?per_page=100&page="
     private val downloadPrefix = "https://github.com/Beykus-Y/BeyGram/releases/download/"
     private val updateDir: File get() = File(context.cacheDir, "dev-updates")
 
@@ -47,12 +47,7 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
     /** Newest DEV prerelease with its manifest. Returns null when the installed build is already current. */
     override suspend fun check(installedCode: Long): StableRelease? = withContext(Dispatchers.IO) {
         require(context.packageName == DEV_PACKAGE) { "Обновления DEV доступны только в DEV." }
-        val releases = fetchReleases()
-        // GitHub does not list releases in tag order (dev-112 can sit below dev-99), so pick the highest dev-N.
-        val release = (0 until releases.length()).map { releases.getJSONObject(it) }
-            .filter { isDevPrerelease(it) }
-            .maxByOrNull { it.getString("tag_name").removePrefix("dev-").toLongOrNull() ?: 0L }
-            ?: return@withContext null
+        val release = pickLatestDevRelease(fetchReleases()) ?: return@withContext null
         val tag = release.getString("tag_name")
         val assets = release.getJSONArray("assets")
         val names = (0 until assets.length()).map { assets.getJSONObject(it).getString("name") }.toSet()
@@ -193,19 +188,28 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
         return true
     }
 
-    /** The releases endpoint sometimes answers with an empty list; a repository with DEV builds is never empty. */
-    private suspend fun fetchReleases(): JSONArray {
-        repeat(3) {
-            val releases = JSONArray(readText(releasesApi, 4_000_000))
-            if (releases.length() > 0) return releases
-            kotlinx.coroutines.delay(1_500)
+    /**
+     * Up to three pages of releases. The endpoint sometimes answers page 1 with an empty list, though a
+     * repository with DEV builds is never empty, so that case is retried.
+     */
+    private suspend fun fetchReleases(): List<JSONObject> {
+        val all = ArrayList<JSONObject>()
+        for (page in 1..3) {
+            var batch = JSONArray(readText("$releasesApi$page", 4_000_000))
+            if (page == 1) {
+                repeat(2) {
+                    if (batch.length() == 0) {
+                        kotlinx.coroutines.delay(1_500)
+                        batch = JSONArray(readText("$releasesApi$page", 4_000_000))
+                    }
+                }
+                if (batch.length() == 0) throw IOException("GitHub вернул пустой список сборок. Повторите проверку позже.")
+            }
+            for (i in 0 until batch.length()) all += batch.getJSONObject(i)
+            if (batch.length() < 100) break
         }
-        throw IOException("GitHub вернул пустой список сборок. Повторите проверку позже.")
+        return all
     }
-
-    private fun isDevPrerelease(release: JSONObject): Boolean =
-        release.optBoolean("prerelease") && !release.optBoolean("draft") &&
-            devTagPattern.matches(release.optString("tag_name"))
 
     private fun verifyPackage(apk: File, release: StableRelease) {
         val pm = context.packageManager
@@ -294,3 +298,12 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
         }
     }
 }
+
+private fun isDevPrerelease(release: JSONObject): Boolean =
+    release.optBoolean("prerelease") && !release.optBoolean("draft") &&
+        devTagPattern.matches(release.optString("tag_name"))
+
+/** GitHub does not list releases in tag order (dev-112 can sit below dev-99), so the highest dev-N wins. */
+internal fun pickLatestDevRelease(releases: List<JSONObject>): JSONObject? =
+    releases.filter(::isDevPrerelease)
+        .maxByOrNull { it.getString("tag_name").removePrefix("dev-").toLongOrNull() ?: 0L }
