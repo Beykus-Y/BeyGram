@@ -54,6 +54,7 @@ import com.beykus.beygram.data.appearance.WallpaperFiles
 import com.beykus.beygram.data.appearance.ThemePreset
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.ChatWallpaperLayer
+import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.BeyGramTokens
@@ -78,6 +79,7 @@ fun ThemeSettingsScreen(
     val preset = draft.preset.takeUnless { it == ThemePreset.MaterialYou && !SystemColorsAvailable } ?: ThemePreset.Warm
     val mode = draft.mode
     val wallpaper = draft.wallpaper
+    val previewMetrics = bubbleMetricsFor(draft.bubbleStyle, draft.density)
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
     fun requestBack() {
         if (draft != saved) confirmDiscard = true else onBack()
@@ -97,8 +99,9 @@ fun ThemeSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SectionTitle(stringResource(R.string.theme_preview_title))
-            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
-                ThemePreview(wallpaper = wallpaper)
+            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark),
+                messageTextSizeSp = draft.messageTextSizeSp) {
+                ThemePreview(bubbleRadius = previewMetrics.cornerRadius, spacing = previewMetrics.itemSpacing, wallpaper = wallpaper)
             }
 
             SectionTitle(stringResource(R.string.theme_palette_title))
@@ -138,9 +141,11 @@ fun ThemeSettingsScreen(
             }
             SectionTitle(stringResource(R.string.wallpaper_title))
             BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
-                WallpaperSection(selected = wallpaper, saved = saved.wallpaper, onSelect = {
-                    onDraftChange(draft.copy(wallpaper = it))
-                })
+                WallpaperSection(
+                    selected = wallpaper, saved = saved.wallpaper,
+                    bubbleRadius = previewMetrics.cornerRadius, spacing = previewMetrics.itemSpacing,
+                    onSelect = { onDraftChange(draft.copy(wallpaper = it)) }
+                )
             }
             Text(stringResource(R.string.theme_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
         }
@@ -172,6 +177,7 @@ internal fun ThemePreview(
     wallpaper: ChatWallpaper = ChatWallpaper.None
 ) {
     val palette = beyGramPalette()
+    val messageSize = com.beykus.beygram.ui.theme.LocalMessageTextSize.current
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.screen),
         verticalArrangement = Arrangement.spacedBy(0.dp)
@@ -244,6 +250,7 @@ private fun PreviewBubble(
     reply: String? = null, media: Boolean = false
 ) {
     val palette = beyGramPalette()
+    val messageSize = com.beykus.beygram.ui.theme.LocalMessageTextSize.current
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start
@@ -272,7 +279,7 @@ private fun PreviewBubble(
                         modifier = Modifier.size(29.dp))
                 }
             }
-            Text(text, color = palette.textPrimary, fontSize = 15.sp)
+            Text(text, color = palette.textPrimary, fontSize = messageSize, lineHeight = (messageSize.value * 1.375f).sp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically) {
                 Text(time, color = palette.textSecondary, fontSize = 11.sp)

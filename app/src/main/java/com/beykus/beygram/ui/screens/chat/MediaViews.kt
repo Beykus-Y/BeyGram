@@ -923,7 +923,8 @@ private fun saveToDevice(context: Context, path: String, media: MessageMedia): S
     val mimeMap = MimeTypeMap.getSingleton()
     val export = resolveExportFileMetadata(
         media.fileName, media.mimeType, media.kind.label(context),
-        mimeMap::getExtensionFromMimeType, mimeMap::getMimeTypeFromExtension
+        mimeMap::getExtensionFromMimeType, mimeMap::getMimeTypeFromExtension,
+        readExportSignature(File(path))
     )
     val image = export.mimeType.startsWith("image/")
     val video = export.mimeType.startsWith("video/")

@@ -1069,8 +1069,6 @@
     <string name="share_preview_title">Что вы отправляете</string>
     <string name="share_files_count">Вложений: %1$d</string>
     <string name="share_saved_target">Личный чат с собой</string>
-    <string name="share_saved_quick_action">Избранное</string>
-    <string name="share_recent_destinations">Недавние и другие чаты</string>
     <string name="share_select_chat">Нажмите, чтобы выбрать</string>
     <string name="share_send_review_hint">Сообщение отправится только после подтверждения. Адресата можно изменить кнопкой «Назад».</string>
     <string name="chat_truncated_notice">При отправке останутся первые %1$d символов. Остальной текст будет обрезан.</string>
@@ -1197,4 +1195,7 @@
     <string name="updates_error_launch_installer">Не удалось открыть установщик Android.</string>
     <string name="updates_error_check">Не удалось проверить GitHub Releases.</string>
     <string name="updates_error_download">Ошибка загрузки APK.</string>
+    <string name="forum_topics_partial_load_failed">Часть тем не загрузилась. Уже полученные темы доступны.</string>
+    <string name="share_saved_quick_action">Избранное</string>
+    <string name="share_recent_destinations">Недавние и другие чаты</string>
 </resources>

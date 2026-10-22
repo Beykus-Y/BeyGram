@@ -9,9 +9,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.horizontalScroll
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ChatWallpaper
@@ -81,9 +85,14 @@ private val PresetNameResources: Map<String, Int> = mapOf(
  * All chat wallpaper choices, including existing solid/gradient/photo options.
  * The user edits a draft; tapping Apply in ThemeSettingsScreen persists the choice.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onSelect: (ChatWallpaper) -> Unit) {
+internal fun WallpaperSection(
+    selected: ChatWallpaper,
+    saved: ChatWallpaper,
+    onSelect: (ChatWallpaper) -> Unit,
+    bubbleRadius: Dp = 16.dp,
+    spacing: Dp = 8.dp
+) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -100,6 +109,13 @@ internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onS
     val noneLabel = stringResource(R.string.wallpaper_option_none)
     val photoLabel = stringResource(R.string.wallpaper_option_photo)
     val presetIntensity = (selected as? ChatWallpaper.Preset)?.intensityPercent ?: ChatWallpaper.DEFAULT_PATTERN_INTENSITY
+    // Restore the selected wallpaper on entry. A single lazy row avoids rendering all
+    // sixteen vector patterns during every wallpaper-intensity slider frame.
+    val stripPosition = rememberLazyListState(
+        initialFirstVisibleItemIndex = WallpaperPresets.indexOfFirst {
+            it.id == (selected as? ChatWallpaper.Preset)?.id
+        }.coerceAtLeast(0)
+    )
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -111,18 +127,22 @@ internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onS
             stringResource(R.string.wallpaper_curated_subtitle),
             color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp)
         )
-        Text(
-            stringResource(R.string.wallpaper_preview_title),
-            color = palette.textSecondary, fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        )
-        ThemePreview(wallpaper = selected)
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.wallpaper_horizontal_hint), color = palette.textSecondary, fontSize = 12.sp,
+                modifier = Modifier.weight(1f))
+            if (selected != ChatWallpaper.None) {
+                TextButton(onClick = { onSelect(ChatWallpaper.None) }) {
+                    Text(stringResource(R.string.wallpaper_reset), color = palette.accent)
+                }
+            }
+        }
+        LazyRow(
+            state = stripPosition,
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(start = 2.dp, end = 12.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            WallpaperPresets.forEach { preset ->
+            items(WallpaperPresets, key = { it.id }) { preset ->
                 val name = stringResource(PresetNameResources.getValue(preset.id))
                 PatternTile(
                     preset, name,
@@ -200,7 +220,7 @@ internal fun WallpaperSection(selected: ChatWallpaper, saved: ChatWallpaper, onS
     }
 }
 
-/** 88dp-wide cards wrap naturally on narrow screens; 88dp high is the minimum touch target. */
+/** Single 88dp wallpaper card in a horizontal carousel; preserves 48dp+ touch target. */
 @Composable
 private fun PatternTile(
     preset: WallpaperPresetSpec,
