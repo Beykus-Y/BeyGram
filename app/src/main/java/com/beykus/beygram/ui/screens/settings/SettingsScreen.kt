@@ -137,7 +137,6 @@ private fun SettingsDivider() {
 }
 
 @Composable
-@Composable
 private fun AnalyticsSwitchRow() {
     val palette = beyGramPalette()
     var enabled by remember { mutableStateOf(AnalyticsSync.isEnabled()) }
