@@ -54,6 +54,7 @@ import com.beykus.beygram.data.appearance.WallpaperFiles
 import com.beykus.beygram.data.appearance.ThemePreset
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.ChatWallpaperLayer
+import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.BeyGramTokens
@@ -78,6 +79,7 @@ fun ThemeSettingsScreen(
     val preset = draft.preset.takeUnless { it == ThemePreset.MaterialYou && !SystemColorsAvailable } ?: ThemePreset.Warm
     val mode = draft.mode
     val wallpaper = draft.wallpaper
+    val previewMetrics = bubbleMetricsFor(draft.bubbleStyle, draft.density)
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
     fun requestBack() {
         if (draft != saved) confirmDiscard = true else onBack()
@@ -98,7 +100,7 @@ fun ThemeSettingsScreen(
         ) {
             SectionTitle(stringResource(R.string.theme_preview_title))
             BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
-                ThemePreview(wallpaper = wallpaper)
+                ThemePreview(bubbleRadius = previewMetrics.cornerRadius, spacing = previewMetrics.itemSpacing, wallpaper = wallpaper)
             }
 
             SectionTitle(stringResource(R.string.theme_palette_title))
@@ -138,9 +140,11 @@ fun ThemeSettingsScreen(
             }
             SectionTitle(stringResource(R.string.wallpaper_title))
             BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
-                WallpaperSection(selected = wallpaper, saved = saved.wallpaper, onSelect = {
-                    onDraftChange(draft.copy(wallpaper = it))
-                })
+                WallpaperSection(
+                    selected = wallpaper, saved = saved.wallpaper,
+                    bubbleRadius = previewMetrics.cornerRadius, spacing = previewMetrics.itemSpacing,
+                    onSelect = { onDraftChange(draft.copy(wallpaper = it)) }
+                )
             }
             Text(stringResource(R.string.theme_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
         }

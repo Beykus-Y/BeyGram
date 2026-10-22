@@ -150,7 +150,7 @@ fun ThemeEditorScreen(saved: AppearanceConfig, current: AppearanceConfig, onSave
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = ::requestBack, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.theme_editor_cancel)) }
-            Button(onClick = { onSave(draft); onBack() }, enabled = draft != current, modifier = Modifier.weight(1f)) {
+            Button(onClick = { onSave(draft); onBack() }, enabled = draft != current && !issues.bubbleText, modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.theme_apply))
             }
         }

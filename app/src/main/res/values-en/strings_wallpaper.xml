@@ -7,4 +7,6 @@
     <string name="wallpaper_option_photo">Photo from gallery</string>
     <string name="wallpaper_dim">Dim wallpaper</string>
     <string name="wallpaper_import_failed">Unable to open this photo</string>
+    <string name="wallpaper_horizontal_hint">Swipe left or right to explore more wallpapers</string>
+    <string name="wallpaper_reset">Clear wallpaper</string>
 </resources>
