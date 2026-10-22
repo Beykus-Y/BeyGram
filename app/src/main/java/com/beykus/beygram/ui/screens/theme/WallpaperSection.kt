@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -216,6 +218,18 @@ internal fun WallpaperSection(
                 valueRange = 0f..ChatWallpaper.MAX_DIM_PERCENT.toFloat(),
                 modifier = Modifier.padding(horizontal = 4.dp)
             )
+            Row(
+                Modifier.fillMaxWidth().toggleable(value = selected.blurred, role = Role.Switch) {
+                    onSelect(selected.copy(blurred = !selected.blurred))
+                }.padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.wallpaper_blur), color = palette.textPrimary, fontSize = 15.sp)
+                    Text(stringResource(R.string.wallpaper_blur_hint), color = palette.textSecondary, fontSize = 12.sp)
+                }
+                Switch(checked = selected.blurred, onCheckedChange = null)
+            }
         }
     }
 }

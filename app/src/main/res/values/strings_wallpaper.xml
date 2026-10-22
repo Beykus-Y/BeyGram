@@ -31,4 +31,6 @@
     <string name="wallpaper_preview_title">Предпросмотр беседы</string>
     <string name="wallpaper_horizontal_hint">Проведите влево или вправо, чтобы посмотреть другие обои</string>
     <string name="wallpaper_reset">Сбросить фон</string>
+    <string name="wallpaper_blur">Размыть фото</string>
+    <string name="wallpaper_blur_hint">Работает на Android 12 и новее. На старых версиях фото затемняется сильнее.</string>
 </resources>

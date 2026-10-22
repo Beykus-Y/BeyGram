@@ -5,7 +5,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.After
@@ -21,6 +23,11 @@ class VideoNoteExportGateTest {
 
     private fun resetGate() {
         while (VideoNoteExportGate.busy) VideoNoteExportGate.end()
+    }
+
+    // The gate is released by the job's completion handler, which may still be running when join() returns.
+    private suspend fun awaitGateIdle() {
+        withTimeout(5_000) { while (VideoNoteExportGate.busy) delay(1) }
     }
 
     @Test fun gateIsBusyUntilEveryExportFinishes() {
@@ -45,6 +52,7 @@ class VideoNoteExportGateTest {
         val job = launchExclusiveExport { executed = true }
         job.join()
         assertTrue(executed)
+        awaitGateIdle()
         assertFalse(VideoNoteExportGate.busy)
     }
 
@@ -57,6 +65,7 @@ class VideoNoteExportGateTest {
         job.join()
         assertTrue(job.isCompleted)
         assertFalse(executed)
+        awaitGateIdle()
         assertFalse(VideoNoteExportGate.busy)
     }
 
@@ -70,6 +79,7 @@ class VideoNoteExportGateTest {
         started.join()
         scope.cancel()
         job.join()
+        awaitGateIdle()
         assertFalse(VideoNoteExportGate.busy)
     }
 
@@ -100,6 +110,7 @@ class VideoNoteExportGateTest {
         first.join()
         second.join()
         assertEquals(1, maxConcurrent)
+        awaitGateIdle()
         assertFalse(VideoNoteExportGate.busy)
         scope.cancel()
     }
