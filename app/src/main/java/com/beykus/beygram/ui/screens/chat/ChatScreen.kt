@@ -82,9 +82,14 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** More than one transition can be in flight, but an accidental tap storm must not create an unbounded overlay. */
 private const val MAX_ACTIVE_COMPOSER_LAUNCHES = 4
+
+/** A zero-watermark jump walks history to its beginning; this guard keeps a huge chat from loading forever. */
+private const val MAX_UNREAD_HISTORY_PAGES = 50
+private const val UNREAD_HISTORY_PAGE_TIMEOUT_MS = 15_000L
 
 @OptIn(FlowPreview::class)
 @Composable
@@ -655,23 +660,50 @@ fun ChatScreen(
         }
     }
     fun jumpToPinned(message: ChatMessage) = jumpToMessage(message.id, R.string.chat_pinned_failed)
+    suspend fun loadOlderUntilBeginning(): List<ChatMessage> {
+        val flow = if (forumTopicId > 0L) conversation.observeForumTopicHistory(chat.id, forumTopicId)
+        else conversation.observeChatHistory(chat.id)
+        var pages = 0
+        while (pages < MAX_UNREAD_HISTORY_PAGES && flow.value.hasOlderMessages && !flow.value.isLoading) {
+            val before = flow.value.messages.size
+            if (forumTopicId > 0L) conversation.loadOlderForumTopicMessages(chat.id, forumTopicId)
+            else conversation.loadOlderMessages(chat.id)
+            val next = withTimeoutOrNull(UNREAD_HISTORY_PAGE_TIMEOUT_MS) {
+                flow.first { it.messages.size != before || !it.hasOlderMessages || it.error != null }
+            } ?: break
+            if (next.error != null) break
+            pages++
+        }
+        return flow.value.messages
+    }
     fun jumpToFirstUnread() {
         val boundary = history.lastReadInboxMessageId
-        // With no read watermark every incoming message is unread. Otherwise the boundary page must be loaded, or the
-        // oldest loaded row is merely the oldest fetched unread message.
+        // With no read watermark every incoming message is unread, so the target is the first incoming message in the
+        // whole chat. Otherwise the boundary page must be loaded, or the oldest loaded row is merely the oldest fetched
+        // unread message.
         val unreadBoundary = boundary.coerceAtLeast(0L)
         val readLoaded = boundary > 0L && rawMessageItems.any { item -> item.messages.any { it.id <= boundary } }
         val firstUnread = firstUnreadItemIndex(rawMessageItems, unreadBoundary)
-        val canScrollNow = if (boundary <= 0L) firstUnread >= 0 else !needsUnreadWindow(readLoaded, firstUnread)
-        if (canScrollNow) {
+        if (boundary <= 0L) {
+            if (!history.hasOlderMessages && firstUnread >= 0) {
+                val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing }?.id
+                scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
+            } else if (history.hasOlderMessages) {
+                scope.launch {
+                    val items = groupTelegramMediaAlbums(loadOlderUntilBeginning())
+                    val index = firstUnreadItemIndex(items, 0L)
+                    if (index >= 0) pendingJumpId = items[index].messages.firstOrNull { !it.isOutgoing }?.id
+                }
+            }
+            return
+        }
+        if (!needsUnreadWindow(readLoaded, firstUnread)) {
             val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
             scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
             return
         }
         // A zero watermark has no message to anchor GetChatHistory; extend the oldest loaded page instead.
-        val anchor = if (boundary > 0L) boundary
-        else rawMessageItems.lastOrNull { it.messages.isNotEmpty() }?.messages?.minOfOrNull { it.id }
-            ?: return
+        val anchor = boundary
         // Request the boundary page. This also covers a window that is entirely older than the boundary: readLoaded is
         // true there, but there is no unread row to scroll to. Resolve the target from the applied window itself, then
         // let the existing pendingJumpId effect wait until that row is in the list.
