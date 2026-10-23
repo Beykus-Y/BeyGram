@@ -221,7 +221,7 @@ class TelegramNotificationService : Service() {
                     .filter { it != TdAccountStorageLayout.LEGACY_ACCOUNT_ID }
             }.getOrDefault(emptyList())
 
-        fun secondaryBackgroundRouteReady(
+        internal fun secondaryBackgroundRouteReady(
             route: TdSecondaryRoutePreference?,
             legacyCanStart: Boolean
         ): Boolean = secondaryColdStartRouteEligible(
