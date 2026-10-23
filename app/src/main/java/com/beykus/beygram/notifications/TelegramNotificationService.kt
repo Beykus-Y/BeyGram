@@ -17,11 +17,23 @@ import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdSecondaryRestoreStore
+import com.beykus.beygram.data.tdlib.TdSecondaryRoutePreference
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+
+/**
+ * Cold-start route policy. Without the legacy process owner only an explicit
+ * DIRECT secondary session can be restored without a misleading FGS.
+ * Other routes remain saved, ready for an explicit foreground reconnection.
+ */
+internal fun secondaryColdStartRouteEligible(
+    route: TdSecondaryRoutePreference?,
+    legacyCanStart: Boolean
+): Boolean = route != null &&
+    (legacyCanStart || route == TdSecondaryRoutePreference.EXPLICIT_DIRECT)
 
 /** Pure policy used by cold-start eligibility and regression tests. */
 internal fun secondaryBackgroundEligible(
@@ -191,10 +203,14 @@ class TelegramNotificationService : Service() {
             val restore = TdSecondaryRestoreStore(context)
             val runtime = NotificationRuntime.get(context)
             return registeredSecondaryAccounts(context).any { id ->
-                val routeConfirmed = restore.confirmedRoute(id) != null
+                val route = restore.confirmedRoute(id)
                 runtime.preferencesForAccount(id).let { prefs ->
-                        secondaryBackgroundEligible(
-                        routeConfirmed = routeConfirmed,
+                    secondaryBackgroundEligible(
+                        // Without an authorized background legacy route owner we
+                        // cannot resolve FOLLOW_PRIMARY or start shared Mihomo.
+                        // Fail closed instead of an endless foreground service.
+                        routeConfirmed = secondaryColdStartRouteEligible(
+                            route, shouldRunLegacy(context)),
                         authorized = prefs.authorized,
                         enabled = prefs.state.value.enabled,
                         background = prefs.state.value.background
