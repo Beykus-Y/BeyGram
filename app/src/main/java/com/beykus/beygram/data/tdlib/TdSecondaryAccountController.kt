@@ -53,6 +53,10 @@ internal class TdSecondaryAccountController private constructor(
         scope = app.applicationScope,
         onAuthorized = { id, preference -> restoreStore.recordNativeReady(id, preference) },
         onManualStop = restoreStore::pauseAfterUserStop,
+        onLogoutConfirmed = { id ->
+            restoreStore.forget(id)
+            NotificationRuntime.get(app).detachSecondary(id)
+        },
         openNative = { accountId, preference ->
             TdNativeSecondaryAuthSession(launcher.openRegisteredSecondary(accountId, preference))
         }
