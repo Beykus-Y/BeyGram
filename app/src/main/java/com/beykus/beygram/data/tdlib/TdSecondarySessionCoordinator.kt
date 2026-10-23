@@ -22,6 +22,12 @@ internal interface TdSecondaryAuthSession {
     suspend fun submitPassword(password: String)
     suspend fun resendCode()
     fun close()
+
+    /** Read-only secondary chats. Null for a test/fake auth session. */
+    val chatStore: TdSecondaryChatStore? get() = null
+    suspend fun loadChats() { error("Secondary chat store unavailable") }
+    suspend fun loadHistory(key: TdAccountChatKey) { error("Secondary chat store unavailable") }
+
     val plannedRoute: TdSecondaryRouteDecision get() = TdSecondaryRouteDecision.Direct
     val networkSuspended: Boolean get() = false
     suspend fun pauseNetwork() {}
@@ -37,6 +43,9 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun submitPassword(password: String) = login.submitPassword(password)
     override suspend fun resendCode() = login.resendCode()
     override fun close() = login.close()
+    override val chatStore: TdSecondaryChatStore get() = login.chatStore
+    override suspend fun loadChats() = login.loadSecondaryChats()
+    override suspend fun loadHistory(key: TdAccountChatKey) = login.loadSecondaryHistory(key)
     override val plannedRoute: TdSecondaryRouteDecision get() = login.plannedRoute
     override val networkSuspended: Boolean get() = login.routePaused.value
     override suspend fun pauseNetwork() = login.pauseNetwork()
@@ -125,6 +134,17 @@ internal class TdSecondarySessionCoordinator(
 
     suspend fun resendCode(accountId: String) =
         session(accountId).resendCode()
+
+    /** Return the exact account-bound session, never an active-UI-account proxy. */
+    suspend fun chatSession(accountId: String): TdSecondaryAuthSession = mutex.withLock {
+        val handle = running[accountId]?.handle ?: error("Secondary TDLib session is not running")
+        check(handle.authPhase.value == TdAccountAuthPhase.READY) {
+            "Secondary Telegram account is not authorized"
+        }
+        check(!handle.networkSuspended) { "Secondary network route is paused" }
+        check(handle.chatStore?.accountId == accountId) { "Secondary chat store identity mismatch" }
+        handle
+    }
 
     /** Leaves TDLib authorization and the files on disk unchanged. */
     suspend fun disconnect(accountId: String) = mutex.withLock {
