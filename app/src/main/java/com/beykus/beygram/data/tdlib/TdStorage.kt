@@ -200,15 +200,39 @@ internal const val SENT_UPLOAD_MARKER = ".sent"
  * Unknown / foreign markers are never candidates for cleanup.
  */
 private const val SENT_UPLOAD_OWNER_PREFIX = "account_id="
+private const val STAGED_UPLOAD_OWNER_MARKER = ".owner"
 
-/** Include old unmarked/unsent uploads in legacy quotas, but never charge an
- * account for a sibling's explicit owner-tagged upload. */
+/** Owner must be persisted BEFORE an upload/camera export writes media bytes. */
+internal fun markUploadDirectoryOwner(folder: File, accountId: String) {
+    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+    require(folder.isDirectory && !java.nio.file.Files.isSymbolicLink(folder.toPath()))
+    val marker = File(folder, STAGED_UPLOAD_OWNER_MARKER)
+    if (marker.exists()) {
+        check(marker.readText().trim() == "$SENT_UPLOAD_OWNER_PREFIX$accountId") {
+            "Upload staging belongs to a different Telegram account"
+        }
+        return
+    }
+    java.io.FileOutputStream(marker).use { out ->
+        out.write("$SENT_UPLOAD_OWNER_PREFIX$accountId\n".toByteArray(Charsets.UTF_8))
+        out.fd.sync()
+    }
+}
+
+/** Includes unsent/legacy folders but never charges another session's staging. */
 internal fun uploadFolderBelongsToAccount(folder: File, accountId: String): Boolean {
     if (!folder.isDirectory || java.nio.file.Files.isSymbolicLink(folder.toPath())) return false
-    val marker = File(folder, SENT_UPLOAD_MARKER)
-    if (!marker.exists()) return accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID
-    if (!marker.isFile || java.nio.file.Files.isSymbolicLink(marker.toPath())) return false
-    val first = marker.useLines { it.firstOrNull() }.orEmpty()
+    val owner = File(folder, STAGED_UPLOAD_OWNER_MARKER)
+    if (owner.exists()) {
+        if (!owner.isFile || java.nio.file.Files.isSymbolicLink(owner.toPath())) return false
+        return owner.readText().trim() == "$SENT_UPLOAD_OWNER_PREFIX$accountId"
+    }
+    // Existing app versions had no .owner metadata. Retain numeric .sent
+    // compatibility as legacy; newer explicit owner-tagged .sent still works.
+    val sent = File(folder, SENT_UPLOAD_MARKER)
+    if (!sent.exists()) return accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+    if (!sent.isFile || java.nio.file.Files.isSymbolicLink(sent.toPath())) return false
+    val first = sent.useLines { it.firstOrNull() }.orEmpty()
     return if (first.startsWith(SENT_UPLOAD_OWNER_PREFIX))
         first.removePrefix(SENT_UPLOAD_OWNER_PREFIX) == accountId
     else accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID
