@@ -1242,4 +1242,5 @@
     <string name="multi_share_switch_note">Чтобы отправить содержимое, нужно открыть выбранный аккаунт. Ничего не будет отправлено автоматически.</string>
     <string name="multi_share_switch_action">Переключиться</string>
     <string name="multi_share_choose_other">Выбрать другой</string>
+    <plurals name="multi_account_unread"><item quantity="one">%d непрочитанное сообщение</item><item quantity="few">%d непрочитанных сообщения</item><item quantity="many">%d непрочитанных сообщений</item><item quantity="other">%d непрочитанных сообщений</item></plurals>
 </resources>
