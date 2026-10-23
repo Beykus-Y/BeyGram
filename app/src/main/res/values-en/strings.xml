@@ -298,7 +298,7 @@
     <string name="multi_proxy_unknown">Unable to determine route</string>
     <string name="multi_proxy_checking">Checking route…</string>
     <string name="multi_proxy_paused">Connection paused: the route did not pass the safety check.</string>
-    <string name="multi_proxy_description">Proxy connection is shared by the app. Reconnect this account below to change its connection method. The first account's settings will stay unchanged.</string>
+    <string name="multi_proxy_description">Proxy connection is shared by the app. Reconnect this account below to change its connection method. The first account settings will stay unchanged.</string>
     <string name="multi_proxy_change">Change route</string>
     <string name="multi_proxy_change_note">Changing the route briefly disconnects this account. You will stay signed in.</string>
     <string name="multi_proxy_follow">Follow primary route</string>
@@ -306,7 +306,7 @@
     <string name="multi_proxy_failed">Route switching failed. Authorization is preserved. Try connecting again in account management.</string>
     <string name="multi_proxy_manage">Manage accounts</string>
     <string name="multi_proxy_confirm_title">Reconnect this Telegram account?</string>
-    <string name="multi_proxy_confirm_note">Ongoing uploads may be interrupted. Other accounts' connections will stay unchanged.</string>
+    <string name="multi_proxy_confirm_note">Ongoing uploads may be interrupted. Connections for other accounts will stay unchanged.</string>
     <string name="multi_proxy_reconnect">Reconnect</string>
     <string name="multi_share_pick_title">Choose a Telegram account</string>
     <string name="multi_share_pick_note">Select an account to open its recipients. Nothing will be sent until you confirm.</string>
