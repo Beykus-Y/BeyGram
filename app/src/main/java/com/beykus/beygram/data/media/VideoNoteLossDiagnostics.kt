@@ -100,9 +100,11 @@ private fun syntheticFpsVerdict(context: Context, target: Int, source: Double?, 
  */
 internal class VideoNoteLossDiagnostics(
     private val context: Context,
-    private val repository: TelegramRepository
+    private val repository: TelegramRepository,
+    private val accountId: String = "legacy"
 ) {
-    private val root = File(context.noBackupFilesDir, "video-note-loss")
+    private val root = if (accountId == "legacy") File(context.noBackupFilesDir, "video-note-loss")
+        else File(context.noBackupFilesDir, "video-note-loss-$accountId")
     private val workScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var activeJob: Job? = null
 
@@ -110,8 +112,16 @@ internal class VideoNoteLossDiagnostics(
         // Keep each repository's diagnostic sender and sentMessageId alive while switching
         // UI accounts. Identity keys prevent a different TDLib session claiming the result.
         private val instances = java.util.IdentityHashMap<TelegramRepository, VideoNoteLossDiagnostics>()
-        @Synchronized fun getInstance(context: Context, repository: TelegramRepository): VideoNoteLossDiagnostics =
-            instances.getOrPut(repository) { VideoNoteLossDiagnostics(context.applicationContext, repository) }
+        @Synchronized fun getInstance(context: Context, repository: TelegramRepository, accountId: String = "legacy"): VideoNoteLossDiagnostics {
+            require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+            val existing = instances[repository]
+            if (existing != null) {
+                check(existing.accountId == accountId) { "Mismatched diagnostic account owner" }
+                return existing
+            }
+            return VideoNoteLossDiagnostics(context.applicationContext, repository, accountId)
+                .also { instances[repository] = it }
+        }
     }
 
     @Synchronized fun start(fps: Int = VideoNoteSyntheticSource.FPS_30): Boolean {
