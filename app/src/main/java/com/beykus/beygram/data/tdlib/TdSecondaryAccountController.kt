@@ -76,7 +76,8 @@ internal class TdSecondaryAccountController private constructor(
         coordinator.refresh()
         val registered = registry.loadOrCreate()
         for ((accountId, preference) in restoreStore.candidates(registered)) {
-            if (backgroundRestoreOnly && !allowBackgroundRestore(accountId)) continue
+            if (restoreStore.deletionPending(accountId) ||
+                backgroundRestoreOnly && !allowBackgroundRestore(accountId)) continue
             val row = coordinator.snapshot.value.accounts.firstOrNull { it.accountId == accountId }
             if (row?.connectedInThisProcess == true) continue
             // If the last generation is still closing, connect refuses to
@@ -86,6 +87,15 @@ internal class TdSecondaryAccountController private constructor(
     }
 
     init {
+        app.applicationScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            // A crash after native CLOSED+unregister but before file deletion
+            // leaves a durable tombstone. Resume only if the slot is unregistered.
+            for (id in restoreStore.pendingDeletionIds()) {
+                if (id !in registry.loadOrCreate().accountIds) {
+                    runCatching { cleanupUnregisteredAccount(id) }
+                }
+            }
+        }
         app.applicationScope.launch {
             // Attempt once when the process is first brought up. The route
             // policy may still block until legacy/Mihomo are ready.
@@ -141,32 +151,53 @@ internal class TdSecondaryAccountController private constructor(
      * authorization; account-root files are removed only after CLOSED and
      * the registry no longer references this ID. Symlinks are never followed. */
     suspend fun logoutAndDelete(accountId: String) {
-        // The coordinator invokes real TDLib LogOut, awaits the lease-retired
-        // callback, revokes restore policy, then atomically unregisters the ID.
-        coordinator.logoutSecondary(accountId)
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-                accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
-            deleteAccountTreeSafely(
-                java.io.File(app.filesDir, "tdlib-accounts"),
-                java.io.File(app.filesDir, "tdlib-accounts/$accountId")
-            )
-            deleteAccountTreeSafely(
-                java.io.File(app.noBackupFilesDir, "reply-outbox-secondary"),
-                java.io.File(app.noBackupFilesDir, "reply-outbox-secondary/$accountId")
-            )
-            deleteAccountTreeSafely(
-                app.noBackupFilesDir,
-                java.io.File(app.noBackupFilesDir, "video-note-loss-$accountId")
-            )
-            listOf(
-                tdDraftPreferencesName(accountId),
-                archivePreferencesName(accountId),
-                notificationPreferencesName(accountId),
-                "pending_group_creation_$accountId",
-                "mihomo_tdlib_proxy_$accountId"
-            ).forEach { prefName -> app.deleteSharedPreferences(prefName) }
+        require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+            accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        restoreStore.markDeletionPending(accountId)
+        // A native logout failure must not unregister or delete an active DB.
+        try {
+            coordinator.logoutSecondary(accountId)
+        } catch (error: Throwable) {
+            if (accountId in registry.loadOrCreate().accountIds)
+                restoreStore.clearDeletionPending(accountId)
+            throw error
         }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            cleanupUnregisteredAccount(accountId)
+        }
+    }
+
+    private fun cleanupUnregisteredAccount(accountId: String) {
+        check(accountId !in registry.loadOrCreate().accountIds) {
+            "Never erase a registered TDLib account's files"
+        }
+        deleteAccountTreeSafely(
+            java.io.File(app.filesDir, "tdlib-accounts"),
+            java.io.File(app.filesDir, "tdlib-accounts/$accountId")
+        )
+        deleteAccountTreeSafely(
+            java.io.File(app.noBackupFilesDir, "reply-outbox-secondary"),
+            java.io.File(app.noBackupFilesDir, "reply-outbox-secondary/$accountId")
+        )
+        deleteAccountTreeSafely(
+            app.noBackupFilesDir,
+            java.io.File(app.noBackupFilesDir, "video-note-loss-$accountId")
+        )
+        // Global sent-upload staging is shared. Only folders explicitly
+        // tagged with this native account may be removed.
+        val uploads = java.io.File(app.filesDir, "uploads")
+        uploads.listFiles().orEmpty().filter {
+            it.isDirectory && uploadFolderBelongsToAccount(it, accountId)
+        }.forEach { deleteAccountTreeSafely(uploads, it) }
+        listOf(
+            tdDraftPreferencesName(accountId),
+            archivePreferencesName(accountId),
+            notificationPreferencesName(accountId),
+            "pending_group_creation_$accountId",
+            "mihomo_tdlib_proxy_$accountId"
+        ).forEach { prefName -> app.deleteSharedPreferences(prefName) }
+        com.beykus.beygram.data.archive.ArchiveSettingsStore.releaseAccount(accountId)
+        restoreStore.clearDeletionPending(accountId)
     }
 
     /** Deletion never traverses symlinks or a path outside its exact parent. */
