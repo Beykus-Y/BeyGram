@@ -697,10 +697,13 @@ class TdLibTelegramRepository private constructor(
         TdRequests { client }(TdApi.SetArchiveChatListSettings(settings)); Unit
     }
     override suspend fun markChatRead(chatId: Long): Result<Unit> = conversationResult {
-        val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L } ?: throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
-        TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true))
+        val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L }
+        val markedAsUnread = chatCache[chatId]?.isMarkedAsUnread == true
+        // An empty chat can still be marked unread; clearing that marker must not require a message to view.
+        if (!canMarkChatRead(lastMessageId, markedAsUnread)) throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
+        if (lastMessageId != null) TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true))
         // Opening a chat also clears an explicit "unread" marker, not only the server read watermark.
-        if (chatCache[chatId]?.isMarkedAsUnread == true) TdRequests { client }(markChatReadToggleRequest(chatId))
+        if (markedAsUnread) TdRequests { client }(markChatReadToggleRequest(chatId))
         Unit
     }
 
@@ -2027,6 +2030,10 @@ class TdLibTelegramRepository private constructor(
         }
     }
 }
+
+/** A manual unread marker can be cleared without a message; a plain empty chat has nothing to mark read. */
+internal fun canMarkChatRead(lastMessageId: Long?, markedAsUnread: Boolean): Boolean =
+    lastMessageId != null || markedAsUnread
 
 /** Отметить чат непрочитанным: счётчик не меняется, Telegram показывает маркер. */
 internal fun markChatUnreadRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnread(chatId, true)

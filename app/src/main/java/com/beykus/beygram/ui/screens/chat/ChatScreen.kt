@@ -670,12 +670,13 @@ fun ChatScreen(
             }
             return
         }
-        // Request the boundary page once; the effect below completes the jump when it arrives.
-        pendingUnreadJump = true
+        // Request the boundary page first. Arm the effect only after an applied response, because loading a window does
+        // not set history.isLoading and this function's caller still sees the old rows until recomposition.
         scope.launch {
             (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, boundary)
             else conversation.loadMessagesAround(chat.id, boundary))
-                .onFailure { pendingUnreadJump = false; error = it.userMessage(context, R.string.err_chat_history_load_failed) }
+                .onSuccess { applied -> if (applied) pendingUnreadJump = true }
+                .onFailure { error = it.userMessage(context, R.string.err_chat_history_load_failed) }
         }
     }
     LaunchedEffect(pendingUnreadJump, rawMessageItems, history.isLoading) {

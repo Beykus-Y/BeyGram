@@ -17,4 +17,10 @@ class ChatUnreadRequestTest {
         assertEquals(42L, request.chatId)
         assertFalse(request.isMarkedAsUnread)
     }
+
+    @Test fun emptyChatCanStillClearAManualUnreadMarker() {
+        assertTrue(canMarkChatRead(lastMessageId = null, markedAsUnread = true))
+        assertTrue(canMarkChatRead(lastMessageId = 10L, markedAsUnread = false))
+        assertFalse(canMarkChatRead(lastMessageId = null, markedAsUnread = false))
+    }
 }
