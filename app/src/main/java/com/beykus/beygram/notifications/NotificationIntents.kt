@@ -7,6 +7,22 @@ import android.net.Uri
 import android.os.Build
 import com.beykus.beygram.MainActivity
 
+/**
+ * Stable PendingIntent URI identity: the same numeric Telegram chat/group IDs
+ * in two native accounts must never share the Android PendingIntent.
+ */
+internal fun notificationChatPath(
+    accountId: String,
+    chatId: Long,
+    groupId: Int,
+    maxId: Int,
+    topicId: Long
+): String {
+    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,80}")))
+    return if (accountId == "legacy") "chat/$chatId/$groupId/$maxId/$topicId"
+        else "account/$accountId/chat/$chatId/$groupId/$maxId/$topicId"
+}
+
 internal object NotificationIntents {
     const val OPEN_CHAT = "com.beykus.beygram.OPEN_NOTIFICATION_CHAT"
     const val OPEN_SETTINGS = "com.beykus.beygram.OPEN_NOTIFICATION_SETTINGS"
@@ -35,8 +51,7 @@ internal object NotificationIntents {
         require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,80}"))) {
             "Invalid notification account"
         }
-        val path = if (accountId == "legacy") "chat/$chatId/$groupId/$maxId/$topicId"
-            else "account/$accountId/chat/$chatId/$groupId/$maxId/$topicId"
+        val path = notificationChatPath(accountId, chatId, groupId, maxId, topicId)
         return PendingIntent.getActivity(context, 0,
             Intent(context, MainActivity::class.java).setAction(OPEN_CHAT)
                 .setData(Uri.parse("beygram://${context.packageName}/$path"))
@@ -56,8 +71,7 @@ internal object NotificationIntents {
         val groupId = intent.getIntExtra(GROUP_ID, 0)
         val maxId = intent.getIntExtra(MAX_ID, 0)
         val topicId = intent.getLongExtra(TOPIC, 0L)
-        val expected = if (accountId == "legacy") "chat/$chatId/$groupId/$maxId/$topicId"
-            else "account/$accountId/chat/$chatId/$groupId/$maxId/$topicId"
+        val expected = notificationChatPath(accountId, chatId, groupId, maxId, topicId)
         return accountId.takeIf { intent.data?.path?.trimStart('/') == expected }
     }
     fun settings(context: Context): PendingIntent = PendingIntent.getActivity(context, 0,
