@@ -71,6 +71,7 @@ import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.settings.SecondaryAccountsScreen
+import com.beykus.beygram.ui.screens.settings.SecondaryChatsScreen
 import com.beykus.beygram.ui.screens.settings.ActiveSessionsScreen
 import com.beykus.beygram.ui.screens.settings.LanguageScreen
 import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
@@ -203,6 +204,8 @@ private fun BeyGramAppContent(
 
     // ---- Локальный UI-state --------------------------------------------------
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
+    // Route carries the source account; never fall back to legacy on missing ID.
+    var secondaryChatsAccountId by rememberSaveable { mutableStateOf<String?>(null) }
     var globalSearchQuery by rememberSaveable { mutableStateOf("") }
     val globalSearchSession = rememberSaveable(saver = GlobalSearchSession.stateSaver) { GlobalSearchSession(globalSearchQuery) }
     val globalSearchNavScope = rememberCoroutineScope()
@@ -428,6 +431,7 @@ private fun BeyGramAppContent(
     }
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.SecondaryAccounts) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.SecondaryChats) { routeName = AppRoute.SecondaryAccounts.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
@@ -892,8 +896,22 @@ private fun BeyGramAppContent(
                 AppRoute.Language -> LanguageScreen(onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.SecondaryAccounts -> SecondaryAccountsScreen(
                     controller = secondaryAccountController,
-                    onBack = { routeName = AppRoute.Settings.name }
+                    onBack = { routeName = AppRoute.Settings.name },
+                    onOpenChats = { accountId ->
+                        secondaryChatsAccountId = accountId
+                        routeName = AppRoute.SecondaryChats.name
+                    }
                 )
+                AppRoute.SecondaryChats -> {
+                    val accountId = secondaryChatsAccountId
+                    if (accountId != null) SecondaryChatsScreen(
+                        accountId = accountId,
+                        coordinator = secondaryAccountController.coordinator,
+                        onBack = { routeName = AppRoute.SecondaryAccounts.name }
+                    ) else LaunchedEffect(Unit) {
+                        routeName = AppRoute.SecondaryAccounts.name
+                    }
+                }
                 AppRoute.Sessions -> ActiveSessionsScreen(
                     onBack = { routeName = AppRoute.Settings.name },
                     load = repository::activeSessions,
