@@ -136,7 +136,10 @@ class NotificationRuntime private constructor(private val context: Context) {
     }
 
     /** Logout destroys ONLY this account's rendered alerts and authorization tokens. */
-    @Synchronized fun detachSecondary(accountId: String) {
+    fun detachSecondary(accountId: String) {
+        // Do not hold NotificationRuntime's intrinsic monitor while awaiting
+        // a cancelled collector: its onCompletion may call @Synchronized
+        // setSecondaryConnected/Pending and deadlock with that monitor.
         val previous = secondaries.remove(accountId)
         previous?.job?.cancel()
         // Await observer termination so no in-flight READY/LOGOUT callback can
