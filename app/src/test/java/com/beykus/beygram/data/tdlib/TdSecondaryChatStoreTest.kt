@@ -84,6 +84,22 @@ class TdSecondaryChatStoreTest {
         assertEquals(170L, history.last().key.messageId)
     }
 
+    @Test fun equalTdlibOrderSortsByDescendingChatId() {
+        val own = TdSecondaryChatStore("account-a")
+        own.upsert(chat("account-a", 5L, 123L))
+        own.upsert(chat("account-a", 9L, 123L))
+        own.upsert(chat("account-a", 2L, 123L))
+        assertEquals(listOf(9L, 5L, 2L), own.chats.value.map { it.key.chatId })
+    }
+
+    @Test fun mediaPlaceholderIsAContentFlagNotRussianText() {
+        val media = TdSecondaryTextMessage(
+            TdAccountMessageKey("account-a", 1L, 5L), "", false, 100, isMedia = true
+        )
+        assertTrue(media.isMedia)
+        assertEquals("", media.text)
+    }
+
     @Test fun historyDeduplicatesPerMessageAndSortsChronologically() {
         val own = TdSecondaryChatStore("account-a")
         val key = TdAccountChatKey("account-a", 77)
