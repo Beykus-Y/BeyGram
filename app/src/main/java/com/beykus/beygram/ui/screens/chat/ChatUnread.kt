@@ -27,12 +27,19 @@ internal const val UNREAD_SEPARATOR_VIEWPORT_FRACTION = 0.7f
  * Без прочитанного сообщения выше разделителя не будет, и тогда он не нужен.
  */
 internal fun withUnreadSeparator(items: List<ChatMessageListItem>, lastReadInboxId: Long): List<ChatMessageListItem> {
-    val firstUnread = items.indexOfLast { item -> item.messages.any { !it.isOutgoing && it.id > lastReadInboxId } }
+    val firstUnread = firstUnreadItemIndex(items, lastReadInboxId)
     if (firstUnread < 0 || firstUnread == items.lastIndex) return items
     return items.toMutableList().apply {
         add(firstUnread + 1, ChatMessageListItem(UNREAD_SEPARATOR_KEY, emptyList(), unreadSeparator = true))
     }
 }
+
+/**
+ * Index of the oldest unread incoming message in the newest-first feed, or -1 when none is loaded.
+ * Used by the explicit "jump to first unread" action; the automatic opening uses [withUnreadSeparator].
+ */
+internal fun firstUnreadItemIndex(items: List<ChatMessageListItem>, lastReadInboxId: Long): Int =
+    items.indexOfLast { item -> item.messages.any { !it.isOutgoing && it.id > lastReadInboxId } }
 
 /** What the chat opening does next; the screen performs it. */
 internal sealed interface UnreadOpenStep {

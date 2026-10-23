@@ -853,6 +853,7 @@ private fun BeyGramAppContent(
                 onAccountPicker = { routeName = AppRoute.AccountPicker.name },
                 onArchiveClick = { routeName = AppRoute.Archive.name },
                 onMarkRead = markChatRead,
+                onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
                 onArchive = archiveChat,
                 onPinChat = repository::setChatPinned,
                 onMuteChat = repository::setChatMuted,

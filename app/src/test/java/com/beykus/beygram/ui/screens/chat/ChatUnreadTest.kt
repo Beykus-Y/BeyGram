@@ -80,4 +80,18 @@ class ChatUnreadTest {
         val list = items(message(3), message(2), message(1))
         assertSame(list, withUnreadSeparator(list, lastReadInboxId = 3))
     }
+
+    @Test fun jumpTargetIsTheOldestUnreadIncomingMessage() {
+        val list = items(message(5), message(4, outgoing = true), message(3), message(2), message(1))
+        assertEquals(2, firstUnreadItemIndex(list, lastReadInboxId = 2))
+    }
+
+    @Test fun jumpTargetIsTheOldestLoadedUnreadUntilTheBoundaryPageArrives() {
+        val list = items(message(5), message(4), message(3))
+        assertEquals(2, firstUnreadItemIndex(list, lastReadInboxId = 2))
+    }
+
+    @Test fun jumpTargetIsMissingWhenEverythingIsRead() {
+        assertEquals(-1, firstUnreadItemIndex(items(message(2), message(1)), lastReadInboxId = 2))
+    }
 }

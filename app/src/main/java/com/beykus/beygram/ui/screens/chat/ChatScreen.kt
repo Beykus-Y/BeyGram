@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WifiOff
@@ -138,6 +139,8 @@ fun ChatScreen(
     var highlighted by remember { mutableStateOf<Long?>(null) }
     // A message outside the loaded history is scrolled to once the window around it reaches the list.
     var pendingJumpId by remember(chat.id) { mutableStateOf<Long?>(null) }
+    // Explicit "jump to first unread" waits for the window around the read boundary if that page is not loaded.
+    var pendingUnreadJump by remember(chat.id) { mutableStateOf(false) }
     var searching by rememberSaveable(chat.id) { mutableStateOf(false) }
     var searchQuery by rememberSaveable(chat.id) { mutableStateOf("") }
     var searchResults by remember(chat.id) { mutableStateOf<List<ChatMessage>>(emptyList()) }
@@ -654,6 +657,38 @@ fun ChatScreen(
         }
     }
     fun jumpToPinned(message: ChatMessage) = jumpToMessage(message.id, R.string.chat_pinned_failed)
+    fun jumpToFirstUnread() {
+        val boundary = history.lastReadInboxMessageId
+        if (boundary <= 0L) return
+        // The boundary page must be loaded, or the oldest loaded row is merely the oldest fetched unread message.
+        val readLoaded = rawMessageItems.any { item -> item.messages.any { it.id <= boundary } }
+        if (readLoaded) {
+            val firstUnread = firstUnreadItemIndex(rawMessageItems, boundary)
+            if (firstUnread >= 0) {
+                val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
+                scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
+            }
+            return
+        }
+        // Request the boundary page once; the effect below completes the jump when it arrives.
+        pendingUnreadJump = true
+        scope.launch {
+            (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, boundary)
+            else conversation.loadMessagesAround(chat.id, boundary))
+                .onFailure { pendingUnreadJump = false; error = it.userMessage(context, R.string.err_chat_history_load_failed) }
+        }
+    }
+    LaunchedEffect(pendingUnreadJump, rawMessageItems, history.isLoading) {
+        if (!pendingUnreadJump || history.isLoading) return@LaunchedEffect
+        val boundary = history.lastReadInboxMessageId
+        val firstUnread = firstUnreadItemIndex(rawMessageItems, boundary)
+        if (firstUnread >= 0) {
+            val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
+            listState.animateScrollToItem(firstUnread)
+            highlighted = target
+        }
+        pendingUnreadJump = false
+    }
     // Переход из профиля к вложению: чат открывается у сообщения один раз, после этого запрос сбрасывается.
     LaunchedEffect(focusMessageId) {
         if (focusMessageId == 0L) return@LaunchedEffect
@@ -671,7 +706,19 @@ fun ChatScreen(
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
-        else ChatTopBar(chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true }, observeFile, onDownloadFile, forumTopicTitle)
+        else ChatTopBar(
+            chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true },
+            observeFile, onDownloadFile, forumTopicTitle,
+            hasUnread = (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0 && history.lastReadInboxMessageId > 0L,
+            onMarkUnread = {
+                scope.launch {
+                    conversation.markChatUnread(chat.id)
+                        .onSuccess { Toast.makeText(context, context.getString(R.string.chat_mark_unread_done), Toast.LENGTH_SHORT).show(); onBack() }
+                        .onFailure { error = it.userMessage(context, R.string.err_chat_mark_unread_failed) }
+                }
+            },
+            onJumpUnread = ::jumpToFirstUnread
+        )
         reactionOwner?.takeIf { !deleting }?.let { owner ->
             MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
                 setReaction(owner.id, option, addToRecent = true)
@@ -1028,8 +1075,13 @@ private fun ReadOnlyChatBar() {
 }
 
 @Composable
-private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null) {
+private fun ChatTopBar(
+    chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
+    hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {}
+) {
     val palette = beyGramPalette()
+    var menuOpen by remember { mutableStateOf(false) }
     // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
     val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
@@ -1042,6 +1094,20 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
                 Text(chatPresenceLine(chat, info, lastSeenStyle, now).resolve(), color = palette.textSecondary, fontSize = 13.sp)
             }
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
+            Box {
+                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary) }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_jump_to_unread)) },
+                        enabled = hasUnread,
+                        onClick = { menuOpen = false; onJumpUnread() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_mark_unread)) },
+                        onClick = { menuOpen = false; onMarkUnread() }
+                    )
+                }
+            }
         }
         HorizontalDivider(color = palette.divider)
     }

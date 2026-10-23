@@ -60,6 +60,10 @@
     <string name="chat_history_load_older">Загрузить более ранние сообщения</string>
     <string name="chat_history_loading">Загружаем историю…</string>
     <string name="chat_jump_to_latest">К последним</string>
+    <string name="chat_jump_to_unread">К первому непрочитанному</string>
+    <string name="chat_mark_unread">Отметить непрочитанным</string>
+    <string name="chat_mark_unread_done">Чат отмечен непрочитанным</string>
+    <string name="err_chat_mark_unread_failed">Не удалось отметить чат непрочитанным</string>
     <string name="chat_unread_separator">Непрочитанные</string>
     <string name="chat_media_position">%1$d из %2$d</string>
     <string name="chat_message">Сообщение</string>

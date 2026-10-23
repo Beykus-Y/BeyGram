@@ -49,6 +49,8 @@ interface ConversationRepository {
     suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition>
     suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
     suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit>
+    /** Marks a chat unread without changing its read watermark; the chat list shows an unread marker. */
+    suspend fun markChatUnread(chatId: Long): Result<Unit>
     /** Regular forward (the original sender stays visible). TDLib refuses it when the message can't be forwarded. */
     suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit>
     /**
