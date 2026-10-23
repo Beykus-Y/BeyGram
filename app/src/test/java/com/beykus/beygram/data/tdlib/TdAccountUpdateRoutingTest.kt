@@ -20,6 +20,27 @@ class TdAccountUpdateRoutingTest {
         } finally { dir.deleteRecursively() }
     }
 
+    @Test fun busySecondAccountCannotBlockUnrelatedNativeSessionUpdates() = withRegistry { registry ->
+        val first = registry.prepareSecondaryAccount().second
+        val second = registry.prepareSecondaryAccount().second
+        val router = TdAccountUpdateRouter(registry)
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val delivered = java.util.concurrent.CountDownLatch(1)
+        val one = router.register(first) { entered.countDown(); release.await(5, java.util.concurrent.TimeUnit.SECONDS) }
+        val two = router.register(second) { delivered.countDown() }
+        val thread = Thread { one.updateHandler.onResult(TdApi.UpdateOption()) }
+        thread.start()
+        try {
+            assertTrue(entered.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            two.updateHandler.onResult(TdApi.UpdateOption())
+            assertTrue(delivered.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        } finally {
+            release.countDown()
+            thread.join(3_000)
+        }
+    }
+
     @Test fun distinctAccountsNeverMixSameChatMessageAndFileIds() = withRegistry { registry ->
         val (_, secondaryId) = registry.prepareSecondaryAccount()
         assertNotEquals(
