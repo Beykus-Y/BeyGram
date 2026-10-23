@@ -556,10 +556,10 @@ private fun BeyGramAppContent(
     if (incomingShare != null && shareAccountTarget == null && accountRegistryReady && !accountRegistryError) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
-            title = { Text("Выберите Telegram-аккаунт") },
+            title = { Text(stringResource(R.string.multi_share_pick_title)) },
             text = {
                 Column {
-                    Text("Выберите аккаунт, в котором будет открыт список получателей. Отправка произойдёт только после подтверждения.")
+                    Text(stringResource(R.string.multi_share_pick_note))
                     if (legacyAuthState == AuthState.Ready) {
                         TextButton(onClick = { shareAccountTarget = TdAccountStorageLayout.LEGACY_ACCOUNT_ID
                             if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
@@ -594,13 +594,13 @@ private fun BeyGramAppContent(
         val target = shareAccountTarget!!
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { shareAccountTarget = null },
-            title = { Text("Переключение Telegram-аккаунта") },
-            text = { Text("Чтобы отправить содержимое, нужно открыть выбранный аккаунт. Ничего не будет отправлено автоматически.") },
+            title = { Text(stringResource(R.string.multi_share_switch_title)) },
+            text = { Text(stringResource(R.string.multi_share_switch_note)) },
             confirmButton = {
-                TextButton(onClick = { chooseAccount(target) }) { Text("Переключиться") }
+                TextButton(onClick = { chooseAccount(target) }) { Text(stringResource(R.string.multi_share_switch_action)) }
             },
             dismissButton = {
-                TextButton(onClick = { shareAccountTarget = null }) { Text("Выбрать другой") }
+                TextButton(onClick = { shareAccountTarget = null }) { Text(stringResource(R.string.multi_share_choose_other)) }
             }
         )
     }
