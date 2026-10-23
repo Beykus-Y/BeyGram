@@ -308,8 +308,10 @@ private fun BeyGramAppContent(
     val accountMetadata by produceState<Map<String, AccountSwitcherMeta>>(
         initialValue = emptyMap(), accountMetadataVisible, accountChoice.accounts
     ) {
-        value = emptyMap()
-        if (!accountMetadataVisible) return@produceState
+        if (!accountMetadataVisible) {
+            value = emptyMap()
+            return@produceState
+        }
         kotlinx.coroutines.coroutineScope {
             launch {
                 combine(

@@ -79,7 +79,9 @@ The overflow menu is the only place for destructive or advanced actions:
 
 - «Настроить подключение»: FOLLOW_PRIMARY, SHARED_MIHOMO or EXPLICIT_DIRECT.
   A READY session is closed without Logout and reopened after the route
-  preflight. An unfinished slot only stores the preference.
+  preflight. A stopped, restoring or unfinished account only stores the
+  preference; the next explicit reconnect or sign-in uses it, so changing a
+  route never clears a manual stop by itself.
 - «Остановить сессию»: TDLib Close, keeps the Telegram login and the account.
   It writes the manual-stop marker so automatic restore does not reconnect it.
 - «Выйти и удалить данные»: explicit confirmation, then TDLib LogOut, lease

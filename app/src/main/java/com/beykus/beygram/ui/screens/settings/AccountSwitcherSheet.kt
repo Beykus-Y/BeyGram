@@ -143,6 +143,11 @@ internal fun AccountSwitcherSheet(
         password = ""
     }
 
+    fun dismissSheet() {
+        closeAuth()
+        onDismiss()
+    }
+
     fun finishSwitch(accountId: String) {
         if (switchInProgress) return
         switchInProgress = true
@@ -154,7 +159,7 @@ internal fun AccountSwitcherSheet(
                 val failure = result.exceptionOrNull()
                 if (failure == null) {
                     onAccountReady(accountId)
-                    onDismiss()
+                    dismissSheet()
                 } else {
                     authSwitchError = accountSwitcherErrorReason(failure)
                 }
@@ -249,7 +254,7 @@ internal fun AccountSwitcherSheet(
                 val failure = result.exceptionOrNull()
                 if (failure == null) {
                     onAccountReady(accountId)
-                    onDismiss()
+                    dismissSheet()
                 } else {
                     setAccountError(accountId, accountSwitcherErrorReason(failure))
                 }
@@ -272,7 +277,7 @@ internal fun AccountSwitcherSheet(
                 clearAccountError(accountId)
                 onAccountDeleted(accountId)
                 if (authAccountId == accountId) closeAuth()
-                onDismiss()
+                dismissSheet()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
@@ -334,6 +339,17 @@ internal fun AccountSwitcherSheet(
         }
     }
 
+    LaunchedEffect(authAccountId) {
+        val id = authAccountId ?: return@LaunchedEffect
+        // Activity/process recreation can restore the sign-in screen without
+        // the coroutine that originally opened its native session.
+        if (preparingAccountId == null && !addBusy &&
+            snapshot.accounts.firstOrNull { it.accountId == id }?.connectedInThisProcess != true
+        ) {
+            openSignIn(id, addMode)
+        }
+    }
+
     val rows = accountSwitcherRows(
         AccountSwitcherInput(
             currentAccountId = currentAccountId,
@@ -368,7 +384,7 @@ internal fun AccountSwitcherSheet(
     ModalBottomSheet(
         onDismissRequest = {
             if (busyAccountId == null && !addBusy) {
-                if (authAccountId != null) closeAuth() else onDismiss()
+                if (authAccountId != null) closeAuth() else dismissSheet()
             }
         },
         sheetState = sheetState,
@@ -437,7 +453,7 @@ internal fun AccountSwitcherSheet(
                 errorText = accountSwitcherErrorText(listError),
                 onRowClick = { row ->
                     when {
-                        row.isCurrent -> onDismiss()
+                        row.isCurrent -> dismissSheet()
                         row.canSignIn -> openSignIn(row.accountId, isNew = false)
                         row.canSelect -> switchTo(row.accountId)
                     }

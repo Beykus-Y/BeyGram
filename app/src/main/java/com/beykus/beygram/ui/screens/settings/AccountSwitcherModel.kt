@@ -244,6 +244,8 @@ internal fun accountSwitcherRows(input: AccountSwitcherInput): List<AccountSwitc
                 AccountSwitcherStatus.AWAITING_PHONE,
                 AccountSwitcherStatus.AWAITING_CODE,
                 AccountSwitcherStatus.AWAITING_PASSWORD,
+                AccountSwitcherStatus.CONNECTING,
+                AccountSwitcherStatus.UNSUPPORTED,
                 AccountSwitcherStatus.LOGGING_OUT,
                 AccountSwitcherStatus.SWITCHING -> false
                 else -> true

@@ -164,6 +164,15 @@ class AccountSwitcherModelTest {
         assertFalse(account.canSelect)
     }
 
+    @Test fun connectingSessionDoesNotOfferPrematureRouteChange() {
+        val account = accountSwitcherRows(
+            input(row(phase = TdAccountAuthPhase.STARTING, connected = true, authorized = false))
+        )[1]
+        assertEquals(AccountSwitcherStatus.CONNECTING, account.status)
+        assertFalse(account.canSelect)
+        assertFalse(account.canConfigureRoute)
+    }
+
     @Test fun authStepTracksNativePhaseOnly() {
         assertEquals(AccountAuthStep.PREPARING, accountAuthStep(null, false))
         assertEquals(AccountAuthStep.PREPARING, accountAuthStep(TdAccountAuthPhase.STARTING, true))

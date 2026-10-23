@@ -148,9 +148,10 @@ internal class TdSecondaryAccountController private constructor(
     }
 
     /**
-     * Apply an explicit route. A live READY session is closed without logout and
-     * reopened; a stopped authorized session is reopened; an unfinished slot
-     * only remembers the preference for its next sign-in.
+     * Apply an explicit route. Only a live READY session is closed without
+     * logout and reopened. A stopped, unfinished or still-restoring account
+     * only remembers the preference; its next explicit sign-in/reconnect uses
+     * it, so changing a route never clears a manual stop by itself.
      */
     suspend fun useRoute(accountId: String, preference: TdSecondaryRoutePreference) =
         restoreMutex.withLock {
@@ -161,10 +162,9 @@ internal class TdSecondaryAccountController private constructor(
                 row != null && row.connectedInThisProcess && row.phase == TdAccountAuthPhase.READY ->
                     reconnectLocked(accountId, preference)
                 row != null && row.connectedInThisProcess && row.phase == TdAccountAuthPhase.CLOSED ->
-                    openSecondary(accountId, preference)
+                    Unit
                 row != null && row.connectedInThisProcess ->
                     throw IllegalStateException("Finish sign-in before changing its route")
-                restoreStore.isAuthorized(accountId) -> openSecondary(accountId, preference)
                 else -> Unit
             }
         }
@@ -176,6 +176,8 @@ internal class TdSecondaryAccountController private constructor(
         restoreStore.markDeletionPending(accountId)
         try {
             coordinator.discardIncompleteAccount(accountId)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (failure: Throwable) {
             if (accountId in registry.loadOrCreate().accountIds) {
                 restoreStore.clearDeletionPending(accountId)
