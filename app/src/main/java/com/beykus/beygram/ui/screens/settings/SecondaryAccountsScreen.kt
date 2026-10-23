@@ -139,10 +139,16 @@ internal fun SecondaryAccountsScreen(
         }
         Spacer(Modifier.height(10.dp))
         OutlinedButton(
-            onClick = { runAction {
-                val accountId = coordinator.reserveAccount()
-                selectedId = accountId
-            } },
+            onClick = {
+                if (!working) scope.launch {
+                    working = true
+                    error = false
+                    try {
+                        selectedId = withContext(Dispatchers.IO) { coordinator.reserveAccount() }
+                    } catch (_: Exception) { error = true }
+                    finally { working = false }
+                }
+            },
             enabled = !working && !snapshot.busy,
             modifier = Modifier.fillMaxWidth()
         ) { Text(stringResource(R.string.secondary_accounts_add)) }
