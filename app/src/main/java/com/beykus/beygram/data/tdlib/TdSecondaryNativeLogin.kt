@@ -329,6 +329,18 @@ internal class TdSecondaryNativeLogin internal constructor(
         expectOk(TdApi.ResendAuthenticationCode(null))
     }
 
+    /** LogOut invalidates this secondary Telegram authorization. Database ownership
+     * remains with native TDLib until the CLOSED event releases its lease. */
+    suspend fun logOutAndAwaitClosed() {
+        check(authPhase.value == TdAccountAuthPhase.READY) {
+            "Account must be authorized before logout"
+        }
+        expectOk(TdApi.LogOut())
+        kotlinx.coroutines.withTimeout(45_000) {
+            authPhase.first { it == TdAccountAuthPhase.CLOSED }
+        }
+    }
+
     /** Close keeps the TDLib database and user login. Do not call LogOut here. */
     fun close() = requestCloseWithoutLogout()
 
