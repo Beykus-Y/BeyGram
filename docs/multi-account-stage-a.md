@@ -38,11 +38,24 @@ The registry is under `filesDir` alongside the future secondary TDLib account
 directories. Both must stay consistent in Android backup/device transfers.
 Never manually restore a registry without its matching account databases.
 
-To roll back from a newer APK **before the multi-client stages are implemented**,
-install the previous version over the same package without clearing app data,
-or restore the pre-upgrade app backup. The old implementation ignores registry
-metadata and continues using `filesDir/tdlib`; avoid deleting
-`tdlib-accounts` because it may contain account databases after future stages.
+To roll back **before the multi-client stages are implemented**, do NOT
+uninstall the app or clear its data. Previous versions ignore registry metadata
+and keep reading `filesDir/tdlib`, but Android rejects a lower `versionCode`
+unless the package supports a downgrade and the signatures match.
+
+- For **DEV debug** with an APK signed by the *same* debug signing certificate,
+  use `adb install -r -d BeyGram-dev-debug.apk`: `-r` retains data and `-d`
+  requests a version-code downgrade. If the prior DEV APK has another CI debug
+  signing key, Android rejects the replacement; **do not uninstall** to bypass
+  the signature mismatch.
+- For **Stable/release**, Android commonly restricts `-d` to debuggable
+  packages. Use a rollback/hotfix build with a **higher versionCode**, signed
+  with the same release key, while reverting the incompatible code. Never
+  recommend data-destructive uninstall as a rollback procedure.
+- Before any risky migration, keep a user-authorized, tested app-data backup.
+  Preserve the entire TDLib root plus matching registry and secondary paths.
+  Avoid deleting `tdlib-accounts`: future multi-client versions may store
+  account databases there.
 
 ## Automated checks
 
