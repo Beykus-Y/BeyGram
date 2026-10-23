@@ -50,6 +50,14 @@ class NotificationRuntime private constructor(private val context: Context) {
         _secondaryConnected.value = secondaryConnectedAccounts.isNotEmpty()
     }
     private val secondaryPreferences = ConcurrentHashMap<String, NotificationPreferencesStore>()
+    private val secondaryReplyOutboxes = ConcurrentHashMap<String, ReplyOutbox>()
+    private val secondaryRepliesInFlight = ConcurrentHashMap.newKeySet<String>()
+    private fun secondaryReplyOutbox(accountId: String): ReplyOutbox {
+        require(accountId != "legacy" && accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        return secondaryReplyOutboxes.computeIfAbsent(accountId) {
+            ReplyOutbox(File(context.noBackupFilesDir, "reply-outbox-secondary/$it"))
+        }
+    }
 
     /** Settings and renderer must share the same live per-account StateFlow. */
     fun preferencesForAccount(accountId: String): NotificationPreferencesStore =
@@ -84,12 +92,16 @@ class NotificationRuntime private constructor(private val context: Context) {
             launch {
                 combine(source.connectionState, source.authState) { connection, auth ->
                     auth == AuthState.Ready && connection == TelegramConnectionState.Connected
-                }.collect { setSecondaryConnected(accountId, it) }
+                }.collect {
+                    setSecondaryConnected(accountId, it)
+                    if (it) flushSecondaryReplies(accountId)
+                }
             }
             launch {
                 source.authState.collect { state ->
                     if (state == AuthState.Ready) {
                         prefs.authorized = true
+                        flushSecondaryReplies(accountId)
                         val pending = prefs.pendingDismissals()
                         for ((group, newest) in pending) {
                             if (source.dismissNotifications(group, newest).isSuccess)
@@ -126,7 +138,121 @@ class NotificationRuntime private constructor(private val context: Context) {
         setSecondaryConnected(accountId, false)
         previous?.renderer?.cancelAllOwned()
         preferencesForAccount(accountId).authorized = false
+        secondaryReplyOutboxes.remove(accountId)?.clear()
         invalidations.update { it + 1 }
+    }
+
+    /**
+     * Each secondary reply is fsync'd into its OWN outbox before completing the
+     * broadcast. Only an exact live source account and matching session token
+     * can deliver it. No fallback to the primary TDLib repository is permitted.
+     */
+    fun replySecondary(
+        accountId: String, chatId: Long, groupId: Int, maxId: Int,
+        replyToMessageId: Long, topicId: Long, text: String, session: String,
+        finished: () -> Unit
+    ) {
+        scope.launch {
+            try {
+                if (chatId == 0L || groupId <= 0 || maxId <= 0 ||
+                    accountId == "legacy" ||
+                    !accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}"))) return@launch
+                val prefs = preferencesForAccount(accountId)
+                if (!prefs.authorized || prefs.replyToken() != session || text.isBlank()) return@launch
+                val entry = try {
+                    withContext(Dispatchers.IO) {
+                        secondaryReplyOutbox(accountId).add(
+                            chatId, groupId, maxId, replyToMessageId, text,
+                            System.currentTimeMillis(), session, topicId
+                        )
+                    }
+                } catch (error: IOException) {
+                    recordAppEvent(EventKind.NOTIFICATION, "secondary_reply_store_failed",
+                        "Ответ вторичного аккаунта не сохранён", Severity.WARNING)
+                    return@launch
+                }
+                // Android may kill the process immediately after this broadcast;
+                // persistent outbox replay happens on the next account READY.
+                val deliver = launch { deliverSecondaryReply(accountId, entry) }
+                withTimeoutOrNull(REPLY_BROADCAST_MILLIS) { deliver.join() }
+                if (secondaries[accountId] == null)
+                    TelegramNotificationService.reconcileFromAllowedContext(context, "reply")
+            } finally {
+                finished()
+            }
+        }
+    }
+
+    private fun flushSecondaryReplies(accountId: String) {
+        val registered = secondaries[accountId] ?: return
+        if (registered.source.authState.value != AuthState.Ready) return
+        scope.launch {
+            val outbox = secondaryReplyOutbox(accountId)
+            val stored = withContext(Dispatchers.IO) {
+                outbox.discardExpired(System.currentTimeMillis(), REPLY_TTL_MILLIS)
+                outbox.entries()
+            }
+            stored.forEach { deliverSecondaryReply(accountId, it) }
+        }
+    }
+
+    private suspend fun deliverSecondaryReply(accountId: String, entry: ReplyOutbox.Entry) {
+        val id = "$accountId:${entry.id}"
+        if (!secondaryRepliesInFlight.add(id)) return
+        try {
+            val outbox = secondaryReplyOutbox(accountId)
+            if (!withContext(Dispatchers.IO) { outbox.isStored(entry.id) }) return
+            val prefs = preferencesForAccount(accountId)
+            if (!prefs.authorized || prefs.replyToken() != entry.session) {
+                withContext(Dispatchers.IO) { outbox.remove(entry.id) }
+                return
+            }
+            val registered = secondaries[accountId] ?: return
+            val source = registered.source as? TdLibTelegramRepository ?: return
+            if (source.accountId != accountId || source.authState.value != AuthState.Ready) return
+            val failed = try {
+                if (entry.text.codePointCount(0, entry.text.length) > source.messageLimits.value.text)
+                    throw IllegalArgumentException("Telegram reply text too long")
+                val replyTo = entry.replyToMessageId.takeIf { it > 0L }
+                val first = source.sendMessage(entry.chatId, entry.text, replyTo, forumTopicId = entry.topicId)
+                val result = if (replyTo != null && first.exceptionOrNull().isReplyRejected()) {
+                    // Never silently send a forum reply into General.
+                    if (entry.topicId > 0L)
+                        source.sendMessage(entry.chatId, entry.text, null, forumTopicId = entry.topicId)
+                    else if (source.isForumChat(entry.chatId).getOrDefault(true)) first
+                    else source.sendMessage(entry.chatId, entry.text, null)
+                } else first
+                result.exceptionOrNull()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) { error }
+            // Logout can occur while TDLib is sending. Verify the session again
+            // before acknowledging/removing a queued message or changing the tray.
+            if (prefs.replyToken() != entry.session || !prefs.authorized) {
+                withContext(Dispatchers.IO) { outbox.remove(entry.id) }
+                return
+            }
+            if (failed == null) {
+                withContext(Dispatchers.IO) { outbox.remove(entry.id) }
+                dismissSecondary(accountId, entry.groupId, entry.maxId)
+            } else {
+                val newest = source.notifications.value.groups.firstOrNull { it.id == entry.groupId }
+                    ?.notices?.maxOfOrNull { it.id } ?: entry.maxId
+                registered.renderer.markReplyFailed(entry.groupId, newest)
+                invalidations.update { it + 1 }
+                val maxAttempts = if (failed is IllegalArgumentException || failed.isPermanentReplyFailure())
+                    entry.attempts + 1 else MAX_REPLY_ATTEMPTS
+                val dropped = withContext(Dispatchers.IO) { outbox.recordFailure(entry, maxAttempts) }
+                if (!dropped) {
+                    scope.launch {
+                        delay(REPLY_RETRY_MILLIS)
+                        flushSecondaryReplies(accountId)
+                    }
+                }
+            }
+        } finally {
+            secondaryRepliesInFlight.remove(id)
+        }
     }
 
     fun dismissSecondary(accountId: String, groupId: Int, maxId: Int) {
