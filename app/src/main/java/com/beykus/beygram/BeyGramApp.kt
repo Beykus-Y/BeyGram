@@ -224,6 +224,9 @@ private fun BeyGramAppContent(
 
     // ---- Локальный UI-state --------------------------------------------------
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
+    var accountManagerReturnRouteName by rememberSaveable {
+        mutableStateOf(AppRoute.Settings.name)
+    }
     // Route carries the source account; never fall back to legacy on missing ID.
     var secondaryChatsAccountId by rememberSaveable { mutableStateOf<String?>(null) }
     var globalSearchQuery by rememberSaveable { mutableStateOf("") }
@@ -266,7 +269,13 @@ private fun BeyGramAppContent(
                 chatFocusMessageId = 0L
                 secondaryChatsAccountId = null
                 selectedAccountId = target
-                routeName = AppRoute.Chats.name
+                routeName = when {
+                    target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> AppRoute.Chats.name
+                    authState is AuthState.WaitingForPhone -> AppRoute.LoginPhone.name
+                    authState is AuthState.WaitingForCode -> AppRoute.LoginCode.name
+                    authState is AuthState.WaitingForPassword -> AppRoute.LoginPassword.name
+                    else -> AppRoute.Chats.name
+                }
             } catch (_: Exception) {
                 noticeError = UiText.Raw(context.getString(R.string.secondary_accounts_switch_failed))
             }
@@ -375,8 +384,14 @@ private fun BeyGramAppContent(
         // Notifications currently originate ONLY from the legacy client.
         // Switch explicitly to the source account before resolving its chat ID.
         if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
-            withContext(Dispatchers.IO) {
-                accountRegistry.selectAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+            try {
+                withContext(Dispatchers.IO) {
+                    accountRegistry.selectAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                }
+            } catch (_: Exception) {
+                noticeError = UiText.Raw(context.getString(R.string.secondary_accounts_registry_error))
+                onNotificationHandled(request.token)
+                return@LaunchedEffect
             }
             PlaybackEngine.stop()
             selectedAccountId = TdAccountStorageLayout.LEGACY_ACCOUNT_ID
@@ -517,8 +532,7 @@ private fun BeyGramAppContent(
     }
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.SecondaryAccounts) {
-        routeName = if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
-            AppRoute.Settings.name else AppRoute.Chats.name
+        routeName = accountManagerReturnRouteName
     }
     BackHandler(enabled = route == AppRoute.AccountPicker) { routeName = AppRoute.Chats.name }
     BackHandler(enabled = route == AppRoute.SecondaryChats) { routeName = AppRoute.SecondaryAccounts.name }
@@ -997,7 +1011,10 @@ private fun BeyGramAppContent(
                         onUpdates = { routeName = AppRoute.Updates.name },
                         onLanguage = { routeName = AppRoute.Language.name },
                         onSessions = { routeName = AppRoute.Sessions.name },
-                        onSecondaryAccounts = { routeName = AppRoute.SecondaryAccounts.name }
+                        onSecondaryAccounts = {
+                            accountManagerReturnRouteName = AppRoute.Settings.name
+                            routeName = AppRoute.SecondaryAccounts.name
+                        }
                     )
                 }
                 AppRoute.Language -> LanguageScreen(onBack = { routeName = AppRoute.Settings.name })
@@ -1005,20 +1022,16 @@ private fun BeyGramAppContent(
                     state = accountChoice,
                     selectedId = selectedAccountId,
                     onSelect = chooseAccount,
-                    onManage = { routeName = AppRoute.SecondaryAccounts.name },
+                    onManage = {
+                        accountManagerReturnRouteName = AppRoute.AccountPicker.name
+                        routeName = AppRoute.SecondaryAccounts.name
+                    },
                     onBack = { routeName = AppRoute.Chats.name }
                 )
                 AppRoute.SecondaryAccounts -> SecondaryAccountsScreen(
                     controller = secondaryAccountController,
-                    onBack = { routeName = AppRoute.Settings.name },
-                    onOpenChats = { accountId ->
-                        if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
-                            chooseAccount(accountId)
-                        } else {
-                            secondaryChatsAccountId = accountId
-                            routeName = AppRoute.SecondaryChats.name
-                        }
-                    }
+                    onBack = { routeName = accountManagerReturnRouteName },
+                    onOpenChats = { accountId -> chooseAccount(accountId) }
                 )
                 AppRoute.SecondaryChats -> {
                     val accountId = secondaryChatsAccountId
