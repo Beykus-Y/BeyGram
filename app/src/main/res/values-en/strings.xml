@@ -15,6 +15,8 @@
     <string name="settings_group_data_diagnostics">Data and diagnostics</string>
     <string name="analytics_title">Usage statistics</string>
     <string name="analytics_description">Usage statistics are enabled by default. We send an installation identifier, app version, build channel, Android version, device model, account count, the Telegram user IDs of signed-in accounts (to identify official beta testers), and installation activity. Messages, chats, contacts and logs are not sent. Turning this off deletes the statistics from the server.</string>
+    <string name="diagnostics_account_trace_title">Detailed account log</string>
+    <string name="diagnostics_account_trace_description">Adds TDLib startup, session restore, route selection and repository attachment stages to shared logs. Enabled by default in DEV. Phone numbers, codes, passwords, tokens and message contents are never recorded.</string>
     <string name="settings_group_updates">Updates</string>
     <string name="composer_remove_attachment_named">Remove attachment “%1$s”</string>
     <string name="chats_filter_all">All</string>

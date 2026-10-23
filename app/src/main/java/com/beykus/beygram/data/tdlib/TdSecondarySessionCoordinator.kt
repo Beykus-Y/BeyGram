@@ -1,5 +1,7 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
+import com.beykus.beygram.diagnostics.report.Severity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -115,47 +117,98 @@ internal class TdSecondarySessionCoordinator(
     suspend fun refresh() = mutex.withLock { publish() }
 
     /** Adds only a new storage reservation; the selected route must be chosen separately. */
-    suspend fun reserveAccount(): String = mutex.withLock {
-        val id = registry.prepareSecondaryAccount().second
-        publish()
-        id
+    suspend fun reserveAccount(): String {
+        val operation = MultiAccountDiagnostics.begin("account_slot_create")
+        operation.trace("lock_wait")
+        return try {
+            mutex.withLock {
+                operation.trace("registry_reserve")
+                val id = registry.prepareSecondaryAccount().second
+                publish()
+                operation.success(
+                    "slot_created",
+                    attrs = mapOf("account_count" to _snapshot.value.accounts.size.toString())
+                )
+                id
+            }
+        } catch (failure: Throwable) {
+            operation.failure("registry_reserve", failure)
+            throw failure
+        }
     }
 
     suspend fun connect(
         accountId: String, preference: TdSecondaryRoutePreference, fromRouteSwitch: Boolean = false
-    ) = mutex.withLock {
-        check(accountId !in switchingAccounts || fromRouteSwitch) {
-            "Account route is being changed"
-        }
-        check(accountId !in loggingOutAccounts) { "Account is logging out" }
-        require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) { "Legacy TDLib is already running" }
-        require(accountId in registry.loadOrCreate().accountIds) { "Account not registered" }
-        if (running[accountId]?.handle?.authPhase?.value == TdAccountAuthPhase.CLOSED) {
-            running[accountId]?.handle?.awaitClosedLease()
-            running.remove(accountId)?.subscription?.cancel()
-        }
-        check(accountId !in running) { "Secondary account is already active" }
-        // Bounded resource budget: at most TWO secondary clients alongside
-        // legacy. Never start all reserved slots on a low-memory device.
-        if (running.values.count { it.handle.authPhase.value != TdAccountAuthPhase.CLOSED } >= 2) {
-            throw TdSecondarySessionLimitException()
-        }
-        _snapshot.value = _snapshot.value.copy(busy = true)
+    ) {
+        val operation = MultiAccountDiagnostics.begin(
+            code = "tdlib_connect",
+            accountId = accountId,
+            attrs = mapOf(
+                "preference" to preference.name,
+                "source" to if (fromRouteSwitch) "route_switch" else "user"
+            )
+        )
+        operation.trace("lock_wait")
         try {
-            val handle = openNative(accountId, preference)
-            val job = scope.launch {
-                handle.authPhase.collect { phase ->
-                    if (phase == TdAccountAuthPhase.READY) {
-                        // Persist eligibility only after the native client is READY.
-                        // Failure to write restore metadata never kills the client.
-                        runCatching { onAuthorized(accountId, preference) }
+            mutex.withLock {
+                operation.trace("lock_acquired")
+                check(accountId !in switchingAccounts || fromRouteSwitch) {
+                    "Account route is being changed"
+                }
+                check(accountId !in loggingOutAccounts) { "Account is logging out" }
+                require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+                    "Legacy TDLib is already running"
+                }
+                require(accountId in registry.loadOrCreate().accountIds) { "Account not registered" }
+                if (running[accountId]?.handle?.authPhase?.value == TdAccountAuthPhase.CLOSED) {
+                    operation.trace("retire_closed_lease")
+                    running[accountId]?.handle?.awaitClosedLease()
+                    running.remove(accountId)?.subscription?.cancel()
+                }
+                check(accountId !in running) { "Secondary account is already active" }
+                // Bounded resource budget: at most TWO secondary clients alongside
+                // legacy. Never start all reserved slots on a low-memory device.
+                if (running.values.count {
+                        it.handle.authPhase.value != TdAccountAuthPhase.CLOSED
+                    } >= 2
+                ) {
+                    throw TdSecondarySessionLimitException()
+                }
+                _snapshot.value = _snapshot.value.copy(busy = true)
+                try {
+                    operation.trace("native_open_start")
+                    val handle = openNative(accountId, preference)
+                    operation.trace("native_open_done")
+                    val job = scope.launch {
+                        handle.authPhase.collect { phase ->
+                            if (phase == TdAccountAuthPhase.READY) {
+                                // Persist eligibility only after the native client is READY.
+                                // Failure to write restore metadata never kills the client.
+                                runCatching { onAuthorized(accountId, preference) }
+                            }
+                            mutex.withLock { publish() }
+                        }
                     }
-                    mutex.withLock { publish() }
+                    running[accountId] = Active(handle, preference, job)
+                    operation.success(
+                        "session_started",
+                        attrs = mapOf(
+                            "phase" to (handle.authPhase.value.name),
+                            "sessions" to running.values.count {
+                                it.handle.authPhase.value != TdAccountAuthPhase.CLOSED
+                            }.toString()
+                        )
+                    )
+                } finally {
+                    publish()
                 }
             }
-            running[accountId] = Active(handle, preference, job)
-        } finally {
-            publish()
+        } catch (cancelled: CancellationException) {
+            operation.failure("connect_cancelled", cancelled)
+            throw cancelled
+        } catch (failure: Throwable) {
+            operation.failure("connect", failure)
+            throw failure
         }
     }
 
@@ -200,22 +253,31 @@ internal class TdSecondarySessionCoordinator(
      * its lease BEFORE its slot is removed from durable registry metadata. */
     suspend fun logoutSecondary(accountId: String) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
-        val active = mutex.withLock {
-            check(loggingOutAccounts.add(accountId)) { "Logout already running" }
-            try {
-                check(accountId !in switchingAccounts)
-                (running[accountId] ?: error("Secondary account must be connected to log out")).also {
-                    check(it.handle.authPhase.value == TdAccountAuthPhase.READY)
+        val operation = MultiAccountDiagnostics.begin("logout", accountId)
+        val active = try {
+            mutex.withLock {
+                operation.trace("lock_wait")
+                check(loggingOutAccounts.add(accountId)) { "Logout already running" }
+                try {
+                    check(accountId !in switchingAccounts)
+                    (running[accountId] ?: error("Secondary account must be connected to log out")).also {
+                        check(it.handle.authPhase.value == TdAccountAuthPhase.READY)
+                    }
+                } catch (failure: Throwable) {
+                    loggingOutAccounts.remove(accountId)
+                    throw failure
                 }
-            } catch (failure: Throwable) {
-                loggingOutAccounts.remove(accountId)
-                throw failure
             }
+        } catch (failure: Throwable) {
+            operation.failure("logout_prepare", failure)
+            throw failure
         }
         try {
             // Native Close can take tens of seconds. Other accounts' chats,
             // picker and TDLib session updates must remain responsive.
+            operation.trace("native_logout_start")
             active.handle.logOutAndAwaitClosed()
+            operation.trace("native_logout_closed")
             mutex.withLock {
                 check(running[accountId] === active)
                 // Durable removal is the commit point. A failed subsequent
@@ -224,7 +286,12 @@ internal class TdSecondarySessionCoordinator(
                 running.remove(accountId)?.subscription?.cancel()
                 publish()
             }
+            operation.trace("registry_unregistered")
             onLogoutConfirmed(accountId)
+            operation.success("logout_completed")
+        } catch (failure: Throwable) {
+            operation.failure("logout", failure)
+            throw failure
         } finally {
             mutex.withLock { loggingOutAccounts.remove(accountId) }
         }
@@ -237,32 +304,42 @@ internal class TdSecondarySessionCoordinator(
      */
     suspend fun discardIncompleteAccount(accountId: String) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+        val operation = MultiAccountDiagnostics.begin("discard_unfinished", accountId)
         check(!isAuthorized(accountId)) {
             "An authorized account must be logged out, not discarded"
         }
-        val active = mutex.withLock {
-            check(loggingOutAccounts.add(accountId)) { "Account operation already running" }
-            try {
-                check(accountId !in switchingAccounts)
-                running[accountId]?.also {
-                    check(it.handle.authPhase.value != TdAccountAuthPhase.READY) {
-                        "An authorized session cannot be discarded"
+        val active = try {
+            mutex.withLock {
+                operation.trace("lock_wait")
+                check(loggingOutAccounts.add(accountId)) { "Account operation already running" }
+                try {
+                    check(accountId !in switchingAccounts)
+                    running[accountId]?.also {
+                        check(it.handle.authPhase.value != TdAccountAuthPhase.READY) {
+                            "An authorized session cannot be discarded"
+                        }
                     }
+                } catch (failure: Throwable) {
+                    loggingOutAccounts.remove(accountId)
+                    throw failure
                 }
-            } catch (failure: Throwable) {
-                loggingOutAccounts.remove(accountId)
-                throw failure
             }
+        } catch (failure: Throwable) {
+            operation.failure("discard_prepare", failure)
+            throw failure
         }
         try {
             if (active != null) {
+                operation.trace("native_close_start")
                 active.handle.close()
                 if (active.handle.authPhase.value != TdAccountAuthPhase.CLOSED) {
                     withTimeout(45_000) {
                         active.handle.authPhase.first { it == TdAccountAuthPhase.CLOSED }
                     }
                 }
+                operation.trace("native_closed")
                 active.handle.awaitClosedLease()
+                operation.trace("lease_retired")
             }
             mutex.withLock {
                 check(!isAuthorized(accountId)) {
@@ -274,6 +351,10 @@ internal class TdSecondarySessionCoordinator(
                 running.remove(accountId)?.subscription?.cancel()
                 publish()
             }
+            operation.success("discard_completed")
+        } catch (failure: Throwable) {
+            operation.failure("discard", failure)
+            throw failure
         } finally {
             mutex.withLock { loggingOutAccounts.remove(accountId) }
         }
@@ -288,49 +369,85 @@ internal class TdSecondarySessionCoordinator(
         preference: TdSecondaryRoutePreference,
         verifyNewRoute: suspend (TdSecondaryRoutePreference) -> Unit = {}
     ) {
-        val current = mutex.withLock {
-            check(switchingAccounts.add(accountId)) { "Route transition already active" }
-            try {
-                val session = running[accountId]?.handle
-                    ?: error("Secondary session is not running")
-                check(session.authPhase.value != TdAccountAuthPhase.CLOSED) {
-                    "Secondary session is already closed"
+        val operation = MultiAccountDiagnostics.begin(
+            "route_change",
+            accountId,
+            mapOf("preference" to preference.name)
+        )
+        val current = try {
+            mutex.withLock {
+                operation.trace("lock_wait")
+                check(switchingAccounts.add(accountId)) { "Route transition already active" }
+                try {
+                    val session = running[accountId]?.handle
+                        ?: error("Secondary session is not running")
+                    check(session.authPhase.value != TdAccountAuthPhase.CLOSED) {
+                        "Secondary session is already closed"
+                    }
+                    session
+                } catch (error: Throwable) {
+                    switchingAccounts.remove(accountId)
+                    throw error
                 }
-                session
-            } catch (error: Throwable) {
-                switchingAccounts.remove(accountId)
-                throw error
             }
+        } catch (failure: Throwable) {
+            operation.failure("route_prepare", failure)
+            throw failure
         }
         try {
             // Check proxy ownership BEFORE closing the working native session.
             // No manual-stop marker is written: a failed route transition must
             // retain the previous background restore policy.
+            operation.trace("route_preflight")
             verifyNewRoute(preference)
+            operation.trace("route_preflight_passed")
             mutex.withLock {
                 check(running[accountId]?.handle === current)
                 current.close()
+                operation.trace("native_close_requested")
                 publish()
             }
             withTimeout(45_000) { current.authPhase.first { it == TdAccountAuthPhase.CLOSED } }
+            operation.trace("native_closed")
             current.awaitClosedLease()
+            operation.trace("lease_retired")
             connect(accountId, preference, fromRouteSwitch = true)
+            operation.success("route_applied")
+        } catch (failure: Throwable) {
+            operation.failure("route_apply", failure)
+            throw failure
         } finally {
             mutex.withLock { switchingAccounts.remove(accountId) }
         }
     }
 
     /** Leaves TDLib authorization and the files on disk unchanged. */
-    suspend fun disconnect(accountId: String) = mutex.withLock {
-        val active = running[accountId] ?: return@withLock
-        check(accountId !in loggingOutAccounts && accountId !in switchingAccounts)
-        // Record user intent BEFORE asynchronous native Close.
-        onManualStop(accountId)
-        active.handle.close()
-        // Keep strong ownership and the native database lease until CLOSED.
-        // The subscription will publish that terminal state; it does not
-        // remove the entry while TDLib might still own the database.
-        publish()
+    suspend fun disconnect(accountId: String) {
+        val operation = MultiAccountDiagnostics.begin("session_stop", accountId)
+        try {
+            mutex.withLock {
+                val active = running[accountId]
+                if (active == null) {
+                    operation.milestone("already_closed")
+                    return@withLock
+                }
+                check(accountId !in loggingOutAccounts && accountId !in switchingAccounts)
+                // Record user intent BEFORE asynchronous native Close.
+                onManualStop(accountId)
+                active.handle.close()
+                operation.success(
+                    "close_requested",
+                    attrs = mapOf("phase" to active.handle.authPhase.value.name)
+                )
+                // Keep strong ownership and the native database lease until CLOSED.
+                // The subscription will publish that terminal state; it does not
+                // remove the entry while TDLib might still own the database.
+                publish()
+            }
+        } catch (failure: Throwable) {
+            operation.failure("session_stop", failure)
+            throw failure
+        }
     }
 
     /**
@@ -342,8 +459,8 @@ internal class TdSecondarySessionCoordinator(
      * disconnect/reconnect to choose a different route configuration.
      */
     suspend fun reconcileRoutes(decide: suspend (TdSecondaryRoutePreference) -> TdSecondaryRouteDecision) {
-        val active = mutex.withLock { running.values.toList() }
-        for (entry in active) {
+        val active = mutex.withLock { running.entries.map { it.key to it.value } }
+        for ((accountId, entry) in active) {
             if (entry.handle.authPhase.value == TdAccountAuthPhase.CLOSED) continue
             val decision = try { decide(entry.preference) }
             catch (cancelled: CancellationException) { throw cancelled }
@@ -351,8 +468,28 @@ internal class TdSecondarySessionCoordinator(
                 TdSecondaryRouteDecision.Blocked(TdSecondaryRouteBlock.PRIMARY_ROUTE_UNKNOWN)
             }
             try {
-                if (decision == entry.handle.plannedRoute) entry.handle.resumeNetwork(true)
-                else entry.handle.pauseNetwork()
+                if (decision == entry.handle.plannedRoute) {
+                    entry.handle.resumeNetwork(true)
+                    MultiAccountDiagnostics.milestone(
+                        "route_reconciled",
+                        "network_resumed",
+                        accountId,
+                        attrs = mapOf("preference" to entry.preference.name)
+                    )
+                } else {
+                    entry.handle.pauseNetwork()
+                    MultiAccountDiagnostics.milestone(
+                        "route_reconciled",
+                        "network_paused",
+                        accountId,
+                        severity = Severity.WARNING,
+                        attrs = mapOf(
+                            "preference" to entry.preference.name,
+                            "route_reason" to (decision as? TdSecondaryRouteDecision.Blocked)?.reason?.name
+                                .orEmpty()
+                        )
+                    )
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -360,6 +497,13 @@ internal class TdSecondarySessionCoordinator(
                 // fail closed by closing this native client (NOT LogOut).
                 // The TDLib database/authorization remain intact.
                 if (decision != entry.handle.plannedRoute) entry.handle.close()
+                MultiAccountDiagnostics.milestone(
+                    "route_reconciled",
+                    "network_policy_failed",
+                    accountId,
+                    severity = Severity.WARNING,
+                    attrs = mapOf("preference" to entry.preference.name)
+                )
             }
         }
         mutex.withLock { publish() }
