@@ -57,13 +57,13 @@ internal class TdAccountNativeClientOwner(
                 File(config.filesDirectory).canonicalFile == paths.files) {
                 "TDLib configuration is not isolated to its leased account paths"
             }
-            val registration = router.register(accountId) { routed ->
+            val registration = router.register(accountId, onAfterClosed = onClosed) { routed ->
                 try {
                     onUpdate(routed)
                 } finally {
                     if (routed.update is TdApi.UpdateAuthorizationState &&
                         routed.update.authorizationState is TdApi.AuthorizationStateClosed) {
-                        try { closed() } finally { onClosed() }
+                        closed()
                     }
                 }
             }
