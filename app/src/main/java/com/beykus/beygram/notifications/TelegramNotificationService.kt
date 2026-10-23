@@ -119,6 +119,19 @@ class TelegramNotificationService : Service() {
                 }.collect { }
             }
         }
+        // Account authorization, manual stop and route eligibility may change
+        // outside the legacy repository collector. A secondary-only foreground
+        // service must terminate rather than advertise perpetual "Connecting…".
+        scope.launch {
+            while (isActive) {
+                delay(15_000L)
+                if (!shouldRun(this@TelegramNotificationService)) {
+                    stopReason = "not_allowed"
+                    stopSelf()
+                    break
+                }
+            }
+        }
         scope.launch {
             val pending = if (repository == null) runtime.secondaryPending
                 else combine(repository.notifications, runtime.secondaryPending) { legacy, secondary ->
