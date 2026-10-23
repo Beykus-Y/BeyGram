@@ -39,6 +39,27 @@ internal class TdSecondaryRestoreStore(context: Context) {
         }
     }
 
+    /** Persist incomplete deletion so startup can finish orphan cleanup.
+     * A registered account is NEVER deleted by this recovery pass. */
+    fun markDeletionPending(accountId: String) {
+        require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+            accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        check(preferences.edit().putBoolean("delete_pending:$accountId", true).commit())
+    }
+
+    fun clearDeletionPending(accountId: String) {
+        check(preferences.edit().remove("delete_pending:$accountId").commit())
+    }
+
+    fun deletionPending(accountId: String): Boolean =
+        preferences.getBoolean("delete_pending:$accountId", false)
+
+    fun pendingDeletionIds(): List<String> =
+        preferences.all.keys.filter { it.startsWith("delete_pending:") }
+            .map { it.removePrefix("delete_pending:") }
+            .filter { it != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+                it.matches(Regex("[a-zA-Z0-9_-]{1,64}")) && deletionPending(it) }
+
     fun forget(accountId: String) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
         check(preferences.edit()
