@@ -53,6 +53,18 @@ class NotificationRuntime private constructor(private val context: Context) {
         val prefs = NotificationPreferencesStore(context, accountId)
         val scopedRenderer = AndroidNotificationRenderer(context, prefs, accountId)
         val job = scope.launch {
+            launch {
+                source.authState.collect { state ->
+                    if (state == AuthState.Ready) {
+                        prefs.authorized = true
+                        val pending = prefs.pendingDismissals()
+                        for ((group, newest) in pending) {
+                            if (source.dismissNotifications(group, newest).isSuccess)
+                                prefs.acknowledge(group, newest)
+                        }
+                    }
+                }
+            }
             combine(source.notifications, source.notificationPresentation,
                 source.authState, preferences.state, invalidations
             ) { notices, presentation, auth, config, _ ->
@@ -66,18 +78,6 @@ class NotificationRuntime private constructor(private val context: Context) {
             }.collect()
         }
         secondaries[accountId] = SecondarySubscription(source, scopedRenderer, prefs, job)
-        scope.launch {
-            source.authState.collect { state ->
-                if (state == AuthState.Ready) {
-                    prefs.authorized = true
-                    val pending = prefs.pendingDismissals()
-                    for ((group, newest) in pending) {
-                        if (source.dismissNotifications(group, newest).isSuccess)
-                            prefs.acknowledge(group, newest)
-                    }
-                }
-            }
-        }
     }
 
     fun dismissSecondary(accountId: String, groupId: Int, maxId: Int) {
