@@ -5,6 +5,7 @@ import com.beykus.beygram.BeyGramApplication
 import com.beykus.beygram.data.vpn.MihomoProxyService
 import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.notifications.NotificationRuntime
+import com.beykus.beygram.notifications.NotificationPreferencesStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -23,11 +24,28 @@ import kotlinx.coroutines.sync.withLock
  */
 internal class TdSecondaryAccountController private constructor(
     context: Context,
-    private val primaryRoute: suspend () -> TelegramRoute?
+    initialPrimaryRoute: suspend () -> TelegramRoute?,
+    backgroundOnly: Boolean
 ) {
+    @Volatile private var primaryRoute: suspend () -> TelegramRoute? = initialPrimaryRoute
+    @Volatile private var backgroundRestoreOnly: Boolean = backgroundOnly
+
+    private fun allowBackgroundRestore(accountId: String): Boolean {
+        val prefs = NotificationPreferencesStore(app, accountId)
+        return prefs.authorized && prefs.state.value.enabled && prefs.state.value.background
+    }
+
+    /** An Activity can safely upgrade the startup policy and its primary route. */
+    private fun updateProvider(provider: suspend () -> TelegramRoute?, backgroundOnly: Boolean) {
+        primaryRoute = provider
+        if (!backgroundOnly && backgroundRestoreOnly) {
+            backgroundRestoreOnly = false
+            app.applicationScope.launch { restoreRemembered() }
+        }
+    }
     private val app = context.applicationContext as BeyGramApplication
     private val preflight = TdSecondaryAccountRoutePreflight.forApplication(app)
-    private val launcher = TdSecondaryNativeLoginLauncher.forApplication(app, primaryRoute)
+    private val launcher = TdSecondaryNativeLoginLauncher.forApplication(app) { primaryRoute() }
     private val registry = TdAccountRegistry(app.filesDir)
     private val restoreStore = TdSecondaryRestoreStore(app)
     val coordinator = TdSecondarySessionCoordinator(
@@ -52,6 +70,7 @@ internal class TdSecondaryAccountController private constructor(
         coordinator.refresh()
         val registered = registry.loadOrCreate()
         for ((accountId, preference) in restoreStore.candidates(registered)) {
+            if (backgroundRestoreOnly && !allowBackgroundRestore(accountId)) continue
             val row = coordinator.snapshot.value.accounts.firstOrNull { it.accountId == accountId }
             if (row?.connectedInThisProcess == true) continue
             // If the last generation is still closing, connect refuses to
@@ -122,10 +141,10 @@ internal class TdSecondaryAccountController private constructor(
     companion object {
         @Volatile private var instance: TdSecondaryAccountController? = null
 
-        fun get(context: Context, primaryRoute: suspend () -> TelegramRoute?): TdSecondaryAccountController =
-            instance ?: synchronized(this) {
-                instance ?: TdSecondaryAccountController(context.applicationContext, primaryRoute)
-                    .also { instance = it }
+        fun get(context: Context, primaryRoute: suspend () -> TelegramRoute?, backgroundOnly: Boolean = false): TdSecondaryAccountController =
+            synchronized(this) {
+                (instance ?: TdSecondaryAccountController(context.applicationContext, primaryRoute, backgroundOnly)
+                    .also { instance = it }).also { it.updateProvider(primaryRoute, backgroundOnly) }
             }
     }
 }
