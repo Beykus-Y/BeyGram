@@ -194,6 +194,17 @@ internal class TdSecondaryAccountController private constructor(
             })
     }
 
+    /** Coordinates manual route switches against automatic account restore. */
+    suspend fun reconnectWithRoute(accountId: String, preference: TdSecondaryRoutePreference) =
+        restoreMutex.withLock {
+            coordinator.reconnectWithRoute(accountId, preference) { route ->
+                val decision = preflight.decide(primaryRoute(), route)
+                check(decision !is TdSecondaryRouteDecision.Blocked) {
+                    "Connection route is currently unavailable"
+                }
+            }
+        }
+
     /** Also called when entering the account screen; serializes all route probes. */
     suspend fun checkRoutesNow() = reconcileMutex.withLock {
         coordinator.reconcileRoutes { preference ->
