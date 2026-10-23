@@ -23,6 +23,13 @@ internal fun notificationChatPath(
         else "account/$accountId/chat/$chatId/$groupId/$maxId/$topicId"
 }
 
+/** URI ownership must be part of the PendingIntent identity. */
+internal fun notificationReplyPath(accountId: String, groupId: Int): String {
+    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+    require(groupId > 0)
+    return if (accountId == "legacy") "reply/$groupId" else "account/$accountId/reply/$groupId"
+}
+
 internal object NotificationIntents {
     const val OPEN_CHAT = "com.beykus.beygram.OPEN_NOTIFICATION_CHAT"
     const val OPEN_SETTINGS = "com.beykus.beygram.OPEN_NOTIFICATION_SETTINGS"
@@ -52,7 +59,7 @@ internal object NotificationIntents {
         val groupId = intent.getIntExtra(GROUP_ID, 0)
         val chatId = intent.getLongExtra(CHAT_ID, 0L)
         if (groupId <= 0 || chatId == 0L) return null
-        val path = if (accountId == "legacy") "reply/$groupId" else "account/$accountId/reply/$groupId"
+        val path = notificationReplyPath(accountId, groupId)
         return accountId.takeIf { intent.data?.path?.trimStart('/') == path }
     }
 
@@ -132,7 +139,7 @@ internal object NotificationIntents {
      */
     fun reply(context: Context, chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long, accountId: String = "legacy"): PendingIntent {
         require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
-        val path = if (accountId == "legacy") "reply/$groupId" else "account/$accountId/reply/$groupId"
+        val path = notificationReplyPath(accountId, groupId)
         val session = NotificationRuntime.get(context).preferencesForAccount(accountId).replyToken()
         return PendingIntent.getBroadcast(context, 0,
             Intent(context, NotificationReplyReceiver::class.java).setAction(REPLY)
