@@ -64,4 +64,24 @@ class MessageArrivalStoreTest {
         assertEquals(37L, history.liveArrivals.first().messageId)
         assertEquals(100L, history.liveArrivals.last().messageId)
     }
+
+    @Test fun sendConfirmationsAreRecordedAsIdReplacements() {
+        val store = MessageHistoryStore()
+        store.put(message(10, state = MessageSendState.Sending))
+        store.put(message(100), replaces = 10L)
+        val history = store.observe(1L).value
+        assertEquals(listOf(10L to 100L), history.recentReplacements.map { it.oldId to it.newId })
+    }
+
+    @Test fun theReplacementLogIsBounded() {
+        val store = MessageHistoryStore()
+        (1L..100L).forEach { index ->
+            store.put(message(1000L + index, state = MessageSendState.Sending))
+            store.put(message(2000L + index), replaces = 1000L + index)
+        }
+        val replacements = store.observe(1L).value.recentReplacements
+        assertEquals(64, replacements.size)
+        assertEquals(1037L, replacements.first().oldId)
+        assertEquals(2100L, replacements.last().newId)
+    }
 }

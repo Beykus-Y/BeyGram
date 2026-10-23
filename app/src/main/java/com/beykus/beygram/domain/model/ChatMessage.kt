@@ -65,11 +65,16 @@ data class ChatHistory(
      * history never adds entries, so the UI can animate only genuinely new messages and never a page of old ones.
      */
     val liveArrivals: List<LiveMessageArrival> = emptyList(),
-    val liveArrivalSequence: Long = 0L
+    val liveArrivalSequence: Long = 0L,
+    /** Recent temporary-to-server ID replacements, bounded by the history store. */
+    val recentReplacements: List<MessageIdReplacement> = emptyList()
 )
 
 /** One live insertion, ordered by [sequence] within a history store. A temporary-to-server replacement is not an arrival. */
 data class LiveMessageArrival(val sequence: Long, val messageId: Long)
+
+/** A server confirmation moved a visible temporary message to [newId]. */
+data class MessageIdReplacement(val oldId: Long, val newId: Long)
 
 data class MessageReply(val chatId: Long, val messageId: Long, val text: UiText, val senderName: String = "", val isUnavailable: Boolean = false)
 data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boolean = false, val canEdit: Boolean = false, val canDeleteForSelf: Boolean = false, val canDeleteForAll: Boolean = false, val canForward: Boolean = false, val canSave: Boolean = false)

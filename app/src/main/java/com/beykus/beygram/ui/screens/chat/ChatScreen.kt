@@ -35,7 +35,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -52,6 +56,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
+import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
@@ -75,6 +80,9 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+
+/** More than one transition can be in flight, but an accidental tap storm must not create an unbounded overlay. */
+private const val MAX_ACTIVE_COMPOSER_LAUNCHES = 4
 
 @OptIn(FlowPreview::class)
 @Composable
@@ -310,6 +318,69 @@ fun ChatScreen(
     // Live insertions are claimed before the lazy list composes its rows, so only genuinely new messages animate once.
     val animationTracker = remember(chat.id, forumTopicId) { MessageArrivalTracker() }
     remember(history) { animationTracker.observe(history) }
+    // Composer Launch is a spatial overlay; the real row stays hidden until the overlay lands on it.
+    val composerLaunches = remember(chat.id, forumTopicId) { mutableStateListOf<ComposerLaunch>() }
+    var composerFieldBounds by remember { mutableStateOf<Rect?>(null) }
+    var launchOverlayBounds by remember { mutableStateOf<Rect?>(null) }
+    var composerLaunchCounter by remember { mutableLongStateOf(0L) }
+    var composerDraftLaunchKey by remember { mutableStateOf<Long?>(null) }
+    // Hiding is bound to the exact send attempt, not to the text value: a new identical draft must stay visible.
+    val hidingComposerForLaunch = shouldHideComposerDraft(
+        editing = editId != null,
+        draft = draft,
+        activeLaunchKey = composerDraftLaunchKey,
+        launch = composerLaunches.firstOrNull { it.key == composerDraftLaunchKey }
+    )
+    // Follow sends across the temporary-to-server id replacement and cancel transitions for failed messages.
+    LaunchedEffect(composerLaunches.toList(), history.messages, history.liveArrivals, history.recentReplacements) {
+        if (composerLaunches.isEmpty()) return@LaunchedEffect
+        val assigned = composerLaunches.mapNotNull { launch ->
+            launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
+        }.toMutableSet()
+        composerLaunches.sortedBy { it.key }.toList().forEach { launch ->
+            val existing = launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
+            if (existing != null) {
+                val current = messages.firstOrNull { it.id == existing }
+                when {
+                    current == null -> Unit
+                    current.sendState == MessageSendState.Failed -> composerLaunches.remove(launch)
+                    else -> launch.message = current
+                }
+            } else {
+                val candidate = findComposerLaunchMessage(
+                    history, launch.text, launch.replyToMessageId, launch.baselineSequence, assigned
+                )
+                if (candidate != null) {
+                    if (candidate.sendState == MessageSendState.Failed) {
+                        composerLaunches.remove(launch)
+                    } else {
+                        launch.messageId = candidate.id
+                        launch.message = candidate
+                        assigned += resolveMessageIdThroughReplacements(candidate.id, history.recentReplacements)
+                    }
+                }
+            }
+        }
+    }
+    // Resolve the same assignment synchronously for this list frame, so a new outgoing row is hidden before the effect runs.
+    val launchTargets = buildMap<Long, ComposerLaunch> {
+        val assigned = mutableSetOf<Long>()
+        composerLaunches.sortedBy { it.key }.forEach { launch ->
+            val existing = launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
+            if (existing != null) {
+                assigned += existing
+                put(existing, launch)
+            } else {
+                val candidate = findComposerLaunchMessage(
+                    history, launch.text, launch.replyToMessageId, launch.baselineSequence, assigned
+                )
+                if (candidate != null) {
+                    assigned += candidate.id
+                    put(candidate.id, launch)
+                }
+            }
+        }
+    }
     val newest = messages.lastOrNull()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     // A batch collected while the app was away is not a burst of entrances; keep the tracker paused through the first resume frames.
@@ -588,6 +659,7 @@ fun ChatScreen(
         onFocusHandled()
     }
 
+    Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (actionMessage != null) MessageActionsBar(
             capabilities = capabilities, error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
@@ -645,13 +717,26 @@ fun ChatScreen(
                 } else {
                     val message = listItem.messages.single()
                     val animateArrival = remember(listItem.key) { animationTracker.claim(listOf(message.id)) }
-                    MessageAnimationFrame(animate = animateArrival, outgoing = message.isOutgoing, config = messageAnimations) {
+                    val launch = launchTargets[message.id]
+                    val launchModifier = if (launch != null) Modifier.graphicsLayer { alpha = 0f } else Modifier
+                    val bubblePosition: ((Rect) -> Unit)? = launch?.let { target ->
+                        { rect ->
+                            val fieldTop = composerFieldBounds?.top ?: Float.MAX_VALUE
+                            val screenTop = launchOverlayBounds?.top ?: 0f
+                            // Ignore prefetched or offscreen rows: the overlay must land on a bubble the user can see.
+                            if (rect.bottom <= fieldTop && rect.top >= screenTop && target.targetBounds != rect) {
+                                target.targetBounds = rect
+                            }
+                        }
+                    }
+                    MessageAnimationFrame(animate = animateArrival && launch == null, outgoing = message.isOutgoing, config = messageAnimations, modifier = launchModifier) {
                         if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
                         else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                         else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                             highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                             onPlayed = { conversation.openMessageContent(chat.id, message.id) },
-                            onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
+                            onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
+                            onBubblePositioned = bubblePosition)
                     }
                 }
             }
@@ -716,6 +801,11 @@ fun ChatScreen(
         }
         val editing = editMessage != null
         val fieldText = if (editing) editText else draft
+        val fieldEntities = if (editing) editEntities else draftEntities
+        // While the send request is in flight, Composer Launch owns the visual copy. The draft stays in state and is
+        // restored if the send fails; hiding it here prevents two simultaneous copies of the same text.
+        val displayedFieldText = if (hidingComposerForLaunch && !editing) "" else fieldText
+        val displayedFieldEntities = if (hidingComposerForLaunch && !editing) emptyList() else fieldEntities
         val fieldLimit = when { editing -> editLimit; attachments.active -> limits.caption; else -> limits.text }
         val overLimit = fieldText.codePointCount(0, fieldText.length) > fieldLimit
         val busy = sending || editBusy || attachments.sending
@@ -741,11 +831,13 @@ fun ChatScreen(
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
             else if (videoNote.active) VideoNoteRecordingDock(videoNote, Modifier.weight(1f), onCancel = videoNote::discardLocked)
-            else FormattingTextField(fieldText, if (editing) editEntities else draftEntities,
-                onChange = { if (editing) editText = it else typedDraft(it) },
-                onEntitiesChange = { if (editing) editEntities = it else updateDraft { state -> state.copy(entities = it) } },
-                placeholder = if (attachments.active) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
-                locked = busy, isError = false, modifier = Modifier.weight(1f), focusRequest = replyFocusRequest)
+            else FormattingTextField(displayedFieldText, displayedFieldEntities,
+                onChange = { if (!hidingComposerForLaunch) { if (editing) editText = it else typedDraft(it) } },
+                onEntitiesChange = { if (!hidingComposerForLaunch) { if (editing) editEntities = it else updateDraft { state -> state.copy(entities = it) } } },
+                placeholder = if (hidingComposerForLaunch) "" else if (attachments.active) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
+                locked = busy || hidingComposerForLaunch, isError = false,
+                modifier = Modifier.weight(1f).onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
+                focusRequest = replyFocusRequest)
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
@@ -786,15 +878,48 @@ fun ChatScreen(
                             } finally { editBusy = false }
                         }
                         attachments.active -> attachments.send(draft) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
-                        else -> scope.launch {
+                        else -> {
+                            val outgoingAnimation = messageAnimations.direction(outgoing = true)
+                            val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
+                            val launch = if (messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
+                                composerFieldBounds?.let { source ->
+                                    composerLaunchCounter += 1
+                                    ComposerLaunch(
+                                        key = composerLaunchCounter,
+                                        text = outgoing.text,
+                                        entities = outgoing.entities,
+                                        replyToMessageId = replyId,
+                                        sourceBounds = source,
+                                        baselineSequence = history.liveArrivalSequence,
+                                        speed = outgoingAnimation.tuning.speed
+                                    ).also {
+                                        composerDraftLaunchKey = it.key
+                                        composerLaunches += it
+                                        while (composerLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) composerLaunches.removeAt(0)
+                                    }
+                                }
+                            } else null
                             sending = true; error = null
-                            try {
-                                val result = conversation.sendMessage(chat.id, draft, replyId, draftEntities, forumTopicId = forumTopicId)
-                                if (result.isSuccess) {
-                                    updateDraft { com.beykus.beygram.domain.model.MessageDraft() }
-                                    botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
-                                } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
-                            } finally { sending = false }
+                            scope.launch {
+                                var delivered = false
+                                try {
+                                    val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId)
+                                    if (result.isSuccess) {
+                                        delivered = true
+                                        updateDraft { com.beykus.beygram.domain.model.MessageDraft() }
+                                        launch?.awaitingSend = false
+                                        if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                                        botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
+                                    } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
+                                } finally {
+                                    launch?.awaitingSend = false
+                                    if (!delivered) {
+                                        launch?.let(composerLaunches::remove)
+                                        if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                                    }
+                                    sending = false
+                                }
+                            }
                         }
                     }
                 }, contentAlignment = Alignment.Center) {
@@ -810,6 +935,20 @@ fun ChatScreen(
         )
         if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation)
         }
+    }
+    ComposerLaunchOverlay(
+        launches = composerLaunches,
+        chatId = chat.id,
+        overlayBounds = launchOverlayBounds,
+        onFinished = {
+            composerLaunches.remove(it)
+            if (composerDraftLaunchKey == it.key) composerDraftLaunchKey = null
+        },
+        onCancel = {
+            composerLaunches.remove(it)
+            if (composerDraftLaunchKey == it.key) composerDraftLaunchKey = null
+        }
+    )
     }
     // Each unacknowledged video draft remains in the app center. Only the oldest is shown;
     // later previews are retained, not overwritten by a second showPreview() call.
@@ -908,7 +1047,8 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
 
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {}) {
+    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {},
+    onBubblePositioned: ((Rect) -> Unit)? = null) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
     val shape = bubbleShape(message.isOutgoing, metrics)
@@ -939,6 +1079,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                          Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
                     .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                     .then(if (highlighted && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
+                    .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
                     .combinedClickable(onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() }, onLongClick = onActions),
                 overlayMeta = overlayMeta,
                 body = {
