@@ -67,10 +67,11 @@ import kotlinx.coroutines.launch
 fun ReportProblemScreen(
     repository: TelegramRepository,
     connectionState: TelegramConnectionState,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    accountId: String = "legacy"
 ) {
     val context = LocalContext.current
-    val viewModel: ReportProblemViewModel = viewModel(factory = viewModelFactory {
+    val viewModel: ReportProblemViewModel = viewModel(key = "report-problem:$accountId", factory = viewModelFactory {
         initializer { ReportProblemViewModel(repository, context.applicationContext) }
     })
     val coordinator = viewModel.coordinator
