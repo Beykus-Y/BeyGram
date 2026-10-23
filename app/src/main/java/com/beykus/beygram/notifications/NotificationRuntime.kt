@@ -35,6 +35,20 @@ class NotificationRuntime private constructor(private val context: Context) {
         val job: Job
     )
     private val secondaries = ConcurrentHashMap<String, SecondarySubscription>()
+    private val secondaryPendingAccounts = ConcurrentHashMap.newKeySet<String>()
+    private val secondaryConnectedAccounts = ConcurrentHashMap.newKeySet<String>()
+    private val _secondaryPending = MutableStateFlow(false)
+    val secondaryPending = _secondaryPending.asStateFlow()
+    private val _secondaryConnected = MutableStateFlow(false)
+    val secondaryConnected = _secondaryConnected.asStateFlow()
+    private fun setSecondaryPending(accountId: String, active: Boolean) {
+        if (active) secondaryPendingAccounts.add(accountId) else secondaryPendingAccounts.remove(accountId)
+        _secondaryPending.value = secondaryPendingAccounts.isNotEmpty()
+    }
+    private fun setSecondaryConnected(accountId: String, active: Boolean) {
+        if (active) secondaryConnectedAccounts.add(accountId) else secondaryConnectedAccounts.remove(accountId)
+        _secondaryConnected.value = secondaryConnectedAccounts.isNotEmpty()
+    }
     private val secondaryPreferences = ConcurrentHashMap<String, NotificationPreferencesStore>()
 
     /** Settings and renderer must share the same live per-account StateFlow. */
@@ -60,6 +74,18 @@ class NotificationRuntime private constructor(private val context: Context) {
         val prefs = preferencesForAccount(accountId)
         val scopedRenderer = AndroidNotificationRenderer(context, prefs, accountId)
         val job = scope.launch {
+            // The foreground service must hold the same bounded delivery wake
+            // lock for pending secondary TDLib notices as for the legacy client.
+            launch {
+                combine(source.notifications, source.authState) { notices, auth ->
+                    auth == AuthState.Ready && notices.hasPending
+                }.collect { setSecondaryPending(accountId, it) }
+            }
+            launch {
+                combine(source.connectionState, source.authState) { connection, auth ->
+                    auth == AuthState.Ready && connection == TelegramConnectionState.Connected
+                }.collect { setSecondaryConnected(accountId, it) }
+            }
             launch {
                 source.authState.collect { state ->
                     if (state == AuthState.Ready) {
