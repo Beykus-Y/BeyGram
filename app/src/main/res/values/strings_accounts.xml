@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="secondary_accounts_title">Аккаунты Telegram</string>
+    <string name="secondary_accounts_beta_warning">Экспериментальный вход во второй аккаунт. Авторизация хранится отдельно, но чаты, уведомления и переключение аккаунтов пока не реализованы. Основной аккаунт остаётся активным.</string>
+    <string name="secondary_accounts_primary">Основной аккаунт</string>
+    <string name="secondary_accounts_primary_status">Текущие чаты, сообщения и уведомления относятся только к нему</string>
+    <string name="secondary_accounts_others">Дополнительные аккаунты</string>
+    <string name="secondary_accounts_account_label">Дополнительный аккаунт %1$d</string>
+    <string name="secondary_accounts_authorized">Авторизован (чаты пока недоступны)</string>
+    <string name="secondary_accounts_offline">Сессия не запущена в этом процессе</string>
+    <string name="secondary_accounts_signing_in">Авторизация или подключение</string>
+    <string name="secondary_accounts_add">Подготовить новый аккаунт</string>
+    <string name="secondary_accounts_selected">Авторизация дополнительного аккаунта</string>
+    <string name="secondary_accounts_route">Маршрут подключения</string>
+    <string name="secondary_accounts_follow_route">Как у основного</string>
+    <string name="secondary_accounts_explicit_direct">Прямое соединение (явно)</string>
+    <string name="secondary_accounts_connect">Подключить аккаунт</string>
+    <string name="secondary_accounts_ready_no_chats">Вход выполнен. Переключение на чаты этого аккаунта появится в следующем этапе разработки.</string>
+    <string name="secondary_accounts_other_auth">Telegram запросил дополнительный способ авторизации, ещё не поддерживаемый этой бета-версией.</string>
+    <string name="secondary_accounts_connecting">Подключаемся к Telegram…</string>
+    <string name="secondary_accounts_disconnect">Остановить эту сессию (без выхода из Telegram)</string>
+    <string name="secondary_accounts_action_error">Операция не выполнена. Проверьте подключение и маршрут прокси; основная сессия не затронута.</string>
+</resources>
