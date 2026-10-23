@@ -20,7 +20,7 @@ class TdSecondaryStartupReplayTest {
         buffer.record(pending, hasObservers = false)
 
         val received = mutableListOf<TdApi.Object>()
-        buffer.replay(received::add)
+        buffer.replay { received.add(it) }
         assertEquals(4, received.size)
         assertSame(snapshot, received[0])
         assertSame(group, received[1])
@@ -28,7 +28,7 @@ class TdSecondaryStartupReplayTest {
         assertSame(pending, received[3])
 
         val repeated = mutableListOf<TdApi.Object>()
-        buffer.replay(repeated::add)
+        buffer.replay { repeated.add(it) }
         // Stateful snapshot remains available; one-time deltas are not resent.
         assertEquals(listOf(snapshot), repeated)
     }
@@ -45,7 +45,7 @@ class TdSecondaryStartupReplayTest {
         buffer.record(delta, hasObservers = false)
 
         val received = mutableListOf<TdApi.Object>()
-        buffer.replay(received::add)
+        buffer.replay { received.add(it) }
         assertEquals(listOf(latest, delta), received)
     }
 
@@ -54,11 +54,11 @@ class TdSecondaryStartupReplayTest {
         buffer.record(TdApi.UpdateActiveNotifications(), hasObservers = false)
         buffer.record(TdApi.UpdateNotificationGroup(), hasObservers = true)
         val beforeClear = mutableListOf<TdApi.Object>()
-        buffer.replay(beforeClear::add)
+        buffer.replay { beforeClear.add(it) }
         assertEquals(1, beforeClear.size)
         buffer.clear()
         val afterClear = mutableListOf<TdApi.Object>()
-        buffer.replay(afterClear::add)
+        buffer.replay { afterClear.add(it) }
         assertTrue(afterClear.isEmpty())
     }
 }
