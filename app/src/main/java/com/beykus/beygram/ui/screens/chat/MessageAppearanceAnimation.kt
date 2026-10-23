@@ -92,7 +92,9 @@ internal fun messageAnimationPlan(direction: MessageAnimationDirection, outgoing
         )
         MessageAnimationPreset.Pop -> MessageAnimationPlan(
             alphaFrom = (1f - 0.35f * intensity).coerceIn(0f, 1f),
-            scaleFrom = (tuning.scale - 0.08f).coerceIn(0.72f, 0.98f),
+            // Pop adds its own extra shrink on top of the configured starting scale, but intensity must be able to
+            // turn the whole visible change off (0% -> scale 1).
+            scaleFrom = (1f - ((1f - tuning.scale) + 0.08f) * intensity).coerceIn(0.72f, 1f),
             offsetXDp = 0f,
             offsetYDp = 0f,
             durationMillis = (POP_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(80, 420),
@@ -101,7 +103,7 @@ internal fun messageAnimationPlan(direction: MessageAnimationDirection, outgoing
         )
         MessageAnimationPreset.Flow -> MessageAnimationPlan(
             alphaFrom = (1f - 0.5f * intensity).coerceIn(0f, 1f),
-            scaleFrom = (scaleFrom * 0.985f).coerceIn(0.5f, 1f),
+            scaleFrom = (1f - ((1f - tuning.scale) + 0.015f) * intensity).coerceIn(0.5f, 1f),
             offsetXDp = if (vertical != 0f) 0f else horizontal * signedOffset,
             offsetYDp = if (vertical != 0f) vertical * signedOffset * 0.75f else -minOf(6f, signedOffset * 0.35f),
             durationMillis = (FLOW_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(100, 620),
@@ -109,7 +111,7 @@ internal fun messageAnimationPlan(direction: MessageAnimationDirection, outgoing
         )
         MessageAnimationPreset.Drift -> MessageAnimationPlan(
             alphaFrom = (1f - 0.45f * intensity).coerceIn(0f, 1f),
-            scaleFrom = (scaleFrom * 0.97f).coerceIn(0.5f, 1f),
+            scaleFrom = (1f - ((1f - tuning.scale) + 0.03f) * intensity).coerceIn(0.5f, 1f),
             offsetXDp = if (vertical != 0f) 0f else horizontal * signedOffset * 1.3f,
             offsetYDp = if (vertical != 0f) vertical * signedOffset * 1.3f else -signedOffset * 0.85f,
             durationMillis = (DRIFT_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(120, 700),
@@ -118,7 +120,8 @@ internal fun messageAnimationPlan(direction: MessageAnimationDirection, outgoing
         MessageAnimationPreset.Quick -> MessageAnimationPlan(
             alphaFrom = (1f - 0.18f * intensity).coerceIn(0f, 1f),
             scaleFrom = (1f - 0.015f * intensity).coerceIn(0.96f, 1f),
-            offsetXDp = horizontal * 2f * intensity,
+            // Quick has no Direction control, so an override saved for another preset must not erase its offset.
+            offsetXDp = automaticHorizontalSign(outgoing) * 2f * intensity,
             offsetYDp = 0f,
             durationMillis = (QUICK_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(60, 160),
             easing = MessageAnimationEasing.Smooth
@@ -128,23 +131,28 @@ internal fun messageAnimationPlan(direction: MessageAnimationDirection, outgoing
             scaleFrom = scaleFrom,
             offsetXDp = 0f,
             offsetYDp = -2f * intensity,
-            rotationYDegrees = horizontal * 8f * intensity,
+            rotationYDegrees = automaticHorizontalSign(outgoing) * 8f * intensity,
             durationMillis = (TILT_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(100, 620),
             easing = tuning.easing
         )
         MessageAnimationPreset.Sway -> MessageAnimationPlan(
             alphaFrom = (1f - 0.45f * intensity).coerceIn(0f, 1f),
             scaleFrom = scaleFrom,
-            offsetXDp = horizontal * 3f * intensity,
+            offsetXDp = automaticHorizontalSign(outgoing) * 3f * intensity,
             offsetYDp = 0f,
-            rotationZDegrees = horizontal * 2.4f * intensity,
+            rotationZDegrees = automaticHorizontalSign(outgoing) * 2.4f * intensity,
             durationMillis = (SWAY_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(100, 620),
             easing = tuning.easing
         )
         // The row itself is hidden while the spatial composer transition runs. If the transition is unavailable,
-        // the same row falls back to BeyGram Flow instead of appearing without an effect.
+        // the same row falls back to BeyGram Flow instead of appearing without an effect. Composer Launch has no
+        // Direction control, so the automatic mirror is restored for the fallback as well.
         MessageAnimationPreset.ComposerLaunch -> messageAnimationPlan(
-            direction.copy(preset = MessageAnimationPreset.Flow), outgoing
+            direction.copy(
+                preset = MessageAnimationPreset.Flow,
+                tuning = tuning.copy(motionDirection = MessageAnimationMotionDirection.Auto)
+            ),
+            outgoing
         )
         MessageAnimationPreset.Custom -> MessageAnimationPlan(
             alphaFrom = (1f - 0.9f * intensity).coerceIn(0f, 1f),
@@ -162,11 +170,14 @@ internal fun messageAnimationPlan(config: MessageAnimationConfig, animate: Boole
     if (!config.enabled || !animate) null else messageAnimationPlan(config.direction(outgoing), outgoing)
 
 private fun horizontalSign(outgoing: Boolean, direction: MessageAnimationMotionDirection): Float = when (direction) {
-    MessageAnimationMotionDirection.Auto -> if (outgoing) 1f else -1f
+    MessageAnimationMotionDirection.Auto -> automaticHorizontalSign(outgoing)
     MessageAnimationMotionDirection.FromEnd -> 1f
     MessageAnimationMotionDirection.FromStart -> -1f
     MessageAnimationMotionDirection.FromTop, MessageAnimationMotionDirection.FromBottom -> 0f
 }
+
+/** Presets without a Direction control always use the mirrored automatic side. */
+private fun automaticHorizontalSign(outgoing: Boolean): Float = if (outgoing) 1f else -1f
 
 private fun verticalSign(direction: MessageAnimationMotionDirection): Float = when (direction) {
     MessageAnimationMotionDirection.FromTop -> -1f

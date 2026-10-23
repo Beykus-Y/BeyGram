@@ -5,10 +5,15 @@ import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.LiveMessageArrival
 import com.beykus.beygram.domain.model.MessageIdReplacement
 import com.beykus.beygram.domain.model.MessageSendState
+import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TextStyleKind
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntSize
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ComposerLaunchTest {
@@ -38,6 +43,17 @@ class ComposerLaunchTest {
         liveArrivalSequence = arrivals.lastOrNull()?.sequence ?: 0L,
         recentReplacements = replacements
     )
+
+    private fun launch(key: Long, text: String = "OK", awaitingSend: Boolean = true) =
+        ComposerLaunch(
+            key = key,
+            text = text,
+            entities = emptyList(),
+            replyToMessageId = null,
+            sourceBounds = Rect(10f, 20f, 110f, 60f),
+            baselineSequence = 0L,
+            speed = 1f
+        ).also { it.awaitingSend = awaitingSend }
 
     @Test fun replacementChainsAreFollowedSafely() {
         val replacements = listOf(
@@ -136,5 +152,36 @@ class ComposerLaunchTest {
         val secondMatch = findComposerLaunchMessage(snapshot, "Hello", null, 0L, setOf(10L))
         assertEquals(10L, firstMatch?.id)
         assertEquals(11L, secondMatch?.id)
+    }
+
+    @Test fun oversizedDraftIsMatchedByTheBoundedPayloadThatIsActuallySent() {
+        val draft = "abcdefghijklmnopqrst"
+        val entities = listOf(MessageTextEntity(8, 5, TextStyleKind.Bold))
+        val bounded = composerLaunchPayload(draft, entities, 10)
+        assertTrue(bounded.truncated)
+        assertEquals("abcdefghij", bounded.text)
+        assertEquals(2, bounded.entities.single().length)
+        assertTrue(bounded.entities.all { it.offset + it.length <= bounded.text.length })
+
+        val sent = message(2L, text = bounded.text)
+        val history = history(listOf(sent), listOf(LiveMessageArrival(1, 2)))
+        assertNotNull(findComposerLaunchMessage(history, bounded.text, null, 0L, emptySet()))
+        assertNull(findComposerLaunchMessage(history, draft, null, 0L, emptySet()))
+    }
+
+    @Test fun aNewIdenticalDraftIsNotHiddenByAnAlreadySentLaunch() {
+        val finished = launch(key = 1L, text = "OK", awaitingSend = false)
+        // The user types "OK" again after the previous send completed, before its launch receives a message id.
+        assertFalse(shouldHideComposerDraft(editing = false, draft = "OK", activeLaunchKey = 1L, launch = finished))
+        assertFalse(shouldHideComposerDraft(editing = false, draft = "OK", activeLaunchKey = null, launch = finished))
+    }
+
+    @Test fun hidingIsBoundToTheCurrentSendAttempt() {
+        val first = launch(key = 1L, text = "OK", awaitingSend = false)
+        val second = launch(key = 2L, text = "OK", awaitingSend = true)
+        assertFalse(shouldHideComposerDraft(false, "OK", activeLaunchKey = 2L, launch = first))
+        assertTrue(shouldHideComposerDraft(false, "OK", activeLaunchKey = 2L, launch = second))
+        assertFalse(shouldHideComposerDraft(true, "OK", activeLaunchKey = 2L, launch = second))
+        assertFalse(shouldHideComposerDraft(false, "later", activeLaunchKey = 2L, launch = second))
     }
 }

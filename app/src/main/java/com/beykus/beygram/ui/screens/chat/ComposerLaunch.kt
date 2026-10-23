@@ -55,6 +55,8 @@ import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageIdReplacement
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TelegramBoundedText
+import com.beykus.beygram.domain.model.boundTelegramText
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.delay
@@ -78,6 +80,19 @@ internal class ComposerLaunch(
     var targetBounds by mutableStateOf<Rect?>(null)
     var awaitingSend by mutableStateOf(true)
 }
+
+/** The exact bounded text and entities that are handed to TDLib and matched by a Composer Launch. */
+internal fun composerLaunchPayload(text: String, entities: List<MessageTextEntity>, limit: Int): TelegramBoundedText =
+    boundTelegramText(text, entities, limit)
+
+/** A newly typed draft can reuse the previous launch's text; only the attempt that is still sending may hide it. */
+internal fun shouldHideComposerDraft(
+    editing: Boolean,
+    draft: String,
+    activeLaunchKey: Long?,
+    launch: ComposerLaunch?
+): Boolean = !editing && draft.isNotBlank() && launch != null && launch.key == activeLaunchKey &&
+    launch.awaitingSend && launch.text == draft
 
 /** Follows a temporary message id through a bounded chain of send confirmations. */
 internal fun resolveMessageIdThroughReplacements(id: Long, replacements: List<MessageIdReplacement>): Long {

@@ -56,7 +56,11 @@ data class MessageAnimationConfig(
     fun direction(outgoing: Boolean): MessageAnimationDirection {
         val selected = if (linkedDirections) shared else if (outgoing) sent else received
         return if (!outgoing && selected.preset == MessageAnimationPreset.ComposerLaunch) {
-            selected.copy(preset = MessageAnimationPreset.Flow)
+            // Composer Launch has no Direction control; its incoming Flow fallback must not inherit a hidden override.
+            selected.copy(
+                preset = MessageAnimationPreset.Flow,
+                tuning = selected.tuning.copy(motionDirection = MessageAnimationMotionDirection.Auto)
+            )
         } else selected
     }
 
@@ -168,7 +172,8 @@ fun MessageAnimationTuning.validated(): MessageAnimationTuning = copy(
 /** Incoming messages cannot keep an outgoing-only preset; such a choice falls back to the BeyGram Flow entrance. */
 fun MessageAnimationDirection.validated(outgoing: Boolean): MessageAnimationDirection {
     val safePreset = if (!outgoing && preset == MessageAnimationPreset.ComposerLaunch) MessageAnimationPreset.Flow else preset
-    return copy(preset = safePreset, tuning = tuning.validated())
+    val safeTuning = if (safePreset != preset) tuning.copy(motionDirection = MessageAnimationMotionDirection.Auto) else tuning
+    return copy(preset = safePreset, tuning = safeTuning.validated())
 }
 
 fun MessageAnimationConfig.validated(): MessageAnimationConfig = copy(

@@ -60,12 +60,29 @@ class MessageAnimationConfigTest {
     @Test fun composerLaunchIsOutgoingOnlyAndIncomingFallsBackToFlow() {
         val linked = MessageAnimationConfig(
             linkedDirections = true,
-            shared = MessageAnimationDirection(MessageAnimationPreset.ComposerLaunch)
+            shared = MessageAnimationDirection(
+                preset = MessageAnimationPreset.ComposerLaunch,
+                tuning = MessageAnimationTuning(motionDirection = MessageAnimationMotionDirection.FromTop)
+            )
         )
         assertEquals(MessageAnimationPreset.ComposerLaunch, linked.direction(outgoing = true).preset)
         assertEquals(MessageAnimationPreset.Flow, linked.direction(outgoing = false).preset)
+        assertEquals(
+            MessageAnimationMotionDirection.Auto,
+            linked.direction(outgoing = false).tuning.motionDirection
+        )
         assertEquals(MessageAnimationPreset.Fade, linked.validated().received.preset)
         assertTrue(MessageAnimationPreset.ComposerLaunch.supportsIncoming().not())
+
+        val independent = linked.copy(
+            linkedDirections = false,
+            received = MessageAnimationDirection(
+                preset = MessageAnimationPreset.ComposerLaunch,
+                tuning = MessageAnimationTuning(motionDirection = MessageAnimationMotionDirection.FromBottom)
+            )
+        ).validated()
+        assertEquals(MessageAnimationPreset.Flow, independent.received.preset)
+        assertEquals(MessageAnimationMotionDirection.Auto, independent.received.tuning.motionDirection)
     }
 
     @Test fun newChoicesAndTuningRoundTripThroughVersionTwoStorage() {

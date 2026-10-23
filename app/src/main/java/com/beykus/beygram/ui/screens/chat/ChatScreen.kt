@@ -323,11 +323,14 @@ fun ChatScreen(
     var composerFieldBounds by remember { mutableStateOf<Rect?>(null) }
     var launchOverlayBounds by remember { mutableStateOf<Rect?>(null) }
     var composerLaunchCounter by remember { mutableLongStateOf(0L) }
-    // Hide only the exact draft that started a transition. A new draft typed while a previous bubble is still landing
-    // must stay visible.
-    val hidingComposerForLaunch = editId == null && draft.isNotBlank() && composerLaunches.any {
-        it.text == draft && (it.awaitingSend || it.messageId == null)
-    }
+    var composerDraftLaunchKey by remember { mutableStateOf<Long?>(null) }
+    // Hiding is bound to the exact send attempt, not to the text value: a new identical draft must stay visible.
+    val hidingComposerForLaunch = shouldHideComposerDraft(
+        editing = editId != null,
+        draft = draft,
+        activeLaunchKey = composerDraftLaunchKey,
+        launch = composerLaunches.firstOrNull { it.key == composerDraftLaunchKey }
+    )
     // Follow sends across the temporary-to-server id replacement and cancel transitions for failed messages.
     LaunchedEffect(composerLaunches.toList(), history.messages, history.liveArrivals, history.recentReplacements) {
         if (composerLaunches.isEmpty()) return@LaunchedEffect
@@ -877,18 +880,20 @@ fun ChatScreen(
                         attachments.active -> attachments.send(draft) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
                         else -> {
                             val outgoingAnimation = messageAnimations.direction(outgoing = true)
-                            val launch = if (messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && draft.isNotBlank()) {
+                            val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
+                            val launch = if (messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
                                 composerFieldBounds?.let { source ->
                                     composerLaunchCounter += 1
                                     ComposerLaunch(
                                         key = composerLaunchCounter,
-                                        text = draft,
-                                        entities = draftEntities,
+                                        text = outgoing.text,
+                                        entities = outgoing.entities,
                                         replyToMessageId = replyId,
                                         sourceBounds = source,
                                         baselineSequence = history.liveArrivalSequence,
                                         speed = outgoingAnimation.tuning.speed
                                     ).also {
+                                        composerDraftLaunchKey = it.key
                                         composerLaunches += it
                                         while (composerLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) composerLaunches.removeAt(0)
                                     }
@@ -898,16 +903,20 @@ fun ChatScreen(
                             scope.launch {
                                 var delivered = false
                                 try {
-                                    val result = conversation.sendMessage(chat.id, draft, replyId, draftEntities, forumTopicId = forumTopicId)
+                                    val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId)
                                     if (result.isSuccess) {
                                         delivered = true
                                         updateDraft { com.beykus.beygram.domain.model.MessageDraft() }
                                         launch?.awaitingSend = false
+                                        if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
                                         botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
                                     } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
                                 } finally {
                                     launch?.awaitingSend = false
-                                    if (!delivered) launch?.let(composerLaunches::remove)
+                                    if (!delivered) {
+                                        launch?.let(composerLaunches::remove)
+                                        if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                                    }
                                     sending = false
                                 }
                             }
@@ -931,8 +940,14 @@ fun ChatScreen(
         launches = composerLaunches,
         chatId = chat.id,
         overlayBounds = launchOverlayBounds,
-        onFinished = { composerLaunches.remove(it) },
-        onCancel = { composerLaunches.remove(it) }
+        onFinished = {
+            composerLaunches.remove(it)
+            if (composerDraftLaunchKey == it.key) composerDraftLaunchKey = null
+        },
+        onCancel = {
+            composerLaunches.remove(it)
+            if (composerDraftLaunchKey == it.key) composerDraftLaunchKey = null
+        }
     )
     }
     // Each unacknowledged video draft remains in the app center. Only the oldest is shown;

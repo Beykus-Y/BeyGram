@@ -75,6 +75,69 @@ class MessageAnimationPlanTest {
         assertTrue((pop.springDampingRatio ?: 1f) < 0.9f)
     }
 
+    @Test fun popHonorsZeroIntensityForItsExtraScale() {
+        val plan = messageAnimationPlan(
+            direction(
+                MessageAnimationPreset.Pop,
+                MessageAnimationTuning(intensity = 0f, scale = 0.8f)
+            ),
+            outgoing = true
+        )!!
+        assertEquals(1f, plan.scaleFrom, 0f)
+        assertEquals(1f, plan.alphaFrom, 0f)
+        assertEquals(0f, plan.offsetXDp, 0f)
+        assertEquals(0f, plan.offsetYDp, 0f)
+    }
+
+    @Test fun zeroIntensityRemovesEveryVisibleTransformForEveryPreset() {
+        val tuning = MessageAnimationTuning(
+            intensity = 0f,
+            scale = 0.8f,
+            offsetDp = 32,
+            motionDirection = MessageAnimationMotionDirection.FromBottom
+        )
+        MessageAnimationPreset.entries
+            .filter { it != MessageAnimationPreset.None }
+            .forEach { preset ->
+                val plan = messageAnimationPlan(direction(preset, tuning), outgoing = true)
+                    ?: error("$preset should have a plan")
+                assertEquals("$preset alpha", 1f, plan.alphaFrom, 0f)
+                assertEquals("$preset scale", 1f, plan.scaleFrom, 0f)
+                assertEquals("$preset offsetX", 0f, plan.offsetXDp, 0f)
+                assertEquals("$preset offsetY", 0f, plan.offsetYDp, 0f)
+                assertEquals("$preset rotationY", 0f, plan.rotationYDegrees, 0f)
+                assertEquals("$preset rotationZ", 0f, plan.rotationZDegrees, 0f)
+            }
+    }
+
+    @Test fun fixedDirectionPresetsIgnoreAHiddenOverrideFromAnotherPreset() {
+        // The user picked FromTop for Slide, then switched to presets that expose no Direction control.
+        val carried = MessageAnimationTuning(intensity = 1f, motionDirection = MessageAnimationMotionDirection.FromTop)
+        val quickSent = messageAnimationPlan(direction(MessageAnimationPreset.Quick, carried), outgoing = true)!!
+        val quickReceived = messageAnimationPlan(direction(MessageAnimationPreset.Quick, carried), outgoing = false)!!
+        val tiltSent = messageAnimationPlan(direction(MessageAnimationPreset.Tilt, carried), outgoing = true)!!
+        val tiltReceived = messageAnimationPlan(direction(MessageAnimationPreset.Tilt, carried), outgoing = false)!!
+        val swaySent = messageAnimationPlan(direction(MessageAnimationPreset.Sway, carried), outgoing = true)!!
+        val swayReceived = messageAnimationPlan(direction(MessageAnimationPreset.Sway, carried), outgoing = false)!!
+        val composerFallback = messageAnimationPlan(direction(MessageAnimationPreset.ComposerLaunch, carried), outgoing = true)!!
+
+        assertTrue(quickSent.offsetXDp > 0f)
+        assertTrue(quickReceived.offsetXDp < 0f)
+        assertTrue(tiltSent.rotationYDegrees > 0f)
+        assertTrue(tiltReceived.rotationYDegrees < 0f)
+        assertTrue(swaySent.rotationZDegrees > 0f)
+        assertTrue(swayReceived.rotationZDegrees < 0f)
+        assertTrue(composerFallback.offsetXDp > 0f)
+        assertTrue(composerFallback.offsetYDp < 0f)
+    }
+
+    @Test fun directionAwarePresetsStillHonorTheVisibleOverride() {
+        val tuning = MessageAnimationTuning(intensity = 1f, offsetDp = 20, motionDirection = MessageAnimationMotionDirection.FromTop)
+        val slide = messageAnimationPlan(direction(MessageAnimationPreset.Slide, tuning), outgoing = true)!!
+        assertEquals(0f, slide.offsetXDp, 0f)
+        assertTrue(slide.offsetYDp < 0f)
+    }
+
     @Test fun flowCombinesMirroredHorizontalAndUpwardMotion() {
         val tuning = MessageAnimationTuning(intensity = 1f, offsetDp = 20)
         val sent = messageAnimationPlan(direction(MessageAnimationPreset.Flow, tuning), outgoing = true)!!
