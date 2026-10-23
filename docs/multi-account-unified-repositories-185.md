@@ -107,6 +107,43 @@ profile, search, calls and media already depend on `TelegramRepository` /
   each account's own repository; unavailable accounts never leak a legacy
   profile or file ID.
 
+## Post-review hardening (Claude + Codex)
+
+- Activity restoration saves the selected account ID with its route state and
+  will not draw a saved chat before the durable registry is loaded. A deleted
+  or differently selected account resets saved chat/topic/search navigation.
+- Every UI account change, including notifications, discards prior chat,
+  focused-message, forum and global-search state. An unresolved secondary
+  notification deep link is consumed after its first READY attempt, with a
+  visible error rather than an unexpected later navigation.
+- Secondary-only cold-start background delivery **fails closed** when the
+  first account cannot run and the secondary route is FOLLOW_PRIMARY or
+  SHARED_MIHOMO. No misleading permanently connecting foreground service is
+  started. The user is warned in notification settings; explicitly DIRECT
+  secondary accounts can restore independently. This is a deliberate safety
+  limitation, not a claim that all proxy routes run without the first account.
+- Secondary route updates validate listener/proxy ownership **before** a
+  TDLib Close. They never set a manual-stop marker, and background restore
+  cannot race the per-account transition; a blocked route preserves the
+  previous live client and restore choice.
+- Update routing serializes TDLib events per native account, not under one
+  registry-wide lock. Startup buffering covers one-shot chat/user/message/read
+  updates, with a fail-closed maximum to avoid unbounded RAM, and errors from
+  repository observers are journaled.
+- A secondary repository cancels its scopes, native network monitor, drafts
+  and notification tasks when TDLib closes. Per-repository video diagnostics
+  are evicted on that lifecycle boundary.
+- Confirmed logout removes the account from the durable registry after the
+  native lease retires. Deletion tombstones permit idempotent restart cleanup
+  of owner-tagged sent uploads, local TDLib files and private preferences.
+  Native waits no longer block the coordinator mutex for other accounts.
+- The account switcher collects names, avatars and unread badges only while
+  needed. User-facing proxy UI uses nontechnical names, and its selected
+  controls and unread badges expose accessible semantics.
+- Current limits: manual per-account Telegram proxy configuration and real
+  Android multi-account stress tests remain outstanding. Do not merge to main
+  on the basis of CI alone.
+
 ## Important verification requirements
 
 A repository implementation can compile while real TDLib request/state
