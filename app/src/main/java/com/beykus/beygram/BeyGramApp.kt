@@ -203,49 +203,7 @@ private fun BeyGramAppContent(
     var accountRegistryReady by remember { mutableStateOf(false) }
     var accountRegistryError by remember { mutableStateOf(false) }
     val accountChoice = secondaryAccountController.coordinator.snapshot.collectAsStateWithLifecycle().value
-    // The picker observes each READY account's own profile/file and chat flows;
-    // unread IDs and avatar file IDs are never resolved by another repository.
-    val legacyPickerProfile by legacyRepository.myProfile.collectAsStateWithLifecycle()
-    val legacyPickerChats by legacyRepository.chats.collectAsStateWithLifecycle()
-    val legacyPickerArchive by legacyRepository.archivedChats.collectAsStateWithLifecycle()
-    val secondaryPickerMetadata by produceState<Map<String, AccountPickerMeta>>(
-        initialValue = emptyMap(), accountChoice.accounts
-    ) {
-        value = emptyMap()
-        kotlinx.coroutines.coroutineScope {
-            accountChoice.accounts.filter {
-                it.connectedInThisProcess &&
-                    it.phase == com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY &&
-                    !it.networkSuspended
-            }.forEach { row ->
-                launch {
-                    val source = runCatching {
-                        secondaryAccountController.coordinator.fullRepository(row.accountId, context.applicationContext)
-                    }.getOrNull() ?: return@launch
-                    combine(source.myProfile, source.chats, source.archivedChats) { profile, chats, archived ->
-                        AccountPickerMeta(
-                            title = profile.info?.title.orEmpty(),
-                            unread = (chats + archived).distinctBy { it.id }
-                                .sumOf { it.unreadCount.coerceAtLeast(0) },
-                            photo = profile.info?.photo,
-                            observeFile = source::observeFile,
-                            downloadFile = source::downloadFile
-                        )
-                    }.collect { details -> value = value + (row.accountId to details) }
-                }
-            }
-        }
-    }
-    val pickerMetadata = secondaryPickerMetadata + mapOf(
-        TdAccountStorageLayout.LEGACY_ACCOUNT_ID to AccountPickerMeta(
-            title = legacyPickerProfile.info?.title.orEmpty(),
-            unread = (legacyPickerChats + legacyPickerArchive).distinctBy { it.id }
-                .sumOf { it.unreadCount.coerceAtLeast(0) },
-            photo = legacyPickerProfile.info?.photo,
-            observeFile = legacyRepository::observeFile,
-            downloadFile = legacyRepository::downloadFile
-        )
-    )
+
     val accountRow = accountChoice.accounts.firstOrNull { it.accountId == selectedAccountId }
     val repositorySelection by produceState<TelegramRepository?>(
         initialValue = if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
@@ -324,6 +282,60 @@ private fun BeyGramAppContent(
     var memberReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.ChatInfo.name) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    // Account badges are expensive: subscribe only while the account picker
+    // or system share target chooser is visible, not throughout every chat.
+    val pickerVisible = routeName == AppRoute.AccountPicker.name || incomingShare != null
+    val pickerMetadata by produceState<Map<String, AccountPickerMeta>>(
+        initialValue = emptyMap(), pickerVisible, accountChoice.accounts
+    ) {
+        value = emptyMap()
+        if (!pickerVisible) return@produceState
+        kotlinx.coroutines.coroutineScope {
+            launch {
+                combine(legacyRepository.myProfile, legacyRepository.chats, legacyRepository.archivedChats) { profile, chats, archived ->
+                    AccountPickerMeta(
+                        title = profile.info?.title.orEmpty(),
+                        unread = (chats + archived).distinctBy { it.id }
+                            .sumOf { it.unreadCount.coerceAtLeast(0) },
+                        photo = profile.info?.photo,
+                        observeFile = legacyRepository::observeFile,
+                        downloadFile = legacyRepository::downloadFile
+                    )
+                }.collect { item ->
+                    val old = value[TdAccountStorageLayout.LEGACY_ACCOUNT_ID]
+                    if (old?.title != item.title || old.unread != item.unread || old.photo != item.photo)
+                        value = value + (TdAccountStorageLayout.LEGACY_ACCOUNT_ID to item)
+                }
+            }
+            accountChoice.accounts.filter {
+                it.connectedInThisProcess &&
+                    it.phase == com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY &&
+                    !it.networkSuspended
+            }.forEach { row ->
+                launch {
+                    val source = runCatching {
+                        withContext(Dispatchers.IO) {
+                            secondaryAccountController.coordinator.fullRepository(row.accountId, context.applicationContext)
+                        }
+                    }.getOrNull() ?: return@launch
+                    combine(source.myProfile, source.chats, source.archivedChats) { profile, chats, archived ->
+                        AccountPickerMeta(
+                            title = profile.info?.title.orEmpty(),
+                            unread = (chats + archived).distinctBy { it.id }
+                                .sumOf { it.unreadCount.coerceAtLeast(0) },
+                            photo = profile.info?.photo,
+                            observeFile = source::observeFile,
+                            downloadFile = source::downloadFile
+                        )
+                    }.collect { item ->
+                        val old = value[row.accountId]
+                        if (old?.title != item.title || old.unread != item.unread || old.photo != item.photo)
+                            value = value + (row.accountId to item)
+                    }
+                }
+            }
+        }
+    }
     var noticeError by remember { mutableStateOf<UiText?>(null) }
     LaunchedEffect(accountRegistry) {
         try {
