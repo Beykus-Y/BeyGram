@@ -72,6 +72,7 @@ internal class TdSecondaryNativeLoginLauncher(
         val phases = MutableStateFlow(TdAccountAuthPhase.STARTING)
         val chatStore = TdSecondaryChatStore(accountId)
         val fullRepositoryObservers = CopyOnWriteArrayList<(TdApi.Object) -> Unit>()
+        val startupSnapshots = LinkedHashMap<String, TdApi.Object>()
         val waitParameters = CompletableDeferred<Unit>()
         val bound = owner.create(accountId,
             onUpdate = { event ->
@@ -80,8 +81,13 @@ internal class TdSecondaryNativeLoginLauncher(
                 chatStore.receive(event)
                 // The same native client can feed the full TelegramRepository;
                 // never create a second Client for these database directories.
-                fullRepositoryObservers.forEach { observer ->
-                    runCatching { observer(event.update) }
+                synchronized(fullRepositoryObservers) {
+                    TdSecondaryStartupState.key(event.update)?.let { key ->
+                        startupSnapshots[key] = event.update
+                    }
+                    fullRepositoryObservers.forEach { observer ->
+                        runCatching { observer(event.update) }
+                    }
                 }
                 if (event.update is TdApi.UpdateAuthorizationState) {
                     when (event.update.authorizationState) {
@@ -97,7 +103,10 @@ internal class TdSecondaryNativeLoginLauncher(
                         is TdApi.AuthorizationStateClosed -> {
                             phases.value = TdAccountAuthPhase.CLOSED
                             chatStore.clear()
-                            fullRepositoryObservers.clear()
+                            synchronized(fullRepositoryObservers) {
+                                fullRepositoryObservers.clear()
+                                startupSnapshots.clear()
+                            }
                             waitParameters.cancel()
                         }
                         else -> phases.value = TdAccountAuthPhase.OTHER
@@ -107,7 +116,7 @@ internal class TdSecondaryNativeLoginLauncher(
             clientFactory = { config, handler ->
                 val client = createNativeClient(handler)
                 TdSecondaryNativeLogin(accountId, config, client, phases, planned, chatStore,
-                    fullRepositoryObservers)
+                    fullRepositoryObservers, startupSnapshots)
             }
         )
         try {
@@ -138,7 +147,8 @@ internal class TdSecondaryNativeLogin internal constructor(
     private val mutablePhase: MutableStateFlow<TdAccountAuthPhase>,
     internal val plannedRoute: TdSecondaryRouteDecision,
     val chatStore: TdSecondaryChatStore,
-    private val fullRepositoryObservers: CopyOnWriteArrayList<(TdApi.Object) -> Unit>
+    private val fullRepositoryObservers: CopyOnWriteArrayList<(TdApi.Object) -> Unit>,
+    private val startupSnapshots: LinkedHashMap<String, TdApi.Object>
 ) {
     private val fullRepositoryLock = Any()
     private var fullRepository: TdLibTelegramRepository? = null
@@ -153,8 +163,12 @@ internal class TdSecondaryNativeLogin internal constructor(
     }
 
     internal fun observeFullUpdates(observer: (TdApi.Object) -> Unit) {
-        check(authPhase.value != TdAccountAuthPhase.CLOSED)
-        fullRepositoryObservers.add(observer)
+        synchronized(fullRepositoryObservers) {
+            check(authPhase.value != TdAccountAuthPhase.CLOSED)
+            // Replay before subscribing to live events under the same dispatch lock.
+            startupSnapshots.values.forEach { observer(it) }
+            fullRepositoryObservers.add(observer)
+        }
     }
 
     val authPhase: StateFlow<TdAccountAuthPhase> = mutablePhase.asStateFlow()
@@ -342,5 +356,19 @@ internal class TdSecondaryNativeLogin internal constructor(
             )
             else -> error("Unexpected TDLib authorization response")
         }
+    }
+}
+
+/**
+ * One-shot state sent before a restored session's complete repository attaches.
+ * Never buffer transient messages, which are loaded through the normal TDLib APIs.
+ */
+internal object TdSecondaryStartupState {
+    fun key(update: TdApi.Object): String? = when (update) {
+        is TdApi.UpdateChatFolders -> "folders"
+        is TdApi.UpdateActiveEmojiReactions -> "reactions"
+        is TdApi.UpdateConnectionState -> "connection"
+        is TdApi.UpdateOption -> "option:${update.name}"
+        else -> null
     }
 }
