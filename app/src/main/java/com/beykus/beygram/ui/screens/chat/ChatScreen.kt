@@ -133,8 +133,8 @@ fun ChatScreen(
     var forwardId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var forwardBusy by remember { mutableStateOf(false) }
     var forwardError by remember { mutableStateOf<String?>(null) }
-    // A copy hides the original author; the target picker is shared with the regular forward.
-    var forwardAsCopy by remember(chat.id) { mutableStateOf(false) }
+    // A copy hides the original author; this survives recreation together with the pending forwardId.
+    var forwardAsCopy by rememberSaveable(chat.id) { mutableStateOf(false) }
     var forwardCopyConfirmId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var contextChatId by rememberSaveable(chat.id) { mutableStateOf(0L) }
     var contextMessageId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
