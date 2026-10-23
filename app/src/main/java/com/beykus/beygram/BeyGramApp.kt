@@ -190,7 +190,7 @@ private fun BeyGramAppContent(
     // The original TDLib singleton is always the legacy session. It must NOT
     // be reused as a stand-in for an offline or newly selected second account.
     val secondaryAccountController = remember(context, legacyRepository) {
-        TdSecondaryAccountController.get(context) { legacyRepository.currentRoute().getOrNull() }
+        TdSecondaryAccountController.get(context, primaryRoute = { legacyRepository.currentRoute().getOrNull() })
     }
     val accountRegistry = remember(context) { TdAccountRegistry(context.applicationContext.filesDir) }
     var selectedAccountId by remember { mutableStateOf(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }
