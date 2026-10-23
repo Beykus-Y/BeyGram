@@ -86,7 +86,7 @@ internal fun SecondaryAccountsScreen(
     LaunchedEffect(controller) {
         withContext(Dispatchers.IO) {
             coordinator.refresh()
-            controller.checkSharedRoute()
+            controller.checkRoutesNow()
         }
     }
 
@@ -121,6 +121,7 @@ internal fun SecondaryAccountsScreen(
         snapshot.accounts.forEachIndexed { index, row ->
             val phase = row.phase
             val summary = when {
+                row.networkSuspended -> stringResource(R.string.secondary_accounts_route_paused)
                 phase == TdAccountAuthPhase.READY -> stringResource(R.string.secondary_accounts_authorized)
                 phase == TdAccountAuthPhase.CLOSED || phase == null -> stringResource(R.string.secondary_accounts_offline)
                 else -> stringResource(R.string.secondary_accounts_signing_in)
@@ -128,7 +129,16 @@ internal fun SecondaryAccountsScreen(
             Column(
                 Modifier.fillMaxWidth().padding(vertical = 4.dp)
                     .background(palette.surface, RoundedCornerShape(14.dp))
-                    .clickable { selectedId = row.accountId; error = false }
+                    .clickable {
+                        // Clear secrets synchronously, before the new row can
+                        // receive its first tap on Submit. Never reuse another
+                        // account's phone/code/2FA password.
+                        phone = ""
+                        code = ""
+                        password = ""
+                        selectedId = row.accountId
+                        error = false
+                    }
                     .padding(14.dp)
             ) {
                 Text(stringResource(R.string.secondary_accounts_account_label, index + 2) +
@@ -144,7 +154,11 @@ internal fun SecondaryAccountsScreen(
                     working = true
                     error = false
                     try {
-                        selectedId = withContext(Dispatchers.IO) { coordinator.reserveAccount() }
+                        val reserved = withContext(Dispatchers.IO) { coordinator.reserveAccount() }
+                        phone = ""
+                        code = ""
+                        password = ""
+                        selectedId = reserved
                     } catch (_: Exception) { error = true }
                     finally { working = false }
                 }
@@ -186,6 +200,10 @@ internal fun SecondaryAccountsScreen(
                     else Text(stringResource(R.string.secondary_accounts_connect))
                 }
             } else {
+                if (selected.networkSuspended) {
+                    Text(stringResource(R.string.secondary_accounts_route_paused),
+                        color = palette.danger, modifier = Modifier.padding(vertical = 10.dp))
+                }
                 when (selected.phase) {
                     TdAccountAuthPhase.WAIT_PHONE -> {
                         OutlinedTextField(value = phone, onValueChange = { phone = it.take(30) },
