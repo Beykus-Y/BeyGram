@@ -318,4 +318,5 @@
     <string name="multi_share_switch_note">To share this content, open the chosen account. Nothing will be sent automatically.</string>
     <string name="multi_share_switch_action">Switch account</string>
     <string name="multi_share_choose_other">Choose another</string>
+    <plurals name="multi_account_unread"><item quantity="one">%d unread message</item><item quantity="other">%d unread messages</item></plurals>
 </resources>
