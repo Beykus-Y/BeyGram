@@ -76,7 +76,11 @@ internal class TdStorage(
         val referenced = referencedPaths()
         val maxAgeSeconds = policy.maxAgeSeconds
         val removed = withContext(Dispatchers.IO) {
-            val folders = sentUploads.listFiles { it.isDirectory }.orEmpty().map { folder ->
+            // Quotas and expiry must only account for markers owned by this TDLib session.
+            // Foreign-account upload bytes must not pressure this account's eviction budget.
+            val folders = sentUploads.listFiles { it.isDirectory }.orEmpty()
+                .filter { sentUploadFileIds(it, accountId).isNotEmpty() }
+                .map { folder ->
                 val files = folder.walkTopDown().filter { it.isFile }.toList()
                 val lastUsed = files.maxOfOrNull { it.lastModified() } ?: folder.lastModified()
                 val inUse = now - lastUsed < IN_USE_GRACE_MILLIS || files.any { it.canonicalPath in referenced.keys }
