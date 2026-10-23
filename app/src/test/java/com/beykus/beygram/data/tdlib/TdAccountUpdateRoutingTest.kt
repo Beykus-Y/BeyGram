@@ -156,4 +156,61 @@ class TdAccountUpdateRoutingTest {
             router.registeredSessions().isEmpty()
         }
     }
+    @Test fun sharedNativeCallbackThreadIsNotBlockedBySlowSecondaryAccount() = withRegistry { registry ->
+        val firstId = registry.prepareSecondaryAccount().second
+        val secondId = registry.prepareSecondaryAccount().second
+        val router = TdAccountUpdateRouter(registry)
+        val started = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val otherDelivered = java.util.concurrent.CountDownLatch(1)
+        val first = router.register(firstId) {
+            started.countDown()
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+        }
+        val second = router.register(secondId) { otherDelivered.countDown() }
+        try {
+            // Both synthetic calls deliberately run on the SAME native caller thread.
+            // The first must return before its slow repository callback completes.
+            first.updateHandler.onResult(TdApi.Ok())
+            assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            second.updateHandler.onResult(TdApi.Ok())
+            assertTrue(otherDelivered.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        } finally {
+            release.countDown()
+            first.onNativeClosed()
+            second.onNativeClosed()
+            awaitCondition("Account workers shut down") { router.registeredSessions().isEmpty() }
+        }
+    }
+
+    @Test fun closeWaitsForAllQueuedAccountUpdatesBeforeLeaseRetirement() = withRegistry { registry ->
+        val router = TdAccountUpdateRouter(registry)
+        val started = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val processed = java.util.concurrent.CopyOnWriteArrayList<Int>()
+        val retired = java.util.concurrent.CountDownLatch(1)
+        val registration = router.register("legacy", onAfterClosed = { retired.countDown() }) {
+            processed.add(processed.size + 1)
+            if (processed.size == 1) {
+                started.countDown()
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            }
+        }
+        try {
+            registration.updateHandler.onResult(TdApi.Ok())
+            assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            registration.updateHandler.onResult(TdApi.Ok())
+            registration.updateHandler.onResult(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
+            assertTrue("Must retain lease while update processing is blocked",
+                "legacy" in router.registeredSessions())
+            assertEquals(1L, retired.count)
+        } finally {
+            release.countDown()
+        }
+        assertTrue("Retirement must follow queued updates",
+            retired.await(3, java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(listOf(1, 2, 3), processed.toList())
+        assertTrue(router.registeredSessions().isEmpty())
+    }
+
 }
