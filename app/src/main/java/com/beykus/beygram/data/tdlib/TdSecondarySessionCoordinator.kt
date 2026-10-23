@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -78,7 +80,8 @@ internal data class TdSecondaryAccountRow(
     val accountId: String,
     val phase: TdAccountAuthPhase?,
     val connectedInThisProcess: Boolean,
-    val networkSuspended: Boolean = false
+    val networkSuspended: Boolean = false,
+    val routePreference: TdSecondaryRoutePreference? = null
 )
 
 internal data class TdSecondaryAccountsSnapshot(
@@ -205,6 +208,20 @@ internal class TdSecondarySessionCoordinator(
         publish()
     }
 
+    /** Explicit route edit: Close the same session without logout, wait for the
+     * database lease to retire, then reopen after the new route preflight. */
+    suspend fun reconnectWithRoute(accountId: String, preference: TdSecondaryRoutePreference) {
+        val current = mutex.withLock {
+            running[accountId]?.handle ?: error("Secondary session is not running")
+        }
+        check(current.authPhase.value == TdAccountAuthPhase.READY)
+        disconnect(accountId)
+        withTimeout(45_000) {
+            current.authPhase.first { it == TdAccountAuthPhase.CLOSED }
+        }
+        connect(accountId, preference)
+    }
+
     /** Leaves TDLib authorization and the files on disk unchanged. */
     suspend fun disconnect(accountId: String) = mutex.withLock {
         val active = running[accountId] ?: return@withLock
@@ -262,7 +279,8 @@ internal class TdSecondarySessionCoordinator(
                 val phase = running[id]?.handle?.authPhase?.value
                 TdSecondaryAccountRow(id, phase, running[id] != null &&
                     phase != TdAccountAuthPhase.CLOSED,
-                    networkSuspended = running[id]?.handle?.networkSuspended == true)
+                    networkSuspended = running[id]?.handle?.networkSuspended == true,
+                    routePreference = running[id]?.preference)
             },
             busy = false
         )
