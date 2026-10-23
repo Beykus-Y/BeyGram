@@ -19,5 +19,6 @@
     <string name="secondary_accounts_other_auth">Telegram requested an additional sign-in method not supported in this beta yet.</string>
     <string name="secondary_accounts_connecting">Connecting to Telegram…</string>
     <string name="secondary_accounts_disconnect">Stop this session (keep Telegram login)</string>
+    <string name="secondary_accounts_route_paused">The account route changed or became unavailable. Network is paused; stop this session and reconnect with the intended route.</string>
     <string name="secondary_accounts_action_error">Operation failed. Check the connection and proxy route; the primary session was not affected.</string>
 </resources>
