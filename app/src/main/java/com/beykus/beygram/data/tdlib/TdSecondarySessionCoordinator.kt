@@ -93,6 +93,12 @@ internal class TdSecondarySessionCoordinator(
             running.remove(accountId)?.subscription?.cancel()
         }
         check(accountId !in running) { "Secondary account is already active" }
+        // Beta resource budget: legacy TDLib + at most ONE secondary native client.
+        // More account slots can be reserved, but do not start uncontrolled
+        // background clients before RAM/battery and notification ownership QA.
+        check(running.values.none { it.handle.authPhase.value != TdAccountAuthPhase.CLOSED }) {
+            "Only one secondary TDLib session can run during beta"
+        }
         _snapshot.value = _snapshot.value.copy(busy = true)
         try {
             val handle = openNative(accountId, preference)
