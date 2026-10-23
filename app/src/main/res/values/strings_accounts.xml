@@ -22,7 +22,7 @@
     <string name="secondary_accounts_route_paused">Маршрут аккаунта изменился или недоступен: соединение приостановлено. Остановите сессию и подключите её заново с нужным маршрутом.</string>
     <string name="secondary_accounts_action_error">Операция не выполнена. Проверьте подключение и маршрут прокси; основная сессия не затронута.</string>
     <string name="secondary_chats_title">Чаты второго аккаунта</string>
-    <string name="secondary_chats_readonly">Просмотр только для чтения · отдельная TDLib-сессия</string>
+    <string name="secondary_chats_readonly">Отдельная TDLib-сессия · текстовые сообщения</string>
     <string name="secondary_chats_unavailable">Сессия не запущена, закрыта или её сетевой маршрут приостановлен. Вернитесь к аккаунтам.</string>
     <string name="secondary_chats_go_back">К аккаунтам</string>
     <string name="secondary_chats_load_error">Не получилось загрузить данные этого аккаунта.</string>
@@ -33,4 +33,6 @@
     <string name="secondary_chats_open">Просмотреть чаты (только чтение)</string>
     <string name="secondary_chats_media_message">Медиафайл</string>
     <string name="secondary_chats_empty_message">Сообщение</string>
+    <string name="secondary_chats_message_hint">Сообщение</string>
+    <string name="secondary_chats_send">Отправить</string>
 </resources>
