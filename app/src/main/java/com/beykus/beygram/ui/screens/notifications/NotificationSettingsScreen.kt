@@ -71,6 +71,17 @@ fun NotificationSettingsScreen(
     val context = LocalContext.current
     val palette = beyGramPalette()
     val config by accountPreferences.state.collectAsStateWithLifecycle()
+    val secondaryRouteWarning by produceState(
+        initialValue = false, accountId, config.background, config.enabled
+    ) {
+        value = if (accountId == "legacy" || !config.enabled || !config.background) false
+        else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val route = com.beykus.beygram.data.tdlib.TdSecondaryRestoreStore(context)
+                .confirmedRoute(accountId)
+            val legacy = TelegramNotificationService.shouldRunLegacy(context)
+            !TelegramNotificationService.secondaryBackgroundRouteReady(route, legacy)
+        }
+    }
     val running by runtime.serviceRunning.collectAsStateWithLifecycle()
     val error by runtime.serviceError.collectAsStateWithLifecycle()
     var allowed by remember { mutableStateOf(AndroidNotificationRenderer.canNotify(context)) }
@@ -108,11 +119,7 @@ fun NotificationSettingsScreen(
                 accountPreferences.update(config.copy(background = it))
                 TelegramNotificationService.reconcileFromAllowedContext(context, "ui")
             }
-            if (accountId != "legacy" && config.background &&
-                !TelegramNotificationService.shouldRunLegacy(context) &&
-                com.beykus.beygram.data.tdlib.TdSecondaryRestoreStore(context)
-                    .confirmedRoute(accountId) !=
-                    com.beykus.beygram.data.tdlib.TdSecondaryRoutePreference.EXPLICIT_DIRECT) {
+            if (secondaryRouteWarning) {
                 Text(stringResource(R.string.multi_background_route_warning),
                     color = palette.warningText)
             }
