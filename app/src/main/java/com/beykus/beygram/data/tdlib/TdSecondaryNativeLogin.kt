@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.withLock
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import kotlin.coroutines.resume
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Explicit secondary-account TDLib *native* login entry point. This is not
@@ -70,12 +71,18 @@ internal class TdSecondaryNativeLoginLauncher(
 
         val phases = MutableStateFlow(TdAccountAuthPhase.STARTING)
         val chatStore = TdSecondaryChatStore(accountId)
+        val fullRepositoryObservers = CopyOnWriteArrayList<(TdApi.Object) -> Unit>()
         val waitParameters = CompletableDeferred<Unit>()
         val bound = owner.create(accountId,
             onUpdate = { event ->
                 // Never dispatch secondary updates through the legacy chat
                 // repository, global notification feed or shared media cache.
                 chatStore.receive(event)
+                // The same native client can feed the full TelegramRepository;
+                // never create a second Client for these database directories.
+                fullRepositoryObservers.forEach { observer ->
+                    runCatching { observer(event.update) }
+                }
                 if (event.update is TdApi.UpdateAuthorizationState) {
                     when (event.update.authorizationState) {
                         is TdApi.AuthorizationStateWaitTdlibParameters -> {
@@ -90,6 +97,7 @@ internal class TdSecondaryNativeLoginLauncher(
                         is TdApi.AuthorizationStateClosed -> {
                             phases.value = TdAccountAuthPhase.CLOSED
                             chatStore.clear()
+                            fullRepositoryObservers.clear()
                             waitParameters.cancel()
                         }
                         else -> phases.value = TdAccountAuthPhase.OTHER
@@ -98,7 +106,8 @@ internal class TdSecondaryNativeLoginLauncher(
             },
             clientFactory = { config, handler ->
                 val client = createNativeClient(handler)
-                TdSecondaryNativeLogin(accountId, config, client, phases, planned, chatStore)
+                TdSecondaryNativeLogin(accountId, config, client, phases, planned, chatStore,
+                    fullRepositoryObservers)
             }
         )
         try {
@@ -125,11 +134,29 @@ internal class TdSecondaryNativeLoginLauncher(
 internal class TdSecondaryNativeLogin internal constructor(
     val accountId: String,
     internal val config: TdLibConfig,
-    private val client: Client,
+    internal val client: Client,
     private val mutablePhase: MutableStateFlow<TdAccountAuthPhase>,
     internal val plannedRoute: TdSecondaryRouteDecision,
-    val chatStore: TdSecondaryChatStore
+    val chatStore: TdSecondaryChatStore,
+    private val fullRepositoryObservers: CopyOnWriteArrayList<(TdApi.Object) -> Unit>
 ) {
+    private val fullRepositoryLock = Any()
+    private var fullRepository: TdLibTelegramRepository? = null
+
+    /** One full repository per native client. Reuses the existing leased DB. */
+    internal fun unifiedRepository(context: Context): TdLibTelegramRepository = synchronized(fullRepositoryLock) {
+        check(authPhase.value == TdAccountAuthPhase.READY && !routePaused.value) {
+            "Secondary TDLib client is not ready for UI"
+        }
+        fullRepository ?: TdLibTelegramRepository.forExistingSecondary(context, this)
+            .also { fullRepository = it }
+    }
+
+    internal fun observeFullUpdates(observer: (TdApi.Object) -> Unit) {
+        check(authPhase.value != TdAccountAuthPhase.CLOSED)
+        fullRepositoryObservers.add(observer)
+    }
+
     val authPhase: StateFlow<TdAccountAuthPhase> = mutablePhase.asStateFlow()
 
     /** No legacy chat/cache reuse. These methods are only for this native client. */
