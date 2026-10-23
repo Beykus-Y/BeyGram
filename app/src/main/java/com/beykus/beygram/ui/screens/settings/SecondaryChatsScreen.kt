@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,8 +29,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -190,7 +194,7 @@ internal fun SecondaryChatsScreen(
                 Text(stringResource(R.string.secondary_chats_history_empty),
                     color = palette.textSecondary, modifier = Modifier.padding(20.dp))
             }
-            LazyColumn(Modifier.fillMaxSize(), state = listState) {
+            LazyColumn(Modifier.weight(1f), state = listState) {
                 items(messages, key = { it.key.messageId }) { message ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
                         horizontalArrangement = if (message.outgoing)
@@ -206,6 +210,41 @@ internal fun SecondaryChatsScreen(
                                 .padding(horizontal = 14.dp, vertical = 10.dp))
                     }
                 }
+            }
+
+            // Exactly this account/chat key is used for sending. No sender can
+            // accidentally fall back to the legacy TelegramRepository.
+            var draft by rememberSaveable(accountId, chat.chatId) { mutableStateOf("") }
+            var sending by remember(accountId, chat.chatId) { mutableStateOf(false) }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it.take(4096) },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 5,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    label = { Text(stringResource(R.string.secondary_chats_message_hint)) },
+                    enabled = available && !sending
+                )
+                Button(
+                    enabled = available && !sending && draft.isNotBlank(),
+                    onClick = {
+                        val toSend = draft
+                        sending = true
+                        scope.launch {
+                            try {
+                                val scoped = coordinator.chatSession(accountId)
+                                scoped.sendText(chat, toSend)
+                                if (selectedChat == chat) draft = ""
+                                error = false
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) { error = true }
+                            finally { sending = false }
+                        }
+                    }
+                ) { Text(stringResource(R.string.secondary_chats_send)) }
             }
         }
     }
