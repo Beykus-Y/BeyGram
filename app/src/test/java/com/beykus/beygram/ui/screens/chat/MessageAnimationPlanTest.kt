@@ -97,7 +97,7 @@ class MessageAnimationPlanTest {
             motionDirection = MessageAnimationMotionDirection.FromBottom
         )
         MessageAnimationPreset.entries
-            .filter { it != MessageAnimationPreset.None }
+            .filter { it != MessageAnimationPreset.None && it != MessageAnimationPreset.ComposerLaunch }
             .forEach { preset ->
                 val plan = messageAnimationPlan(direction(preset, tuning), outgoing = true)
                     ?: error("$preset should have a plan")
@@ -186,6 +186,25 @@ class MessageAnimationPlanTest {
         assertEquals(-2.31f, plan.offsetYDp, 0.0001f)
         // Incoming is not touched by the outgoing-only preset.
         assertEquals(-6.6f, messageAnimationPlan(config, animate = true, outgoing = false)!!.offsetXDp, 0.0001f)
+    }
+
+    @Test fun composerLaunchFallbackIgnoresHiddenTuningExceptSpeed() {
+        val hidden = MessageAnimationTuning(
+            speed = 1.5f,
+            intensity = 0f,
+            offsetDp = 0,
+            scale = 0.8f,
+            easing = MessageAnimationEasing.Linear,
+            springiness = 1f,
+            motionDirection = MessageAnimationMotionDirection.FromTop
+        )
+        val plan = messageAnimationPlan(direction(MessageAnimationPreset.ComposerLaunch, hidden), outgoing = true)!!
+        // Standard Flow defaults are restored, so the fallback stays visible and mirrored; only Speed is kept.
+        assertEquals(0.725f, plan.alphaFrom, 0.0001f)
+        assertTrue(plan.scaleFrom < 1f)
+        assertTrue(plan.offsetXDp > 0f)
+        assertTrue(plan.offsetYDp < 0f)
+        assertEquals(MessageAnimationEasing.Smooth, plan.easing)
     }
 
     @Test fun customCombinesScaleOffsetAndFade() {

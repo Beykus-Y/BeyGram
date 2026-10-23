@@ -25,6 +25,7 @@ import com.beykus.beygram.data.appearance.MessageAnimationDirection
 import com.beykus.beygram.data.appearance.MessageAnimationEasing
 import com.beykus.beygram.data.appearance.MessageAnimationMotionDirection
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
+import com.beykus.beygram.data.appearance.flowFallback
 import com.beykus.beygram.data.appearance.validated
 import kotlin.math.roundToInt
 
@@ -145,15 +146,9 @@ internal fun messageAnimationPlan(direction: MessageAnimationDirection, outgoing
             easing = tuning.easing
         )
         // The row itself is hidden while the spatial composer transition runs. If the transition is unavailable,
-        // the same row falls back to BeyGram Flow instead of appearing without an effect. Composer Launch has no
-        // Direction control, so the automatic mirror is restored for the fallback as well.
-        MessageAnimationPreset.ComposerLaunch -> messageAnimationPlan(
-            direction.copy(
-                preset = MessageAnimationPreset.Flow,
-                tuning = tuning.copy(motionDirection = MessageAnimationMotionDirection.Auto)
-            ),
-            outgoing
-        )
+        // the same row falls back to the standard BeyGram Flow entrance. Only Speed is exposed by Composer Launch,
+        // so the remaining Flow defaults are restored instead of inheriting hidden tuning.
+        MessageAnimationPreset.ComposerLaunch -> messageAnimationPlan(direction.flowFallback(), outgoing)
         MessageAnimationPreset.Custom -> MessageAnimationPlan(
             alphaFrom = (1f - 0.9f * intensity).coerceIn(0f, 1f),
             scaleFrom = scaleFrom,

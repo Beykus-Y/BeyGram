@@ -56,11 +56,7 @@ data class MessageAnimationConfig(
     fun direction(outgoing: Boolean): MessageAnimationDirection {
         val selected = if (linkedDirections) shared else if (outgoing) sent else received
         return if (!outgoing && selected.preset == MessageAnimationPreset.ComposerLaunch) {
-            // Composer Launch has no Direction control; its incoming Flow fallback must not inherit a hidden override.
-            selected.copy(
-                preset = MessageAnimationPreset.Flow,
-                tuning = selected.tuning.copy(motionDirection = MessageAnimationMotionDirection.Auto)
-            )
+            selected.flowFallback()
         } else selected
     }
 
@@ -171,10 +167,19 @@ fun MessageAnimationTuning.validated(): MessageAnimationTuning = copy(
 
 /** Incoming messages cannot keep an outgoing-only preset; such a choice falls back to the BeyGram Flow entrance. */
 fun MessageAnimationDirection.validated(outgoing: Boolean): MessageAnimationDirection {
-    val safePreset = if (!outgoing && preset == MessageAnimationPreset.ComposerLaunch) MessageAnimationPreset.Flow else preset
-    val safeTuning = if (safePreset != preset) tuning.copy(motionDirection = MessageAnimationMotionDirection.Auto) else tuning
-    return copy(preset = safePreset, tuning = safeTuning.validated())
+    if (!outgoing && preset == MessageAnimationPreset.ComposerLaunch) return flowFallback().validated(outgoing = true)
+    return copy(tuning = tuning.validated())
 }
+
+/**
+ * Composer Launch exposes only Speed. Its standard Flow fallback keeps that speed and restores the other Flow
+ * defaults, so tuning hidden behind another preset cannot make the fallback invisible or unexpectedly directional.
+ */
+fun MessageAnimationDirection.flowFallback(): MessageAnimationDirection =
+    MessageAnimationDirection(
+        preset = MessageAnimationPreset.Flow,
+        tuning = MessageAnimationTuning(speed = tuning.speed)
+    )
 
 fun MessageAnimationConfig.validated(): MessageAnimationConfig = copy(
     shared = shared.validated(outgoing = true),
