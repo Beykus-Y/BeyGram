@@ -37,7 +37,7 @@ class SentUploadMarkerTest {
 
     @Test fun legacyNumericMarkersRemainOwnedByLegacy() {
         val folder = temporary.newFolder()
-        File(folder, SENT_UPLOAD_MARKER).writeText("18\\n20")
+        File(folder, SENT_UPLOAD_MARKER).writeText("18\n20")
         assertEquals(setOf(18, 20), sentUploadFileIds(folder))
         assertTrue(sentUploadFileIds(folder, "account-B").isEmpty())
     }
