@@ -14,11 +14,18 @@ multi-account Telegram client.
   Activity or Compose route. The underlying `TdSecondarySessionCoordinator`
   holds native client handles across navigation so an account does not lose
   its database owner when leaving Settings.
-- The controller uses the verified process-level Mihomo listener. When its
-  runtime changes, secondary clients using shared Mihomo are instructed to go
-  offline with `NetworkTypeNone`; resume is allowed only after a new
-  authenticated SOCKS ownership and current-primary-policy check. The existing
-  legacy TDLib client still owns its original proxy policy and listener.
+- The controller compares the *current* effective route with the route
+  fixed at secondary-client startup. This applies to **all** secondary clients:
+  FOLLOW_PRIMARY originally DIRECT is taken offline if the primary switches to
+  Mihomo, just as a shared-SOCKS client is taken offline if the listener is lost.
+  TDLib `NetworkTypeNone` is sent on mismatch; resumption requires the
+  original route to become valid again. An unsuccessful pause triggers native
+  `Close`, **never** `LogOut`. The primary client's settings are untouched.
+- The route is rechecked on listener status transitions, upon entering the
+  account screen, and every 15 seconds *only while a secondary is active*
+  because the legacy repository does not expose a primary-route StateFlow.
+  An instantaneous change can precede the next poll; production chat support
+  needs synchronous routing policy changes at their source.
 - Stop sends native `Close` (not `LogOut`), so stored Telegram credentials
   and the TDLib database are not erased; a replacement session cannot be
   started until native `AuthorizationStateClosed`.
@@ -33,13 +40,15 @@ multi-account Telegram client.
 - The secondary auth flow currently supports phone/code/password. Other TDLib
   authorization states (email, QR, registration) show an unsupported-state
   message; no credentials are deleted by leaving the screen.
+- This beta limits RAM use to **one running secondary client** alongside
+  the legacy TDLib client; additional account IDs may be reserved but cannot
+  run concurrently until resource profiling.
 - Secondary sessions are **not automatically resumed on a process restart**.
   The registry retains their storage slots and users can reconnect explicitly.
-- The runtime route guard monitors Mihomo service state changes. It does not
-  yet monitor manual primary proxy changes continuously; returning to the
-  account screen triggers a policy recheck. A full multi-client network-policy
-  owner and logout-safe failure recovery remain prerequisites to making
-  secondary chats generally available.
+- Primary route transitions not originating from the Mihomo listener are
+  detected by the bounded polling interval, not instantaneously. A future
+  integrated route-owner must dispatch synchronous changes to all TDLib
+  sessions before switching the primary path.
 - Closing a secondary connection is not Telegram logout and does not remove
   registry slots or clear its cache. Deliberate per-account logout/deletion
   is separate work requiring a confirmation workflow.
