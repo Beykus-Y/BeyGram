@@ -197,7 +197,9 @@ private fun BeyGramAppContent(
         TdSecondaryAccountController.get(context, primaryRoute = { legacyRepository.currentRoute().getOrNull() })
     }
     val accountRegistry = remember(context) { TdAccountRegistry(context.applicationContext.filesDir) }
-    var selectedAccountId by remember { mutableStateOf(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }
+    // Saved alongside route/chat IDs: never briefly present restored secondary navigation
+    // through legacy TDLib during Activity recreation.
+    var selectedAccountId by rememberSaveable { mutableStateOf(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }
     var accountRegistryReady by remember { mutableStateOf(false) }
     var accountRegistryError by remember { mutableStateOf(false) }
     val accountChoice = secondaryAccountController.coordinator.snapshot.collectAsStateWithLifecycle().value
@@ -244,15 +246,6 @@ private fun BeyGramAppContent(
             downloadFile = legacyRepository::downloadFile
         )
     )
-    LaunchedEffect(accountRegistry) {
-        try {
-            val state = withContext(Dispatchers.IO) { accountRegistry.loadOrCreate() }
-            selectedAccountId = state.activeAccountId
-            secondaryAccountController.coordinator.refresh()
-        } catch (_: Exception) {
-            accountRegistryError = true
-        } finally { accountRegistryReady = true }
-    }
     val accountRow = accountChoice.accounts.firstOrNull { it.accountId == selectedAccountId }
     val repositorySelection by produceState<TelegramRepository?>(
         initialValue = if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
@@ -332,6 +325,29 @@ private fun BeyGramAppContent(
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var noticeError by remember { mutableStateOf<UiText?>(null) }
+    LaunchedEffect(accountRegistry) {
+        try {
+            val state = withContext(Dispatchers.IO) { accountRegistry.loadOrCreate() }
+            // A persisted route/chat may belong to a deleted or previously
+            // selected account. Discard it BEFORE rendering can be unlocked.
+            if (selectedAccountId != state.activeAccountId) {
+                selectedChatId = 0L
+                selectedTopicChatId = 0L
+                selectedForumTopicId = 0L
+                trustedForumTopicId = 0L
+                chatFocusMessageId = 0L
+                memberChatId = 0L
+                routeName = AppRoute.Chats.name
+                globalSearchQuery = ""
+                globalSearchSession.reset("")
+            }
+            selectedAccountId = state.activeAccountId
+            secondaryAccountController.coordinator.refresh()
+        } catch (_: Exception) {
+            accountRegistryError = true
+        } finally { accountRegistryReady = true }
+    }
+
     val accountSwitchScope = rememberCoroutineScope()
     val chooseAccount: (String) -> Unit = { target ->
         accountSwitchScope.launch {
