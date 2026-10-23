@@ -77,7 +77,7 @@ internal class TdSecondaryNativeLoginLauncher(
         val fullRepositoryObservers = CopyOnWriteArrayList<(TdApi.Object) -> Unit>()
         val startupReplay = TdSecondaryStartupReplay()
         val overflowCloseRequested = java.util.concurrent.atomic.AtomicBoolean()
-        @Volatile var nativeToClose: TdSecondaryNativeLogin? = null
+        val nativeToClose = java.util.concurrent.atomic.AtomicReference<TdSecondaryNativeLogin?>()
         val waitParameters = CompletableDeferred<Unit>()
         val nativeLeaseClosed = CompletableDeferred<Unit>()
         val bound = owner.create(accountId,
@@ -95,7 +95,7 @@ internal class TdSecondaryNativeLoginLauncher(
                             "secondary_startup_overflow",
                             "Снимок вторичного аккаунта переполнен; перезапуск без выхода",
                             Severity.WARNING, mapOf("account" to accountId))
-                        nativeToClose?.requestCloseWithoutLogout()
+                        nativeToClose.get()?.requestCloseWithoutLogout()
                     }
                     fullRepositoryObservers.forEach { observer ->
                         runCatching { observer(event.update) }.onFailure { error ->
@@ -140,7 +140,7 @@ internal class TdSecondaryNativeLoginLauncher(
                 val client = createNativeClient(handler)
                 TdSecondaryNativeLogin(accountId, config, client, phases, planned, chatStore,
                     fullRepositoryObservers, startupReplay, nativeLeaseClosed)
-                    .also { nativeToClose = it }
+                    .also { nativeToClose.set(it) }
             }
         )
         try {
