@@ -36,4 +36,8 @@
     <string name="secondary_accounts_switch">Switch account</string>
     <string name="secondary_accounts_switch_offline">Session is offline — open account management</string>
     <string name="secondary_accounts_switch_note">The secondary account has its own chat interface. Other primary-account screens stay isolated.</string>
+    <string name="secondary_accounts_registry_error">Unable to load the Telegram account registry. No account data was modified. Check app storage.</string>
+    <string name="secondary_accounts_switch_failed">Cannot switch: the chosen account must be connected, authorized, and online.</string>
+    <string name="secondary_accounts_share_target_title">Choose the sending account</string>
+    <string name="secondary_accounts_share_target_warning">External text and file sharing currently works through the primary Telegram account only. Switch to it or cancel.</string>
 </resources>
