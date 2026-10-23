@@ -665,7 +665,8 @@ private fun BeyGramAppContent(
                         topicCanPost = selectedTopic?.canWrite ?: true,
                         topicUnreadCount = selectedTopic?.unreadCount ?: 0,
                         onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
-                        focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L }
+                        focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L },
+                        messageAnimations = appearance.messageAnimations
                     )
                 }
             }

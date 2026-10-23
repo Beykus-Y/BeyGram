@@ -66,4 +66,25 @@
     <string name="theme_editor_colour_grey">Grey</string>
     <string name="theme_editor_warning_message_colour">This colour is hard to read on message bubbles. Choose another one.</string>
     <string name="theme_editor_undo">Undo change</string>
+    <string name="theme_animations_title">Message animations</string>
+    <string name="theme_animations_enabled">Message animations</string>
+    <string name="theme_animations_enabled_detail">New messages enter smoothly</string>
+    <string name="theme_animations_disabled">Animations are off. New messages appear immediately.</string>
+    <string name="theme_animations_preview">Preview</string>
+    <string name="theme_animations_replay">Replay</string>
+    <string name="theme_animations_preview_note">Demo messages. Tap Apply to save these settings.</string>
+    <string name="theme_animations_sent">Sent</string>
+    <string name="theme_animations_received">Received</string>
+    <string name="theme_animations_preset_none">No animation</string>
+    <string name="theme_animations_preset_fade">Smooth</string>
+    <string name="theme_animations_preset_slide">Slide</string>
+    <string name="theme_animations_preset_spring">Spring</string>
+    <string name="theme_animations_preset_custom">Custom</string>
+    <string name="theme_animations_speed">Speed</string>
+    <string name="theme_animations_intensity">Intensity</string>
+    <string name="theme_animations_offset">Offset</string>
+    <string name="theme_animations_scale">Scale</string>
+    <string name="theme_animations_percent_value">%1$d%%</string>
+    <string name="theme_animations_offset_value">%1$d dp</string>
+    <string name="theme_animations_reset">Reset animations</string>
 </resources>

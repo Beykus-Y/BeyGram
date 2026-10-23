@@ -7,6 +7,7 @@ import com.beykus.beygram.data.appearance.bubbleStyleFromStored
 import com.beykus.beygram.data.appearance.chatWallpaperFromStored
 import com.beykus.beygram.data.appearance.encode
 import com.beykus.beygram.data.appearance.listDensityFromStored
+import com.beykus.beygram.data.appearance.messageAnimationConfigFromStored
 import com.beykus.beygram.data.appearance.messageLineSpacingFromStored
 import com.beykus.beygram.data.appearance.themeModeFromStored
 import com.beykus.beygram.data.appearance.themePresetFromStored
@@ -33,12 +34,13 @@ internal val AppearanceDraftSaver: Saver<AppearanceConfig?, Any> = listSaver<App
                 it.bubbleCornerRadiusDp?.toString().orEmpty(),
                 it.messageLineSpacing.name,
                 it.messageTextColor?.toString().orEmpty(),
-                it.messageTimeColor?.toString().orEmpty()
+                it.messageTimeColor?.toString().orEmpty(),
+                it.messageAnimations.encode()
             )
         }.orEmpty()
     },
     restore = { parts ->
-        if (parts.size !in 7..12) null else AppearanceConfig(
+        if (parts.size !in 7..13) null else AppearanceConfig(
             preset = themePresetFromStored(parts[0]),
             mode = themeModeFromStored(parts[1]),
             bubbleStyle = bubbleStyleFromStored(parts[2]),
@@ -50,7 +52,8 @@ internal val AppearanceDraftSaver: Saver<AppearanceConfig?, Any> = listSaver<App
             bubbleCornerRadiusDp = validBubbleCornerRadius(parts.getOrNull(8)?.toIntOrNull()),
             messageLineSpacing = messageLineSpacingFromStored(parts.getOrNull(9)),
             messageTextColor = parts.getOrNull(10)?.toIntOrNull(),
-            messageTimeColor = parts.getOrNull(11)?.toIntOrNull()
+            messageTimeColor = parts.getOrNull(11)?.toIntOrNull(),
+            messageAnimations = messageAnimationConfigFromStored(parts.getOrNull(12))
         )
     }
 )
