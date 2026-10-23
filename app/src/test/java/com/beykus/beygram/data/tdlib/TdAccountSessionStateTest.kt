@@ -55,6 +55,8 @@ class TdAccountSessionStateTest {
             state.receive(TdAccountUpdateRouter.TdAccountRoutedUpdate("legacy", 7, value))
         }
         update(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady()))
+        update(TdApi.UpdateConnectionState(TdApi.ConnectionStateReady()))
+        assertEquals(TdAccountConnectionPhase.READY, state.snapshot.value.connection)
         update(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
         update(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady()))
         update(TdApi.UpdateConnectionState(TdApi.ConnectionStateReady()))
