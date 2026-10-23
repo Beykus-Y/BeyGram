@@ -407,18 +407,21 @@ private fun BeyGramAppContent(
     // Ответ на прежнее нажатие может прийти позже нового: тогда он не должен заменить выбранного участника.
     var latestMemberUserId by rememberSaveable { mutableStateOf(0L) }
     val openUserProfile: (Long, AppRoute) -> Unit = { userId, returnTo ->
+        val sourceAccountId = selectedAccountId
+        val sourceRepository = repository
         latestMemberUserId = userId
         memberScope.launch {
-            repository.openPrivateChat(userId)
+            sourceRepository.openPrivateChat(userId)
                 .onSuccess { chatId ->
-                    if (latestMemberUserId == userId) {
+                    if (selectedAccountId == sourceAccountId && latestMemberUserId == userId) {
                         memberChatId = chatId
                         memberReturnRouteName = returnTo.name
                         routeName = AppRoute.MemberProfile.name
                     }
                 }
                 .onFailure { error ->
-                    if (latestMemberUserId == userId) noticeError = (error as? UserMessageException)?.text ?: UiText.Res(R.string.profile_member_open_failed)
+                    if (selectedAccountId == sourceAccountId && latestMemberUserId == userId)
+                        noticeError = (error as? UserMessageException)?.text ?: UiText.Res(R.string.profile_member_open_failed)
                 }
         }
     }
