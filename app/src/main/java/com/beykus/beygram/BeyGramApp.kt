@@ -542,6 +542,14 @@ private fun BeyGramAppContent(
     var shareAccountTarget by remember(incomingShare?.requestId) {
         mutableStateOf<String?>(if (incomingShare?.targetChatId != 0L) TdAccountStorageLayout.LEGACY_ACCOUNT_ID else null)
     }
+    LaunchedEffect(incomingShare?.requestId) {
+        // A published Direct Share shortcut is legacy-owned, regardless of
+        // which Telegram account happened to be open when Android invoked it.
+        if (incomingShare != null && incomingShare.targetChatId != 0L &&
+            selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+            chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+        }
+    }
     if (incomingShare != null && shareAccountTarget == null && accountRegistryReady && !accountRegistryError) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
