@@ -156,8 +156,19 @@ class AccountSwitcherModelTest {
         assertTrue(unfinished.canDelete)
     }
 
-    @Test fun unsupportedNativeMethodIsNotPresentedAsReady() {
+    @Test fun revokedAuthorizationStillOffersSignInAfterSelectionError() {
         val account = accountSwitcherRows(
+            input(
+                row(phase = TdAccountAuthPhase.WAIT_PHONE, connected = true, authorized = true),
+                errors = mapOf("a-1" to AccountSwitcherError("a-1", AccountSwitcherErrorReason.NOT_AUTHORIZED))
+            )
+        )[1]
+        assertEquals(AccountSwitcherStatus.AWAITING_PHONE, account.status)
+        assertTrue(account.canSignIn)
+        assertFalse(account.canSelect)
+    }
+
+    @Test fun unsupportedNativeMethodIsNotPresentedAsReady() {        val account = accountSwitcherRows(
             input(row(phase = TdAccountAuthPhase.OTHER, connected = true, authorized = false))
         )[1]
         assertEquals(AccountSwitcherStatus.UNSUPPORTED, account.status)

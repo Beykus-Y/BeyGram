@@ -566,11 +566,15 @@ internal fun AccountSwitcherSheet(
                             // An unfinished slot only remembers the route. If
                             // its sign-in screen is already open, resume the
                             // connection immediately with the corrected route.
-                            if (authAccountId == accountId &&
-                                snapshot.accounts.firstOrNull { it.accountId == accountId }
-                                    ?.connectedInThisProcess != true
-                            ) {
-                                controller.connectForSignIn(accountId, preference)
+                            if (authAccountId == accountId) {
+                                phone = ""
+                                code = ""
+                                password = ""
+                                if (snapshot.accounts.firstOrNull { it.accountId == accountId }
+                                        ?.connectedInThisProcess != true
+                                ) {
+                                    controller.connectForSignIn(accountId, preference)
+                                }
                             }
                             routeAccountId = null
                         } catch (cancelled: CancellationException) {

@@ -241,9 +241,6 @@ internal fun accountSwitcherRows(input: AccountSwitcherInput): List<AccountSwitc
                 account.phase == TdAccountAuthPhase.READY && !account.networkSuspended,
             canLogout = !busy && account.authorized,
             canConfigureRoute = !busy && when (status) {
-                AccountSwitcherStatus.AWAITING_PHONE,
-                AccountSwitcherStatus.AWAITING_CODE,
-                AccountSwitcherStatus.AWAITING_PASSWORD,
                 AccountSwitcherStatus.CONNECTING,
                 AccountSwitcherStatus.UNSUPPORTED,
                 AccountSwitcherStatus.LOGGING_OUT,
@@ -266,10 +263,12 @@ private fun secondaryStatus(
     return when {
         phase == TdAccountAuthPhase.LOGGING_OUT -> AccountSwitcherStatus.LOGGING_OUT
         busy -> AccountSwitcherStatus.SWITCHING
-        error != null -> AccountSwitcherStatus.ERROR
+        // Native credential prompts outrank a previous selection error: an
+        // account whose authorization was revoked must still offer sign-in.
         phase == TdAccountAuthPhase.WAIT_PHONE -> AccountSwitcherStatus.AWAITING_PHONE
         phase == TdAccountAuthPhase.WAIT_CODE -> AccountSwitcherStatus.AWAITING_CODE
         phase == TdAccountAuthPhase.WAIT_PASSWORD -> AccountSwitcherStatus.AWAITING_PASSWORD
+        error != null -> AccountSwitcherStatus.ERROR
         account.connectedInThisProcess && phase == TdAccountAuthPhase.READY -> when {
             account.networkSuspended -> AccountSwitcherStatus.ROUTE_PAUSED
             connection == TelegramConnectionState.WaitingForNetwork -> AccountSwitcherStatus.OFFLINE

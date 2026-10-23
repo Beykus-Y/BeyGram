@@ -280,7 +280,9 @@ internal class TdSecondarySessionCoordinator(
     }
 
     /** Explicit route edit: Close the same session without logout, wait for the
-     * database lease to retire, then reopen after the new route preflight. */
+     * database lease to retire, then reopen after the new route preflight.
+     * Works for READY and unfinished credential-waiting sessions; closing an
+     * unfinished session keeps its database and does not log out. */
     suspend fun reconnectWithRoute(
         accountId: String,
         preference: TdSecondaryRoutePreference,
@@ -291,7 +293,9 @@ internal class TdSecondarySessionCoordinator(
             try {
                 val session = running[accountId]?.handle
                     ?: error("Secondary session is not running")
-                check(session.authPhase.value == TdAccountAuthPhase.READY)
+                check(session.authPhase.value != TdAccountAuthPhase.CLOSED) {
+                    "Secondary session is already closed"
+                }
                 session
             } catch (error: Throwable) {
                 switchingAccounts.remove(accountId)

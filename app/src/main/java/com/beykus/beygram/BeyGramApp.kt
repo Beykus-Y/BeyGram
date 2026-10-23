@@ -427,8 +427,14 @@ private fun BeyGramAppContent(
             if (!alreadySelected) {
                 if (target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
                     // A persisted registry slot is not a running repository:
-                    // restore the exact native session before switching the UI.
-                    withContext(Dispatchers.IO) { secondaryAccountController.ensureReady(target) }
+                    // restore the exact native session and prove that its full
+                    // repository attaches before committing the selection.
+                    withContext(Dispatchers.IO) {
+                        secondaryAccountController.ensureReady(target)
+                        secondaryAccountController.coordinator.fullRepository(
+                            target, context.applicationContext
+                        )
+                    }
                 }
                 withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
                 resetAccountScopedState()
@@ -583,7 +589,12 @@ private fun BeyGramAppContent(
                 // The notification is authoritative only after this exact
                 // account's full repository exists; otherwise its bare chat ID
                 // could be rendered by a different source.
-                withContext(Dispatchers.IO) { secondaryAccountController.ensureReady(target) }
+                withContext(Dispatchers.IO) {
+                    secondaryAccountController.ensureReady(target)
+                    secondaryAccountController.coordinator.fullRepository(
+                        target, context.applicationContext
+                    )
+                }
                 withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
                 resetAccountScopedState()
                 notificationSecondaryChatId = request.chatId
