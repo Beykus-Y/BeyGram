@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,7 +44,7 @@ internal fun AccountPickerScreen(
 ) {
     val palette = beyGramPalette()
     Column(Modifier.fillMaxSize().background(palette.screen)
-        .safeDrawingPadding().padding(18.dp),
+        .safeDrawingPadding().verticalScroll(rememberScrollState()).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth()) {
             IconButton(onClick = onBack) {
