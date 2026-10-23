@@ -54,6 +54,7 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.MainTabsScaffold
+import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
 import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
@@ -78,9 +79,12 @@ import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
-import com.beykus.beygram.ui.screens.settings.SecondaryAccountsScreen
-import com.beykus.beygram.ui.screens.settings.AccountPickerScreen
-import com.beykus.beygram.ui.screens.settings.AccountPickerMeta
+import com.beykus.beygram.ui.screens.settings.AccountSwitcherSheet
+import com.beykus.beygram.ui.screens.settings.AccountSwitcherMeta
+import com.beykus.beygram.ui.screens.settings.AccountSwitcherIdentity
+import com.beykus.beygram.ui.screens.settings.AccountRecoveryScreen
+import com.beykus.beygram.ui.screens.settings.accountSwitcherErrorReason
+import com.beykus.beygram.ui.screens.settings.accountSwitcherErrorResource
 import com.beykus.beygram.ui.screens.settings.ActiveSessionsScreen
 import com.beykus.beygram.ui.screens.settings.LanguageScreen
 import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
@@ -252,11 +256,22 @@ private fun BeyGramAppContent(
 
     // ---- Локальный UI-state --------------------------------------------------
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
-    var accountManagerReturnRouteName by rememberSaveable {
-        mutableStateOf(AppRoute.Settings.name)
+    // One shared account switcher is rendered above every route.
+    var accountSwitcherVisible by rememberSaveable { mutableStateOf(false) }
+    var accountSwitcherAddMode by rememberSaveable { mutableStateOf(false) }
+    var accountSwitcherRouteAccountId by rememberSaveable { mutableStateOf<String?>(null) }
+    // A restored secondary account may be selected before its native session is up.
+    var recoveryBusy by remember { mutableStateOf(false) }
+    var recoveryError by remember { mutableStateOf<UiText?>(null) }
+    // A restored session can take a moment to attach its full repository. Show
+    // a neutral loading state briefly instead of flashing an error recovery UI.
+    var recoveryGrace by remember(selectedAccountId) { mutableStateOf(true) }
+    LaunchedEffect(selectedAccountId) {
+        recoveryGrace = true
+        kotlinx.coroutines.delay(2_500)
+        recoveryGrace = false
     }
     // Route carries the source account; never fall back to legacy on missing ID.
-    var secondaryChatsAccountId by rememberSaveable { mutableStateOf<String?>(null) }
     var notificationSecondaryChatId by rememberSaveable { mutableStateOf<Long?>(null) }
     var notificationSecondaryChatToken by rememberSaveable { mutableStateOf<Long?>(null) }
     var notificationSecondaryTopicId by rememberSaveable { mutableStateOf(0L) }
@@ -280,33 +295,43 @@ private fun BeyGramAppContent(
     var memberReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.ChatInfo.name) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
-    // Account badges are expensive: subscribe only while the account picker
-    // or system share target chooser is visible, not throughout every chat.
-    val pickerVisible = routeName == AppRoute.AccountPicker.name || incomingShare != null ||
+    // Account badges are expensive: subscribe only while the shared account
+    // switcher, a system share chooser or the recovery screen is visible.
+    val accountMetadataVisible = accountSwitcherVisible || incomingShare != null ||
         selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
             !accountRouteCanRender(
                 appRouteFromStored(routeName), selectedAccountId,
                 (repositorySelection as? TdLibTelegramRepository)?.accountId
             )
-    val pickerMetadata by produceState<Map<String, AccountPickerMeta>>(
-        initialValue = emptyMap(), pickerVisible, accountChoice.accounts
+    val accountMetadata by produceState<Map<String, AccountSwitcherMeta>>(
+        initialValue = emptyMap(), accountMetadataVisible, accountChoice.accounts
     ) {
         value = emptyMap()
-        if (!pickerVisible) return@produceState
+        if (!accountMetadataVisible) return@produceState
         kotlinx.coroutines.coroutineScope {
             launch {
-                combine(legacyRepository.myProfile, legacyRepository.chats, legacyRepository.archivedChats) { profile, chats, archived ->
-                    AccountPickerMeta(
-                        title = profile.info?.title.orEmpty(),
-                        unread = (chats + archived).distinctBy { it.id }
-                            .sumOf { it.unreadCount.coerceAtLeast(0) },
-                        photo = profile.info?.photo,
+                combine(
+                    legacyRepository.myProfile,
+                    legacyRepository.chats,
+                    legacyRepository.archivedChats,
+                    legacyRepository.connectionState
+                ) { profile, chats, archived, connection ->
+                    AccountSwitcherMeta(
+                        identity = AccountSwitcherIdentity(
+                            title = profile.info?.title.orEmpty(),
+                            username = profile.info?.username.orEmpty(),
+                            phone = profile.info?.phone.orEmpty(),
+                            unread = (chats + archived).distinctBy { it.id }
+                                .sumOf { it.unreadCount.coerceAtLeast(0) },
+                            photo = profile.info?.photo,
+                            connection = connection
+                        ),
                         observeFile = legacyRepository::observeFile,
                         downloadFile = legacyRepository::downloadFile
                     )
                 }.collect { item ->
                     val old = value[TdAccountStorageLayout.LEGACY_ACCOUNT_ID]
-                    if (old?.title != item.title || old?.unread != item.unread || old?.photo != item.photo)
+                    if (old?.identity != item.identity)
                         value = value + (TdAccountStorageLayout.LEGACY_ACCOUNT_ID to item)
                 }
             }
@@ -321,18 +346,28 @@ private fun BeyGramAppContent(
                             secondaryAccountController.coordinator.fullRepository(row.accountId, context.applicationContext)
                         }
                     }.getOrNull() ?: return@launch
-                    combine(source.myProfile, source.chats, source.archivedChats) { profile, chats, archived ->
-                        AccountPickerMeta(
-                            title = profile.info?.title.orEmpty(),
-                            unread = (chats + archived).distinctBy { it.id }
-                                .sumOf { it.unreadCount.coerceAtLeast(0) },
-                            photo = profile.info?.photo,
+                    combine(
+                        source.myProfile,
+                        source.chats,
+                        source.archivedChats,
+                        source.connectionState
+                    ) { profile, chats, archived, connection ->
+                        AccountSwitcherMeta(
+                            identity = AccountSwitcherIdentity(
+                                title = profile.info?.title.orEmpty(),
+                                username = profile.info?.username.orEmpty(),
+                                phone = profile.info?.phone.orEmpty(),
+                                unread = (chats + archived).distinctBy { it.id }
+                                    .sumOf { it.unreadCount.coerceAtLeast(0) },
+                                photo = profile.info?.photo,
+                                connection = connection
+                            ),
                             observeFile = source::observeFile,
                             downloadFile = source::downloadFile
                         )
                     }.collect { item ->
                         val old = value[row.accountId]
-                        if (old?.title != item.title || old?.unread != item.unread || old?.photo != item.photo)
+                        if (old?.identity != item.identity)
                             value = value + (row.accountId to item)
                     }
                 }
@@ -371,7 +406,6 @@ private fun BeyGramAppContent(
         trustedForumTopicId = 0L
         chatFocusMessageId = 0L
         memberChatId = 0L
-        secondaryChatsAccountId = null
         notificationSecondaryChatId = null
         notificationSecondaryChatToken = null
         notificationSecondaryTopicId = 0L
@@ -379,16 +413,21 @@ private fun BeyGramAppContent(
         globalSearchSession.reset("")
     }
     val accountSwitchScope = rememberCoroutineScope()
-    val chooseAccount: (String) -> Unit = { target ->
-        accountSwitchScope.launch {
-            try {
-                // A persisted slot is not enough. A secondary session must
-                // already be authorized, online and bound to its own store.
+    val applyAccountSelection: suspend (String) -> Result<Unit> = { target ->
+        try {
+            // Re-selecting the account already on screen must not reconnect it
+            // or discard its chat position.
+            val alreadySelected = target == selectedAccountId &&
+                (target == TdAccountStorageLayout.LEGACY_ACCOUNT_ID || repositorySelection != null)
+            if (!alreadySelected) {
                 if (target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
-                    secondaryAccountController.coordinator.fullRepository(target, context.applicationContext)
+                    // A persisted registry slot is not a running repository:
+                    // restore the exact native session before switching the UI.
+                    secondaryAccountController.ensureReady(target)
                 }
                 withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
                 resetAccountScopedState()
+                recoveryError = null
                 selectedAccountId = target
                 routeName = when {
                     target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> AppRoute.Chats.name
@@ -397,8 +436,22 @@ private fun BeyGramAppContent(
                     legacyRepository.authState.value is AuthState.WaitingForPassword -> AppRoute.LoginPassword.name
                     else -> AppRoute.Chats.name
                 }
-            } catch (_: Exception) {
-                noticeError = UiText.Raw(context.getString(R.string.secondary_accounts_switch_failed))
+            }
+            Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            Result.failure(failure)
+        }
+    }
+    val chooseAccount: (String) -> Unit = { target ->
+        accountSwitchScope.launch {
+            applyAccountSelection(target).onFailure { failure ->
+                noticeError = UiText.Raw(
+                    context.getString(
+                        accountSwitcherErrorResource(accountSwitcherErrorReason(failure))
+                    )
+                )
             }
         }
     }
@@ -519,16 +572,23 @@ private fun BeyGramAppContent(
                 check(request.chatId != null && request.chatId != 0L)
                 val registryState = withContext(Dispatchers.IO) { accountRegistry.loadOrCreate() }
                 check(target in registryState.accountIds)
+                // The notification is authoritative only after this exact
+                // account's full repository exists; otherwise its bare chat ID
+                // could be rendered by a different source.
+                secondaryAccountController.ensureReady(target)
                 withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
                 resetAccountScopedState()
-                secondaryChatsAccountId = target
                 notificationSecondaryChatId = request.chatId
                 notificationSecondaryChatToken = request.token
                 notificationSecondaryTopicId = request.topicId
                 selectedAccountId = target
                 routeName = AppRoute.Chats.name
-            } catch (_: Exception) {
-                noticeError = UiText.Raw(context.getString(R.string.secondary_accounts_switch_failed))
+            } catch (failure: Exception) {
+                noticeError = UiText.Raw(
+                    context.getString(
+                        accountSwitcherErrorResource(accountSwitcherErrorReason(failure))
+                    )
+                )
             } finally {
                 onNotificationHandled(request.token)
             }
@@ -640,7 +700,7 @@ private fun BeyGramAppContent(
                     accountChoice.accounts.forEachIndexed { index, row ->
                         val ready = row.phase == com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY &&
                             row.connectedInThisProcess && !row.networkSuspended
-                        val label = pickerMetadata[row.accountId]?.title?.takeIf { it.isNotBlank() }
+                        val label = accountMetadata[row.accountId]?.identity?.title?.takeIf { it.isNotBlank() }
                             ?: stringResource(R.string.secondary_accounts_account_label, index + 2)
                         TextButton(
                             enabled = ready,
@@ -650,7 +710,7 @@ private fun BeyGramAppContent(
                             }
                         ) {
                             Text(if (ready) label else "$label · " +
-                                context.getString(R.string.secondary_accounts_switch_offline))
+                                context.getString(R.string.account_switcher_status_not_connected))
                         }
                     }
                 }
@@ -658,8 +718,9 @@ private fun BeyGramAppContent(
             confirmButton = {
                 TextButton(onClick = {
                     onIncomingShareHandled(incomingShare.requestId)
-                    routeName = AppRoute.AccountPicker.name
-                }) { Text(stringResource(R.string.secondary_accounts_add)) }
+                    accountSwitcherAddMode = true
+                    accountSwitcherVisible = true
+                }) { Text(stringResource(R.string.account_switcher_add)) }
             },
             dismissButton = {
                 TextButton(onClick = { onIncomingShareHandled(incomingShare.requestId) }) {
@@ -808,11 +869,6 @@ private fun BeyGramAppContent(
         routeName = if (route == AppRoute.ProxyConnect) AppRoute.Proxy.name else proxyReturnRouteName
     }
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
-    BackHandler(enabled = route == AppRoute.SecondaryAccounts) {
-        routeName = accountManagerReturnRouteName
-    }
-    BackHandler(enabled = route == AppRoute.AccountPicker) { routeName = AppRoute.Chats.name }
-    BackHandler(enabled = route == AppRoute.SecondaryChats) { routeName = AppRoute.SecondaryAccounts.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
@@ -850,7 +906,7 @@ private fun BeyGramAppContent(
                 observeFile = repository::observeFile,
                 downloadFile = repository::downloadFile,
                 onMyProfile = { routeName = AppRoute.MyProfile.name },
-                onAccountPicker = { routeName = AppRoute.AccountPicker.name },
+                onAccountPicker = { accountSwitcherVisible = true },
                 onArchiveClick = { routeName = AppRoute.Archive.name },
                 onMarkRead = markChatRead,
                 onArchive = archiveChat,
@@ -1141,18 +1197,58 @@ private fun BeyGramAppContent(
                     !accountRouteCanRender(
                         route, selectedAccountId,
                         (repositorySelection as? TdLibTelegramRepository)?.accountId
-                    ) ->
-                    AccountPickerScreen(
-                        state = accountChoice,
-                        selectedId = selectedAccountId,
-                    metadata = pickerMetadata,
-                        onSelect = chooseAccount,
-                        onManage = {
-                            accountManagerReturnRouteName = AppRoute.AccountPicker.name
-                            routeName = AppRoute.SecondaryAccounts.name
+                    ) -> {
+                    val recoveryIndex = accountChoice.accounts
+                        .indexOfFirst { it.accountId == selectedAccountId }
+                    val selectedRow = accountChoice.accounts
+                        .firstOrNull { it.accountId == selectedAccountId }
+                    if (recoveryGrace && selectedRow?.let { it.authorized && !it.manualStop } == true) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator()
+                                Text(
+                                    stringResource(R.string.account_recovery_busy),
+                                    color = beyGramPalette().textSecondary,
+                                    modifier = Modifier.padding(top = 12.dp)
+                                )
+                            }
+                        }
+                    } else AccountRecoveryScreen(
+                        accountTitle = accountMetadata[selectedAccountId]
+                            ?.identity?.title?.takeIf { it.isNotBlank() },
+                        accountLabel = stringResource(
+                            R.string.secondary_accounts_account_label,
+                            (recoveryIndex + 2).coerceAtLeast(2)
+                        ),
+                        busy = recoveryBusy,
+                        errorText = recoveryError?.resolve(),
+                        onRetry = {
+                            if (!recoveryBusy) {
+                                val target = selectedAccountId
+                                recoveryBusy = true
+                                recoveryError = null
+                                accountSwitchScope.launch {
+                                    applyAccountSelection(target).onFailure { failure ->
+                                        recoveryError = UiText.Raw(
+                                            context.getString(
+                                                accountSwitcherErrorResource(
+                                                    accountSwitcherErrorReason(failure)
+                                                )
+                                            )
+                                        )
+                                    }
+                                    recoveryBusy = false
+                                }
+                            }
                         },
-                        onBack = { routeName = AppRoute.AccountPicker.name }
+                        onChooseAccount = { accountSwitcherVisible = true },
+                        onConfigureRoute = {
+                            accountSwitcherRouteAccountId = selectedAccountId
+                            accountSwitcherVisible = true
+                        },
+                        onPrimary = { chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }
                     )
+                }
                 else -> when (route) {
                 AppRoute.Start -> StartScreen(
                     tdLibReadiness = tdLibReadiness,
@@ -1293,38 +1389,16 @@ private fun BeyGramAppContent(
                         onUpdates = { routeName = AppRoute.Updates.name },
                         onLanguage = { routeName = AppRoute.Language.name },
                         onSessions = { routeName = AppRoute.Sessions.name },
-                        onSecondaryAccounts = {
-                            accountManagerReturnRouteName = AppRoute.Settings.name
-                            routeName = AppRoute.SecondaryAccounts.name
-                        }
+                        onSecondaryAccounts = { accountSwitcherVisible = true }
                     )
                 }
                 AppRoute.Language -> LanguageScreen(onBack = { routeName = AppRoute.Settings.name })
-                AppRoute.AccountPicker -> AccountPickerScreen(
-                    state = accountChoice,
-                    selectedId = selectedAccountId,
-                    metadata = pickerMetadata,
-                    onSelect = chooseAccount,
-                    onManage = {
-                        accountManagerReturnRouteName = AppRoute.AccountPicker.name
-                        routeName = AppRoute.SecondaryAccounts.name
-                    },
-                    onBack = { routeName = AppRoute.Chats.name }
-                )
-                AppRoute.SecondaryAccounts -> SecondaryAccountsScreen(
-                    controller = secondaryAccountController,
-                    onBack = { routeName = accountManagerReturnRouteName },
-                    onOpenChats = { accountId -> chooseAccount(accountId) },
-                    onAccountDeleted = { deletedAccountId ->
-                        if (selectedAccountId == deletedAccountId)
-                            chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                AppRoute.AccountPicker, AppRoute.SecondaryAccounts, AppRoute.SecondaryChats ->
+                    LaunchedEffect(Unit) {
+                        // Old saved navigation from the experimental account
+                        // screens now resolves through the shared switcher.
+                        routeName = AppRoute.Chats.name
                     }
-                )
-                AppRoute.SecondaryChats -> LaunchedEffect(selectedAccountId) {
-                    // Old saved navigation state from experimental builds.
-                    // Resolve it through the common full repository instead.
-                    routeName = AppRoute.Chats.name
-                }
                 AppRoute.Sessions -> ActiveSessionsScreen(
                     onBack = { routeName = AppRoute.Settings.name },
                     load = repository::activeSessions,
@@ -1451,10 +1525,7 @@ private fun BeyGramAppContent(
                     accountId = selectedAccountId,
                     repository = repository,
                     controller = secondaryAccountController,
-                    onManage = {
-                        accountManagerReturnRouteName = AppRoute.Proxy.name
-                        routeName = AppRoute.SecondaryAccounts.name
-                    },
+                    onManage = { accountSwitcherVisible = true },
                     onBack = { routeName = proxyReturnRouteName }
                 )
 
@@ -1475,6 +1546,45 @@ private fun BeyGramAppContent(
         if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
     }
     }
+    AccountSwitcherSheet(
+        visible = accountSwitcherVisible,
+        currentAccountId = selectedAccountId,
+        legacyReady = legacyAuthState == AuthState.Ready,
+        snapshot = accountChoice,
+        metadata = accountMetadata,
+        controller = secondaryAccountController,
+        initialAddMode = accountSwitcherAddMode,
+        onAddModeConsumed = { accountSwitcherAddMode = false },
+        initialRouteAccountId = accountSwitcherRouteAccountId,
+        onInitialRouteConsumed = { accountSwitcherRouteAccountId = null },
+        onSwitch = { target -> applyAccountSelection(target) },
+        onAccountReady = { accountId ->
+            if (incomingShare != null && shareAccountTarget == null) {
+                shareAccountTarget = accountId
+            }
+        },
+        onAccountDeleted = { deletedAccountId ->
+            if (selectedAccountId == deletedAccountId) {
+                accountSwitchScope.launch {
+                    applyAccountSelection(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                        .onFailure { failure ->
+                            noticeError = UiText.Raw(
+                                context.getString(
+                                    accountSwitcherErrorResource(
+                                        accountSwitcherErrorReason(failure)
+                                    )
+                                )
+                            )
+                        }
+                }
+            }
+        },
+        onDismiss = {
+            accountSwitcherVisible = false
+            accountSwitcherAddMode = false
+            accountSwitcherRouteAccountId = null
+        }
+    )
     noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
         text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
     ProxyRestoreDialog(vpnBackend = vpnBackend)

@@ -63,13 +63,21 @@ internal data class TdSecondaryAccountRow(
     val phase: TdAccountAuthPhase?,
     val connectedInThisProcess: Boolean,
     val networkSuspended: Boolean = false,
-    val routePreference: TdSecondaryRoutePreference? = null
+    val routePreference: TdSecondaryRoutePreference? = null,
+    /** Native TDLib previously confirmed READY for this ID (durable restore policy). */
+    val authorized: Boolean = false,
+    /** The user explicitly stopped the session; it must not auto-reconnect. */
+    val manualStop: Boolean = false
 )
 
 internal data class TdSecondaryAccountsSnapshot(
     val accounts: List<TdSecondaryAccountRow> = emptyList(),
     val busy: Boolean = false
 )
+
+/** The process already owns the maximum supported number of secondary clients. */
+internal class TdSecondarySessionLimitException :
+    IllegalStateException("Maximum two additional TDLib sessions on this device")
 
 /**
  * Owns strong references to secondary native clients for the process lifetime.
@@ -86,6 +94,8 @@ internal class TdSecondarySessionCoordinator(
     private val onAuthorized: (String, TdSecondaryRoutePreference) -> Unit = { _, _ -> },
     private val onManualStop: (String) -> Unit = {},
     private val onLogoutConfirmed: (String) -> Unit = {},
+    private val isAuthorized: (String) -> Boolean = { false },
+    private val isManuallyStopped: (String) -> Boolean = { false },
     private val openNative: suspend (String, TdSecondaryRoutePreference) -> TdSecondaryAuthSession
 ) {
     private data class Active(
@@ -127,8 +137,8 @@ internal class TdSecondarySessionCoordinator(
         check(accountId !in running) { "Secondary account is already active" }
         // Bounded resource budget: at most TWO secondary clients alongside
         // legacy. Never start all reserved slots on a low-memory device.
-        check(running.values.count { it.handle.authPhase.value != TdAccountAuthPhase.CLOSED } < 2) {
-            "Maximum two additional TDLib sessions on this device"
+        if (running.values.count { it.handle.authPhase.value != TdAccountAuthPhase.CLOSED } >= 2) {
+            throw TdSecondarySessionLimitException()
         }
         _snapshot.value = _snapshot.value.copy(busy = true)
         try {
@@ -215,6 +225,55 @@ internal class TdSecondarySessionCoordinator(
                 publish()
             }
             onLogoutConfirmed(accountId)
+        } finally {
+            mutex.withLock { loggingOutAccounts.remove(accountId) }
+        }
+    }
+
+    /**
+     * Discard a slot whose Telegram sign-in never completed. Unlike Logout this
+     * must never touch an authorized account: its TDLib database and Telegram
+     * authorization are kept until the user explicitly chooses "Выйти и удалить".
+     */
+    suspend fun discardIncompleteAccount(accountId: String) {
+        require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+        check(!isAuthorized(accountId)) {
+            "An authorized account must be logged out, not discarded"
+        }
+        val active = mutex.withLock {
+            check(loggingOutAccounts.add(accountId)) { "Account operation already running" }
+            try {
+                check(accountId !in switchingAccounts)
+                running[accountId]?.also {
+                    check(it.handle.authPhase.value != TdAccountAuthPhase.READY) {
+                        "An authorized session cannot be discarded"
+                    }
+                }
+            } catch (failure: Throwable) {
+                loggingOutAccounts.remove(accountId)
+                throw failure
+            }
+        }
+        try {
+            if (active != null) {
+                active.handle.close()
+                if (active.handle.authPhase.value != TdAccountAuthPhase.CLOSED) {
+                    withTimeout(45_000) {
+                        active.handle.authPhase.first { it == TdAccountAuthPhase.CLOSED }
+                    }
+                }
+                active.handle.awaitClosedLease()
+            }
+            mutex.withLock {
+                check(!isAuthorized(accountId)) {
+                    "Refusing to remove an account that became authorized"
+                }
+                if (active != null) check(running[accountId] === active)
+                // Durable removal only after the native lease is safely retired.
+                registry.unregisterSecondaryAccount(accountId)
+                running.remove(accountId)?.subscription?.cancel()
+                publish()
+            }
         } finally {
             mutex.withLock { loggingOutAccounts.remove(accountId) }
         }
@@ -313,10 +372,14 @@ internal class TdSecondarySessionCoordinator(
         _snapshot.value = TdSecondaryAccountsSnapshot(
             accounts = ids.map { id ->
                 val phase = running[id]?.handle?.authPhase?.value
-                TdSecondaryAccountRow(id, phase, running[id] != null &&
-                    phase != TdAccountAuthPhase.CLOSED,
+                TdSecondaryAccountRow(
+                    id, phase, running[id] != null &&
+                        phase != TdAccountAuthPhase.CLOSED,
                     networkSuspended = running[id]?.handle?.networkSuspended == true,
-                    routePreference = running[id]?.preference)
+                    routePreference = running[id]?.preference,
+                    authorized = isAuthorized(id),
+                    manualStop = isManuallyStopped(id)
+                )
             },
             busy = false
         )

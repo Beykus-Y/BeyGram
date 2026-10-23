@@ -270,7 +270,7 @@ fun ChatsScreen(
                 }
                 androidx.compose.material3.IconButton(onClick = onAccountPicker) {
                     Icon(Icons.Rounded.People,
-                        contentDescription = stringResource(R.string.secondary_accounts_switch),
+                        contentDescription = stringResource(R.string.account_switcher_title),
                         tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                 }
                 Spacer(Modifier.width(4.dp))

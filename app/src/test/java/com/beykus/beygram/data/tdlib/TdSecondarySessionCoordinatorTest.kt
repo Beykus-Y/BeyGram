@@ -338,4 +338,99 @@ class TdSecondarySessionCoordinatorTest {
             assertFalse(manager.snapshot.value.accounts.single().connectedInThisProcess)
         } finally { job.cancel(); root.deleteRecursively() }
     }
+
+    @Test fun discardingUnfinishedAccountClosesOnlyThatSlot() = runBlocking {
+        val root = Files.createTempDirectory("beygram-discard-").toFile()
+        val job = SupervisorJob()
+        try {
+            val registry = TdAccountRegistry(root)
+            val sessions = mutableMapOf<String, Fake>()
+            val authorized = mutableSetOf<String>()
+            val manager = TdSecondarySessionCoordinator(
+                registry, CoroutineScope(job + Dispatchers.Unconfined),
+                isAuthorized = { it in authorized },
+                openNative = { id, _ ->
+                    Fake().also {
+                        it.autoClose = true
+                        sessions[id] = it
+                    }
+                }
+            )
+            val unfinished = manager.reserveAccount()
+            val ready = manager.reserveAccount()
+            manager.connect(unfinished, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+            manager.connect(ready, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+            authorized += ready
+            sessions[ready]!!.phase.value = TdAccountAuthPhase.READY
+
+            manager.discardIncompleteAccount(unfinished)
+
+            assertEquals(TdAccountAuthPhase.CLOSED, sessions[unfinished]!!.phase.value)
+            assertEquals(TdAccountAuthPhase.READY, sessions[ready]!!.phase.value)
+            assertFalse(sessions[ready]!!.closed)
+            assertEquals(listOf("legacy", ready), registry.loadOrCreate().accountIds)
+        } finally { job.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun authorizedAccountIsNeverDiscardedAsAnUnfinishedSignIn() = runBlocking {
+        val root = Files.createTempDirectory("beygram-discard-authorized-").toFile()
+        val job = SupervisorJob()
+        try {
+            val registry = TdAccountRegistry(root)
+            val manager = TdSecondarySessionCoordinator(
+                registry, CoroutineScope(job + Dispatchers.Unconfined),
+                isAuthorized = { true },
+                openNative = { _, _ -> Fake() }
+            )
+            val id = manager.reserveAccount()
+            try {
+                manager.discardIncompleteAccount(id)
+                fail("Authorized account must use Logout, not discard")
+            } catch (_: IllegalStateException) {}
+            assertEquals(listOf("legacy", id), registry.loadOrCreate().accountIds)
+        } finally { job.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun sessionLimitFailureIsTypedForTheSharedSwitcher() = runBlocking {
+        val root = Files.createTempDirectory("beygram-session-limit-").toFile()
+        val job = SupervisorJob()
+        try {
+            val manager = TdSecondarySessionCoordinator(
+                TdAccountRegistry(root), CoroutineScope(job + Dispatchers.Unconfined)
+            ) { _, _ -> Fake() }
+            val a = manager.reserveAccount()
+            val b = manager.reserveAccount()
+            val c = manager.reserveAccount()
+            manager.connect(a, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+            manager.connect(b, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+            try {
+                manager.connect(c, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+                fail("A third secondary client must be refused")
+            } catch (_: TdSecondarySessionLimitException) {}
+            assertEquals(listOf("legacy", a, b, c), TdAccountRegistry(root).loadOrCreate().accountIds)
+        } finally { job.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun snapshotExposesRestoreAuthorizationAndManualStopWithoutClaimingReady() = runBlocking {
+        val root = Files.createTempDirectory("beygram-snapshot-").toFile()
+        val job = SupervisorJob()
+        try {
+            val authorized = mutableSetOf<String>()
+            val stopped = mutableSetOf<String>()
+            val manager = TdSecondarySessionCoordinator(
+                TdAccountRegistry(root), CoroutineScope(job + Dispatchers.Unconfined),
+                isAuthorized = { it in authorized },
+                isManuallyStopped = { it in stopped },
+                openNative = { _, _ -> Fake() }
+            )
+            val id = manager.reserveAccount()
+            authorized += id
+            stopped += id
+            manager.refresh()
+            val row = manager.snapshot.value.accounts.single { it.accountId == id }
+            assertTrue(row.authorized)
+            assertTrue(row.manualStop)
+            assertFalse(row.connectedInThisProcess)
+        } finally { job.cancel(); root.deleteRecursively() }
+    }
 }
