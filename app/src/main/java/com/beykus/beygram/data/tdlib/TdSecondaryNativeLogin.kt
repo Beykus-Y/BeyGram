@@ -1,6 +1,9 @@
 package com.beykus.beygram.data.tdlib
 
 import android.content.Context
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.data.vpn.LoopbackProxyCredentials
 import com.beykus.beygram.domain.model.TelegramRoute
 import kotlinx.coroutines.CompletableDeferred
@@ -86,7 +89,15 @@ internal class TdSecondaryNativeLoginLauncher(
                 synchronized(fullRepositoryObservers) {
                     startupReplay.record(event.update, fullRepositoryObservers.isNotEmpty())
                     fullRepositoryObservers.forEach { observer ->
-                        runCatching { observer(event.update) }
+                        runCatching { observer(event.update) }.onFailure { error ->
+                            recordAppEvent(
+                                EventKind.NOTIFICATION,
+                                "secondary_tdlib_observer_failure",
+                                "Обновление вторичного аккаунта не обработано",
+                                Severity.WARNING,
+                                mapOf("account" to accountId, "cause" to error.javaClass.simpleName)
+                            )
+                        }
                     }
                 }
                 if (event.update is TdApi.UpdateAuthorizationState) {
@@ -401,32 +412,48 @@ internal object TdSecondaryStartupState {
  */
 internal class TdSecondaryStartupReplay {
     private val snapshots = LinkedHashMap<String, TdApi.Object>()
-    private val notificationDeltas = ArrayList<TdApi.Object>()
+    private val deltas = ArrayList<TdApi.Object>()
+    private var overflowed = false
 
     fun record(update: TdApi.Object, hasObservers: Boolean) {
         TdSecondaryStartupState.key(update)?.let { snapshots[it] = update }
         if (update is TdApi.UpdateActiveNotifications) {
-            // The new authoritative snapshot already includes all preceding changes.
-            notificationDeltas.clear()
-        } else if (!hasObservers && (
-            update is TdApi.UpdateNotificationGroup ||
-                update is TdApi.UpdateNotification ||
-                update is TdApi.UpdateHavePendingNotifications
-        )) {
-            // The native owner is not allowed to reinterpret notification group IDs.
-            // Preserve TDLib order until the account-bound TdNotifications sees them.
-            notificationDeltas.add(update)
+            // The authoritative snapshot already includes earlier notification
+            // deltas but must not discard unrelated chat and user updates.
+            deltas.removeAll {
+                it is TdApi.UpdateNotificationGroup ||
+                    it is TdApi.UpdateNotification ||
+                    it is TdApi.UpdateHavePendingNotifications
+            }
+        } else if (!hasObservers &&
+            update !is TdApi.UpdateAuthorizationState &&
+            TdSecondaryStartupState.key(update) == null) {
+            // TDLib may send these only once before the full repository
+            // attaches: new chats, user/group metadata, positions, read counts,
+            // new messages and per-chat notification settings. Buffer ALL
+            // such updates rather than a fragile notification-only allowlist.
+            if (deltas.size < MAX_STARTUP_DELTAS) deltas.add(update)
+            else overflowed = true
         }
     }
 
     fun replay(observer: (TdApi.Object) -> Unit) {
+        check(!overflowed) {
+            "Secondary TDLib startup replay exceeded resource budget; refusing incomplete repository"
+        }
         snapshots.values.forEach(observer)
-        notificationDeltas.forEach(observer)
-        notificationDeltas.clear()
+        deltas.forEach(observer)
+        deltas.clear()
     }
 
     fun clear() {
         snapshots.clear()
-        notificationDeltas.clear()
+        deltas.clear()
+        overflowed = false
+    }
+
+    private companion object {
+        /** Fail closed rather than retain unbounded native updates on low-RAM phones. */
+        const val MAX_STARTUP_DELTAS = 16_384
     }
 }
