@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import kotlin.coroutines.resume
@@ -91,7 +93,7 @@ internal class TdSecondaryNativeLoginLauncher(
             },
             clientFactory = { config, handler ->
                 val client = createNativeClient(handler)
-                TdSecondaryNativeLogin(accountId, config, client, phases)
+                TdSecondaryNativeLogin(accountId, config, client, phases, planned)
             }
         )
         try {
@@ -119,9 +121,34 @@ internal class TdSecondaryNativeLogin internal constructor(
     val accountId: String,
     internal val config: TdLibConfig,
     private val client: Client,
-    private val mutablePhase: MutableStateFlow<TdAccountAuthPhase>
+    private val mutablePhase: MutableStateFlow<TdAccountAuthPhase>,
+    internal val plannedRoute: TdSecondaryRouteDecision
 ) {
     val authPhase: StateFlow<TdAccountAuthPhase> = mutablePhase.asStateFlow()
+    private val routeMutex = Mutex()
+    private val _routePaused = MutableStateFlow(false)
+    val routePaused: StateFlow<Boolean> = _routePaused.asStateFlow()
+
+    /**
+     * A FOLLOW_PRIMARY account may have originally started DIRECT. If the
+     * primary route changes later, it must go offline too; pausing only
+     * shared-Mihomo sessions would leak traffic onto an outdated route.
+     */
+    suspend fun pauseNetwork() = routeMutex.withLock {
+        if (authPhase.value == TdAccountAuthPhase.CLOSED || _routePaused.value) return@withLock
+        val result = request(TdApi.SetNetworkType(TdApi.NetworkTypeNone()))
+        if (result is TdApi.Error) error("TDLib failed to pause secondary network")
+        _routePaused.value = true
+    }
+
+    /** Re-enable only if the newly verified policy STILL matches the original. */
+    suspend fun resumeNetwork(verified: Boolean) = routeMutex.withLock {
+        if (authPhase.value == TdAccountAuthPhase.CLOSED ||
+            !_routePaused.value || !verified) return@withLock
+        val result = request(TdApi.SetNetworkType(TdApi.NetworkTypeOther()))
+        if (result is TdApi.Error) error("TDLib failed to resume secondary network")
+        _routePaused.value = false
+    }
 
     suspend fun submitPhoneNumber(phone: String) {
         check(authPhase.value == TdAccountAuthPhase.WAIT_PHONE) { "TDLib isn't waiting for a phone number" }

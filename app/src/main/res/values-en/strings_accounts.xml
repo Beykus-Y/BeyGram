@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="secondary_accounts_title">Telegram accounts</string>
+    <string name="secondary_accounts_beta_warning">Experimental secondary account sign-in. Authorization is stored separately, but chats, notifications and account switching are not implemented yet. The primary account remains active.</string>
+    <string name="secondary_accounts_primary">Primary account</string>
+    <string name="secondary_accounts_primary_status">Current chats, messages and notifications belong to this account only</string>
+    <string name="secondary_accounts_others">Secondary accounts</string>
+    <string name="secondary_accounts_account_label">Secondary account %1$d</string>
+    <string name="secondary_accounts_authorized">Signed in (chats not available yet)</string>
+    <string name="secondary_accounts_offline">Session not running in this process</string>
+    <string name="secondary_accounts_signing_in">Signing in or connecting</string>
+    <string name="secondary_accounts_add">Prepare a new account</string>
+    <string name="secondary_accounts_selected">Secondary account authorization</string>
+    <string name="secondary_accounts_route">Connection route</string>
+    <string name="secondary_accounts_follow_route">Follow primary</string>
+    <string name="secondary_accounts_explicit_direct">Direct connection (explicit)</string>
+    <string name="secondary_accounts_connect">Connect account</string>
+    <string name="secondary_accounts_ready_no_chats">Signed in. Switching to this account’s chats is planned for a future stage.</string>
+    <string name="secondary_accounts_other_auth">Telegram requested an additional sign-in method not supported in this beta yet.</string>
+    <string name="secondary_accounts_connecting">Connecting to Telegram…</string>
+    <string name="secondary_accounts_disconnect">Stop this session (keep Telegram login)</string>
+    <string name="secondary_accounts_route_paused">The account route changed or became unavailable. Network is paused; stop this session and reconnect with the intended route.</string>
+    <string name="secondary_accounts_action_error">Operation failed. Check the connection and proxy route; the primary session was not affected.</string>
+</resources>
