@@ -367,7 +367,8 @@ private fun BeyGramAppContent(
         }
     }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
-    LaunchedEffect(authState, notificationRequest?.token) {
+    LaunchedEffect(authState, notificationRequest?.token, accountRegistryReady) {
+        if (!accountRegistryReady || accountRegistryError) return@LaunchedEffect
         val request = notificationRequest ?: return@LaunchedEffect
         if (authState != AuthState.Ready) return@LaunchedEffect
         // Notifications currently originate ONLY from the legacy client.
@@ -398,7 +399,8 @@ private fun BeyGramAppContent(
         onNotificationHandled(request.token)
     }
     // Текст из другого приложения выбирает чат и подтверждает отправку на отдельном экране поверх приложения.
-    if (incomingShare != null && authState == AuthState.Ready &&
+    if (incomingShare != null && authState == AuthState.Ready && accountRegistryReady &&
+        !accountRegistryError &&
         selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
         // Архивные чаты тоже можно выбрать: отправка в них не требует вынимать их из архива.
         val shareChats by repository.chats.collectAsStateWithLifecycle()
@@ -448,7 +450,8 @@ private fun BeyGramAppContent(
         }
     }
 
-    if (incomingShare != null && authState == AuthState.Ready &&
+    if (incomingShare != null && authState == AuthState.Ready && accountRegistryReady &&
+        !accountRegistryError &&
         selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
