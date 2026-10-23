@@ -65,7 +65,8 @@ fun NotificationSettingsScreen(
     connectionState: TelegramConnectionState,
     onBack: () -> Unit,
     onDiagnostics: () -> Unit,
-    accountPreferences: NotificationPreferencesStore = runtime.preferences
+    accountPreferences: NotificationPreferencesStore = runtime.preferences,
+    accountId: String = "legacy"
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
@@ -106,6 +107,14 @@ fun NotificationSettingsScreen(
             SettingToggle(stringResource(R.string.notif_toggle_background), stringResource(R.string.notif_toggle_background_hint), config.background, config.enabled) {
                 accountPreferences.update(config.copy(background = it))
                 TelegramNotificationService.reconcileFromAllowedContext(context, "ui")
+            }
+            if (accountId != "legacy" && config.background &&
+                !TelegramNotificationService.shouldRunLegacy(context) &&
+                com.beykus.beygram.data.tdlib.TdSecondaryRestoreStore(context)
+                    .confirmedRoute(accountId) !=
+                    com.beykus.beygram.data.tdlib.TdSecondaryRoutePreference.EXPLICIT_DIRECT) {
+                Text(stringResource(R.string.multi_background_route_warning),
+                    color = palette.warningText)
             }
             SettingToggle(stringResource(R.string.notif_toggle_previews), stringResource(R.string.notif_toggle_previews_hint), config.previews, config.enabled) {
                 accountPreferences.update(config.copy(previews = it))
