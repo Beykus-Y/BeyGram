@@ -6,6 +6,8 @@ import com.beykus.beygram.data.vpn.MihomoProxyService
 import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.notifications.NotificationPreferencesStore
+import com.beykus.beygram.notifications.notificationPreferencesName
+import com.beykus.beygram.data.archive.archivePreferencesName
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -139,26 +141,57 @@ internal class TdSecondaryAccountController private constructor(
      * authorization; account-root files are removed only after CLOSED and
      * the registry no longer references this ID. Symlinks are never followed. */
     suspend fun logoutAndDelete(accountId: String) {
+        // The coordinator invokes real TDLib LogOut, awaits the lease-retired
+        // callback, revokes restore policy, then atomically unregisters the ID.
         coordinator.logoutSecondary(accountId)
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val root = java.io.File(app.filesDir, "tdlib-accounts/$accountId")
-            val canonicalBase = java.io.File(app.filesDir.canonicalFile, "tdlib-accounts")
             require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-                accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")) &&
-                root.canonicalFile.parentFile == canonicalBase &&
-                root.canonicalFile.name == accountId &&
-                !java.nio.file.Files.isSymbolicLink(root.toPath()))
-            if (root.exists()) java.nio.file.Files.walkFileTree(root.toPath(),
-                object : java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
-                    override fun visitFile(file: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes) =
-                        java.nio.file.Files.delete(file).let { java.nio.file.FileVisitResult.CONTINUE }
-                    override fun postVisitDirectory(dir: java.nio.file.Path, error: java.io.IOException?): java.nio.file.FileVisitResult {
-                        if (error != null) throw error
-                        java.nio.file.Files.delete(dir)
-                        return java.nio.file.FileVisitResult.CONTINUE
-                    }
-                })
+                accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+            deleteAccountTreeSafely(
+                java.io.File(app.filesDir, "tdlib-accounts"),
+                java.io.File(app.filesDir, "tdlib-accounts/$accountId")
+            )
+            deleteAccountTreeSafely(
+                java.io.File(app.noBackupFilesDir, "reply-outbox-secondary"),
+                java.io.File(app.noBackupFilesDir, "reply-outbox-secondary/$accountId")
+            )
+            deleteAccountTreeSafely(
+                app.noBackupFilesDir,
+                java.io.File(app.noBackupFilesDir, "video-note-loss-$accountId")
+            )
+            listOf(
+                tdDraftPreferencesName(accountId),
+                archivePreferencesName(accountId),
+                notificationPreferencesName(accountId),
+                "pending_group_creation_$accountId",
+                "mihomo_tdlib_proxy_$accountId"
+            ).forEach(app::deleteSharedPreferences)
         }
+    }
+
+    /** Deletion never traverses symlinks or a path outside its exact parent. */
+    private fun deleteAccountTreeSafely(parent: java.io.File, target: java.io.File) {
+        val root = parent.canonicalFile
+        val expected = java.io.File(parent.parentFile.canonicalFile, parent.name)
+        require(root == expected &&
+            target.canonicalFile.parentFile == root &&
+            !java.nio.file.Files.isSymbolicLink(parent.toPath()) &&
+            !java.nio.file.Files.isSymbolicLink(target.toPath())) {
+            "Account data path is not safe to delete"
+        }
+        if (!target.exists()) return
+        java.nio.file.Files.walkFileTree(target.toPath(),
+            object : java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+                override fun visitFile(file: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+                    java.nio.file.Files.delete(file)
+                    return java.nio.file.FileVisitResult.CONTINUE
+                }
+                override fun postVisitDirectory(dir: java.nio.file.Path, error: java.io.IOException?): java.nio.file.FileVisitResult {
+                    if (error != null) throw error
+                    java.nio.file.Files.delete(dir)
+                    return java.nio.file.FileVisitResult.CONTINUE
+                }
+            })
     }
 
     /** Also called when entering the account screen; serializes all route probes. */
