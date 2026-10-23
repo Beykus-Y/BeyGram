@@ -26,12 +26,23 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.awaitCancellation
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.res.stringResource
@@ -46,6 +57,7 @@ import com.beykus.beygram.data.tdlib.TdSecondaryAuthSession
 import com.beykus.beygram.data.tdlib.TdSecondarySessionCoordinator
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.CancellationException
+import com.beykus.beygram.data.tdlib.TdSecondarySendStatus
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -68,6 +80,12 @@ internal fun SecondaryChatsScreen(
     var selectedChat by remember(accountId) { mutableStateOf<TdAccountChatKey?>(null) }
     var error by remember(accountId) { mutableStateOf(false) }
     var loading by remember(accountId) { mutableStateOf(true) }
+    // Hoisted above the chat-list branch: navigating away and back never
+    // re-enables duplicate sends or discards unsent per-chat text.
+    val drafts = remember(accountId) { mutableStateMapOf<TdAccountChatKey, String>() }
+    val sendingChats = remember(accountId) { mutableStateMapOf<TdAccountChatKey, Boolean>() }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val windowInfo = LocalWindowInfo.current
 
     // Closing the client or a route mismatch may occur while this screen is open.
     val account = accounts.accounts.firstOrNull { it.accountId == accountId }
@@ -114,6 +132,7 @@ internal fun SecondaryChatsScreen(
         if (!available) return@LaunchedEffect
         try {
             opened.loadHistory(chat)
+            awaitCancellation() // Keep TDLib OpenChat paired with the active viewport.
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { error = true }
         finally {
@@ -186,16 +205,34 @@ internal fun SecondaryChatsScreen(
         } else {
             val chat = selectedChat!!
             val messages = histories[chat].orEmpty()
-            val lastInboundMessageId = messages.lastOrNull { !it.outgoing }?.key?.messageId
-            LaunchedEffect(chat, available, lastInboundMessageId) {
-                if (available && lastInboundMessageId != null && lastInboundMessageId > 0L) {
-                    try {
-                        coordinator.chatSession(accountId).markRead(chat, lastInboundMessageId)
-                    } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { /* Read receipts must not crash an open chat. */ }
+            val listState = rememberLazyListState()
+            val currentMessages by rememberUpdatedState(messages)
+            val isAvailable by rememberUpdatedState(available)
+            // TDLib ViewMessages means *actually viewed*: do not auto-read
+            // cached messages off screen or while the Activity is backgrounded.
+            LaunchedEffect(chat, listState, lifecycle) {
+                lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    snapshotFlow {
+                        if (!windowInfo.isWindowFocused || !isAvailable) emptyList<Long>()
+                        else listState.layoutInfo.visibleItemsInfo.mapNotNull { visible ->
+                            val message = currentMessages.getOrNull(visible.index)
+                            val pixelsVisible = minOf(
+                                visible.offset + visible.size, listState.layoutInfo.viewportEndOffset
+                            ) - maxOf(visible.offset, listState.layoutInfo.viewportStartOffset)
+                            message?.takeIf {
+                                !it.outgoing && it.sendStatus == TdSecondarySendStatus.SENT &&
+                                    pixelsVisible >= (visible.size / 2).coerceAtLeast(1)
+                            }?.key?.messageId
+                        }.distinct().sorted()
+                    }.debounce(350).distinctUntilChanged().collect { visibleIds ->
+                        for (messageId in visibleIds) {
+                            try { coordinator.chatSession(accountId).markRead(chat, messageId) }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) { }
+                        }
+                    }
                 }
             }
-            val listState = rememberLazyListState()
             LaunchedEffect(chat, messages.size) {
                 if (messages.isNotEmpty()) listState.scrollToItem(messages.lastIndex)
             }
@@ -208,10 +245,16 @@ internal fun SecondaryChatsScreen(
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
                         horizontalArrangement = if (message.outgoing)
                             Arrangement.End else Arrangement.Start) {
-                        Text(if (message.isMedia)
+                        Text((if (message.isMedia)
                                 stringResource(R.string.secondary_chats_media_message)
                             else message.text.ifBlank {
                                 stringResource(R.string.secondary_chats_empty_message)
+                            }) + when (message.sendStatus) {
+                                TdSecondarySendStatus.PENDING ->
+                                    " · " + stringResource(R.string.secondary_chats_sending)
+                                TdSecondarySendStatus.FAILED ->
+                                    " · " + stringResource(R.string.secondary_chats_failed)
+                                TdSecondarySendStatus.SENT -> ""
                             },
                             color = palette.textPrimary, fontSize = 15.sp,
                             modifier = Modifier.fillMaxWidth(0.85f)
@@ -223,13 +266,17 @@ internal fun SecondaryChatsScreen(
 
             // Exactly this account/chat key is used for sending. No sender can
             // accidentally fall back to the legacy TelegramRepository.
-            var draft by rememberSaveable(accountId, chat.chatId) { mutableStateOf("") }
-            var sending by remember(accountId, chat.chatId) { mutableStateOf(false) }
+            val draft = drafts[chat].orEmpty()
+            val sending = sendingChats[chat] == true
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = draft,
-                    onValueChange = { draft = it.take(4096) },
+                    onValueChange = { value ->
+                        val count = value.codePointCount(0, value.length)
+                        val end = value.offsetByCodePoints(0, count.coerceAtMost(4096))
+                        drafts[chat] = value.substring(0, end)
+                    },
                     modifier = Modifier.weight(1f),
                     maxLines = 5,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
@@ -240,17 +287,19 @@ internal fun SecondaryChatsScreen(
                     enabled = available && !sending && draft.isNotBlank(),
                     onClick = {
                         val toSend = draft
-                        sending = true
+                        sendingChats[chat] = true
                         scope.launch {
                             try {
                                 val scoped = coordinator.chatSession(accountId)
                                 scoped.sendText(chat, toSend)
-                                if (selectedChat == chat) draft = ""
+                                // The queued TDLib Message remains visibly
+                                // PENDING until its final succeeded/failed update.
+                                if (drafts[chat] == toSend) drafts[chat] = ""
                                 error = false
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (_: Exception) { error = true }
-                            finally { sending = false }
+                            finally { sendingChats[chat] = false }
                         }
                     }
                 ) { Text(stringResource(R.string.secondary_chats_send)) }
