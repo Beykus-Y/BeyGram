@@ -36,4 +36,8 @@
     <string name="secondary_accounts_switch">Переключить аккаунт</string>
     <string name="secondary_accounts_switch_offline">Сессия отключена — откройте управление аккаунтами</string>
     <string name="secondary_accounts_switch_note">Чаты и сообщения второго аккаунта открываются в отдельном интерфейсе. Остальные разделы основного аккаунта не смешиваются.</string>
+    <string name="secondary_accounts_registry_error">Невозможно открыть реестр Telegram-аккаунтов. Данные не изменены. Проверьте хранилище приложения.</string>
+    <string name="secondary_accounts_switch_failed">Не удалось переключиться: аккаунт должен быть подключен, авторизован и доступен по выбранному маршруту.</string>
+    <string name="secondary_accounts_share_target_title">Выберите аккаунт для отправки</string>
+    <string name="secondary_accounts_share_target_warning">Системная отправка файлов и текста пока работает только через основной Telegram-аккаунт. Переключитесь на него или отмените отправку.</string>
 </resources>
