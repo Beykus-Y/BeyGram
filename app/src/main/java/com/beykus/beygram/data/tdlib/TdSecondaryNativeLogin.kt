@@ -85,7 +85,10 @@ internal class TdSecondaryNativeLoginLauncher(
             onUpdate = { event ->
                 // Never dispatch secondary updates through the legacy chat
                 // repository, global notification feed or shared media cache.
-                chatStore.receive(event)
+                // Legacy secondary-preview cache is needed only until the
+                // full account repository attaches. After that, double-writing
+                // every chat and message would waste RAM (especially on M21).
+                if (fullRepositoryObservers.isEmpty()) chatStore.receive(event)
                 // The same native client can feed the full TelegramRepository;
                 // never create a second Client for these database directories.
                 synchronized(fullRepositoryObservers) {
