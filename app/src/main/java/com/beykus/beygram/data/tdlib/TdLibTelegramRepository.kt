@@ -888,20 +888,34 @@ class TdLibTelegramRepository private constructor(
 
     // The repository and this callback live for the process lifetime. One client owns the database.
     private val networkMonitor = TelegramNetworkMonitor(context.applicationContext, authScope) { type ->
-        client.send(TdApi.SetNetworkType(type), Client.ResultHandler { result ->
-            if (result is TdApi.Error) {
-                ConnectionEventLog.shared.record("SetNetworkType: ошибка ${result.code}")
-                StructuredEventLog.shared.record(
-                    kind = EventKind.NETWORK,
-                    severity = Severity.WARNING,
-                    code = "set_network_type_failed",
-                    message = "",
-                    attrs = mapOf("error_code" to result.code.toString())
-                )
-                if (BuildConfig.DEBUG) android.util.Log.w(TelegramNetworkMonitor.TAG, "SetNetworkType failed: ${result.code}")
+        if (nativeSecondary != null) {
+            // Each secondary TDLib client must follow Android Wi-Fi/cellular/VPN changes.
+            // Its route mutex prevents a network callback from reopening a suspended route.
+            authScope.launch {
+                try {
+                    nativeSecondary.onConnectivityChanged(type)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    ConnectionEventLog.shared.record("Secondary SetNetworkType: ${error.javaClass.simpleName}")
+                }
             }
-        })
-    }.also { if (isLegacyAccount) it.start() }
+        } else {
+            client.send(TdApi.SetNetworkType(type), Client.ResultHandler { result ->
+                if (result is TdApi.Error) {
+                    ConnectionEventLog.shared.record("SetNetworkType: ошибка ${result.code}")
+                    StructuredEventLog.shared.record(
+                        kind = EventKind.NETWORK,
+                        severity = Severity.WARNING,
+                        code = "set_network_type_failed",
+                        message = "",
+                        attrs = mapOf("error_code" to result.code.toString())
+                    )
+                    if (BuildConfig.DEBUG) android.util.Log.w(TelegramNetworkMonitor.TAG, "SetNetworkType failed: ${result.code}")
+                }
+            })
+        }
+    }.also { it.start() }
 
     init {
         // Reuse the already-authorized secondary native owner. It retains the
@@ -1497,6 +1511,7 @@ class TdLibTelegramRepository private constructor(
                 cacheMaintenance.signedOut()
             }
             is TdApi.AuthorizationStateClosed -> {
+                networkMonitor.stop()
                 synchronized(analyticsAccountLock) {
                     analyticsSessionGeneration++
                     analyticsProfileJob?.cancel()
