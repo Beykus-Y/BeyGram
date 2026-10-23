@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -22,18 +24,14 @@ internal interface TdSecondaryAuthSession {
     suspend fun submitPassword(password: String)
     suspend fun resendCode()
     fun close()
+    suspend fun logOutAndAwaitClosed() { error("Native logout is unavailable") }
+    suspend fun awaitClosedLease() {}
 
-    /** Read-only secondary chats. Null for a test/fake auth session. */
-    val chatStore: TdSecondaryChatStore? get() = null
-    suspend fun loadChats() { error("Secondary chat store unavailable") }
-    suspend fun loadHistory(key: TdAccountChatKey) { error("Secondary chat store unavailable") }
-    suspend fun closeHistory(key: TdAccountChatKey) { error("Secondary chat store unavailable") }
-    suspend fun sendText(key: TdAccountChatKey, text: String) {
-        error("Secondary chat messaging unavailable")
-    }
-    suspend fun markRead(key: TdAccountChatKey, lastMessageId: Long) {
-        error("Secondary chat read unavailable")
-    }
+    /**
+     * Only the native session that owns the database lease may provide its
+     * full TelegramRepository. Test fakes can deliberately return null.
+     */
+    fun fullRepository(context: android.content.Context): com.beykus.beygram.domain.repository.TelegramRepository? = null
 
     val plannedRoute: TdSecondaryRouteDecision get() = TdSecondaryRouteDecision.Direct
     val networkSuspended: Boolean get() = false
@@ -50,14 +48,10 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun submitPassword(password: String) = login.submitPassword(password)
     override suspend fun resendCode() = login.resendCode()
     override fun close() = login.close()
-    override val chatStore: TdSecondaryChatStore get() = login.chatStore
-    override suspend fun loadChats() = login.loadSecondaryChats()
-    override suspend fun loadHistory(key: TdAccountChatKey) = login.openSecondaryHistory(key)
-    override suspend fun closeHistory(key: TdAccountChatKey) = login.closeSecondaryHistory(key)
-    override suspend fun sendText(key: TdAccountChatKey, text: String) =
-        login.sendSecondaryText(key, text)
-    override suspend fun markRead(key: TdAccountChatKey, lastMessageId: Long) =
-        login.readSecondaryChat(key, lastMessageId)
+    override suspend fun logOutAndAwaitClosed() = login.logOutAndAwaitClosed()
+    override suspend fun awaitClosedLease() = login.awaitNativeClosed()
+    override fun fullRepository(context: android.content.Context): com.beykus.beygram.domain.repository.TelegramRepository =
+        login.unifiedRepository(context)
     override val plannedRoute: TdSecondaryRouteDecision get() = login.plannedRoute
     override val networkSuspended: Boolean get() = login.routePaused.value
     override suspend fun pauseNetwork() = login.pauseNetwork()
@@ -68,7 +62,8 @@ internal data class TdSecondaryAccountRow(
     val accountId: String,
     val phase: TdAccountAuthPhase?,
     val connectedInThisProcess: Boolean,
-    val networkSuspended: Boolean = false
+    val networkSuspended: Boolean = false,
+    val routePreference: TdSecondaryRoutePreference? = null
 )
 
 internal data class TdSecondaryAccountsSnapshot(
@@ -90,6 +85,7 @@ internal class TdSecondarySessionCoordinator(
     private val scope: CoroutineScope,
     private val onAuthorized: (String, TdSecondaryRoutePreference) -> Unit = { _, _ -> },
     private val onManualStop: (String) -> Unit = {},
+    private val onLogoutConfirmed: (String) -> Unit = {},
     private val openNative: suspend (String, TdSecondaryRoutePreference) -> TdSecondaryAuthSession
 ) {
     private data class Active(
@@ -100,6 +96,9 @@ internal class TdSecondarySessionCoordinator(
 
     private val mutex = Mutex()
     private val running = mutableMapOf<String, Active>()
+    /** Prevent background restore and user connect from racing route transitions. */
+    private val switchingAccounts = mutableSetOf<String>()
+    private val loggingOutAccounts = mutableSetOf<String>()
     private val _snapshot = MutableStateFlow(TdSecondaryAccountsSnapshot())
     val snapshot: StateFlow<TdSecondaryAccountsSnapshot> = _snapshot.asStateFlow()
 
@@ -112,10 +111,17 @@ internal class TdSecondarySessionCoordinator(
         id
     }
 
-    suspend fun connect(accountId: String, preference: TdSecondaryRoutePreference) = mutex.withLock {
+    suspend fun connect(
+        accountId: String, preference: TdSecondaryRoutePreference, fromRouteSwitch: Boolean = false
+    ) = mutex.withLock {
+        check(accountId !in switchingAccounts || fromRouteSwitch) {
+            "Account route is being changed"
+        }
+        check(accountId !in loggingOutAccounts) { "Account is logging out" }
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) { "Legacy TDLib is already running" }
         require(accountId in registry.loadOrCreate().accountIds) { "Account not registered" }
         if (running[accountId]?.handle?.authPhase?.value == TdAccountAuthPhase.CLOSED) {
+            running[accountId]?.handle?.awaitClosedLease()
             running.remove(accountId)?.subscription?.cancel()
         }
         check(accountId !in running) { "Secondary account is already active" }
@@ -155,20 +161,106 @@ internal class TdSecondarySessionCoordinator(
     suspend fun resendCode(accountId: String) =
         session(accountId).resendCode()
 
+    /**
+     * The standard UI receives the SAME complete TelegramRepository contract
+     * regardless of which native session owns the selected account.
+     * The original legacy singleton is never touched by this lookup.
+     */
+    suspend fun fullRepository(
+        accountId: String,
+        context: android.content.Context
+    ): com.beykus.beygram.domain.repository.TelegramRepository {
+        val session = chatSession(accountId)
+        return session.fullRepository(context)
+            ?: error("Native account cannot provide the complete Telegram repository")
+    }
+
     /** Return the exact account-bound session, never an active-UI-account proxy. */
     suspend fun chatSession(accountId: String): TdSecondaryAuthSession = mutex.withLock {
         val handle = running[accountId]?.handle ?: error("Secondary TDLib session is not running")
+        check(accountId !in loggingOutAccounts) { "Account is logging out" }
         check(handle.authPhase.value == TdAccountAuthPhase.READY) {
             "Secondary Telegram account is not authorized"
         }
         check(!handle.networkSuspended) { "Secondary network route is paused" }
-        check(handle.chatStore?.accountId == accountId) { "Secondary chat store identity mismatch" }
         handle
+    }
+
+    /** A confirmed logout is different from Close. TDLib must close and release
+     * its lease BEFORE its slot is removed from durable registry metadata. */
+    suspend fun logoutSecondary(accountId: String) {
+        require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+        val active = mutex.withLock {
+            check(loggingOutAccounts.add(accountId)) { "Logout already running" }
+            try {
+                check(accountId !in switchingAccounts)
+                (running[accountId] ?: error("Secondary account must be connected to log out")).also {
+                    check(it.handle.authPhase.value == TdAccountAuthPhase.READY)
+                }
+            } catch (failure: Throwable) {
+                loggingOutAccounts.remove(accountId)
+                throw failure
+            }
+        }
+        try {
+            // Native Close can take tens of seconds. Other accounts' chats,
+            // picker and TDLib session updates must remain responsive.
+            active.handle.logOutAndAwaitClosed()
+            mutex.withLock {
+                check(running[accountId] === active)
+                // Durable removal is the commit point. A failed subsequent
+                // cache/notification cleanup remains recoverable from tombstone.
+                registry.unregisterSecondaryAccount(accountId)
+                running.remove(accountId)?.subscription?.cancel()
+                publish()
+            }
+            onLogoutConfirmed(accountId)
+        } finally {
+            mutex.withLock { loggingOutAccounts.remove(accountId) }
+        }
+    }
+
+    /** Explicit route edit: Close the same session without logout, wait for the
+     * database lease to retire, then reopen after the new route preflight. */
+    suspend fun reconnectWithRoute(
+        accountId: String,
+        preference: TdSecondaryRoutePreference,
+        verifyNewRoute: suspend (TdSecondaryRoutePreference) -> Unit = {}
+    ) {
+        val current = mutex.withLock {
+            check(switchingAccounts.add(accountId)) { "Route transition already active" }
+            try {
+                val session = running[accountId]?.handle
+                    ?: error("Secondary session is not running")
+                check(session.authPhase.value == TdAccountAuthPhase.READY)
+                session
+            } catch (error: Throwable) {
+                switchingAccounts.remove(accountId)
+                throw error
+            }
+        }
+        try {
+            // Check proxy ownership BEFORE closing the working native session.
+            // No manual-stop marker is written: a failed route transition must
+            // retain the previous background restore policy.
+            verifyNewRoute(preference)
+            mutex.withLock {
+                check(running[accountId]?.handle === current)
+                current.close()
+                publish()
+            }
+            withTimeout(45_000) { current.authPhase.first { it == TdAccountAuthPhase.CLOSED } }
+            current.awaitClosedLease()
+            connect(accountId, preference, fromRouteSwitch = true)
+        } finally {
+            mutex.withLock { switchingAccounts.remove(accountId) }
+        }
     }
 
     /** Leaves TDLib authorization and the files on disk unchanged. */
     suspend fun disconnect(accountId: String) = mutex.withLock {
         val active = running[accountId] ?: return@withLock
+        check(accountId !in loggingOutAccounts && accountId !in switchingAccounts)
         // Record user intent BEFORE asynchronous native Close.
         onManualStop(accountId)
         active.handle.close()
@@ -223,7 +315,8 @@ internal class TdSecondarySessionCoordinator(
                 val phase = running[id]?.handle?.authPhase?.value
                 TdSecondaryAccountRow(id, phase, running[id] != null &&
                     phase != TdAccountAuthPhase.CLOSED,
-                    networkSuspended = running[id]?.handle?.networkSuspended == true)
+                    networkSuspended = running[id]?.handle?.networkSuspended == true,
+                    routePreference = running[id]?.preference)
             },
             busy = false
         )

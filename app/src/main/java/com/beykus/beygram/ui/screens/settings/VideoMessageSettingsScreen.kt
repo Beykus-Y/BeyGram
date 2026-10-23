@@ -78,7 +78,7 @@ import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: TelegramRepository, onBack: () -> Unit) {
+fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: TelegramRepository, accountId: String = "legacy", onBack: () -> Unit) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val diagnostics = remember(context) { VideoNoteDiagnostics.also { it.initialize(context) } }
@@ -94,7 +94,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) VideoNoteFpsCheck.start(context, fpsCheckScope, store.settings.value)
     }
-    val lossDiagnostics = remember(repository) { VideoNoteLossDiagnostics.getInstance(context.applicationContext, repository) }
+    val lossDiagnostics = remember(repository, accountId) { VideoNoteLossDiagnostics.getInstance(context.applicationContext, repository, accountId) }
     val lossState by lossDiagnostics.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var showLossPanel by remember { mutableStateOf(false) }

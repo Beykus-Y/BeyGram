@@ -23,6 +23,13 @@ internal fun notificationChatPath(
         else "account/$accountId/chat/$chatId/$groupId/$maxId/$topicId"
 }
 
+/** URI ownership must be part of the PendingIntent identity. */
+internal fun notificationReplyPath(accountId: String, groupId: Int): String {
+    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+    require(groupId > 0)
+    return if (accountId == "legacy") "reply/$groupId" else "account/$accountId/reply/$groupId"
+}
+
 internal object NotificationIntents {
     const val OPEN_CHAT = "com.beykus.beygram.OPEN_NOTIFICATION_CHAT"
     const val OPEN_SETTINGS = "com.beykus.beygram.OPEN_NOTIFICATION_SETTINGS"
@@ -44,6 +51,29 @@ internal object NotificationIntents {
         val routing = replyRoutingToken(session, intent.getLongExtra(CHAT_ID, 0L), intent.getIntExtra(GROUP_ID, 0), intent.getIntExtra(MAX_ID, 0), intent.getLongExtra(REPLY_TO, 0L), intent.getLongExtra(TOPIC, 0L))
         return session.takeIf { intent.getStringExtra(TOKEN) == routing }
     }
+    /** Require the account embedded in the PendingIntent URI to match the signed
+     * session whose HMAC covers the reply's chat/message/group routing. */
+    fun replyAccount(intent: Intent): String? {
+        val accountId = intent.getStringExtra(ACCOUNT_ID) ?: "legacy"
+        if (!accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}"))) return null
+        val groupId = intent.getIntExtra(GROUP_ID, 0)
+        val chatId = intent.getLongExtra(CHAT_ID, 0L)
+        if (groupId <= 0 || chatId == 0L) return null
+        val path = notificationReplyPath(accountId, groupId)
+        return accountId.takeIf { intent.data?.path?.trimStart('/') == path }
+    }
+
+    fun replySessionForAccount(context: Context, intent: Intent, accountId: String): String? {
+        if (replyAccount(intent) != accountId) return null
+        val prefs = NotificationRuntime.get(context).preferencesForAccount(accountId)
+        if (!prefs.authorized) return null
+        val session = prefs.replyToken()
+        val routing = replyRoutingToken(session, intent.getLongExtra(CHAT_ID, 0L),
+            intent.getIntExtra(GROUP_ID, 0), intent.getIntExtra(MAX_ID, 0),
+            intent.getLongExtra(REPLY_TO, 0L), intent.getLongExtra(TOPIC, 0L))
+        return session.takeIf { intent.getStringExtra(TOKEN) == routing }
+    }
+
     fun chat(
         context: Context, chatId: Long, groupId: Int, maxId: Int, topicId: Long = 0L,
         accountId: String = "legacy"
@@ -80,18 +110,46 @@ internal object NotificationIntents {
     fun proxy(context: Context): PendingIntent = PendingIntent.getActivity(context, 0,
         Intent(context, MainActivity::class.java).setAction(OPEN_PROXY).setData(Uri.parse("beygram://${context.packageName}/proxy"))
             .putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    fun dismiss(context: Context, groupId: Int, maxId: Int): PendingIntent = PendingIntent.getBroadcast(context, 0,
-        Intent(context, NotificationDismissReceiver::class.java).setAction(DISMISS).setData(Uri.parse("beygram://${context.packageName}/dismiss/$groupId/$maxId"))
-            .putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    fun dismiss(context: Context, groupId: Int, maxId: Int, accountId: String = "legacy"): PendingIntent {
+        require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        val path = if (accountId == "legacy") "dismiss/$groupId/$maxId"
+            else "account/$accountId/dismiss/$groupId/$maxId"
+        return PendingIntent.getBroadcast(context, 0,
+            Intent(context, NotificationDismissReceiver::class.java)
+                .setAction(DISMISS)
+                .setData(Uri.parse("beygram://${context.packageName}/$path"))
+                .putExtra(ACCOUNT_ID, accountId)
+                .putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    fun accountForDismissIntent(intent: Intent): String? {
+        val account = intent.getStringExtra(ACCOUNT_ID) ?: "legacy"
+        if (!account.matches(Regex("[a-zA-Z0-9_-]{1,64}"))) return null
+        val group = intent.getIntExtra(GROUP_ID, 0)
+        val newest = intent.getIntExtra(MAX_ID, 0)
+        if (group <= 0 || newest <= 0) return null
+        val expected = if (account == "legacy") "dismiss/$group/$newest"
+            else "account/$account/dismiss/$group/$newest"
+        return account.takeIf { intent.data?.path?.trimStart('/') == expected }
+    }
     /**
      * Mutable because Android attaches the typed text to the intent, and one-shot so a listener that kept it can send only once.
      * One identity per group: a re-post updates the live action instead of leaving older ones behind. The receiver is not exported and still checks the token, which covers the routing extras.
      */
-    fun reply(context: Context, chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): PendingIntent = PendingIntent.getBroadcast(context, 0,
-        Intent(context, NotificationReplyReceiver::class.java).setAction(REPLY).setData(Uri.parse("beygram://${context.packageName}/reply/$groupId"))
-            .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(REPLY_TO, replyToMessageId).putExtra(TOPIC, topicId)
-            .putExtra(TOKEN, replyRoutingToken(NotificationRuntime.get(context).preferences.replyToken(), chatId, groupId, maxId, replyToMessageId, topicId)),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_ONE_SHOT or mutability())
+    fun reply(context: Context, chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long, accountId: String = "legacy"): PendingIntent {
+        require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        val path = notificationReplyPath(accountId, groupId)
+        val session = NotificationRuntime.get(context).preferencesForAccount(accountId).replyToken()
+        return PendingIntent.getBroadcast(context, 0,
+            Intent(context, NotificationReplyReceiver::class.java).setAction(REPLY)
+                .setData(Uri.parse("beygram://${context.packageName}/$path"))
+                .putExtra(ACCOUNT_ID, accountId)
+                .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId)
+                .putExtra(REPLY_TO, replyToMessageId).putExtra(TOPIC, topicId)
+                .putExtra(TOKEN, replyRoutingToken(session, chatId, groupId, maxId, replyToMessageId, topicId)),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_ONE_SHOT or mutability())
+    }
     // FLAG_MUTABLE exists only from Android 12; older systems create mutable PendingIntents by default.
     private fun mutability(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
 }

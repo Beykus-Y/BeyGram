@@ -48,24 +48,30 @@ class BeyGramApplication : Application() {
         // Background notifications are the only work that needs TDLib without a screen. Starting the client only when they
         // run keeps a disabled feature from connecting after boot; the backend restores the local proxy for that client.
         if (TelegramNotificationService.shouldRun(this) && TdLibBootstrap(this).readiness().canCreateClient) {
-            val repository = TdLibTelegramRepository.getInstance(this)
-            startDirectShare(repository)
-            VpnBackend.getInstance(
-                context = this,
-                connectionState = repository.connectionState,
-                scope = applicationScope,
-                setTdLibProxy = repository::setMihomoProxyEnabled,
-                isTdLibProxyEnabled = repository::isMihomoProxyEnabled
-            )
-            // When background notifications are enabled, previous *authorized*
-            // secondary accounts may restore their own native sessions too.
-            // Each restore rechecks its route and never silently selects DIRECT.
-            val secondary = TdSecondaryAccountController.get(this) {
-                repository.currentRoute().getOrNull()
+            // A secondary-only background service MUST NOT create legacy TDLib:
+            // the first account can explicitly have background delivery disabled.
+            val legacy = if (TelegramNotificationService.shouldRunLegacy(this))
+                TdLibTelegramRepository.getInstance(this) else null
+            if (legacy != null) {
+                startDirectShare(legacy)
+                VpnBackend.getInstance(
+                    context = this,
+                    connectionState = legacy.connectionState,
+                    scope = applicationScope,
+                    setTdLibProxy = legacy::setMihomoProxyEnabled,
+                    isTdLibProxyEnabled = legacy::isMihomoProxyEnabled
+                )
             }
-            applicationScope.launch {
-                repository.authState.collect { state ->
-                    if (state == AuthState.Ready) secondary.restoreRemembered()
+            // The controller only resumes notification-enabled secondary slots on
+            // background startup. Unknown primary/proxy policy blocks network access.
+            val secondary = TdSecondaryAccountController.get(
+                this, { legacy?.currentRoute()?.getOrNull() }, backgroundOnly = true
+            )
+            if (legacy != null) {
+                applicationScope.launch {
+                    legacy.authState.collect { state ->
+                        if (state == AuthState.Ready) secondary.restoreRemembered()
+                    }
                 }
             }
         }

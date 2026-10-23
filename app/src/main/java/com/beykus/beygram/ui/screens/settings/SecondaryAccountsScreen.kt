@@ -59,7 +59,8 @@ import kotlinx.coroutines.withContext
 internal fun SecondaryAccountsScreen(
     controller: TdSecondaryAccountController,
     onBack: () -> Unit,
-    onOpenChats: (String) -> Unit
+    onOpenChats: (String) -> Unit,
+    onAccountDeleted: (String) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val coordinator = controller.coordinator
@@ -72,6 +73,7 @@ internal fun SecondaryAccountsScreen(
     var password by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf(false) }
+    var confirmLogoutAccountId by remember { mutableStateOf<String?>(null) }
 
     fun runAction(action: suspend () -> Unit) {
         if (working) return
@@ -184,7 +186,7 @@ internal fun SecondaryAccountsScreen(
                     FilterChip(
                         selected = routePreference == TdSecondaryRoutePreference.SHARED_MIHOMO,
                         onClick = { routePreference = TdSecondaryRoutePreference.SHARED_MIHOMO },
-                        label = { Text("Mihomo") }
+                        label = { Text(stringResource(R.string.multi_proxy_shared)) }
                     )
                 }
                 FilterChip(
@@ -267,6 +269,40 @@ internal fun SecondaryAccountsScreen(
                     enabled = !working, modifier = Modifier.fillMaxWidth()
                 ) { Text(stringResource(R.string.secondary_accounts_disconnect)) }
             }
+        }
+        if (selected != null && selected.phase == TdAccountAuthPhase.READY) {
+            // Disconnect is not Logout. Users must confirm authorization removal.
+            androidx.compose.material3.TextButton(
+                onClick = { confirmLogoutAccountId = selected.accountId },
+                enabled = !working,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(stringResource(R.string.multi_account_logout_action)) }
+        }
+        val deleting = confirmLogoutAccountId
+        if (deleting != null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { if (!working) confirmLogoutAccountId = null },
+                title = { Text(stringResource(R.string.multi_account_logout_title)) },
+                text = { Text(stringResource(R.string.multi_account_logout_message)) },
+                confirmButton = {
+                    TextButton(
+                        enabled = !working,
+                        onClick = {
+                            confirmLogoutAccountId = null
+                            runAction {
+                                controller.logoutAndDelete(deleting)
+                                withContext(Dispatchers.Main) {
+                                    selectedId = null
+                                    onAccountDeleted(deleting)
+                                }
+                            }
+                        }
+                    ) { Text(stringResource(R.string.multi_account_logout_confirm)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmLogoutAccountId = null }, enabled = !working) { Text(stringResource(R.string.multi_account_cancel)) }
+                }
+            )
         }
         if (error) Text(stringResource(R.string.secondary_accounts_action_error),
             color = palette.danger, modifier = Modifier.padding(top = 12.dp))

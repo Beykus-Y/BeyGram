@@ -1,18 +1,27 @@
 package com.beykus.beygram.navigation
 
 /**
- * Until every tab has a true account-scoped repository, never display legacy
- * chats, profiles, calls, searches or media while the secondary is selected.
- * The secondary Chats route is dispatched separately, not to legacy ChatsScreen.
+ * All normal BeyGram routes use the selected account's complete repository.
+ * Do not solve data isolation by disabling screens or reimplementing a
+ * second ChatScreen: the repository identity is the security boundary.
  */
-internal fun secondaryAccountMayOpen(route: AppRoute): Boolean =
-    route == AppRoute.Chats ||
-    route == AppRoute.AccountPicker ||
-    route == AppRoute.SecondaryAccounts
+internal fun accountRepositoryMatchesSelection(
+    selectedAccountId: String,
+    resolvedRepositoryAccountId: String?
+): Boolean = selectedAccountId.isNotBlank() &&
+    resolvedRepositoryAccountId == selectedAccountId
 
 /**
- * Legacy notifications and direct-share shortcuts still contain bare chat
- * IDs, so their producer is explicitly account "legacy". A future secondary
- * notification MUST carry its source account ID as part of the deep link.
+ * Account management works while a selected TDLib session is offline. Normal
+ * chat/profile/call/media routes require an actual bound account repository.
  */
+internal fun accountRouteCanRender(
+    route: AppRoute,
+    selectedAccountId: String,
+    resolvedRepositoryAccountId: String?
+): Boolean = route == AppRoute.AccountPicker ||
+    route == AppRoute.SecondaryAccounts ||
+    accountRepositoryMatchesSelection(selectedAccountId, resolvedRepositoryAccountId)
+
+/** Legacy shortcuts currently carry unscoped chat IDs; their source never changes. */
 internal const val LEGACY_NOTIFICATION_SOURCE_ACCOUNT = "legacy"

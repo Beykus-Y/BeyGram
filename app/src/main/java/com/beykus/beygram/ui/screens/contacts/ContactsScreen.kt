@@ -69,12 +69,13 @@ fun ContactsScreen(
     openPrivateChat: suspend (userId: Long) -> Result<Long>,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onChatOpened: (chatId: Long) -> Unit
+    onChatOpened: (chatId: Long) -> Unit,
+    accountId: String = "legacy"
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val state: ContactsScreenState = viewModel()
+    val state: ContactsScreenState = viewModel(key = "contacts:$accountId")
     val contacts = state.contacts
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }

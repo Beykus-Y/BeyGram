@@ -64,6 +64,7 @@ import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackOrigin
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
@@ -93,7 +94,8 @@ fun ChatScreen(
     recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
     onServiceUser: (Long) -> Unit = {},
-    messageAnimations: MessageAnimationConfig = MessageAnimationConfig()
+    messageAnimations: MessageAnimationConfig = MessageAnimationConfig(),
+    accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val canPostHere = chat.canPost && topicCanPost
@@ -151,7 +153,7 @@ fun ChatScreen(
     val typingNames by typingFlow.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
     // Each forum topic keeps its own list position.
-    val scrollPosition: ChatScrollPositionViewModel = viewModel(key = "chat-scroll-${chat.id}-$forumTopicId")
+    val scrollPosition: ChatScrollPositionViewModel = viewModel(key = "chat-scroll-$accountId-${chat.id}-$forumTopicId")
     val listState = rememberLazyListState(scrollPosition.firstVisibleItemIndex, scrollPosition.firstVisibleItemScrollOffset)
     DisposableEffect(listState) {
         onDispose {
@@ -169,7 +171,7 @@ fun ChatScreen(
     val context = LocalContext.current
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
     val recordingMode by recordingSettings.recordingMode.collectAsStateWithLifecycle()
-    val recordingRecovery: ChatRecordingRecoveryViewModel = viewModel(key = "chat-recording-${chat.id}")
+    val recordingRecovery: ChatRecordingRecoveryViewModel = viewModel(key = "chat-recording-$accountId-${chat.id}")
     val recordingPreview by recordingRecovery.preview.collectAsStateWithLifecycle()
     val recordingPreviewIndex by recordingRecovery.selectedIndex.collectAsStateWithLifecycle()
     var sentRecordingPaths by remember(chat.id) { mutableStateOf(emptySet<String>()) }
@@ -178,10 +180,10 @@ fun ChatScreen(
     // Voice messages use this local queue; video notes are owned by VideoNoteExportCenter.
     val pendingRecordingSends = remember(chat.id) { ArrayDeque<List<OutgoingMedia>>() }
     val videoExports by VideoNoteExportCenter.results.collectAsStateWithLifecycle()
-    val videoPreview = videoExports.firstOrNull { it.chatId == chat.id && it.topicId == forumTopicId && it.requiresPreview }
+    val videoPreview = videoExports.firstOrNull { it.accountId == accountId && it.chatId == chat.id && it.topicId == forumTopicId && it.requiresPreview }
     val videoPending by VideoNoteExportCenter.pendingNotes.collectAsStateWithLifecycle()
     // Автоматический кружок виден в ленте сразу: сначала обработка, потом отправка, пока TDLib не примет сообщение.
-    val pendingVideoNotes = remember(videoPending, videoExports, chat.id, forumTopicId) { pendingVideoNotesFor(chat.id, videoPending, videoExports, forumTopicId) }
+    val pendingVideoNotes = remember(videoPending, videoExports, chat.id, forumTopicId, accountId) { pendingVideoNotesFor(chat.id, videoPending, videoExports, forumTopicId, accountId) }
     fun startRecordingSendWorker() {
         if (recordingQueueSending) return
         if (pendingRecordingSends.isEmpty()) return
@@ -247,15 +249,15 @@ fun ChatScreen(
         if (result.isSuccess) clearReply()
         result
     }
-    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, onError = { error = it })
+    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, accountId = accountId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.
     // A note goes to the topic it was recorded in, so another topic never claims it.
-    LaunchedEffect(chat.id, forumTopicId, conversation) {
+    LaunchedEffect(accountId, chat.id, forumTopicId, conversation) {
         launch {
             VideoNoteExportCenter.results.collect { list ->
-                list.filter { it.chatId == chat.id && it.topicId == forumTopicId && !it.requiresPreview && !it.sending }.forEach { item ->
-                    val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, replyId) { media, targetReply ->
+                list.filter { it.accountId == accountId && it.chatId == chat.id && it.topicId == forumTopicId && !it.requiresPreview && !it.sending }.forEach { item ->
+                    val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, replyId, accountId) { media, targetReply ->
                         conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
                     if (accepted) clearReply()
@@ -264,7 +266,7 @@ fun ChatScreen(
         }
         launch {
             VideoNoteExportCenter.failures.collect {
-                if (VideoNoteExportCenter.consumeFailure(chat.id, forumTopicId)) error = context.getString(R.string.recorder_save_failed)
+                if (VideoNoteExportCenter.consumeFailure(chat.id, forumTopicId, accountId)) error = context.getString(R.string.recorder_save_failed)
             }
         }
     }
@@ -960,9 +962,9 @@ fun ChatScreen(
             sending = video.sending,
             progress = (video.nextIndex + 1).coerceAtMost(video.media.size),
             onSelect = recordingRecovery::select,
-            onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName) },
+            onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName, accountId) },
             onSend = {
-                val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, replyId) { media, targetReply ->
+                val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, replyId, accountId) { media, targetReply ->
                     conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = video.topicId).map { Unit }
                 }
                 if (accepted) clearReply()
@@ -1059,7 +1061,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Время и статус кружка находятся под кругом, вне обрезки видео.
     val inCircle = circle && message.sendState != MessageSendState.Failed
     // Пока сообщение отправляется или не ушло, его id временный и потом меняется: место для общего плеера не ставим.
-    val playbackOrigin = if (message.sendState == MessageSendState.Sent) PlaybackOrigin(message.chatId, message.id) else null
+    val playbackOrigin = if (message.sendState == MessageSendState.Sent) PlaybackOrigin(message.chatId, message.id, LocalPlaybackAccountId.current) else null
     val statusIcon = when {
         !message.isOutgoing -> null
         message.sendState == MessageSendState.Sending -> Icons.Rounded.Schedule

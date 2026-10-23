@@ -16,6 +16,22 @@ class AccountNotificationRoutingTest {
         assertEquals("account/a-second/chat/10201/34/57/0", second)
     }
 
+    @Test fun inlineReplyUriIdentityIsDifferentForEqualNotificationGroupIds() {
+        assertEquals("reply/12", notificationReplyPath("legacy", 12))
+        assertEquals("account/a-first/reply/12", notificationReplyPath("a-first", 12))
+        assertNotEquals(notificationReplyPath("a-first", 12), notificationReplyPath("a-second", 12))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun secondaryInlineReplyRejectsUnsafeAccountId() {
+        notificationReplyPath("../foreign", 1)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun secondaryInlineReplyRejectsInvalidGroupId() {
+        notificationReplyPath("a-first", 0)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun accountIdPathInjectionIsRejected() {
         notificationChatPath("../legacy", 1L, 1, 1, 0L)

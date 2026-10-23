@@ -77,6 +77,21 @@ internal class TdAccountRegistry(private val privateFilesDir: File) {
         next
     }
 
+    /** Remove only a secondary slot after its native TDLib session has CLOSED.
+     * Never delete filesystem data until the registry no longer points at it. */
+    fun unregisterSecondaryAccount(accountId: String): TdAccountRegistryState = synchronized(mutationLock) {
+        require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+        val current = loadOrCreate()
+        require(accountId in current.accountIds) { "Account is not registered" }
+        val next = current.copy(
+            accountIds = current.accountIds - accountId,
+            activeAccountId = if (current.activeAccountId == accountId)
+                TdAccountStorageLayout.LEGACY_ACCOUNT_ID else current.activeAccountId
+        )
+        persist(next)
+        next
+    }
+
     private fun verifyPrivateRoot() {
         val canonicalPrivate = privateFilesDir.canonicalFile
         val expected = canonicalPrivate.resolve("tdlib-accounts")

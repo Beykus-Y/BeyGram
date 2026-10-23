@@ -33,9 +33,17 @@ internal class TdAccountNativeClientOwner(
      * The database lease and update handler are both retired on TDLib's
      * AuthorizationStateClosed, even if the event consumer throws.
      */
+    /** Compatibility overload for the existing three-argument native factories. */
     fun <T : Any> create(
         accountId: String,
         onUpdate: (TdAccountUpdateRouter.TdAccountRoutedUpdate) -> Unit,
+        clientFactory: (TdLibConfig, Client.ResultHandler) -> T
+    ): T = create(accountId, onUpdate, {}, clientFactory)
+
+    fun <T : Any> create(
+        accountId: String,
+        onUpdate: (TdAccountUpdateRouter.TdAccountRoutedUpdate) -> Unit,
+        onClosed: () -> Unit,
         clientFactory: (TdLibConfig, Client.ResultHandler) -> T
     ): T {
         require(accountId in registry.loadOrCreate().accountIds) {
@@ -49,7 +57,7 @@ internal class TdAccountNativeClientOwner(
                 File(config.filesDirectory).canonicalFile == paths.files) {
                 "TDLib configuration is not isolated to its leased account paths"
             }
-            val registration = router.register(accountId) { routed ->
+            val registration = router.register(accountId, onAfterClosed = onClosed) { routed ->
                 try {
                     onUpdate(routed)
                 } finally {
@@ -62,7 +70,7 @@ internal class TdAccountNativeClientOwner(
             try {
                 clientFactory(config, registration.updateHandler)
             } catch (failure: Throwable) {
-                registration.onNativeClosed()
+                registration.onNativeClosed(notifyOwner = false)
                 throw failure // lifecycle.open() releases the lease
             }
         }

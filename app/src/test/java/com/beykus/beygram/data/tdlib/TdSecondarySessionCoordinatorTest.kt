@@ -18,6 +18,14 @@ class TdSecondarySessionCoordinatorTest {
         val phase = MutableStateFlow(TdAccountAuthPhase.WAIT_PHONE)
         override val authPhase: StateFlow<TdAccountAuthPhase> = phase
         var closed = false
+        var autoClose = false
+        var logoutCount = 0
+        var failLogout = false
+        override suspend fun logOutAndAwaitClosed() {
+            if (failLogout) throw IllegalStateException("Logout failed")
+            logoutCount++
+            phase.value = TdAccountAuthPhase.CLOSED
+        }
         var lastPhone: String? = null
         override var plannedRoute: TdSecondaryRouteDecision = TdSecondaryRouteDecision.Direct
         override var networkSuspended = false
@@ -38,7 +46,118 @@ class TdSecondarySessionCoordinatorTest {
         override suspend fun submitCode(code: String) { phase.value = TdAccountAuthPhase.READY }
         override suspend fun submitPassword(password: String) { phase.value = TdAccountAuthPhase.READY }
         override suspend fun resendCode() {}
-        override fun close() { closed = true }
+        override fun close() {
+            closed = true
+            if (autoClose) phase.value = TdAccountAuthPhase.CLOSED
+        }
+    }
+
+    @Test fun logoutRemovesOnlyClosedSecondaryAndPreservesLegacyAndSibling() = runBlocking {
+        val root = Files.createTempDirectory("beygram-logout-").toFile()
+        val work = SupervisorJob()
+        try {
+            val registry = TdAccountRegistry(root)
+            val sessions = mutableMapOf<String, Fake>()
+            val loggedOut = mutableListOf<String>()
+            val manager = TdSecondarySessionCoordinator(
+                registry, CoroutineScope(work + Dispatchers.Unconfined),
+                onLogoutConfirmed = { loggedOut += it },
+                openNative = { id, _ -> Fake().also { sessions[id] = it } }
+            )
+            val a = manager.reserveAccount()
+            val b = manager.reserveAccount()
+            registry.selectAccount(a)
+            manager.connect(a, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            manager.connect(b, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            sessions[a]!!.phase.value = TdAccountAuthPhase.READY
+            sessions[b]!!.phase.value = TdAccountAuthPhase.READY
+            manager.logoutSecondary(a)
+            assertEquals(1, sessions[a]!!.logoutCount)
+            assertEquals(0, sessions[b]!!.logoutCount)
+            assertEquals(listOf(a), loggedOut)
+            assertEquals(listOf("legacy", b), registry.loadOrCreate().accountIds)
+            assertEquals("legacy", registry.loadOrCreate().activeAccountId)
+            assertEquals(TdAccountAuthPhase.READY, sessions[b]!!.phase.value)
+            try { manager.connect(a, TdSecondaryRoutePreference.EXPLICIT_DIRECT); fail("Deleted account") }
+            catch (_: IllegalArgumentException) {}
+        } finally { work.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun failedNativeLogoutLeavesRegistrationUntouched() = runBlocking {
+        val root = Files.createTempDirectory("beygram-logout-refused-").toFile()
+        val work = SupervisorJob()
+        try {
+            val registry = TdAccountRegistry(root)
+            val native = Fake().apply { failLogout = true }
+            val manager = TdSecondarySessionCoordinator(
+                registry, CoroutineScope(work + Dispatchers.Unconfined),
+                openNative = { _, _ -> native }
+            )
+            val account = manager.reserveAccount()
+            manager.connect(account, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            native.phase.value = TdAccountAuthPhase.READY
+            try { manager.logoutSecondary(account); fail("Must not delete an active database") }
+            catch (_: IllegalStateException) {}
+            assertTrue(account in registry.loadOrCreate().accountIds)
+            assertEquals(0, native.logoutCount)
+        } finally { work.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun blockedRoutePreflightPreservesExistingSessionAndBackgroundRestorePolicy() = runBlocking {
+        val root = Files.createTempDirectory("beygram-preflight-").toFile()
+        val work = SupervisorJob()
+        try {
+            val registry = TdAccountRegistry(root)
+            val native = Fake().apply { autoClose = true }
+            val stopped = mutableListOf<String>()
+            val manager = TdSecondarySessionCoordinator(
+                registry, CoroutineScope(work + Dispatchers.Unconfined),
+                onManualStop = { stopped += it },
+                openNative = { _, _ -> native }
+            )
+            val id = manager.reserveAccount()
+            manager.connect(id, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+            native.phase.value = TdAccountAuthPhase.READY
+            try {
+                manager.reconnectWithRoute(id, TdSecondaryRoutePreference.SHARED_MIHOMO) {
+                    throw IllegalStateException("Listener unavailable")
+                }
+                fail("Blocked route must refuse reconnect")
+            } catch (_: IllegalStateException) { }
+            assertFalse(native.closed)
+            assertTrue(stopped.isEmpty())
+            assertTrue(manager.snapshot.value.accounts.single().connectedInThisProcess)
+            assertEquals(TdSecondaryRoutePreference.FOLLOW_PRIMARY,
+                manager.snapshot.value.accounts.single().routePreference)
+            assertEquals(listOf("legacy", id), registry.loadOrCreate().accountIds)
+        } finally { work.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun changingSecondaryRouteClosesSameClientWithoutLoggingOutOrEditingSibling() = runBlocking {
+        val root = Files.createTempDirectory("beygram-route-switch-").toFile()
+        val work = SupervisorJob()
+        try {
+            val opened = mutableListOf<Pair<TdSecondaryRoutePreference, Fake>>()
+            val registry = TdAccountRegistry(root)
+            val manager = TdSecondarySessionCoordinator(
+                registry, CoroutineScope(work + Dispatchers.Unconfined),
+                openNative = { _, pref ->
+                    Fake().also {
+                        it.autoClose = true
+                        opened += pref to it
+                    }
+                }
+            )
+            val id = manager.reserveAccount()
+            manager.connect(id, TdSecondaryRoutePreference.SHARED_MIHOMO)
+            opened.single().second.phase.value = TdAccountAuthPhase.READY
+            manager.reconnectWithRoute(id, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            assertEquals(2, opened.size)
+            assertTrue(opened.first().second.closed)
+            assertEquals(0, opened.first().second.logoutCount)
+            assertEquals(TdSecondaryRoutePreference.EXPLICIT_DIRECT, opened.last().first)
+            assertEquals(listOf("legacy", id), registry.loadOrCreate().accountIds)
+        } finally { work.cancel(); root.deleteRecursively() }
     }
 
     @Test fun secondAccountHasIndependentNativeHandleAndSurvivesRegistryReopen() = runBlocking {

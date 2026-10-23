@@ -7,6 +7,15 @@ import org.junit.Test
 import java.nio.file.Files
 
 class TdAccountSessionStateTest {
+    private fun awaitCondition(description: String, predicate: () -> Boolean) {
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        while (System.nanoTime() < deadline) {
+            if (predicate()) return
+            Thread.sleep(10)
+        }
+        org.junit.Assert.assertTrue(description, predicate())
+    }
+
     @Test fun identicalTelegramEventsUpdateOnlyTheirOwnAccounts() {
         val temp = Files.createTempDirectory("beygram-account-state-").toFile()
         try {
@@ -15,23 +24,31 @@ class TdAccountSessionStateTest {
             val router = TdAccountUpdateRouter(registry)
             var a: TdAccountSessionState? = null
             var b: TdAccountSessionState? = null
-            val updatesA = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
-            val updatesB = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
+            val updatesA = java.util.concurrent.CopyOnWriteArrayList<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
+            val updatesB = java.util.concurrent.CopyOnWriteArrayList<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
             val regA = router.register("legacy") { event -> updatesA.add(event); a!!.receive(event) }
             val regB = router.register(secondId) { event -> updatesB.add(event); b!!.receive(event) }
             a = TdAccountSessionState(regA.accountId, regA.generation)
             b = TdAccountSessionState(regB.accountId, regB.generation)
             regA.updateHandler.onResult(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateReady()))
             regB.updateHandler.onResult(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateWaitPhoneNumber()))
+            awaitCondition("Account A READY and B WAIT_PHONE") {
+                a.snapshot.value.authorization == TdAccountAuthPhase.READY &&
+                    b.snapshot.value.authorization == TdAccountAuthPhase.WAIT_PHONE
+            }
             assertEquals(TdAccountAuthPhase.READY, a.snapshot.value.authorization)
             assertEquals(TdAccountAuthPhase.WAIT_PHONE, b.snapshot.value.authorization)
             regA.updateHandler.onResult(TdApi.UpdateConnectionState(TdApi.ConnectionStateReady()))
+            awaitCondition("Legacy connection update delivered") {
+                a.snapshot.value.connection == TdAccountConnectionPhase.READY
+            }
             assertEquals(TdAccountConnectionPhase.READY, a.snapshot.value.connection)
             assertEquals(TdAccountConnectionPhase.UNKNOWN, b.snapshot.value.connection)
             assertEquals("legacy", updatesA.single { it.update is TdApi.UpdateConnectionState }.accountId)
             assertEquals(secondId, updatesB.single().accountId)
             regA.onNativeClosed()
             regB.onNativeClosed()
+            awaitCondition("Both account workers retired") { router.registeredSessions().isEmpty() }
         } finally { temp.deleteRecursively() }
     }
 

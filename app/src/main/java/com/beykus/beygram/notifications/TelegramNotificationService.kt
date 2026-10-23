@@ -15,10 +15,42 @@ import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.data.tdlib.TdAccountRegistry
+import com.beykus.beygram.data.tdlib.TdSecondaryRestoreStore
+import com.beykus.beygram.data.vpn.MihomoProxyClient
+import com.beykus.beygram.data.tdlib.TdSecondaryRoutePreference
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+
+/**
+ * Cold-start route policy. Without the legacy process owner only an explicit
+ * DIRECT secondary session can be restored without a misleading FGS.
+ * Other routes remain saved, ready for an explicit foreground reconnection.
+ */
+internal fun secondaryColdStartRouteEligible(
+    route: TdSecondaryRoutePreference?,
+    legacyCanStart: Boolean,
+    sharedListenerActive: Boolean = false
+): Boolean = when (route) {
+    TdSecondaryRoutePreference.EXPLICIT_DIRECT -> true
+    TdSecondaryRoutePreference.FOLLOW_PRIMARY -> legacyCanStart
+    // A legacy account using DIRECT cannot bootstrap a listener merely by
+    // being authorized. Require a listener already owned by this process;
+    // native route preflight independently validates SOCKS credentials.
+    TdSecondaryRoutePreference.SHARED_MIHOMO -> sharedListenerActive
+    null -> false
+}
+
+/** Pure policy used by cold-start eligibility and regression tests. */
+internal fun secondaryBackgroundEligible(
+    routeConfirmed: Boolean,
+    authorized: Boolean,
+    enabled: Boolean,
+    background: Boolean
+): Boolean = routeConfirmed && authorized && enabled && background
 
 class TelegramNotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -52,27 +84,80 @@ class TelegramNotificationService : Service() {
         runtime.serviceState(true)
         startupWakeLock = newWakeLock().apply { acquire(STARTUP_WAKE_LOCK_MILLIS) }
         deliveryWakeLock = newWakeLock()
-        val repository = runtime.attachRealClient()
-        if (repository == null) { runtime.serviceState(false, UiText.Res(R.string.err_notif_telegram_start_failed)); stopSelf(); return }
-        scope.launch {
-            combine(repository.connectionState, repository.authState, runtime.preferences.state) { connection, auth, config ->
-                if (connection == TelegramConnectionState.Connected) { connectionReady = true; startupWakeLock.releaseIfHeld(); reportConnectedOnce() }
-                if (!config.enabled || !config.background || auth == AuthState.WaitingForPhone) {
-                    stopReason = if (!config.enabled || !config.background) "disabled" else "logged_out"
-                    stopSelf(); return@combine
-                }
-                val text = when (connection) {
-                    TelegramConnectionState.Connected -> getString(R.string.notif_service_receiving)
-                    TelegramConnectionState.WaitingForNetwork -> getString(R.string.notif_service_waiting_network)
-                    else -> getString(R.string.notif_service_connecting)
-                }
-                getSystemService(android.app.NotificationManager::class.java).notify(AndroidNotificationRenderer.SERVICE_ID, statusNotification(text))
-            }.collect { }
+        val legacyAllowed = shouldRunLegacy(this)
+        val repository = if (legacyAllowed) runtime.attachRealClient() else null
+        if (legacyAllowed && repository == null) {
+            runtime.serviceState(false, UiText.Res(R.string.err_notif_telegram_start_failed))
+            stopSelf(); return
         }
-        scope.launch { repository.notifications.collect { state ->
-            if (state.hasPending) deliveryWakeLock?.let { if (!it.isHeld) it.acquire(DELIVERY_WAKE_LOCK_MILLIS) }
-            else deliveryWakeLock.releaseIfHeld()
-        } }
+        scope.launch {
+            runtime.secondaryConnected.collect { connected ->
+                if (connected) {
+                    connectionReady = true
+                    startupWakeLock.releaseIfHeld()
+                    reportConnectedOnce()
+                }
+                if (repository == null) {
+                    val text = if (connected) getString(R.string.notif_service_receiving)
+                        else getString(R.string.notif_service_connecting)
+                    getSystemService(android.app.NotificationManager::class.java)
+                        .notify(AndroidNotificationRenderer.SERVICE_ID, statusNotification(text))
+                }
+            }
+        }
+        if (repository != null) {
+            scope.launch {
+                combine(repository.connectionState, repository.authState, runtime.preferences.state) { connection, auth, config ->
+                    if (connection == TelegramConnectionState.Connected) {
+                        connectionReady = true; startupWakeLock.releaseIfHeld(); reportConnectedOnce()
+                    }
+                    if (!config.enabled || !config.background || auth == AuthState.WaitingForPhone) {
+                        scope.launch {
+                            if (!withContext(Dispatchers.IO) {
+                                shouldRun(this@TelegramNotificationService)
+                            }) {
+                                stopReason = if (!config.enabled || !config.background) "disabled" else "logged_out"
+                                stopSelf()
+                            }
+                        }
+                        return@combine
+                    }
+                    val text = when (connection) {
+                        TelegramConnectionState.Connected -> getString(R.string.notif_service_receiving)
+                        TelegramConnectionState.WaitingForNetwork -> getString(R.string.notif_service_waiting_network)
+                        else -> getString(R.string.notif_service_connecting)
+                    }
+                    getSystemService(android.app.NotificationManager::class.java)
+                        .notify(AndroidNotificationRenderer.SERVICE_ID, statusNotification(text))
+                }.collect { }
+            }
+        }
+        // Account authorization, manual stop and route eligibility may change
+        // outside the legacy repository collector. A secondary-only foreground
+        // service must terminate rather than advertise perpetual "Connecting…".
+        scope.launch {
+            while (isActive) {
+                delay(15_000L)
+                val permitted = withContext(Dispatchers.IO) {
+                    shouldRun(this@TelegramNotificationService)
+                }
+                if (!permitted) {
+                    stopReason = "not_allowed"
+                    stopSelf()
+                    break
+                }
+            }
+        }
+        scope.launch {
+            val pending = if (repository == null) runtime.secondaryPending
+                else combine(repository.notifications, runtime.secondaryPending) { legacy, secondary ->
+                    legacy.hasPending || secondary
+                }
+            pending.collect { hasPending ->
+                if (hasPending) deliveryWakeLock?.let { if (!it.isHeld) it.acquire(DELIVERY_WAKE_LOCK_MILLIS) }
+                else deliveryWakeLock.releaseIfHeld()
+            }
+        }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!startReported) {
@@ -85,6 +170,10 @@ class TelegramNotificationService : Service() {
         if (intent?.action == STOP) {
             stopReason = "user"
             runtime.preferences.update(runtime.preferences.state.value.copy(background = false))
+            for (id in registeredSecondaryAccounts(this)) {
+                val prefs = runtime.preferencesForAccount(id)
+                prefs.update(prefs.state.value.copy(background = false))
+            }
             stopSelf(); return START_NOT_STICKY
         }
         if (!shouldRun(this)) { stopReason = "not_allowed"; stopSelf(); return START_NOT_STICKY }
@@ -126,7 +215,48 @@ class TelegramNotificationService : Service() {
         private const val DELIVERY_WAKE_LOCK_MILLIS = 60_000L
         // Set when reconciliation stops a running service, so its onDestroy records that cause instead of a platform stop.
         @Volatile private var externalStopReason: String? = null
-        fun shouldRun(context: Context): Boolean = NotificationRuntime.get(context).preferences.let { it.authorized && it.state.value.enabled && it.state.value.background && AndroidNotificationRenderer.canNotify(context) }
+        private fun registeredSecondaryAccounts(context: Context): List<String> =
+            runCatching {
+                TdAccountRegistry(context.filesDir).loadOrCreate().accountIds
+                    .filter { it != TdAccountStorageLayout.LEGACY_ACCOUNT_ID }
+            }.getOrDefault(emptyList())
+
+        internal fun secondaryBackgroundRouteReady(
+            route: TdSecondaryRoutePreference?,
+            legacyCanStart: Boolean
+        ): Boolean = secondaryColdStartRouteEligible(
+            route, legacyCanStart, MihomoProxyClient.isRunning()
+        )
+
+        fun shouldRunLegacy(context: Context): Boolean =
+            NotificationRuntime.get(context).preferences.let {
+                it.authorized && it.state.value.enabled && it.state.value.background &&
+                    AndroidNotificationRenderer.canNotify(context)
+            }
+
+        fun shouldRunSecondary(context: Context): Boolean {
+            if (!AndroidNotificationRenderer.canNotify(context)) return false
+            val restore = TdSecondaryRestoreStore(context)
+            val runtime = NotificationRuntime.get(context)
+            return registeredSecondaryAccounts(context).any { id ->
+                val route = restore.confirmedRoute(id)
+                runtime.preferencesForAccount(id).let { prefs ->
+                    secondaryBackgroundEligible(
+                        // Without an authorized background legacy route owner we
+                        // cannot resolve FOLLOW_PRIMARY or start shared Mihomo.
+                        // Fail closed instead of an endless foreground service.
+                        routeConfirmed = secondaryColdStartRouteEligible(
+                            route, shouldRunLegacy(context),
+                            MihomoProxyClient.isRunning()),
+                        authorized = prefs.authorized,
+                        enabled = prefs.state.value.enabled,
+                        background = prefs.state.value.background
+                    )
+                    }
+            }
+        }
+
+        fun shouldRun(context: Context): Boolean = shouldRunLegacy(context) || shouldRunSecondary(context)
         /** Call only from a resumed UI or an allowed system boot/package replacement receiver; [source] goes to diagnostics. */
         fun reconcileFromAllowedContext(context: Context, source: String) {
             if (!shouldRun(context)) {
@@ -138,7 +268,7 @@ class TelegramNotificationService : Service() {
             catch (_: RuntimeException) { NotificationRuntime.get(context).serviceState(false, UiText.Res(R.string.err_notif_background_start_failed)) }
         }
         private fun blockReason(context: Context): String = when {
-            !NotificationRuntime.get(context).preferences.authorized -> "logged_out"
+            !NotificationRuntime.get(context).preferences.authorized && !shouldRunSecondary(context) -> "logged_out"
             !AndroidNotificationRenderer.canNotify(context) -> "permission"
             else -> "disabled"
         }

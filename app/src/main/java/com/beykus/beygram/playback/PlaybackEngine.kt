@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.view.TextureView
+import androidx.compose.runtime.compositionLocalOf
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -29,8 +30,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** Account identity for media opened anywhere in the shared BeyGram UI. */
+val LocalPlaybackAccountId = compositionLocalOf { "legacy" }
+
 /** Место файла в чате: по нему мини-плеер открывает сообщение, из которого файл запущен. */
-data class PlaybackOrigin(val chatId: Long, val messageId: Long)
+data class PlaybackOrigin(
+    val chatId: Long,
+    val messageId: Long,
+    /** Source identity must accompany any bare Telegram numeric ID. */
+    val accountId: String = "legacy"
+)
 
 /** Файл для общего плеера. [key] отличает файлы друг от друга: повторный тап по тому же файлу ставит его на паузу. [origin] пустой, если файл запущен не из ленты чата. */
 data class PlaybackItem(
