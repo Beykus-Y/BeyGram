@@ -229,6 +229,8 @@ private fun BeyGramAppContent(
     }
     // Route carries the source account; never fall back to legacy on missing ID.
     var secondaryChatsAccountId by rememberSaveable { mutableStateOf<String?>(null) }
+    var notificationSecondaryChatId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var notificationSecondaryChatToken by rememberSaveable { mutableStateOf<Long?>(null) }
     var globalSearchQuery by rememberSaveable { mutableStateOf("") }
     val globalSearchSession = rememberSaveable(saver = GlobalSearchSession.stateSaver) { GlobalSearchSession(globalSearchQuery) }
     val globalSearchNavScope = rememberCoroutineScope()
@@ -268,6 +270,8 @@ private fun BeyGramAppContent(
                 trustedForumTopicId = 0L
                 chatFocusMessageId = 0L
                 secondaryChatsAccountId = null
+                notificationSecondaryChatId = null
+                notificationSecondaryChatToken = null
                 selectedAccountId = target
                 routeName = when {
                     target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> AppRoute.Chats.name
@@ -380,6 +384,33 @@ private fun BeyGramAppContent(
     LaunchedEffect(authState, notificationRequest?.token, accountRegistryReady) {
         if (!accountRegistryReady || accountRegistryError) return@LaunchedEffect
         val request = notificationRequest ?: return@LaunchedEffect
+        if (request.accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+            // Never reinterpret a secondary account notification's bare chat ID
+            // as a legacy chat. Select the exact durable account source first.
+            val target = request.accountId
+            try {
+                check(request.chatId != null && request.chatId != 0L)
+                val registryState = withContext(Dispatchers.IO) { accountRegistry.loadOrCreate() }
+                check(target in registryState.accountIds)
+                withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
+                PlaybackEngine.stop()
+                selectedChatId = 0L
+                selectedForumTopicId = 0L
+                selectedTopicChatId = 0L
+                trustedForumTopicId = 0L
+                chatFocusMessageId = 0L
+                secondaryChatsAccountId = target
+                notificationSecondaryChatId = request.chatId
+                notificationSecondaryChatToken = request.token
+                selectedAccountId = target
+                routeName = AppRoute.Chats.name
+            } catch (_: Exception) {
+                noticeError = UiText.Raw(context.getString(R.string.secondary_accounts_switch_failed))
+            } finally {
+                onNotificationHandled(request.token)
+            }
+            return@LaunchedEffect
+        }
         if (authState != AuthState.Ready) return@LaunchedEffect
         // Notifications currently originate ONLY from the legacy client.
         // Switch explicitly to the source account before resolving its chat ID.
@@ -861,6 +892,14 @@ private fun BeyGramAppContent(
                     route == AppRoute.Chats -> SecondaryChatsScreen(
                     accountId = selectedAccountId,
                     coordinator = secondaryAccountController.coordinator,
+                    initialChatId = notificationSecondaryChatId,
+                    initialChatToken = notificationSecondaryChatToken,
+                    onInitialChatConsumed = { token ->
+                        if (notificationSecondaryChatToken == token) {
+                            notificationSecondaryChatId = null
+                            notificationSecondaryChatToken = null
+                        }
+                    },
                     onBack = { routeName = AppRoute.AccountPicker.name },
                     onSwitchAccount = { routeName = AppRoute.AccountPicker.name }
                 )

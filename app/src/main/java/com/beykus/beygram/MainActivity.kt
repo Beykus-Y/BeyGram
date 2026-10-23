@@ -50,7 +50,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null) {
             if (savedInstanceState.getBoolean("notification_pending")) notificationRequest = NotificationOpenRequest(savedInstanceState.getLong("notification_token"),
-                savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"), savedInstanceState.getLong("notification_topic"))
+                savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"), savedInstanceState.getLong("notification_topic"),
+                savedInstanceState.getString("notification_account") ?: "legacy")
             val restoredText = savedInstanceState.getString("share_text").orEmpty()
             val restoredFiles = restoredUris(savedInstanceState)
             // После фильтра файлов запрос может остаться пустым: тогда пустой диалог не показываем.
@@ -109,7 +110,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptNotificationIntent(intent); acceptShareIntent(intent) }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
-        notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId) }
+        notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId); outState.putString("notification_account", it.accountId) }
         incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text); outState.putParcelableArrayList("share_uris", ArrayList(it.uris)); outState.putLong("share_chat_id", it.targetChatId) }
         super.onSaveInstanceState(outState)
     }
@@ -172,9 +173,19 @@ class MainActivity : ComponentActivity() {
         when (intent?.action) {
             NotificationIntents.OPEN_CHAT -> {
                 val chatId = intent.getLongExtra(NotificationIntents.CHAT_ID, 0L)
-                if (chatId != 0L) {
-                    NotificationRuntime.get(this).dismiss(intent.getIntExtra(NotificationIntents.GROUP_ID, 0), intent.getIntExtra(NotificationIntents.MAX_ID, 0))
-                    notificationRequest = NotificationOpenRequest(SystemClock.elapsedRealtimeNanos(), chatId, topicId = intent.getLongExtra(NotificationIntents.TOPIC, 0L))
+                val source = NotificationIntents.accountForChatIntent(intent)
+                if (chatId != 0L && source != null) {
+                    if (source == "legacy") {
+                        NotificationRuntime.get(this).dismiss(
+                            intent.getIntExtra(NotificationIntents.GROUP_ID, 0),
+                            intent.getIntExtra(NotificationIntents.MAX_ID, 0)
+                        )
+                    }
+                    notificationRequest = NotificationOpenRequest(
+                        SystemClock.elapsedRealtimeNanos(), chatId,
+                        topicId = intent.getLongExtra(NotificationIntents.TOPIC, 0L),
+                        accountId = source
+                    )
                 }
             }
             NotificationIntents.OPEN_SETTINGS -> notificationRequest = NotificationOpenRequest(SystemClock.elapsedRealtimeNanos(), settings = true)
