@@ -34,7 +34,19 @@ internal class TdStorage(
             // База, языковые пакеты и журнал TDLib: очистка их не трогает, но в «занято приложением» они входят.
             databaseBytes = database.databaseSize + database.languagePackDatabaseSize + database.logSize,
             // Файлы на отправку лежат в папках приложения, поэтому TDLib их не считает: размер берём с диска.
-            uploadBytes = withContext(Dispatchers.IO) { filesBytesIn(uploadDirectories) }
+            uploadBytes = withContext(Dispatchers.IO) {
+                uploadDirectories.filter { it.isDirectory }.sumOf { dir ->
+                    dir.listFiles().orEmpty().sumOf { child ->
+                        when {
+                            child.isDirectory && uploadFolderBelongsToAccount(child, accountId) ->
+                                filesBytesIn(listOf(child))
+                            child.isFile && accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID ->
+                                child.length()
+                            else -> 0L
+                        }
+                    }
+                }
+            }
         )
     }
 
@@ -79,7 +91,7 @@ internal class TdStorage(
             // Quotas and expiry must only account for markers owned by this TDLib session.
             // Foreign-account upload bytes must not pressure this account's eviction budget.
             val folders = sentUploads.listFiles { it.isDirectory }.orEmpty()
-                .filter { sentUploadFileIds(it, accountId).isNotEmpty() }
+                .filter { uploadFolderBelongsToAccount(it, accountId) }
                 .map { folder ->
                 val files = folder.walkTopDown().filter { it.isFile }.toList()
                 val lastUsed = files.maxOfOrNull { it.lastModified() } ?: folder.lastModified()
@@ -188,6 +200,20 @@ internal const val SENT_UPLOAD_MARKER = ".sent"
  * Unknown / foreign markers are never candidates for cleanup.
  */
 private const val SENT_UPLOAD_OWNER_PREFIX = "account_id="
+
+/** Include old unmarked/unsent uploads in legacy quotas, but never charge an
+ * account for a sibling's explicit owner-tagged upload. */
+internal fun uploadFolderBelongsToAccount(folder: File, accountId: String): Boolean {
+    if (!folder.isDirectory || java.nio.file.Files.isSymbolicLink(folder.toPath())) return false
+    val marker = File(folder, SENT_UPLOAD_MARKER)
+    if (!marker.exists()) return accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+    if (!marker.isFile || java.nio.file.Files.isSymbolicLink(marker.toPath())) return false
+    val first = marker.useLines { it.firstOrNull() }.orEmpty()
+    return if (first.startsWith(SENT_UPLOAD_OWNER_PREFIX))
+        first.removePrefix(SENT_UPLOAD_OWNER_PREFIX) == accountId
+    else accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+}
+
 
 /** Keep the legacy on-disk marker format intact for upgrades. Reject mixed-account folders. */
 internal fun markSentUpload(
