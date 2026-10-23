@@ -1135,7 +1135,11 @@ private fun BeyGramAppContent(
                 AppRoute.SecondaryAccounts -> SecondaryAccountsScreen(
                     controller = secondaryAccountController,
                     onBack = { routeName = accountManagerReturnRouteName },
-                    onOpenChats = { accountId -> chooseAccount(accountId) }
+                    onOpenChats = { accountId -> chooseAccount(accountId) },
+                    onAccountDeleted = { deletedAccountId ->
+                        if (selectedAccountId == deletedAccountId)
+                            chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                    }
                 )
                 AppRoute.SecondaryChats -> LaunchedEffect(selectedAccountId) {
                     // Old saved navigation state from experimental builds.
