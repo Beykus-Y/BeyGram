@@ -675,7 +675,7 @@ fun ChatScreen(
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (actionMessage != null) MessageActionsBar(
             capabilities = capabilities, error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
-            canPin = canTogglePin(actionMessage.isPinned, capabilities?.canPin == true), isPinned = actionMessage.isPinned,
+            canPin = canTogglePin(capabilities?.canPin == true), isPinned = actionMessage.isPinned,
             onClose = ::closeActions, onRetry = { capabilitiesAttempt++ },
             onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
             onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },

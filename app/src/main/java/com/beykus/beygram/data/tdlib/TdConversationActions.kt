@@ -291,10 +291,9 @@ internal class TdConversationActions(
      * pinned list is already filtered by topic when read.
      */
     suspend fun pinMessage(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit> = conversationResult {
-        val message = request(TdApi.GetMessage(chatId, messageId))
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))
-        if (!canTogglePin(message.isPinned, properties.canBePinned)) throw UserMessageException(UiText.Res(R.string.err_message_pin_unavailable))
-        request(pinMessageRequest(chatId, message.id, pinned))
+        if (!canTogglePin(properties.canBePinned)) throw UserMessageException(UiText.Res(R.string.err_message_pin_unavailable))
+        request(pinMessageRequest(chatId, messageId, pinned))
         Unit
     }
 

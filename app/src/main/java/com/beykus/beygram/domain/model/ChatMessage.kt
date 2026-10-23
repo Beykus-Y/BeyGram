@@ -82,10 +82,10 @@ data class MessageReply(val chatId: Long, val messageId: Long, val text: UiText,
 data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boolean = false, val canEdit: Boolean = false, val canDeleteForSelf: Boolean = false, val canDeleteForAll: Boolean = false, val canForward: Boolean = false, val canSave: Boolean = false, val canPin: Boolean = false)
 
 /**
- * An existing pin can always be removed, even when TDLib is conservative about the capability.
- * Only pinning an unpinned message requires the server's canBePinned permission.
+ * TDLib's canBePinned covers both pinning and unpinning. An existing pin must not be treated as standing permission:
+ * a channel subscriber or group member without pin-management rights cannot unpin either.
  */
-fun canTogglePin(isPinned: Boolean, canPin: Boolean): Boolean = isPinned || canPin
+fun canTogglePin(canPin: Boolean): Boolean = canPin
 
 enum class DeleteMessageScope { ForSelf, ForEveryone }
 data class MessageContext(val chatId: Long, val title: String, val targetId: Long, val messages: List<ChatMessage>)
