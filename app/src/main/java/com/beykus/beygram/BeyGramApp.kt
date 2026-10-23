@@ -584,6 +584,7 @@ private fun BeyGramAppContent(
         legacyAuthState is AuthState.WaitingForPassword
     if (incomingShare != null && shareLegacyShortcut &&
         shareAccountTarget == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+        selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
         shareLegacyFinalLogout && accountRegistryReady && !accountRegistryError) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { /* Keep the incoming URI grant until explicit cancel. */ },
@@ -606,6 +607,7 @@ private fun BeyGramAppContent(
     // a logout: keep the incoming content and never flash an error dialog.
     if (incomingShare != null && shareLegacyShortcut &&
         shareAccountTarget == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+        selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
         legacyAuthState != AuthState.Ready && !shareLegacyFinalLogout &&
         accountRegistryReady && !accountRegistryError) {
         androidx.compose.material3.AlertDialog(
