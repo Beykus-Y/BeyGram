@@ -23,7 +23,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.material.icons.rounded.Check
+import com.beykus.beygram.domain.model.initialsOf
 import androidx.compose.ui.Alignment
 import com.beykus.beygram.domain.model.AvatarPhoto
 import com.beykus.beygram.domain.model.MediaFileState
@@ -65,6 +70,7 @@ internal fun AccountPickerScreen(
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
     Column(Modifier.fillMaxSize().background(palette.screen)
         .safeDrawingPadding().verticalScroll(rememberScrollState()).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -81,13 +87,15 @@ internal fun AccountPickerScreen(
             val item = metadata[accountId]
             OutlinedButton(
                 onClick = { if (ready) onSelect(accountId) else onManage() },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().semantics {
+                    selected = accountId == selectedId
+                }
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     if (item != null) {
                         TelegramAvatar(
-                            item.title.take(2).uppercase(),
-                            Color(0xFF588EBC),
+                            initialsOf(item.title),
+                            palette.accent,
                             42.dp, item.photo, item.observeFile, item.downloadFile
                         )
                     } else {
@@ -105,12 +113,20 @@ internal fun AccountPickerScreen(
                             fontSize = 12.sp, color = palette.textSecondary)
                     }
                     if ((item?.unread ?: 0) > 0) {
+                        val unreadCount = item?.unread ?: 0
                         Surface(shape = CircleShape, color = palette.accent) {
-                            Text((item?.unread ?: 0).coerceAtMost(99).toString(),
-                                color = palette.onAccent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                            Text(unreadCount.coerceAtMost(99).toString(),
+                                color = palette.onAccent, modifier = Modifier
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    .semantics {
+                                        contentDescription = context.resources.getQuantityString(
+                                            R.plurals.multi_account_unread, unreadCount, unreadCount
+                                        )
+                                    })
                         }
                     }
-                    if (accountId == selectedId) Text(" ✓", color = palette.accent)
+                    if (accountId == selectedId)
+                        Icon(Icons.Rounded.Check, contentDescription = null, tint = palette.accent)
                 }
             }
         }
