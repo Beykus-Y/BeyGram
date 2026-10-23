@@ -260,6 +260,7 @@ private fun BeyGramAppContent(
     var secondaryChatsAccountId by rememberSaveable { mutableStateOf<String?>(null) }
     var notificationSecondaryChatId by rememberSaveable { mutableStateOf<Long?>(null) }
     var notificationSecondaryChatToken by rememberSaveable { mutableStateOf<Long?>(null) }
+    var notificationSecondaryTopicId by rememberSaveable { mutableStateOf(0L) }
     var globalSearchQuery by rememberSaveable { mutableStateOf("") }
     val globalSearchSession = rememberSaveable(saver = GlobalSearchSession.stateSaver) { GlobalSearchSession(globalSearchQuery) }
     val globalSearchNavScope = rememberCoroutineScope()
@@ -301,6 +302,7 @@ private fun BeyGramAppContent(
                 secondaryChatsAccountId = null
                 notificationSecondaryChatId = null
                 notificationSecondaryChatToken = null
+                notificationSecondaryTopicId = 0L
                 selectedAccountId = target
                 globalSearchQuery = ""
                 globalSearchSession.reset("")
@@ -440,6 +442,7 @@ private fun BeyGramAppContent(
                 secondaryChatsAccountId = target
                 notificationSecondaryChatId = request.chatId
                 notificationSecondaryChatToken = request.token
+                notificationSecondaryTopicId = request.topicId
                 selectedAccountId = target
                 routeName = AppRoute.Chats.name
             } catch (_: Exception) {
@@ -471,6 +474,7 @@ private fun BeyGramAppContent(
         else if (request.settings) openNotifications(AppRoute.Chats)
         else request.chatId?.let { chatId ->
             val result = legacyRepository.loadChat(chatId)
+            if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) return@let
             if (result.isSuccess) {
                 selectedChatId = chatId
                 selectedTopicChatId = chatId
@@ -562,12 +566,17 @@ private fun BeyGramAppContent(
         if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
             repositorySelection != null && notificationSecondaryChatId != null) {
             val id = notificationSecondaryChatId ?: return@LaunchedEffect
-            if (repository.loadChat(id).isSuccess) {
+            if (repository.loadChat(id).isSuccess &&
+                selectedAccountId == (repositorySelection as? TdLibTelegramRepository)?.accountId) {
                 selectedChatId = id
+                selectedTopicChatId = id
+                selectedForumTopicId = notificationSecondaryTopicId
+                trustedForumTopicId = notificationSecondaryTopicId
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
                 notificationSecondaryChatId = null
                 notificationSecondaryChatToken = null
+                notificationSecondaryTopicId = 0L
             }
         }
     }
@@ -1057,6 +1066,7 @@ private fun BeyGramAppContent(
                 }
                 AppRoute.Notifications -> NotificationSettingsScreen(
                     runtime = notificationRuntime,
+                    accountPreferences = notificationRuntime.preferencesForAccount(selectedAccountId),
                     connectionState = connectionState,
                     onBack = { routeName = notificationsReturnRouteName },
                     onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name }
@@ -1068,10 +1078,11 @@ private fun BeyGramAppContent(
                     onBack = { routeName = AppRoute.Notifications.name }
                 )
                 AppRoute.Calls -> MainTabsScaffold("${selectedAccountId}:${MainTab.Calls.route.name}", MainTab.Calls, tabVisibility, selectTab, tabStateHolder) {
-                    CallsScreen(loadCalls = repository::loadCallHistory, observeFile = repository::observeFile, downloadFile = repository::downloadFile)
+                    CallsScreen(loadCalls = repository::loadCallHistory, observeFile = repository::observeFile, downloadFile = repository::downloadFile, accountId = selectedAccountId)
                 }
                 AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder) {
                     ContactsScreen(
+                        accountId = selectedAccountId,
                         loadContacts = repository::loadContacts,
                         addContact = repository::addContact,
                         openPrivateChat = repository::openPrivateChat,
@@ -1196,10 +1207,14 @@ private fun BeyGramAppContent(
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
                     onOpenMessage = { chatId, forumTopicId, messageId ->
+                        val sourceAccountId = selectedAccountId
+                        val sourceRepository = repository
                         globalSearchNavScope.launch {
                             // A deleted or inaccessible chat must not leave a focus message
                             // that later opens in the next unrelated chat.
-                            val loaded = repository.loadChat(chatId)
+                            val loaded = sourceRepository.loadChat(chatId)
+                            // A completion from another account cannot navigate the newly selected UI.
+                            if (selectedAccountId != sourceAccountId) return@launch
                             if (loaded.isSuccess) {
                                 selectedChatId = chatId
                                 selectedTopicChatId = chatId
