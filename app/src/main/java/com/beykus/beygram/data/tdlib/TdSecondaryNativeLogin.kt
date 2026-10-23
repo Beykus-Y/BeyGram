@@ -368,6 +368,7 @@ internal object TdSecondaryStartupState {
         is TdApi.UpdateChatFolders -> "folders"
         is TdApi.UpdateActiveEmojiReactions -> "reactions"
         is TdApi.UpdateConnectionState -> "connection"
+        is TdApi.UpdateActiveNotifications -> "active_notifications"
         is TdApi.UpdateOption -> "option:${update.name}"
         else -> null
     }
