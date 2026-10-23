@@ -61,6 +61,21 @@ class TelegramNotificationService : Service() {
             runtime.serviceState(false, UiText.Res(R.string.err_notif_telegram_start_failed))
             stopSelf(); return
         }
+        scope.launch {
+            runtime.secondaryConnected.collect { connected ->
+                if (connected) {
+                    connectionReady = true
+                    startupWakeLock.releaseIfHeld()
+                    reportConnectedOnce()
+                }
+                if (repository == null) {
+                    val text = if (connected) getString(R.string.notif_service_receiving)
+                        else getString(R.string.notif_service_connecting)
+                    getSystemService(android.app.NotificationManager::class.java)
+                        .notify(AndroidNotificationRenderer.SERVICE_ID, statusNotification(text))
+                }
+            }
+        }
         if (repository != null) {
             scope.launch {
                 combine(repository.connectionState, repository.authState, runtime.preferences.state) { connection, auth, config ->
@@ -83,14 +98,16 @@ class TelegramNotificationService : Service() {
                         .notify(AndroidNotificationRenderer.SERVICE_ID, statusNotification(text))
                 }.collect { }
             }
-            scope.launch { repository.notifications.collect { state ->
-                if (state.hasPending) deliveryWakeLock?.let { if (!it.isHeld) it.acquire(DELIVERY_WAKE_LOCK_MILLIS) }
+        }
+        scope.launch {
+            val pending = if (repository == null) runtime.secondaryPending
+                else combine(repository.notifications, runtime.secondaryPending) { legacy, secondary ->
+                    legacy.hasPending || secondary
+                }
+            pending.collect { hasPending ->
+                if (hasPending) deliveryWakeLock?.let { if (!it.isHeld) it.acquire(DELIVERY_WAKE_LOCK_MILLIS) }
                 else deliveryWakeLock.releaseIfHeld()
-            } }
-        } else {
-            // Previously authorized secondary sessions are restored by the process
-            // controller without instantiating legacy TDLib or VpnBackend.
-            startupWakeLock.releaseIfHeld()
+            }
         }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
