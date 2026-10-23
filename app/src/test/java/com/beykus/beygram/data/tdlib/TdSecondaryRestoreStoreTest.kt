@@ -24,4 +24,12 @@ class TdSecondaryRestoreStoreTest {
             assertEquals(route, tdParseAuthorizedSecondaryRoute(true, route.name))
         }
     }
+
+    @Test fun explicitPreferredRouteIsParsedBeforeSignInCompletes() {
+        TdSecondaryRoutePreference.entries.forEach { route ->
+            assertEquals(route, tdParseSecondaryRoute(route.name))
+        }
+        assertNull(tdParseSecondaryRoute(null))
+        assertNull(tdParseSecondaryRoute("BROKEN"))
+    }
 }
