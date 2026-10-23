@@ -229,11 +229,13 @@ internal class TdSecondarySessionCoordinator(
             active.handle.logOutAndAwaitClosed()
             mutex.withLock {
                 check(running[accountId] === active)
-                onLogoutConfirmed(accountId)
-                running.remove(accountId)?.subscription?.cancel()
+                // Durable removal is the commit point. A failed subsequent
+                // cache/notification cleanup remains recoverable from tombstone.
                 registry.unregisterSecondaryAccount(accountId)
+                running.remove(accountId)?.subscription?.cancel()
                 publish()
             }
+            onLogoutConfirmed(accountId)
         } finally {
             mutex.withLock { loggingOutAccounts.remove(accountId) }
         }
