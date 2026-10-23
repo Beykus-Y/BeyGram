@@ -19,6 +19,7 @@ enum class AppRoute {
     Contacts,
     Settings,
     SecondaryAccounts,
+    AccountPicker,
     SecondaryChats,
     NavigationSettings,
     LastSeenSettings,
