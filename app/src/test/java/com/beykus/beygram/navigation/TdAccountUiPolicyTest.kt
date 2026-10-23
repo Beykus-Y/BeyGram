@@ -6,24 +6,29 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class TdAccountUiPolicyTest {
-    @Test fun secondaryAccountDoesNotInheritPrimaryOnlyScreens() {
-        val legacyOnly = listOf(
-            AppRoute.Chat, AppRoute.ChatInfo, AppRoute.Archive,
+    @Test fun sameMainRoutesAreAvailableToAnyBoundAccount() {
+        val common = listOf(
+            AppRoute.Chats, AppRoute.Chat, AppRoute.ChatInfo, AppRoute.Archive,
             AppRoute.Calls, AppRoute.Contacts, AppRoute.MyProfile,
-            AppRoute.GlobalSearch, AppRoute.Notifications,
-            AppRoute.NewChat, AppRoute.Sessions, AppRoute.Proxy
+            AppRoute.GlobalSearch, AppRoute.NewChat, AppRoute.Notifications
         )
-        legacyOnly.forEach { assertFalse("Unsafe route $it", secondaryAccountMayOpen(it)) }
+        for (route in common) {
+            assertTrue("Primary $route", accountRouteCanRender(route, "legacy", "legacy"))
+            assertTrue("Secondary $route", accountRouteCanRender(route, "a-123", "a-123"))
+            assertFalse("Foreign $route", accountRouteCanRender(route, "a-123", "legacy"))
+            assertFalse("Offline $route", accountRouteCanRender(route, "a-123", null))
+        }
     }
 
-    @Test fun secondaryAccountMayOnlyRenderItsOwnChatsAndAccountManager() {
-        assertTrue(secondaryAccountMayOpen(AppRoute.Chats))
-        assertTrue(secondaryAccountMayOpen(AppRoute.AccountPicker))
-        assertTrue(secondaryAccountMayOpen(AppRoute.SecondaryAccounts))
-        assertEquals(3, AppRoute.entries.count(::secondaryAccountMayOpen))
+    @Test fun offlineSecondaryCanStillManageAndSwitchAccounts() {
+        assertTrue(accountRouteCanRender(AppRoute.AccountPicker, "a-one", null))
+        assertTrue(accountRouteCanRender(AppRoute.SecondaryAccounts, "a-one", null))
+        assertFalse(accountRepositoryMatchesSelection("a-one", "a-two"))
+        assertFalse(accountRepositoryMatchesSelection("a-one", "legacy"))
+        assertTrue(accountRepositoryMatchesSelection("a-one", "a-one"))
     }
 
-    @Test fun currentNotificationProducerIsExplicitlyLegacyOnly() {
+    @Test fun legacyNotificationsStillDeclareTheirSource() {
         assertEquals("legacy", LEGACY_NOTIFICATION_SOURCE_ACCOUNT)
     }
 }
