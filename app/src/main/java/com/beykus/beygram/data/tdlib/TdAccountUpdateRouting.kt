@@ -101,8 +101,10 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
         val listener = synchronized(monitor) {
             live[accountId]?.takeIf { it.generation == generation }
         } ?: return
-        // Independent native TDLib sessions must never block each other's
-        // update processing or register()/registeredSessions() under one lock.
+        // This avoids holding OUR registry mutex during repository callbacks.
+        // Some TDLib Java builds still dispatch clients on one ResponseReceiver
+        // thread; the per-account lock does not promise independent native
+        // callback threads or eliminate costly synchronous handleUpdate work.
         synchronized(listener.dispatchLock) {
             if (listener.accepting) {
                 listener.onUpdate(TdAccountRoutedUpdate(accountId, generation, update))
