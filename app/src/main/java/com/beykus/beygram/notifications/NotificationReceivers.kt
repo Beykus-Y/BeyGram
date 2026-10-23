@@ -16,10 +16,19 @@ class NotificationBootReceiver : BroadcastReceiver() {
 class NotificationDismissReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != NotificationIntents.DISMISS) return
-        // Persist removal immediately. The shared client flushes it when authorized, without ViewMessages.
+        // A dismissal belongs to its original native Telegram account.
+        // Never feed numeric secondary notification IDs into the legacy
+        // dismiss watermark/outbox (which may have the same group ID).
+        val accountId = NotificationIntents.accountForDismissIntent(intent) ?: return
         val runtime = NotificationRuntime.get(context)
-        runtime.dismiss(intent.getIntExtra(NotificationIntents.GROUP_ID, 0), intent.getIntExtra(NotificationIntents.MAX_ID, 0))
-        if (runtime.preferences.authorized) runtime.attachRealClient(startProxy = false)
+        val group = intent.getIntExtra(NotificationIntents.GROUP_ID, 0)
+        val newest = intent.getIntExtra(NotificationIntents.MAX_ID, 0)
+        if (accountId == "legacy") {
+            runtime.dismiss(group, newest)
+            if (runtime.preferences.authorized) runtime.attachRealClient(startProxy = false)
+        } else {
+            runtime.dismissSecondary(accountId, group, newest)
+        }
     }
 }
 
