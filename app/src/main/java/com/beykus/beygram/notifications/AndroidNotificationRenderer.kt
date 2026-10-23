@@ -94,9 +94,8 @@ internal class AndroidNotificationRenderer(
                 .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId, latest.topicId, accountId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId, accountId))
                 .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH)
             // A reply needs a visible chat title and a chat the user can write to, so other groups get no reply action.
-            // ReplyOutbox still has legacy-only ownership. Do not expose a
-            // secondary quick-reply PendingIntent until its outbox is scoped.
-            if (accountId == "legacy" && !hideContent && group.replyable)
+            // Native accounts share the UI, not the reply outbox/session token.
+            if (!hideContent && group.replyable)
                 builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId, latest.topicId))
             if (failedReplies.containsKey(group.id)) builder.setSubText(localizedContext.getString(R.string.notif_reply_failed))
             val notification = builder.build()
@@ -133,7 +132,7 @@ internal class AndroidNotificationRenderer(
         failedReplies.clear()
     }
     fun markReplyFailed(id: Int, maxId: Int) { failedReplies[id] = maxId }
-    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, localizedContext.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId, topicId))
+    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, localizedContext.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId, topicId, accountId))
         .addRemoteInput(RemoteInput.Builder(NotificationIntents.REPLY_TEXT).setLabel(localizedContext.getString(R.string.notif_reply_hint)).build())
         .setAllowGeneratedReplies(false)
         .build()
