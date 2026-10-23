@@ -175,12 +175,11 @@ class MainActivity : ComponentActivity() {
                 val chatId = intent.getLongExtra(NotificationIntents.CHAT_ID, 0L)
                 val source = NotificationIntents.accountForChatIntent(intent)
                 if (chatId != 0L && source != null) {
-                    if (source == "legacy") {
-                        NotificationRuntime.get(this).dismiss(
-                            intent.getIntExtra(NotificationIntents.GROUP_ID, 0),
-                            intent.getIntExtra(NotificationIntents.MAX_ID, 0)
-                        )
-                    }
+                    val runtime = NotificationRuntime.get(this)
+                    val group = intent.getIntExtra(NotificationIntents.GROUP_ID, 0)
+                    val newest = intent.getIntExtra(NotificationIntents.MAX_ID, 0)
+                    if (source == "legacy") runtime.dismiss(group, newest)
+                    else runtime.dismissSecondary(source, group, newest)
                     notificationRequest = NotificationOpenRequest(
                         SystemClock.elapsedRealtimeNanos(), chatId,
                         topicId = intent.getLongExtra(NotificationIntents.TOPIC, 0L),
