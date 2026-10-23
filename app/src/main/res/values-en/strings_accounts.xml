@@ -15,14 +15,14 @@
     <string name="secondary_accounts_follow_route">Follow primary</string>
     <string name="secondary_accounts_explicit_direct">Direct connection (explicit)</string>
     <string name="secondary_accounts_connect">Connect account</string>
-    <string name="secondary_accounts_ready_no_chats">Signed in. You can preview chats in read-only mode; sending and per-account notifications will follow later.</string>
+    <string name="secondary_accounts_ready_no_chats">Signed in. Text messages are available; media, calls and separate notifications are still in development.</string>
     <string name="secondary_accounts_other_auth">Telegram requested an additional sign-in method not supported in this beta yet.</string>
     <string name="secondary_accounts_connecting">Connecting to Telegram…</string>
     <string name="secondary_accounts_disconnect">Stop this session (keep Telegram login)</string>
     <string name="secondary_accounts_route_paused">The account route changed or became unavailable. Network is paused; stop this session and reconnect with the intended route.</string>
     <string name="secondary_accounts_action_error">Operation failed. Check the connection and proxy route; the primary session was not affected.</string>
     <string name="secondary_chats_title">Secondary account chats</string>
-    <string name="secondary_chats_readonly">Read-only preview · isolated TDLib client</string>
+    <string name="secondary_chats_readonly">Separate TDLib session · text messages</string>
     <string name="secondary_chats_unavailable">This session is closed, offline or its network route is paused. Return to Accounts.</string>
     <string name="secondary_chats_go_back">Back to accounts</string>
     <string name="secondary_chats_load_error">Unable to load this account’s data.</string>
@@ -30,14 +30,14 @@
     <string name="secondary_chats_loading">Loading chats…</string>
     <string name="secondary_chats_empty">No chats loaded yet. Check connectivity and refresh.</string>
     <string name="secondary_chats_history_empty">Messages are loading or the history is empty.</string>
-    <string name="secondary_chats_open">Preview chats (read only)</string>
+    <string name="secondary_chats_open">Open secondary account chats</string>
     <string name="secondary_chats_media_message">Media</string>
     <string name="secondary_chats_empty_message">Message</string>
+    <string name="secondary_chats_message_hint">Message</string>
+    <string name="secondary_chats_send">Send</string>
+    <string name="secondary_chats_sending">Sending</string>
+    <string name="secondary_chats_failed">Failed to send</string>
     <string name="secondary_accounts_switch">Switch account</string>
     <string name="secondary_accounts_switch_offline">Session is offline — open account management</string>
     <string name="secondary_accounts_switch_note">The secondary account has its own chat interface. Other primary-account screens stay isolated.</string>
-    <string name="secondary_accounts_registry_error">Unable to load the Telegram account registry. No account data was modified. Check app storage.</string>
-    <string name="secondary_accounts_switch_failed">Cannot switch: the chosen account must be connected, authorized, and online.</string>
-    <string name="secondary_accounts_share_target_title">Choose the sending account</string>
-    <string name="secondary_accounts_share_target_warning">External text and file sharing currently works through the primary Telegram account only. Switch to it or cancel.</string>
 </resources>
