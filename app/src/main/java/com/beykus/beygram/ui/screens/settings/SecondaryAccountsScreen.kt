@@ -186,7 +186,7 @@ internal fun SecondaryAccountsScreen(
                     FilterChip(
                         selected = routePreference == TdSecondaryRoutePreference.SHARED_MIHOMO,
                         onClick = { routePreference = TdSecondaryRoutePreference.SHARED_MIHOMO },
-                        label = { Text("Mihomo") }
+                        label = { Text(stringResource(R.string.multi_proxy_shared)) }
                     )
                 }
                 FilterChip(
