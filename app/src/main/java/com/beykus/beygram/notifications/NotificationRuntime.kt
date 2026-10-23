@@ -139,10 +139,13 @@ class NotificationRuntime private constructor(private val context: Context) {
     @Synchronized fun detachSecondary(accountId: String) {
         val previous = secondaries.remove(accountId)
         previous?.job?.cancel()
+        // Await observer termination so no in-flight READY/LOGOUT callback can
+        // write account SharedPreferences after deletion has begun.
+        if (previous != null) kotlinx.coroutines.runBlocking { previous.job.join() }
         setSecondaryPending(accountId, false)
         setSecondaryConnected(accountId, false)
         previous?.renderer?.cancelAllOwned()
-        preferencesForAccount(accountId).authorized = false
+        preferencesForAccount(accountId).retireForRemoval()
         secondaryPreferences.remove(accountId)
         secondaryReplyOutboxes.remove(accountId)?.clear()
         invalidations.update { it + 1 }
