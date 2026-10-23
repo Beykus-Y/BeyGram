@@ -19,6 +19,12 @@ class TdSecondarySessionCoordinatorTest {
         override val authPhase: StateFlow<TdAccountAuthPhase> = phase
         var closed = false
         var lastPhone: String? = null
+        var shared = false
+        var paused = 0
+        var resumed = 0
+        override val sharedMihomo: Boolean get() = shared
+        override suspend fun pauseSharedNetwork() { paused++ }
+        override suspend fun resumeSharedNetwork(verified: Boolean) { if (verified) resumed++ }
         override suspend fun submitPhoneNumber(phone: String) {
             lastPhone = phone
             phase.value = TdAccountAuthPhase.WAIT_CODE
@@ -92,6 +98,34 @@ class TdSecondarySessionCoordinatorTest {
             manager.connect(id, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
             assertEquals(2, sessionHandles.size)
             assertEquals(2, registry.loadOrCreate().accountIds.size)
+        } finally { job.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun sharedMihomoFailurePausesOnlyProxyClientsWithoutDirectFallback() = runBlocking {
+        val root = Files.createTempDirectory("beygram-route-guard-").toFile()
+        val job = SupervisorJob()
+        try {
+            val native = mutableMapOf<String, Fake>()
+            val manager = TdSecondarySessionCoordinator(
+                TdAccountRegistry(root), CoroutineScope(job + Dispatchers.Unconfined)
+            ) { id, preference ->
+                Fake().also {
+                    it.shared = preference == TdSecondaryRoutePreference.SHARED_MIHOMO
+                    native[id] = it
+                }
+            }
+            val sharedId = manager.reserveAccount()
+            val directId = manager.reserveAccount()
+            manager.connect(sharedId, TdSecondaryRoutePreference.SHARED_MIHOMO)
+            manager.connect(directId, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            manager.reconcileShared { false }
+            assertEquals(1, native[sharedId]!!.paused)
+            assertEquals(0, native[directId]!!.paused)
+            manager.reconcileShared { preference ->
+                preference == TdSecondaryRoutePreference.SHARED_MIHOMO
+            }
+            assertEquals(1, native[sharedId]!!.resumed)
+            assertEquals(0, native[directId]!!.resumed)
         } finally { job.cancel(); root.deleteRecursively() }
     }
 
