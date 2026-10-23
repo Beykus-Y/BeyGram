@@ -247,6 +247,8 @@
     <string name="diag_full_report_highspeed">=== High-speed capture ===</string>
     <string name="hs_running">High-speed check is running…</string>
     <string name="vn_entry_av_unreadable">The file has an audio track but its samples could not be read: a limit of this check, not proof that there is no sound.</string>
+    <string name="vn_entry_usecase_geometry">CameraX %1$s: %2$s</string>
+    <string name="vn_entry_usecase_geometry_unknown">stream dimensions and cropRect unavailable after binding</string>
     <string name="vn_entry_fov_viewport">FOV: PreviewView FILL_CENTER, shared 1:1 ViewPort for Preview and VideoCapture. Square crop is expected and is not proof of digital zoom without frame comparison.</string>
     <string name="vn_entry_fov_observed">Camera2 FOV (first → last): crop %1$s → %3$s, zoom %2$s → %4$s; changed: %5$s. SCALER_CROP_REGION does not show the full CameraX ViewPort crop. Compare preview, RAW and downloaded output.</string>
     <string name="vn_entry_fov_changed">yes</string>
