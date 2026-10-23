@@ -2,7 +2,9 @@ package com.beykus.beygram.ui.screens.chat
 
 import com.beykus.beygram.domain.model.ChatMessage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatUnreadTest {
@@ -93,5 +95,12 @@ class ChatUnreadTest {
 
     @Test fun jumpTargetIsMissingWhenEverythingIsRead() {
         assertEquals(-1, firstUnreadItemIndex(items(message(2), message(1)), lastReadInboxId = 2))
+    }
+
+    @Test fun jumpRequestsAWindowWhenTheLoadedPageHasNoUnreadTarget() {
+        assertTrue(needsUnreadWindow(readLoaded = false, firstUnreadIndex = 3))
+        // The user jumped to an older pinned message: the window is entirely read, but unread rows exist elsewhere.
+        assertTrue(needsUnreadWindow(readLoaded = true, firstUnreadIndex = -1))
+        assertFalse(needsUnreadWindow(readLoaded = true, firstUnreadIndex = 2))
     }
 }

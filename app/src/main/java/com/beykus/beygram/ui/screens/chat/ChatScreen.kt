@@ -662,16 +662,15 @@ fun ChatScreen(
         if (boundary <= 0L) return
         // The boundary page must be loaded, or the oldest loaded row is merely the oldest fetched unread message.
         val readLoaded = rawMessageItems.any { item -> item.messages.any { it.id <= boundary } }
-        if (readLoaded) {
-            val firstUnread = firstUnreadItemIndex(rawMessageItems, boundary)
-            if (firstUnread >= 0) {
-                val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
-                scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
-            }
+        val firstUnread = firstUnreadItemIndex(rawMessageItems, boundary)
+        if (!needsUnreadWindow(readLoaded, firstUnread)) {
+            val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
+            scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
             return
         }
-        // Request the boundary page first. Arm the effect only after an applied response, because loading a window does
-        // not set history.isLoading and this function's caller still sees the old rows until recomposition.
+        // Request the boundary page. This also covers a window that is entirely older than the boundary: readLoaded is
+        // true there, but there is no unread row to scroll to. Arm completion only after an applied response, because
+        // loading a window does not set history.isLoading and the caller still sees old rows until recomposition.
         scope.launch {
             (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, boundary)
             else conversation.loadMessagesAround(chat.id, boundary))

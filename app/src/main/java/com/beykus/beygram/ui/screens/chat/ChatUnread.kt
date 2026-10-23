@@ -41,6 +41,12 @@ internal fun withUnreadSeparator(items: List<ChatMessageListItem>, lastReadInbox
 internal fun firstUnreadItemIndex(items: List<ChatMessageListItem>, lastReadInboxId: Long): Int =
     items.indexOfLast { item -> item.messages.any { !it.isOutgoing && it.id > lastReadInboxId } }
 
+/**
+ * True when the current window cannot answer the jump: the read boundary is not loaded, or the whole window is older
+ * than it. In both cases the boundary window must be requested before choosing a row.
+ */
+internal fun needsUnreadWindow(readLoaded: Boolean, firstUnreadIndex: Int): Boolean = !readLoaded || firstUnreadIndex < 0
+
 /** What the chat opening does next; the screen performs it. */
 internal sealed interface UnreadOpenStep {
     /** Nothing to place: no unread messages, or the opening position is already decided. */
