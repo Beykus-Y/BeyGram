@@ -1216,6 +1216,7 @@
     <string name="multi_account_cancel">Отмена</string>
     <string name="multi_proxy_title">Подключение аккаунта</string>
     <string name="multi_background_route_warning">Для фоновых уведомлений этого аккаунта нужен доступный способ подключения без первого аккаунта. Если первый аккаунт отключён, автоматический запуск поддерживает только явно выбранное прямое подключение. Настройте маршрут или включите фоновую работу первого аккаунта.</string>
+    <string name="multi_notification_account">Аккаунт: %1$s</string>
     <string name="multi_proxy_route">Маршрут подключения</string>
     <string name="multi_proxy_direct">Прямое соединение</string>
     <string name="multi_proxy_mihomo">Через прокси приложения</string>
