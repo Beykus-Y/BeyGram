@@ -19,12 +19,14 @@ class TdSecondarySessionCoordinatorTest {
         override val authPhase: StateFlow<TdAccountAuthPhase> = phase
         var closed = false
         var lastPhone: String? = null
-        var shared = false
+        override var plannedRoute: TdSecondaryRouteDecision = TdSecondaryRouteDecision.Direct
+        override var networkSuspended = false
         var paused = 0
         var resumed = 0
-        override val sharedMihomo: Boolean get() = shared
-        override suspend fun pauseSharedNetwork() { paused++ }
-        override suspend fun resumeSharedNetwork(verified: Boolean) { if (verified) resumed++ }
+        override suspend fun pauseNetwork() { paused++; networkSuspended = true }
+        override suspend fun resumeNetwork(verified: Boolean) {
+            if (verified && networkSuspended) { resumed++; networkSuspended = false }
+        }
         override suspend fun submitPhoneNumber(phone: String) {
             lastPhone = phone
             phase.value = TdAccountAuthPhase.WAIT_CODE
@@ -115,25 +117,48 @@ class TdSecondarySessionCoordinatorTest {
                 TdAccountRegistry(root), CoroutineScope(job + Dispatchers.Unconfined)
             ) { id, preference ->
                 Fake().also {
-                    it.shared = preference == TdSecondaryRoutePreference.SHARED_MIHOMO
+                    it.plannedRoute = if (preference == TdSecondaryRoutePreference.SHARED_MIHOMO)
+                        TdSecondaryRouteDecision.SharedMihomo else TdSecondaryRouteDecision.Direct
                     native[id] = it
                 }
             }
             val sharedId = manager.reserveAccount()
             val directId = manager.reserveAccount()
             manager.connect(sharedId, TdSecondaryRoutePreference.SHARED_MIHOMO)
-            manager.reconcileShared { false }
+            manager.reconcileRoutes { TdSecondaryRouteDecision.Blocked(TdSecondaryRouteBlock.LISTENER_NOT_READY) }
             assertEquals(1, native[sharedId]!!.paused)
-            manager.reconcileShared { preference ->
-                preference == TdSecondaryRoutePreference.SHARED_MIHOMO
+            manager.reconcileRoutes { preference ->
+                if (preference == TdSecondaryRoutePreference.SHARED_MIHOMO)
+                    TdSecondaryRouteDecision.SharedMihomo else TdSecondaryRouteDecision.Direct
             }
             assertEquals(1, native[sharedId]!!.resumed)
             manager.disconnect(sharedId)
             native[sharedId]!!.phase.value = TdAccountAuthPhase.CLOSED
             manager.connect(directId, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
-            manager.reconcileShared { false }
+            manager.reconcileRoutes { TdSecondaryRouteDecision.Direct }
             assertEquals(0, native[directId]!!.paused)
             assertEquals(0, native[directId]!!.resumed)
+        } finally { job.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun initiallyDirectFollowPrimaryGoesOfflineWhenPrimarySwitchesToMihomo() = runBlocking {
+        val root = Files.createTempDirectory("beygram-route-direct-").toFile()
+        val job = SupervisorJob()
+        try {
+            val native = Fake()
+            val manager = TdSecondarySessionCoordinator(
+                TdAccountRegistry(root), CoroutineScope(job + Dispatchers.Unconfined)
+            ) { _, _ -> native }
+            val id = manager.reserveAccount()
+            manager.connect(id, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+            manager.reconcileRoutes { TdSecondaryRouteDecision.Direct }
+            assertEquals(0, native.paused)
+            manager.reconcileRoutes { TdSecondaryRouteDecision.SharedMihomo }
+            assertEquals(1, native.paused)
+            assertTrue(manager.snapshot.value.accounts.single().networkSuspended)
+            manager.reconcileRoutes { TdSecondaryRouteDecision.Direct }
+            assertEquals(1, native.resumed)
+            assertFalse(manager.snapshot.value.accounts.single().networkSuspended)
         } finally { job.cancel(); root.deleteRecursively() }
     }
 
