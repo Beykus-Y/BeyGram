@@ -387,7 +387,7 @@ private fun SharedVoiceRow(
                     // Голосовое отмечаем прослушанным, когда плеер сообщит о старте, как в пузыре чата. Пауза не отмечает.
                     val pausing = state.item?.key == media.playbackKey() && state.playing
                     val onStarted = if (pausing) null else ({ onContentOpened(message.id) })
-                    PlaybackEngine.toggle(context, media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id, LocalPlaybackAccountId.current)), onStarted)
+                    PlaybackEngine.toggle(context, media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id, accountId)), onStarted)
                 }
             }
         },
@@ -420,7 +420,7 @@ internal fun SharedMusicRow(
                 SharedRowAction.Download -> downloadFile(media.fileId)
                 is SharedRowAction.Open -> {
                     // Текущий трек берём с путём из нажатия: его файл мог только что скачаться, а состояние ещё не дошло.
-                    val current = media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id, LocalPlaybackAccountId.current))
+                    val current = media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id, accountId))
                     val queue = tracks.map { track -> if (track.id == message.id) current else musicTrack(track, chatId, observeFile, label, accountId) }.filterNotNull()
                     PlaybackEngine.playQueue(context, queue, queue.indexOfFirst { it.origin?.messageId == message.id })
                 }
