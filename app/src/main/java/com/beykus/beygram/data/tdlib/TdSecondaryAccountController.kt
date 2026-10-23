@@ -33,7 +33,7 @@ internal class TdSecondaryAccountController private constructor(
     @Volatile private var backgroundRestoreOnly: Boolean = backgroundOnly
 
     private fun allowBackgroundRestore(accountId: String): Boolean {
-        val prefs = NotificationPreferencesStore(app, accountId)
+        val prefs = NotificationRuntime.get(app).preferencesForAccount(accountId)
         return prefs.authorized && prefs.state.value.enabled && prefs.state.value.background
     }
 
