@@ -240,7 +240,7 @@ internal fun accountSwitcherRows(input: AccountSwitcherInput): List<AccountSwitc
             canDisconnect = !busy && account.connectedInThisProcess &&
                 account.phase != TdAccountAuthPhase.CLOSED &&
                 account.phase != TdAccountAuthPhase.LOGGING_OUT,
-            canLogout = !busy && account.authorized,
+            canLogout = !busy && account.authorized && !account.networkSuspended,
             canConfigureRoute = !busy && when (status) {
                 AccountSwitcherStatus.CONNECTING,
                 AccountSwitcherStatus.UNSUPPORTED,

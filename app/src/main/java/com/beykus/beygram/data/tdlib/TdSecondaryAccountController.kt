@@ -117,7 +117,11 @@ internal class TdSecondaryAccountController private constructor(
     suspend fun ensureReady(accountId: String) = restoreMutex.withLock {
         requireSecondary(accountId)
         var row = rowOf(accountId) ?: throw TdAccountSwitchFailure.Disconnected()
-        if (row.networkSuspended) throw TdAccountSwitchFailure.RoutePaused()
+        if (row.networkSuspended && row.connectedInThisProcess &&
+            row.phase != TdAccountAuthPhase.CLOSED
+        ) {
+            throw TdAccountSwitchFailure.RoutePaused()
+        }
         if (!row.connectedInThisProcess || row.phase == TdAccountAuthPhase.CLOSED) {
             if (!restoreStore.isAuthorized(accountId)) throw TdAccountSwitchFailure.NotAuthorized()
             openSecondary(accountId, preferredRoute(accountId))

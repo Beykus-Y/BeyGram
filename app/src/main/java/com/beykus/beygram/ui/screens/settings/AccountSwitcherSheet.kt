@@ -374,6 +374,8 @@ internal fun AccountSwitcherSheet(
     } else null
 
     LaunchedEffect(authAccountId, authStep) {
+        authError = null
+        authSwitchError = null
         val id = authAccountId
         if (id != null && authStep == AccountAuthStep.READY && !autoSwitchStarted) {
             autoSwitchStarted = true
@@ -588,7 +590,9 @@ internal fun AccountSwitcherSheet(
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Throwable) {
-                            setAccountError(accountId, accountSwitcherErrorReason(failure))
+                            val reason = accountSwitcherErrorReason(failure)
+                            setAccountError(accountId, reason)
+                            if (authAccountId == accountId) authError = reason
                             // The list row owns the retry/configure actions; a
                             // dialog would hide the reason it just reported.
                             routeAccountId = null
