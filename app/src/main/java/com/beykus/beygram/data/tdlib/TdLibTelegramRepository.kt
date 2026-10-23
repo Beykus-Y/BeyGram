@@ -1152,6 +1152,9 @@ class TdLibTelegramRepository private constructor(
         messageHistory.beginLoad(chatId)?.let { epoch -> requestHistory(chatId, oldest, remaining = 50, pagesLeft = 3, epoch = epoch) }
     }
 
+    override suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> =
+        conversationActions.newerMessages(chatId, forumTopicId, afterMessageId)
+
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
         val request = nextHistoryRequest(chatId)
         return conversationActions.window(chatId, messageId).map { messages ->

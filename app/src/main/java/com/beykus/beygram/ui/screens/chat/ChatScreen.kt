@@ -90,6 +90,8 @@ private const val MAX_ACTIVE_COMPOSER_LAUNCHES = 4
 /** A zero-watermark jump walks history to its beginning; this guard keeps a huge chat from loading forever. */
 private const val MAX_UNREAD_HISTORY_PAGES = 50
 private const val UNREAD_HISTORY_PAGE_TIMEOUT_MS = 15_000L
+/** Bound on forward paging when outgoing messages separate the read boundary from the first unread incoming row. */
+private const val MAX_UNREAD_FORWARD_PAGES = 20
 
 @OptIn(FlowPreview::class)
 @Composable
@@ -676,6 +678,22 @@ fun ChatScreen(
         }
         return flow.value.messages
     }
+    suspend fun findFirstUnreadAfter(boundary: Long): Long? {
+        var after = boundary
+        repeat(MAX_UNREAD_FORWARD_PAGES) {
+            val page = conversation.newerMessages(chat.id, forumTopicId, after).getOrElse { return null }
+            if (page.isEmpty()) return null
+            val items = groupTelegramMediaAlbums(page)
+            val index = firstUnreadItemIndex(items, boundary)
+            if (index >= 0) {
+                return items[index].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
+            }
+            val newest = page.maxOfOrNull { it.id } ?: return null
+            if (newest <= after) return null
+            after = newest
+        }
+        return null
+    }
     fun jumpToFirstUnread() {
         val boundary = history.lastReadInboxMessageId
         // With no read watermark every incoming message is unread, so the target is the first incoming message in the
@@ -708,19 +726,28 @@ fun ChatScreen(
         // true there, but there is no unread row to scroll to. Resolve the target from the applied window itself, then
         // let the existing pendingJumpId effect wait until that row is in the list.
         scope.launch {
-            (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, anchor)
-            else conversation.loadMessagesAround(chat.id, anchor))
-                .onSuccess { applied ->
-                    if (!applied) return@onSuccess
-                    val loaded = if (forumTopicId > 0L) conversation.observeForumTopicHistory(chat.id, forumTopicId).value.messages
-                    else conversation.observeChatHistory(chat.id).value.messages
-                    val items = groupTelegramMediaAlbums(loaded)
-                    val index = firstUnreadItemIndex(items, unreadBoundary)
-                    if (index >= 0) {
-                        pendingJumpId = items[index].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
-                    }
+            val loadedWindow = if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, anchor)
+            else conversation.loadMessagesAround(chat.id, anchor)
+            if (loadedWindow.isFailure) {
+                error = loadedWindow.exceptionOrNull().userMessage(context, R.string.err_chat_history_load_failed)
+                return@launch
+            }
+            if (loadedWindow.getOrDefault(false)) {
+                val loaded = if (forumTopicId > 0L) conversation.observeForumTopicHistory(chat.id, forumTopicId).value.messages
+                else conversation.observeChatHistory(chat.id).value.messages
+                val items = groupTelegramMediaAlbums(loaded)
+                val index = firstUnreadItemIndex(items, unreadBoundary)
+                if (index >= 0) {
+                    pendingJumpId = items[index].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
+                    return@launch
                 }
-                .onFailure { error = it.userMessage(context, R.string.err_chat_history_load_failed) }
+                // The boundary window can contain only outgoing messages. Walk newer pages until an unread incoming
+                // message appears, then open its window so the jump target is present in the list.
+                val target = findFirstUnreadAfter(boundary) ?: return@launch
+                val targetWindow = if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, target)
+                else conversation.loadMessagesAround(chat.id, target)
+                if (targetWindow.getOrDefault(false)) pendingJumpId = target
+            }
         }
     }
     // Переход из профиля к вложению: чат открывается у сообщения один раз, после этого запрос сбрасывается.
