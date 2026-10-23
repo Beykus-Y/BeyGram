@@ -1234,6 +1234,7 @@
     <string name="multi_proxy_confirm_title">Переподключить Telegram-аккаунт?</string>
     <string name="multi_proxy_confirm_note">Текущие отправки могут прерваться. Подключения остальных аккаунтов не изменятся.</string>
     <string name="multi_proxy_reconnect">Переподключить</string>
+    <string name="multi_share_wait_legacy">Подключаем первый аккаунт. Вложение сохранено; отправка станет доступна после подключения.</string>
     <string name="multi_share_unavailable_title">Аккаунт недоступен</string>
     <string name="multi_share_unavailable_note">Быстрый получатель принадлежит первому аккаунту, но он сейчас не готов. Выберите другой аккаунт или повторите позже.</string>
     <string name="multi_share_pick_title">Выберите Telegram-аккаунт</string>
