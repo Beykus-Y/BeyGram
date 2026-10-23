@@ -72,6 +72,18 @@ class TdSecondaryChatStoreTest {
         assertFalse(own.chats.value.any { it.key.chatId == 2L })
     }
 
+    @Test fun secondaryHistoryCacheIsBoundedForLowMemoryDevices() {
+        val own = TdSecondaryChatStore("account-a")
+        val key = TdAccountChatKey("account-a", 1L)
+        own.replaceHistory(key, (1..170).map {
+            msg("account-a", 1L, it.toLong(), it)
+        })
+        val history = own.history.value.getValue(key)
+        assertEquals(100, history.size)
+        assertEquals(71L, history.first().key.messageId)
+        assertEquals(170L, history.last().key.messageId)
+    }
+
     @Test fun historyDeduplicatesPerMessageAndSortsChronologically() {
         val own = TdSecondaryChatStore("account-a")
         val key = TdAccountChatKey("account-a", 77)
