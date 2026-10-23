@@ -78,7 +78,6 @@ import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.settings.SecondaryAccountsScreen
-import com.beykus.beygram.ui.screens.settings.SecondaryChatsScreen
 import com.beykus.beygram.ui.screens.settings.AccountPickerScreen
 import com.beykus.beygram.ui.screens.settings.AccountPickerMeta
 import com.beykus.beygram.ui.screens.settings.ActiveSessionsScreen
