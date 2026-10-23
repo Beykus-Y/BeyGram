@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.tdlib
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -136,10 +137,14 @@ internal class TdSecondarySessionCoordinator(
         val active = mutex.withLock { running.values.filter { it.handle.sharedMihomo }.toList() }
         for (entry in active) {
             if (entry.handle.authPhase.value == TdAccountAuthPhase.CLOSED) continue
-            val allowed = try { networkAllowed(entry.preference) } catch (_: Exception) { false }
+            val allowed = try { networkAllowed(entry.preference) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { false }
             try {
                 if (allowed) entry.handle.resumeSharedNetwork(true)
                 else entry.handle.pauseSharedNetwork()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 // Never try direct on proxy failure. Next listener transition or
                 // screen resume will retry; keep the session's TDLib route intact.
