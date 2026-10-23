@@ -813,6 +813,7 @@ private fun BeyGramAppContent(
                     }
                 }
                 topics != null && activeTopicId == 0L -> ForumTopicsScreen(
+                    accountId = selectedAccountId,
                     chatId = selectedChatId,
                     chatTitle = chat.title,
                     loadPreview = { topicId -> repository.latestForumTopicPreview(selectedChatId, topicId) },
@@ -1276,8 +1277,7 @@ private fun BeyGramAppContent(
             }
             }
         }
-        if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-            route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
+        if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
     }
     }
     noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
