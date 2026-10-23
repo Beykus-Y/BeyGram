@@ -940,10 +940,16 @@ class TdLibTelegramRepository private constructor(
         // only database lease and validated network route. Do NOT instantiate
         // a second TDLib Client, release its lease or replay TDLib parameters.
         nativeSecondary?.let { secondary ->
+            // Establish the already-authorized state BEFORE replaying the
+            // pending updates or installing a live observer. Otherwise a new
+            // message can be processed before the repository is authorized.
+            val restoredReady = secondary.authPhase.value == TdAccountAuthPhase.READY &&
+                _authState.value != AuthState.Ready
+            if (restoredReady) handleAuthorizationState(TdApi.AuthorizationStateReady())
+            // The native dispatch/replay monitor makes the handoff atomic for
+            // this one account. Events before attachment are buffered.
             secondary.observeFullUpdates(::handleUpdate)
-            if (secondary.authPhase.value == TdAccountAuthPhase.READY &&
-                _authState.value != AuthState.Ready) {
-                handleAuthorizationState(TdApi.AuthorizationStateReady())
+            if (restoredReady) {
                 // The earlier experimental preview may already have consumed
                 // UpdateNewChat events. Seed the shared full repository from
                 // that SAME native client's known IDs, without reusing any
