@@ -301,11 +301,13 @@ private fun BeyGramAppContent(
                 notificationSecondaryChatId = null
                 notificationSecondaryChatToken = null
                 selectedAccountId = target
+                globalSearchQuery = ""
+                globalSearchSession.reset("")
                 routeName = when {
                     target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> AppRoute.Chats.name
-                    authState is AuthState.WaitingForPhone -> AppRoute.LoginPhone.name
-                    authState is AuthState.WaitingForCode -> AppRoute.LoginCode.name
-                    authState is AuthState.WaitingForPassword -> AppRoute.LoginPassword.name
+                    legacyRepository.authState.value is AuthState.WaitingForPhone -> AppRoute.LoginPhone.name
+                    legacyRepository.authState.value is AuthState.WaitingForCode -> AppRoute.LoginCode.name
+                    legacyRepository.authState.value is AuthState.WaitingForPassword -> AppRoute.LoginPassword.name
                     else -> AppRoute.Chats.name
                 }
             } catch (_: Exception) {
@@ -319,7 +321,8 @@ private fun BeyGramAppContent(
     LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
     LaunchedEffect(Unit) {
         PlaybackEngine.showInChat.collect { origin ->
-            if (currentAuthState != AuthState.Ready) return@collect
+            if (currentAuthState != AuthState.Ready ||
+                origin.accountId != selectedAccountId) return@collect
             if (routeName != AppRoute.Chat.name) {
                 chatBackRouteName = when (routeName) {
                     AppRoute.Archive.name, AppRoute.Contacts.name -> routeName
