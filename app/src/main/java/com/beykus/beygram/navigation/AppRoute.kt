@@ -33,10 +33,20 @@ enum class AppRoute {
     Proxy,
     ProxyConnect,
     Appearance,
-    ThemeEditor,
     Language,
     Sessions,
     NewChat,
     CreateGroup,
     CreateChannel
 }
+
+/**
+ * Reads a route saved by an earlier process. The old ThemeEditor route now lives inside Appearance, so a task
+ * restored after an in-place update opens the new section instead of crashing on a removed enum value.
+ */
+internal fun appRouteFromStored(value: String?): AppRoute {
+    if (value == LEGACY_THEME_EDITOR_ROUTE) return AppRoute.Appearance
+    return AppRoute.entries.firstOrNull { it.name == value } ?: AppRoute.Start
+}
+
+private const val LEGACY_THEME_EDITOR_ROUTE = "ThemeEditor"

@@ -6,10 +6,12 @@ import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import org.junit.Assert.assertEquals
@@ -26,14 +28,17 @@ class WallpaperPresetsTest {
         var selected: ChatWallpaper = ChatWallpaper.None
         composeRule.setContent {
             BeyGramTheme {
-                WallpaperSection(
-                    selected = selected,
-                    saved = ChatWallpaper.None,
-                    onSelect = { selected = it }
+                AppearanceWallpapersPage(
+                    draft = AppearanceConfig(wallpaper = ChatWallpaper.Preset("mint-air")),
+                    systemDark = false,
+                    onDraftChange = { selected = it.wallpaper },
+                    onDraftChangeContinuous = { selected = it.wallpaper },
+                    onOpenPreview = {}
                 )
             }
         }
         composeRule.onNodeWithContentDescription(context.getString(R.string.wallpaper_preset_lavender_flow))
+            .performScrollTo()
             .assertHasClickAction()
             .assertWidthIsAtLeast(48.dp)
             .assertHeightIsAtLeast(48.dp)
