@@ -149,12 +149,13 @@ internal fun rememberAttachmentState(
     sendMedia: suspend (List<OutgoingMedia>, String) -> Result<Unit>
 ): AttachmentState {
     val context = LocalContext.current
-    val importer = remember { OutgoingMediaImporter(context) }
+    val accountId = com.beykus.beygram.playback.LocalPlaybackAccountId.current
+    val importer = remember(context, accountId) { OutgoingMediaImporter(context, accountId) }
     val scope = rememberCoroutineScope()
-    val pending = rememberSaveable(chatId) { mutableStateOf(arrayListOf<OutgoingMedia>()) }
-    val error = rememberSaveable(chatId) { mutableStateOf<String?>(null) }
+    val pending = rememberSaveable(accountId, chatId) { mutableStateOf(arrayListOf<OutgoingMedia>()) }
+    val error = rememberSaveable(accountId, chatId) { mutableStateOf<String?>(null) }
     val currentSend by androidx.compose.runtime.rememberUpdatedState(sendMedia)
-    val state = remember(chatId) { AttachmentState(context, importer, scope, pending, error) { media, caption -> currentSend(media, caption) } }
+    val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error) { media, caption -> currentSend(media, caption) } }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
     state.pickPhotos = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
