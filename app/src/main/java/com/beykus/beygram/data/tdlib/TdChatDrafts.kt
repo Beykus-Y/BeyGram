@@ -30,8 +30,18 @@ private const val DRAFTS_PREFS = "chat_message_drafts"
  * A stale TDLib update is never allowed to replace text changed in an open editor.
  * Once TDLib holds a value, its backup is marked synced, so a draft cleared on another device is never sent back.
  */
-internal class TdChatDrafts(context: Context, client: () -> Client) {
-    private val prefs = context.applicationContext.getSharedPreferences(DRAFTS_PREFS, Context.MODE_PRIVATE)
+internal fun tdDraftPreferencesName(accountId: String): String =
+    if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) DRAFTS_PREFS
+    else "${DRAFTS_PREFS}_${TdAccountStorageLayout.requireAccountId(accountId)}"
+
+internal class TdChatDrafts(
+    context: Context,
+    accountId: String = TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
+    client: () -> Client
+) {
+    private val prefs = context.applicationContext.getSharedPreferences(
+        tdDraftPreferencesName(accountId), Context.MODE_PRIVATE
+    )
     private val request = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val guard = Any()
