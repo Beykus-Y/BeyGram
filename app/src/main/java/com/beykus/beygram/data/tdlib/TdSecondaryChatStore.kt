@@ -12,14 +12,16 @@ internal data class TdSecondaryChatSummary(
     val preview: String = "",
     val order: Long = 0L,
     val unreadCount: Int = 0,
-    val lastDate: Int = 0
+    val lastDate: Int = 0,
+    val previewIsMedia: Boolean = false
 )
 
 internal data class TdSecondaryTextMessage(
     val key: TdAccountMessageKey,
     val text: String,
     val outgoing: Boolean,
-    val date: Int
+    val date: Int,
+    val isMedia: Boolean = false
 )
 
 /**
@@ -63,7 +65,7 @@ internal class TdSecondaryChatStore(val accountId: String) {
 
     private fun publish() {
         _chats.value = byId.values.filter { it.order > 0L }
-            .sortedWith(compareByDescending<TdSecondaryChatSummary> { it.order }.thenBy { it.key.chatId })
+            .sortedWith(compareByDescending<TdSecondaryChatSummary> { it.order }.thenByDescending { it.key.chatId })
     }
 
     fun receive(event: TdAccountUpdateRouter.TdAccountRoutedUpdate) {
@@ -76,7 +78,8 @@ internal class TdSecondaryChatStore(val accountId: String) {
                         .firstOrNull { it.list is TdApi.ChatListMain }?.order ?: 0L
                     byId[key(chat.id)] = TdSecondaryChatSummary(
                         key(chat.id), chat.title.orEmpty(), preview(chat.lastMessage),
-                        order, chat.unreadCount, chat.lastMessage?.date ?: 0
+                        order, chat.unreadCount, chat.lastMessage?.date ?: 0,
+                        isMedia(chat.lastMessage)
                     )
                     publish()
                 }
@@ -98,7 +101,8 @@ internal class TdSecondaryChatStore(val accountId: String) {
                             p -> p.list is TdApi.ChatListMain
                         }?.order ?: 0L
                         byId[chatKey] = it.copy(preview = preview(update.lastMessage),
-                            lastDate = update.lastMessage?.date ?: 0, order = order)
+                            lastDate = update.lastMessage?.date ?: 0, order = order,
+                            previewIsMedia = isMedia(update.lastMessage))
                     }
                     publish()
                 }
@@ -126,19 +130,17 @@ internal class TdSecondaryChatStore(val accountId: String) {
         _history.value = emptyMap()
     }
 
-    private fun preview(message: TdApi.Message?): String = when (val content = message?.content) {
-        is TdApi.MessageText -> content.text.text.orEmpty()
-        null -> ""
-        else -> "Медиа"
-    }
+    private fun isMedia(message: TdApi.Message?): Boolean =
+        message?.content != null && message.content !is TdApi.MessageText
 
-    private fun textMessage(message: TdApi.Message): TdSecondaryTextMessage {
-        val text = preview(message).ifBlank { "Сообщение" }
-        return TdSecondaryTextMessage(
+    private fun preview(message: TdApi.Message?): String =
+        (message?.content as? TdApi.MessageText)?.text?.text.orEmpty()
+
+    private fun textMessage(message: TdApi.Message): TdSecondaryTextMessage =
+        TdSecondaryTextMessage(
             TdAccountMessageKey(accountId, message.chatId, message.id),
-            text, message.isOutgoing, message.date
+            preview(message), message.isOutgoing, message.date, isMedia(message)
         )
-    }
 
     fun convertHistory(chat: TdAccountChatKey, messages: Array<out TdApi.Message>): List<TdSecondaryTextMessage> {
         requireOwn(chat)
