@@ -31,6 +31,7 @@
 
     <string name="account_switcher_continue">Continue sign-in</string>
     <string name="account_switcher_configure">Connection settings</string>
+    <string name="account_switcher_retry">Retry</string>
     <string name="account_switcher_disconnect">Stop session</string>
     <string name="account_switcher_disconnect_title">Stop this session?</string>
     <string name="account_switcher_disconnect_message">The account stays in BeyGram and its Telegram sign-in is kept. You can connect it again at any time.</string>

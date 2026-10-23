@@ -177,7 +177,7 @@ internal fun AccountSwitcherSheet(
                 clearAccountError(accountId)
                 preparingAccountId = accountId
                 try {
-                    controller.connectForSignIn(accountId)
+                    withContext(Dispatchers.IO) { controller.connectForSignIn(accountId) }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Throwable) {
@@ -207,7 +207,7 @@ internal fun AccountSwitcherSheet(
             scope.launch {
                 preparingAccountId = accountId
                 try {
-                    controller.connectForSignIn(accountId)
+                    withContext(Dispatchers.IO) { controller.connectForSignIn(accountId) }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Throwable) {
@@ -264,8 +264,10 @@ internal fun AccountSwitcherSheet(
             busyAccountId = accountId
             clearAccountError(accountId)
             try {
-                controller.ensureReady(accountId)
-                controller.logoutAndDelete(accountId)
+                withContext(Dispatchers.IO) {
+                    controller.ensureReady(accountId)
+                    controller.logoutAndDelete(accountId)
+                }
                 clearAccountError(accountId)
                 onAccountDeleted(accountId)
                 if (authAccountId == accountId) closeAuth()
@@ -286,7 +288,7 @@ internal fun AccountSwitcherSheet(
             busyAccountId = accountId
             clearAccountError(accountId)
             try {
-                controller.discardIncompleteAccount(accountId)
+                withContext(Dispatchers.IO) { controller.discardIncompleteAccount(accountId) }
                 clearAccountError(accountId)
                 onAccountDeleted(accountId)
                 if (authAccountId == accountId) closeAuth()
@@ -306,7 +308,7 @@ internal fun AccountSwitcherSheet(
             busyAccountId = accountId
             clearAccountError(accountId)
             try {
-                controller.coordinator.disconnect(accountId)
+                withContext(Dispatchers.IO) { controller.coordinator.disconnect(accountId) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
@@ -441,6 +443,7 @@ internal fun AccountSwitcherSheet(
                 },
                 onAdd = ::startAdd,
                 onContinue = { openSignIn(it, isNew = false) },
+                onRetry = { switchTo(it) },
                 onConfigureRoute = { routeAccountId = it },
                 onDisconnect = { confirmDisconnectId = it },
                 onLogout = { confirmLogoutId = it },
@@ -535,7 +538,7 @@ internal fun AccountSwitcherSheet(
                     busyAccountId = accountId
                     clearAccountError(accountId)
                     try {
-                        controller.useRoute(accountId, preference)
+                        withContext(Dispatchers.IO) { controller.useRoute(accountId, preference) }
                         routeAccountId = null
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -559,6 +562,7 @@ internal fun AccountSwitcherContent(
     onRowClick: (AccountSwitcherRow) -> Unit,
     onAdd: () -> Unit,
     onContinue: (String) -> Unit,
+    onRetry: (String) -> Unit,
     onConfigureRoute: (String) -> Unit,
     onDisconnect: (String) -> Unit,
     onLogout: (String) -> Unit,
@@ -608,6 +612,7 @@ internal fun AccountSwitcherContent(
                     enabled = !busy,
                     onClick = { onRowClick(row) },
                     onContinue = onContinue,
+                    onRetry = onRetry,
                     onConfigureRoute = onConfigureRoute,
                     onDisconnect = onDisconnect,
                     onLogout = onLogout,
@@ -654,6 +659,7 @@ private fun AccountSwitcherRowItem(
     enabled: Boolean,
     onClick: () -> Unit,
     onContinue: (String) -> Unit,
+    onRetry: (String) -> Unit,
     onConfigureRoute: (String) -> Unit,
     onDisconnect: (String) -> Unit,
     onLogout: (String) -> Unit,
@@ -785,6 +791,15 @@ private fun AccountSwitcherRowItem(
                             }
                         )
                     }
+                    if (row.status == AccountSwitcherStatus.ERROR && row.canSelect) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.account_switcher_retry)) },
+                            onClick = {
+                                menuOpen = false
+                                onRetry(row.accountId)
+                            }
+                        )
+                    }
                     if (row.canConfigureRoute) {
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.account_switcher_configure)) },
@@ -831,7 +846,8 @@ private fun AccountSwitcherRowItem(
 
 /** The overflow is shown only when there is at least one real action. */
 private val AccountSwitcherRow.canContinueMenu: Boolean
-    get() = canSignIn || canConfigureRoute || canDisconnect || canLogout || canDelete
+    get() = canSignIn || canConfigureRoute || canDisconnect || canLogout || canDelete ||
+        (status == AccountSwitcherStatus.ERROR && canSelect)
 
 @Composable
 private fun AccountAuthContent(

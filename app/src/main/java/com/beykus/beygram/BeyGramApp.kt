@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
@@ -28,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
@@ -423,7 +425,7 @@ private fun BeyGramAppContent(
                 if (target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
                     // A persisted registry slot is not a running repository:
                     // restore the exact native session before switching the UI.
-                    secondaryAccountController.ensureReady(target)
+                    withContext(Dispatchers.IO) { secondaryAccountController.ensureReady(target) }
                 }
                 withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
                 resetAccountScopedState()
@@ -575,7 +577,7 @@ private fun BeyGramAppContent(
                 // The notification is authoritative only after this exact
                 // account's full repository exists; otherwise its bare chat ID
                 // could be rendered by a different source.
-                secondaryAccountController.ensureReady(target)
+                withContext(Dispatchers.IO) { secondaryAccountController.ensureReady(target) }
                 withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
                 resetAccountScopedState()
                 notificationSecondaryChatId = request.chatId
