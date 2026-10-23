@@ -159,8 +159,10 @@ internal class TdSecondarySessionCoordinator(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                // Keep the pre-existing TDLib proxy policy. Never enable direct
-                // as a fallback for a secondary account with a mismatched route.
+                // If the network cannot be disabled when policy diverges,
+                // fail closed by closing this native client (NOT LogOut).
+                // The TDLib database/authorization remain intact.
+                if (decision != entry.handle.plannedRoute) entry.handle.close()
             }
         }
         mutex.withLock { publish() }
