@@ -97,7 +97,10 @@ internal class TdSecondaryNativeLoginLauncher(
                         is TdApi.AuthorizationStateWaitCode -> phases.value = TdAccountAuthPhase.WAIT_CODE
                         is TdApi.AuthorizationStateWaitPassword -> phases.value = TdAccountAuthPhase.WAIT_PASSWORD
                         is TdApi.AuthorizationStateReady -> phases.value = TdAccountAuthPhase.READY
-                        is TdApi.AuthorizationStateLoggingOut -> phases.value = TdAccountAuthPhase.LOGGING_OUT
+                        is TdApi.AuthorizationStateLoggingOut -> {
+                            phases.value = TdAccountAuthPhase.LOGGING_OUT
+                            synchronized(fullRepositoryObservers) { startupReplay.clear() }
+                        }
                         is TdApi.AuthorizationStateClosed -> {
                             phases.value = TdAccountAuthPhase.CLOSED
                             chatStore.clear()
@@ -386,9 +389,11 @@ internal class TdSecondaryStartupReplay {
         if (update is TdApi.UpdateActiveNotifications) {
             // The new authoritative snapshot already includes all preceding changes.
             notificationDeltas.clear()
-        } else if (!hasObservers && update is TdApi.UpdateNotificationGroup ||
-            !hasObservers && update is TdApi.UpdateNotification ||
-            !hasObservers && update is TdApi.UpdateHavePendingNotifications) {
+        } else if (!hasObservers && (
+            update is TdApi.UpdateNotificationGroup ||
+                update is TdApi.UpdateNotification ||
+                update is TdApi.UpdateHavePendingNotifications
+        )) {
             // The native owner is not allowed to reinterpret notification group IDs.
             // Preserve TDLib order until the account-bound TdNotifications sees them.
             notificationDeltas.add(update)
