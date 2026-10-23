@@ -79,6 +79,7 @@ internal class TdSecondarySessionCoordinator(
     private val registry: TdAccountRegistry,
     private val scope: CoroutineScope,
     private val onAuthorized: (String, TdSecondaryRoutePreference) -> Unit = { _, _ -> },
+    private val onManualStop: (String) -> Unit = {},
     private val openNative: suspend (String, TdSecondaryRoutePreference) -> TdSecondaryAuthSession
 ) {
     private data class Active(
@@ -158,6 +159,9 @@ internal class TdSecondarySessionCoordinator(
     /** Leaves TDLib authorization and the files on disk unchanged. */
     suspend fun disconnect(accountId: String) = mutex.withLock {
         val active = running[accountId] ?: return@withLock
+        // Persist the user's intent BEFORE dispatching asynchronous TDLib
+        // Close. A service listener transition must not reopen it.
+        onManualStop(accountId)
         active.handle.close()
         // Keep strong ownership and the native database lease until CLOSED.
         // The subscription will publish that terminal state; it does not
