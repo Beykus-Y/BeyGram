@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.notifications.NotificationRuntime
+import com.beykus.beygram.notifications.NotificationPreferencesStore
 import com.beykus.beygram.notifications.TelegramNotificationService
 import com.beykus.beygram.notifications.AndroidNotificationRenderer
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -63,11 +64,12 @@ fun NotificationSettingsScreen(
     runtime: NotificationRuntime,
     connectionState: TelegramConnectionState,
     onBack: () -> Unit,
-    onDiagnostics: () -> Unit
+    onDiagnostics: () -> Unit,
+    accountPreferences: NotificationPreferencesStore = runtime.preferences
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
-    val config by runtime.preferences.state.collectAsStateWithLifecycle()
+    val config by accountPreferences.state.collectAsStateWithLifecycle()
     val running by runtime.serviceRunning.collectAsStateWithLifecycle()
     val error by runtime.serviceError.collectAsStateWithLifecycle()
     var allowed by remember { mutableStateOf(AndroidNotificationRenderer.canNotify(context)) }
@@ -96,9 +98,9 @@ fun NotificationSettingsScreen(
             Text(stringResource(R.string.notif_no_google_title), color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(stringResource(R.string.notif_no_google_body), color = palette.textSecondary)
             Text(stringResource(R.string.settings_autosave_note), color = palette.textSecondary, fontSize = 13.sp)
-            SettingToggle(stringResource(R.string.notif_toggle_messages), stringResource(R.string.notif_toggle_messages_hint), config.enabled) { runtime.preferences.update(config.copy(enabled = it)); runtime.refresh() }
-            SettingToggle(stringResource(R.string.notif_toggle_background), stringResource(R.string.notif_toggle_background_hint), config.background, config.enabled) { runtime.preferences.update(config.copy(background = it)) }
-            SettingToggle(stringResource(R.string.notif_toggle_previews), stringResource(R.string.notif_toggle_previews_hint), config.previews, config.enabled) { runtime.preferences.update(config.copy(previews = it)) }
+            SettingToggle(stringResource(R.string.notif_toggle_messages), stringResource(R.string.notif_toggle_messages_hint), config.enabled) { accountPreferences.update(config.copy(enabled = it)); runtime.refresh() }
+            SettingToggle(stringResource(R.string.notif_toggle_background), stringResource(R.string.notif_toggle_background_hint), config.background, config.enabled) { accountPreferences.update(config.copy(background = it)) }
+            SettingToggle(stringResource(R.string.notif_toggle_previews), stringResource(R.string.notif_toggle_previews_hint), config.previews, config.enabled) { accountPreferences.update(config.copy(previews = it)) }
             HorizontalDivider(color = palette.divider)
             Text(if (allowed) stringResource(R.string.notif_permission_granted) else stringResource(R.string.notif_permission_denied), color = if (allowed) palette.textPrimary else palette.warningText)
             Text(if (running) stringResource(R.string.notif_background_running) else stringResource(R.string.notif_background_stopped), color = palette.textSecondary)
