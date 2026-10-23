@@ -68,6 +68,42 @@ profile, search, calls and media already depend on `TelegramRepository` /
   process-wide "Stop background notifications" service action disables background
   delivery for all configured accounts. Individual settings still remain scoped.
 
+## Lifecycle and user-facing functionality
+
+- **Secondary account logout is not Close.** The confirmed "Выйти и удалить"
+  action sends TDLib `LogOut` from that account's native Client, awaits
+  `AuthorizationStateClosed` (lease release), revokes only its persisted
+  restore authorization and notification reply tokens, updates the registry
+  atomically to remove that ID, and deletes only the secondary's app-private
+  root without following symbolic links. If TDLib rejects LogOut or never
+  reaches CLOSED, registration and disk files are not removed. The existing
+  "Остановить" action still uses Close and preserves Telegram login.
+- **Secondary quick replies** have account-specific mutable PendingIntent
+  identities, a URI account selector, the account's private HMAC session token,
+  and a separate fsync'd outbox under noBackup. A reply from a secondary can
+  only resolve against its own live repository. Saved replies replay when the
+  owning account becomes READY; no fallback to the primary client. If the
+  owning TDLib session is offline or its route cannot be restored, replies
+  remain queued until that session can safely reconnect (subject to TTL).
+  Delivery is at-least-once on process death around TDLib acceptance, as
+  with the existing legacy outbox; the app must not claim exactly-once.
+- **Android ACTION_SEND / ACTION_SEND_MULTIPLE** requires an explicit account
+  selection before loading recipient chat IDs. Published legacy direct-share
+  shortcuts always select legacy. The shared ShareTargetScreen sends through
+  the chosen account's repository and requires its normal confirmation; a
+  failure to switch allows the user to retry or pick another account.
+- **Network controls** never present the legacy VpnBackend editor as if it
+  controlled the secondary. Secondary route UI shows the actual TDLib route
+  and permits deliberate reconnect with FOLLOW_PRIMARY, SHARED_MIHOMO or
+  EXPLICIT_DIRECT: Close -> CLOSED -> route preflight -> new Client. It does
+  not reconfigure or stop the shared Mihomo listener and never falls back to
+  DIRECT when the selected route is unavailable. Advanced independent manual
+  Telegram-proxy credential editing remains unsupported: it needs a separately
+  specified secure native route policy.
+- **Account switcher** reads profile names, avatars and unread badges from
+  each account's own repository; unavailable accounts never leak a legacy
+  profile or file ID.
+
 ## Important verification requirements
 
 A repository implementation can compile while real TDLib request/state
