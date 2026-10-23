@@ -229,6 +229,7 @@ private fun BeyGramAppContent(
     val unavailableAccountRepository = remember { UnavailableTelegramRepository() }
     val repository = repositorySelection ?: unavailableAccountRepository
     val authState by repository.authState.collectAsStateWithLifecycle()
+    val legacyAuthState by legacyRepository.authState.collectAsStateWithLifecycle()
     val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
     val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
     val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
@@ -338,7 +339,9 @@ private fun BeyGramAppContent(
     val chatPreferences = remember(context, selectedAccountId) {
         context.applicationContext.getSharedPreferences(archivePreferencesName(selectedAccountId), Context.MODE_PRIVATE)
     }
-    var archiveHidden by remember { mutableStateOf(chatPreferences.getBoolean("archive_hidden", false)) }
+    var archiveHidden by remember(chatPreferences) {
+        mutableStateOf(chatPreferences.getBoolean("archive_hidden", false))
+    }
     val onArchiveHiddenChange: (Boolean) -> Unit = { hidden ->
         archiveHidden = hidden
         chatPreferences.edit().putBoolean("archive_hidden", hidden).apply()
@@ -416,7 +419,7 @@ private fun BeyGramAppContent(
         }
     }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
-    LaunchedEffect(authState, notificationRequest?.token, accountRegistryReady) {
+    LaunchedEffect(authState, legacyAuthState, notificationRequest?.token, accountRegistryReady) {
         if (!accountRegistryReady || accountRegistryError) return@LaunchedEffect
         val request = notificationRequest ?: return@LaunchedEffect
         if (request.accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
@@ -446,7 +449,7 @@ private fun BeyGramAppContent(
             }
             return@LaunchedEffect
         }
-        if (authState != AuthState.Ready) return@LaunchedEffect
+        if (legacyAuthState != AuthState.Ready) return@LaunchedEffect
         // Notifications currently originate ONLY from the legacy client.
         // Switch explicitly to the source account before resolving its chat ID.
         if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
@@ -1213,12 +1216,17 @@ private fun BeyGramAppContent(
                     session = globalSearchSession
                 )
                 AppRoute.ReportProblem -> ReportProblemScreen(
+                    accountId = selectedAccountId,
                     repository = repository,
                     connectionState = connectionState,
                     onBack = { routeName = AppRoute.Diagnostics.name }
                 )
                 AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings, repository) { routeName = AppRoute.Settings.name }
-                AppRoute.StorageSettings -> StorageSettingsScreen(repository = repository, onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.StorageSettings -> StorageSettingsScreen(
+                    repository = repository,
+                    accountId = selectedAccountId,
+                    onBack = { routeName = AppRoute.Settings.name }
+                )
                 AppRoute.NavigationSettings -> NavigationSettingsScreen(
                     visibility = tabVisibility,
                     onVisibilityChange = onTabVisibilityChange,
@@ -1226,7 +1234,10 @@ private fun BeyGramAppContent(
                 )
                 AppRoute.LastSeenSettings -> LastSeenSettingsScreen(lastSeenStyle, onStyleChange = lastSeenSettings::setStyle, onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.Proxy -> ProxyListScreen(
-                    repository = repository,
+                    // Shared Mihomo/VpnBackend controls are process-level and
+                    // wired to legacy. Never mutate only the secondary proxy
+                    // while simultaneously stopping the shared listener.
+                    repository = legacyRepository,
                     vpnBackend = vpnBackend,
                     onBack = { routeName = proxyReturnRouteName },
                     onAddProxy = { openProxyConnect(ProxyConnectTab.MTPROTO) },
@@ -1234,9 +1245,9 @@ private fun BeyGramAppContent(
                 )
 
                 AppRoute.ProxyConnect -> ProxyConnectScreen(
-                    repository = repository,
+                    repository = legacyRepository,
                     vpnBackend = vpnBackend,
-                    connectionState = connectionState,
+                    connectionState = legacyRepository.connectionState.collectAsStateWithLifecycle().value,
                     initialTab = ProxyConnectTab.valueOf(proxyConnectTabName),
                     onBack = { routeName = AppRoute.Proxy.name }
                 )
