@@ -81,12 +81,15 @@ internal class TdSecondarySessionCoordinator(
     suspend fun connect(accountId: String, preference: TdSecondaryRoutePreference) = mutex.withLock {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) { "Legacy TDLib is already running" }
         require(accountId in registry.loadOrCreate().accountIds) { "Account not registered" }
+        if (running[accountId]?.handle?.authPhase?.value == TdAccountAuthPhase.CLOSED) {
+            running.remove(accountId)?.subscription?.cancel()
+        }
         check(accountId !in running) { "Secondary account is already active" }
         _snapshot.value = _snapshot.value.copy(busy = true)
         try {
             val handle = openNative(accountId, preference)
             val job = scope.launch {
-                handle.authPhase.collect { publishFromPhases() }
+                handle.authPhase.collect { mutex.withLock { publish() } }
             }
             running[accountId] = Active(handle, job)
         } finally {
@@ -134,15 +137,5 @@ internal class TdSecondarySessionCoordinator(
         )
     }
 
-    private fun publishFromPhases() {
-        // No registry writes from TDLib callbacks. Only publish the observed
-        // native state. The ordinary refresh/connect path owns metadata writes.
-        _snapshot.value = _snapshot.value.copy(
-            accounts = _snapshot.value.accounts.map { row ->
-                val phase = running[row.accountId]?.handle?.authPhase?.value
-                row.copy(phase = phase,
-                    connectedInThisProcess = phase != null && phase != TdAccountAuthPhase.CLOSED)
-            }
-        )
-    }
+
 }
