@@ -98,6 +98,13 @@ The full JVM suite still contains pre-existing `AccessDeniedException` failures 
 Windows host; the appearance/data/theme subset passes. Lint reports pre-existing errors in unrelated files (for
 example notification permission checks); the new appearance files add no lint errors.
 
+Known limits of this development pass:
+
+- the real-device UI was not touched, per `AGENTS.md`;
+- the gallery picker was not exercised end-to-end with a real photo on the emulator; the import and preview code
+  paths are unchanged and listed in the manual QA plan below;
+- the full JVM suite was not green because of the unrelated Windows TDLib test failures above.
+
 ## Manual QA still worth doing on a real phone
 
 1. Open Appearance from Settings, change palette/brightness, open every subsection, rotate, and apply.

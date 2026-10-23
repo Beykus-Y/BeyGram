@@ -281,9 +281,9 @@ internal fun AppearanceOptionTile(
     title: String,
     detail: String?,
     selected: Boolean,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    icon: ImageVector? = null
+    icon: ImageVector? = null,
+    onClick: () -> Unit
 ) {
     val palette = beyGramPalette()
     val shape = RoundedCornerShape(16.dp)
