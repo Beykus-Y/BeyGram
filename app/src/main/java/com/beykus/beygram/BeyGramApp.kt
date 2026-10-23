@@ -492,10 +492,50 @@ private fun BeyGramAppContent(
         }
         onNotificationHandled(request.token)
     }
-    // Текст из другого приложения выбирает чат и подтверждает отправку на отдельном экране поверх приложения.
-    if (incomingShare != null && authState == AuthState.Ready && accountRegistryReady &&
-        !accountRegistryError &&
-        selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+    // A generic Android ACTION_SEND has no trustworthy Telegram account
+    // identity. Require an explicit account choice BEFORE resolving numeric
+    // chat IDs; published Direct Share shortcuts remain legacy-only.
+    var shareAccountTarget by remember(incomingShare?.requestId) {
+        mutableStateOf<String?>(if (incomingShare?.targetChatId != 0L) TdAccountStorageLayout.LEGACY_ACCOUNT_ID else null)
+    }
+    if (incomingShare != null && shareAccountTarget == null && accountRegistryReady && !accountRegistryError) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
+            title = { Text("Выберите Telegram-аккаунт") },
+            text = {
+                Column {
+                    Text("Выберите аккаунт, в котором будет открыт список получателей. Отправка произойдёт только после подтверждения.")
+                    if (legacyAuthState == AuthState.Ready) {
+                        TextButton(onClick = { shareAccountTarget = TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+                            if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                        }) { Text(stringResource(R.string.secondary_accounts_primary)) }
+                    }
+                    accountChoice.accounts.filter {
+                        it.phase == com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY &&
+                            it.connectedInThisProcess && !it.networkSuspended
+                    }.forEachIndexed { index, row ->
+                        TextButton(onClick = {
+                            shareAccountTarget = row.accountId
+                            if (selectedAccountId != row.accountId) chooseAccount(row.accountId)
+                        }) { Text(stringResource(R.string.secondary_accounts_account_label, index + 2)) }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onIncomingShareHandled(incomingShare.requestId)
+                    routeName = AppRoute.AccountPicker.name
+                }) { Text(stringResource(R.string.secondary_accounts_add)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { onIncomingShareHandled(incomingShare.requestId) }) {
+                    Text(stringResource(R.string.common_close))
+                }
+            }
+        )
+    }
+    if (incomingShare != null && shareAccountTarget == selectedAccountId &&
+        authState == AuthState.Ready && accountRegistryReady && !accountRegistryError) {
         // Архивные чаты тоже можно выбрать: отправка в них не требует вынимать их из архива.
         val shareChats by repository.chats.collectAsStateWithLifecycle()
         val shareArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
@@ -513,7 +553,7 @@ private fun BeyGramAppContent(
             )
         ) {
             // Новый запрос из «Поделиться» получает свежее состояние выбора, даже если диалог уже открыт.
-            key(incomingShare.requestId) {
+            key(incomingShare.requestId, selectedAccountId) {
                 ShareTargetScreen(
                     requestId = incomingShare.requestId,
                     initialChatId = incomingShare.targetChatId,
@@ -542,26 +582,6 @@ private fun BeyGramAppContent(
                 )
             }
         }
-    }
-
-    if (incomingShare != null && authState == AuthState.Ready && accountRegistryReady &&
-        !accountRegistryError &&
-        selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
-            title = { Text(stringResource(R.string.secondary_accounts_share_target_title)) },
-            text = { Text(stringResource(R.string.secondary_accounts_share_target_warning)) },
-            confirmButton = {
-                TextButton(onClick = { chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }) {
-                    Text(stringResource(R.string.secondary_accounts_primary))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { onIncomingShareHandled(incomingShare.requestId) }) {
-                    Text(stringResource(R.string.common_close))
-                }
-            }
-        )
     }
 
     // Open a notification's chat in its EXACT full repository. Never pass
