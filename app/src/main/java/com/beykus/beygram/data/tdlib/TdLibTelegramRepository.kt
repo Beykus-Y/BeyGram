@@ -1287,7 +1287,8 @@ class TdLibTelegramRepository private constructor(
                     } ?: service
                     message.copy(text = rendered ?: contentText(update.newContent, attachment != null),
                         serviceText = rendered, isCallEvent = update.newContent is TdApi.MessageCall,
-                        entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
+                        entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment,
+                        linkPreview = mediaMapper.linkPreview(update.newContent, isSecretChat(update.chatId)))
                 }
                 messageHistory.update(update.chatId, update.messageId, transform)
                 updateForumMessage(update.chatId, update.messageId, transform)
@@ -1830,12 +1831,17 @@ class TdLibTelegramRepository private constructor(
         isCallEvent = content is TdApi.MessageCall,
         serviceUserId = event?.userId ?: 0L,
         forumTopicId = forumId(this),
+        linkPreview = if (event == null) mediaMapper.linkPreview(content, isSecretChat(chatId)) else null,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
         }
     )
     }
+
+    /** The chat cache is normally warm; the stored TdApi.Chat covers a message that arrives first. */
+    private fun isSecretChat(chatId: Long): Boolean =
+        chatCache[chatId]?.isSecret == true || (profiles.chat(chatId)?.type is TdApi.ChatTypeSecret)
 
     /** Updates observers of this chat right away and queues the shared lists; other chats are not touched. */
     private fun publishChat(chatId: Long) {
@@ -1871,6 +1877,7 @@ class TdLibTelegramRepository private constructor(
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,
             isSavedMessages = saved,
+            isSecret = type is TdApi.ChatTypeSecret,
             isPinned = mainPosition?.isPinned == true,
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,

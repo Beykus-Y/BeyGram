@@ -26,8 +26,28 @@ data class ChatMessage(
     /** User referred to by a service action, if available, for clickable profile navigation. */
     val serviceUserId: Long = 0L,
     /** TDLib forum topic id for opening a global search hit in its original topic. */
-    val forumTopicId: Long = 0L
+    val forumTopicId: Long = 0L,
+    /** Web-page metadata for a text message link; never populated in secret chats. */
+    val linkPreview: MessageLinkPreview? = null
 )
+
+/**
+ * The compact web-page card TDLib attaches to a text message. All content is server-supplied metadata; [photoFileId]
+ * points at a small photo size already registered in the media store, not at the page's original image.
+ */
+data class MessageLinkPreview(
+    val displayUrl: String,
+    val siteName: String = "",
+    val title: String = "",
+    val description: String = "",
+    val photoFileId: Int? = null,
+    val photoWidth: Int = 0,
+    val photoHeight: Int = 0
+) {
+    /** A card with no text at all would render as an empty box, so it is not shown. */
+    val hasContent: Boolean
+        get() = displayUrl.isNotBlank() || siteName.isNotBlank() || title.isNotBlank() || description.isNotBlank()
+}
 
 /**
  * An emoji reaction under a message. [isChosen] marks the reaction the current user added. A custom emoji reaction has a
