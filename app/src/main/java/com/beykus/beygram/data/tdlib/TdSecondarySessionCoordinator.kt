@@ -22,6 +22,7 @@ internal interface TdSecondaryAuthSession {
     suspend fun submitPassword(password: String)
     suspend fun resendCode()
     fun close()
+    suspend fun logOutAndAwaitClosed() { error("Native logout is unavailable") }
 
     /**
      * Only the native session that owns the database lease may provide its
@@ -56,6 +57,7 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun submitPassword(password: String) = login.submitPassword(password)
     override suspend fun resendCode() = login.resendCode()
     override fun close() = login.close()
+    override suspend fun logOutAndAwaitClosed() = login.logOutAndAwaitClosed()
     override fun fullRepository(context: android.content.Context): com.beykus.beygram.domain.repository.TelegramRepository =
         login.unifiedRepository(context)
     override val chatStore: TdSecondaryChatStore get() = login.chatStore
@@ -98,6 +100,7 @@ internal class TdSecondarySessionCoordinator(
     private val scope: CoroutineScope,
     private val onAuthorized: (String, TdSecondaryRoutePreference) -> Unit = { _, _ -> },
     private val onManualStop: (String) -> Unit = {},
+    private val onLogoutConfirmed: (String) -> Unit = {},
     private val openNative: suspend (String, TdSecondaryRoutePreference) -> TdSecondaryAuthSession
 ) {
     private data class Active(
@@ -186,6 +189,20 @@ internal class TdSecondarySessionCoordinator(
         check(!handle.networkSuspended) { "Secondary network route is paused" }
         check(handle.chatStore?.accountId == accountId) { "Secondary chat store identity mismatch" }
         handle
+    }
+
+    /** A confirmed logout is different from Close. TDLib must close and release
+     * its lease BEFORE its slot is removed from durable registry metadata. */
+    suspend fun logoutSecondary(accountId: String) = mutex.withLock {
+        require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+        val active = running[accountId] ?: error("Secondary account must be connected to log out")
+        check(active.handle.authPhase.value == TdAccountAuthPhase.READY)
+        active.handle.logOutAndAwaitClosed()
+        // Never allow the old credentials to be restored from disk after logout.
+        onLogoutConfirmed(accountId)
+        running.remove(accountId)?.subscription?.cancel()
+        registry.unregisterSecondaryAccount(accountId)
+        publish()
     }
 
     /** Leaves TDLib authorization and the files on disk unchanged. */
