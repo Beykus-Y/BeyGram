@@ -76,6 +76,8 @@ internal class TdSecondaryNativeLoginLauncher(
         val chatStore = TdSecondaryChatStore(accountId)
         val fullRepositoryObservers = CopyOnWriteArrayList<(TdApi.Object) -> Unit>()
         val startupReplay = TdSecondaryStartupReplay()
+        val overflowCloseRequested = java.util.concurrent.atomic.AtomicBoolean()
+        @Volatile var nativeToClose: TdSecondaryNativeLogin? = null
         val waitParameters = CompletableDeferred<Unit>()
         val nativeLeaseClosed = CompletableDeferred<Unit>()
         val bound = owner.create(accountId,
@@ -88,6 +90,13 @@ internal class TdSecondaryNativeLoginLauncher(
                 // never create a second Client for these database directories.
                 synchronized(fullRepositoryObservers) {
                     startupReplay.record(event.update, fullRepositoryObservers.isNotEmpty())
+                    if (startupReplay.isOverflowed() && overflowCloseRequested.compareAndSet(false, true)) {
+                        recordAppEvent(EventKind.NOTIFICATION,
+                            "secondary_startup_overflow",
+                            "Снимок вторичного аккаунта переполнен; перезапуск без выхода",
+                            Severity.WARNING, mapOf("account" to accountId))
+                        nativeToClose?.requestCloseWithoutLogout()
+                    }
                     fullRepositoryObservers.forEach { observer ->
                         runCatching { observer(event.update) }.onFailure { error ->
                             recordAppEvent(
@@ -131,6 +140,7 @@ internal class TdSecondaryNativeLoginLauncher(
                 val client = createNativeClient(handler)
                 TdSecondaryNativeLogin(accountId, config, client, phases, planned, chatStore,
                     fullRepositoryObservers, startupReplay, nativeLeaseClosed)
+                    .also { nativeToClose = it }
             }
         )
         try {
@@ -173,8 +183,18 @@ internal class TdSecondaryNativeLogin internal constructor(
         check(authPhase.value == TdAccountAuthPhase.READY && !routePaused.value) {
             "Secondary TDLib client is not ready for UI"
         }
-        fullRepository ?: TdLibTelegramRepository.forExistingSecondary(context, this)
-            .also { fullRepository = it }
+        fullRepository ?: runCatching {
+            TdLibTelegramRepository.forExistingSecondary(context, this)
+        }.onFailure { error ->
+            // READY without a valid full repository must not get stuck forever:
+            // preserve Telegram authorization and trigger a fresh native owner.
+            recordAppEvent(EventKind.NOTIFICATION,
+                "secondary_repository_attach_failed",
+                "Не удалось подключить вторичный репозиторий",
+                Severity.WARNING,
+                mapOf("account" to accountId, "cause" to error.javaClass.simpleName))
+            requestCloseWithoutLogout()
+        }.getOrThrow().also { fullRepository = it }
     }
 
     internal fun observeFullUpdates(observer: (TdApi.Object) -> Unit) {
@@ -414,6 +434,7 @@ internal class TdSecondaryStartupReplay {
     private val snapshots = LinkedHashMap<String, TdApi.Object>()
     private val deltas = ArrayList<TdApi.Object>()
     private var overflowed = false
+    fun isOverflowed(): Boolean = overflowed
 
     fun record(update: TdApi.Object, hasObservers: Boolean) {
         TdSecondaryStartupState.key(update)?.let { snapshots[it] = update }
@@ -427,6 +448,8 @@ internal class TdSecondaryStartupReplay {
             }
         } else if (!hasObservers &&
             update !is TdApi.UpdateAuthorizationState &&
+            update !is TdApi.UpdateChatAction &&
+            update !is TdApi.UpdateUserStatus &&
             TdSecondaryStartupState.key(update) == null) {
             // TDLib may send these only once before the full repository
             // attaches: new chats, user/group metadata, positions, read counts,
