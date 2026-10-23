@@ -348,6 +348,21 @@ private fun BeyGramAppContent(
         } finally { accountRegistryReady = true }
     }
 
+    fun resetAccountScopedState() {
+        PlaybackEngine.stop()
+        selectedChatId = 0L
+        selectedForumTopicId = 0L
+        selectedTopicChatId = 0L
+        trustedForumTopicId = 0L
+        chatFocusMessageId = 0L
+        memberChatId = 0L
+        secondaryChatsAccountId = null
+        notificationSecondaryChatId = null
+        notificationSecondaryChatToken = null
+        notificationSecondaryTopicId = 0L
+        globalSearchQuery = ""
+        globalSearchSession.reset("")
+    }
     val accountSwitchScope = rememberCoroutineScope()
     val chooseAccount: (String) -> Unit = { target ->
         accountSwitchScope.launch {
@@ -358,19 +373,8 @@ private fun BeyGramAppContent(
                     secondaryAccountController.coordinator.fullRepository(target, context.applicationContext)
                 }
                 withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
-                PlaybackEngine.stop()
-                selectedChatId = 0L
-                selectedForumTopicId = 0L
-                selectedTopicChatId = 0L
-                trustedForumTopicId = 0L
-                chatFocusMessageId = 0L
-                secondaryChatsAccountId = null
-                notificationSecondaryChatId = null
-                notificationSecondaryChatToken = null
-                notificationSecondaryTopicId = 0L
+                resetAccountScopedState()
                 selectedAccountId = target
-                globalSearchQuery = ""
-                globalSearchSession.reset("")
                 routeName = when {
                     target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> AppRoute.Chats.name
                     legacyRepository.authState.value is AuthState.WaitingForPhone -> AppRoute.LoginPhone.name
@@ -501,12 +505,7 @@ private fun BeyGramAppContent(
                 val registryState = withContext(Dispatchers.IO) { accountRegistry.loadOrCreate() }
                 check(target in registryState.accountIds)
                 withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
-                PlaybackEngine.stop()
-                selectedChatId = 0L
-                selectedForumTopicId = 0L
-                selectedTopicChatId = 0L
-                trustedForumTopicId = 0L
-                chatFocusMessageId = 0L
+                resetAccountScopedState()
                 secondaryChatsAccountId = target
                 notificationSecondaryChatId = request.chatId
                 notificationSecondaryChatToken = request.token
@@ -521,8 +520,7 @@ private fun BeyGramAppContent(
             return@LaunchedEffect
         }
         if (legacyAuthState != AuthState.Ready) return@LaunchedEffect
-        // Notifications currently originate ONLY from the legacy client.
-        // Switch explicitly to the source account before resolving its chat ID.
+        // Legacy notifications always resolve against the legacy TDLib session.
         if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
             try {
                 withContext(Dispatchers.IO) {
@@ -533,10 +531,8 @@ private fun BeyGramAppContent(
                 onNotificationHandled(request.token)
                 return@LaunchedEffect
             }
-            PlaybackEngine.stop()
+            resetAccountScopedState()
             selectedAccountId = TdAccountStorageLayout.LEGACY_ACCOUNT_ID
-            selectedChatId = 0L
-            secondaryChatsAccountId = null
         }
         if (request.proxy) openProxy(AppRoute.Chats)
         else if (request.settings) openNotifications(AppRoute.Chats)
@@ -677,17 +673,28 @@ private fun BeyGramAppContent(
         if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
             repositorySelection != null && notificationSecondaryChatId != null) {
             val id = notificationSecondaryChatId ?: return@LaunchedEffect
-            if (repository.loadChat(id).isSuccess &&
-                selectedAccountId == (repositorySelection as? TdLibTelegramRepository)?.accountId) {
+            val token = notificationSecondaryChatToken
+            val source = repositorySelection as? TdLibTelegramRepository
+                ?: return@LaunchedEffect
+            val loaded = source.loadChat(id)
+            // Do not navigate or consume another account's request if a switch
+            // occurred while the network call was suspended.
+            if (selectedAccountId != source.accountId ||
+                token != notificationSecondaryChatToken) return@LaunchedEffect
+            notificationSecondaryChatId = null
+            notificationSecondaryChatToken = null
+            val topic = notificationSecondaryTopicId
+            notificationSecondaryTopicId = 0L
+            if (loaded.isSuccess) {
                 selectedChatId = id
                 selectedTopicChatId = id
-                selectedForumTopicId = notificationSecondaryTopicId
-                trustedForumTopicId = notificationSecondaryTopicId
+                selectedForumTopicId = topic
+                trustedForumTopicId = topic
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
-                notificationSecondaryChatId = null
-                notificationSecondaryChatToken = null
-                notificationSecondaryTopicId = 0L
+            } else {
+                noticeError = (loaded.exceptionOrNull() as? UserMessageException)?.text
+                    ?: UiText.Res(R.string.err_app_open_chat_failed)
             }
         }
     }
