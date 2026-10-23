@@ -112,6 +112,10 @@ internal class VideoNoteLossDiagnostics(
         // Keep each repository's diagnostic sender and sentMessageId alive while switching
         // UI accounts. Identity keys prevent a different TDLib session claiming the result.
         private val instances = java.util.IdentityHashMap<TelegramRepository, VideoNoteLossDiagnostics>()
+        @Synchronized fun releaseRepository(repository: TelegramRepository) {
+            instances.remove(repository)?.dispose()
+        }
+
         @Synchronized fun getInstance(context: Context, repository: TelegramRepository, accountId: String = "legacy"): VideoNoteLossDiagnostics {
             require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
             val existing = instances[repository]
@@ -122,6 +126,11 @@ internal class VideoNoteLossDiagnostics(
             return VideoNoteLossDiagnostics(context.applicationContext, repository, accountId)
                 .also { instances[repository] = it }
         }
+    }
+
+    private fun dispose() {
+        activeJob?.cancel()
+        workScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
     }
 
     @Synchronized fun start(fps: Int = VideoNoteSyntheticSource.FPS_30): Boolean {
