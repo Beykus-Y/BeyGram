@@ -18,6 +18,18 @@ class ReplyOutboxTest {
 
     private fun outbox() = ReplyOutbox(directory)
 
+    @Test fun secondaryOutboxesNeverShareNumericChatOrMessageIds() {
+        val a = ReplyOutbox(File(folder.root, "secondary/a-first"))
+        val b = ReplyOutbox(File(folder.root, "secondary/a-second"))
+        val entryA = a.add(42L, 5, 99, 123L, "from A", 1L, "session-a")
+        val entryB = b.add(42L, 5, 99, 123L, "from B", 1L, "session-b")
+        assertEquals(listOf(entryA), a.entries())
+        assertEquals(listOf(entryB), b.entries())
+        assertEquals(0, a.clear())
+        assertTrue(a.entries().isEmpty())
+        assertEquals(listOf(entryB), b.entries())
+    }
+
     @Test fun cyrillicReplyWithNewlineSurvivesReopen() {
         val added = outbox().add(chatId = -1001234L, groupId = 7, maxId = 42, replyToMessageId = 99L, text = "Привет!\nВторая строка", nowMillis = 1_000L, session = session)
         assertEquals(listOf(added), outbox().entries())
