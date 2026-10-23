@@ -468,27 +468,32 @@ internal class TdSecondarySessionCoordinator(
                 TdSecondaryRouteDecision.Blocked(TdSecondaryRouteBlock.PRIMARY_ROUTE_UNKNOWN)
             }
             try {
+                val wasSuspended = entry.handle.networkSuspended
                 if (decision == entry.handle.plannedRoute) {
-                    entry.handle.resumeNetwork(true)
-                    MultiAccountDiagnostics.milestone(
-                        "route_reconciled",
-                        "network_resumed",
-                        accountId,
-                        attrs = mapOf("preference" to entry.preference.name)
-                    )
-                } else {
-                    entry.handle.pauseNetwork()
-                    MultiAccountDiagnostics.milestone(
-                        "route_reconciled",
-                        "network_paused",
-                        accountId,
-                        severity = Severity.WARNING,
-                        attrs = mapOf(
-                            "preference" to entry.preference.name,
-                            "route_reason" to (decision as? TdSecondaryRouteDecision.Blocked)?.reason?.name
-                                .orEmpty()
+                    if (wasSuspended) {
+                        entry.handle.resumeNetwork(true)
+                        MultiAccountDiagnostics.milestone(
+                            "route_reconciled",
+                            "network_resumed",
+                            accountId,
+                            attrs = mapOf("preference" to entry.preference.name)
                         )
-                    )
+                    }
+                } else {
+                    if (!wasSuspended) {
+                        entry.handle.pauseNetwork()
+                        MultiAccountDiagnostics.milestone(
+                            "route_reconciled",
+                            "network_paused",
+                            accountId,
+                            severity = Severity.WARNING,
+                            attrs = mapOf(
+                                "preference" to entry.preference.name,
+                                "route_reason" to
+                                    (decision as? TdSecondaryRouteDecision.Blocked)?.reason?.name.orEmpty()
+                            )
+                        )
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
