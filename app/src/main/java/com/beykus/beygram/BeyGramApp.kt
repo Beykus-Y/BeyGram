@@ -284,7 +284,12 @@ private fun BeyGramAppContent(
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     // Account badges are expensive: subscribe only while the account picker
     // or system share target chooser is visible, not throughout every chat.
-    val pickerVisible = routeName == AppRoute.AccountPicker.name || incomingShare != null
+    val pickerVisible = routeName == AppRoute.AccountPicker.name || incomingShare != null ||
+        selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+            !accountRouteCanRender(
+                AppRoute.valueOf(routeName), selectedAccountId,
+                (repositorySelection as? TdLibTelegramRepository)?.accountId
+            )
     val pickerMetadata by produceState<Map<String, AccountPickerMeta>>(
         initialValue = emptyMap(), pickerVisible, accountChoice.accounts
     ) {
@@ -569,25 +574,48 @@ private fun BeyGramAppContent(
     var shareAccountTarget by remember(incomingShare?.requestId) {
         mutableStateOf<String?>(if (incomingShare?.targetChatId != 0L) TdAccountStorageLayout.LEGACY_ACCOUNT_ID else null)
     }
-    LaunchedEffect(incomingShare?.requestId) {
-        // A published Direct Share shortcut is legacy-owned, regardless of
-        // which Telegram account happened to be open when Android invoked it.
-        if (incomingShare != null && incomingShare.targetChatId != 0L &&
-            selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
-            chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
-        }
+    // A legacy Direct Share shortcut's numeric chat ID belongs ONLY to legacy.
+    // Choosing another account discards that shortcut but keeps the attachment.
+    var shareLegacyShortcut by remember(incomingShare?.requestId) {
+        mutableStateOf(incomingShare?.targetChatId != 0L)
     }
-    if (incomingShare != null && incomingShare.targetChatId != 0L &&
+    val shareLegacyFinalLogout = legacyAuthState is AuthState.WaitingForPhone ||
+        legacyAuthState is AuthState.WaitingForCode ||
+        legacyAuthState is AuthState.WaitingForPassword
+    if (incomingShare != null && shareLegacyShortcut &&
         shareAccountTarget == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-        legacyAuthState != AuthState.Ready && accountRegistryReady && !accountRegistryError) {
+        shareLegacyFinalLogout && accountRegistryReady && !accountRegistryError) {
         androidx.compose.material3.AlertDialog(
-            onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
+            onDismissRequest = { /* Keep the incoming URI grant until explicit cancel. */ },
             title = { Text(stringResource(R.string.multi_share_unavailable_title)) },
             text = { Text(stringResource(R.string.multi_share_unavailable_note)) },
             confirmButton = {
                 TextButton(onClick = {
-                    onIncomingShareHandled(incomingShare.requestId)
-                    routeName = AppRoute.AccountPicker.name
+                    shareLegacyShortcut = false
+                    shareAccountTarget = null
+                }) { Text(stringResource(R.string.multi_share_choose_other)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { onIncomingShareHandled(incomingShare.requestId) }) {
+                    Text(stringResource(R.string.common_close))
+                }
+            }
+        )
+    }
+    // Starting TDLib with an inactive process can take seconds. This is NOT
+    // a logout: keep the incoming content and never flash an error dialog.
+    if (incomingShare != null && shareLegacyShortcut &&
+        shareAccountTarget == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+        legacyAuthState != AuthState.Ready && !shareLegacyFinalLogout &&
+        accountRegistryReady && !accountRegistryError) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { /* Wait for readiness or explicit account choice. */ },
+            title = { Text(stringResource(R.string.multi_share_pick_title)) },
+            text = { Text(stringResource(R.string.multi_share_wait_legacy)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    shareLegacyShortcut = false
+                    shareAccountTarget = null
                 }) { Text(stringResource(R.string.multi_share_choose_other)) }
             },
             dismissButton = {
@@ -677,7 +705,9 @@ private fun BeyGramAppContent(
             key(incomingShare.requestId, selectedAccountId) {
                 ShareTargetScreen(
                     requestId = incomingShare.requestId,
-                    initialChatId = incomingShare.targetChatId,
+                    initialChatId = if (shareLegacyShortcut &&
+                        selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                        incomingShare.targetChatId else 0L,
                     text = incomingShare.text,
                     uris = incomingShare.uris,
                     session = shareSession,
