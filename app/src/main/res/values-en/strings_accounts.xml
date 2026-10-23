@@ -31,4 +31,6 @@
     <string name="secondary_chats_empty">No chats loaded yet. Check connectivity and refresh.</string>
     <string name="secondary_chats_history_empty">Messages are loading or the history is empty.</string>
     <string name="secondary_chats_open">Preview chats (read only)</string>
+    <string name="secondary_chats_media_message">Media</string>
+    <string name="secondary_chats_empty_message">Message</string>
 </resources>
