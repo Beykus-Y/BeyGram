@@ -83,7 +83,6 @@ import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
 import com.beykus.beygram.ui.screens.theme.AppearanceDraftSaver
-import com.beykus.beygram.ui.screens.theme.ThemeEditorScreen
 import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
 import com.beykus.beygram.domain.model.NotificationOpenRequest
@@ -234,10 +233,9 @@ private fun BeyGramAppContent(
     var globalSearchQuery by rememberSaveable { mutableStateOf("") }
     val globalSearchSession = rememberSaveable(saver = GlobalSearchSession.stateSaver) { GlobalSearchSession(globalSearchQuery) }
     val globalSearchNavScope = rememberCoroutineScope()
-    // The choice made on the theme screen but not applied yet, so the editor starts from it.
-    // One draft shared across the palette screen and its editor; neither navigation, cancel nor Activity recreation loses pending choices.
+    // The choice made on the appearance screen but not applied yet. Every subsection edits this same draft,
+    // so navigation, the full preview and Activity recreation never lose pending choices.
     var appearanceDraft by rememberSaveable(stateSaver = AppearanceDraftSaver) { mutableStateOf<AppearanceConfig?>(null) }
-    var editorSeed by rememberSaveable(stateSaver = AppearanceDraftSaver) { mutableStateOf<AppearanceConfig?>(null) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
     // The selected forum topic follows its parent chat. Other chats must never inherit the previous topic.
@@ -994,14 +992,7 @@ private fun BeyGramAppContent(
                     draft = appearanceDraft ?: appearance,
                     onDraftChange = { appearanceDraft = it },
                     onSave = { config -> appearanceDraft = config; onAppearanceChange(config) },
-                    onOpenEditor = { pending -> editorSeed = pending; routeName = AppRoute.ThemeEditor.name },
-                    onBack = { appearanceDraft = null; editorSeed = null; routeName = appearanceReturnRouteName }
-                )
-                AppRoute.ThemeEditor -> ThemeEditorScreen(
-                    saved = editorSeed ?: appearanceDraft ?: appearance,
-                    current = appearance,
-                    onSave = { config -> appearanceDraft = config; onAppearanceChange(config) },
-                    onBack = { editorSeed = null; routeName = AppRoute.Appearance.name }
+                    onBack = { appearanceDraft = null; routeName = appearanceReturnRouteName }
                 )
                 AppRoute.EditProfile -> {
                     myProfile.info?.let { info ->
@@ -1040,7 +1031,7 @@ private fun BeyGramAppContent(
                 AppRoute.Settings -> MainTabsScaffold(MainTab.Settings.route.name, MainTab.Settings, tabVisibility, selectTab, tabStateHolder) {
                     SettingsScreen(
                         onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
-                        onAppearance = { appearanceDraft = appearance; editorSeed = null; appearanceReturnRouteName = AppRoute.Settings.name; routeName = AppRoute.Appearance.name },
+                        onAppearance = { appearanceDraft = appearance; appearanceReturnRouteName = AppRoute.Settings.name; routeName = AppRoute.Appearance.name },
                         onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
                         onNotifications = { openNotifications(AppRoute.Settings) },
                         onStorage = { routeName = AppRoute.StorageSettings.name },

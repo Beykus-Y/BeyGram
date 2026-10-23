@@ -33,7 +33,6 @@ enum class AppRoute {
     Proxy,
     ProxyConnect,
     Appearance,
-    ThemeEditor,
     Language,
     Sessions,
     NewChat,

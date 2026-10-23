@@ -231,8 +231,6 @@
     <string name="folder_changed_while_editing">This folder changed on another device. Return to the list and reopen it to avoid overwriting newer changes.</string>
     <string name="wallpaper_curated_title">Pattern wallpapers</string>
     <string name="wallpaper_curated_subtitle">16 original BeyGram patterns. Colors adapt to your theme.</string>
-    <string name="wallpaper_pattern_intensity">Pattern intensity: %1$d%%</string>
-    <string name="wallpaper_classic_title">Simple backgrounds and your photos</string>
     <string name="wallpaper_preview_input">Message…</string>
     <string name="wallpaper_preset_lavender_flow">Lavender Flow</string>
     <string name="wallpaper_preset_arctic_blue">Arctic Blue</string>
@@ -250,7 +248,6 @@
     <string name="wallpaper_preset_terracotta_dust">Terracotta Dust</string>
     <string name="wallpaper_preset_silver_mist">Silver Mist</string>
     <string name="wallpaper_preset_emerald_tide">Emerald Tide</string>
-    <string name="wallpaper_preview_title">Chat preview</string>
     <string name="video_diagnostics_center_screen_title">Video-note diagnostics</string>
     <string name="video_diagnostics_center_open">Open diagnostics center</string>
     <string name="video_diagnostics_center_intro">Camera, FPS, loss tests and reports live here. Run checks only when needed.</string>

@@ -1,69 +1,68 @@
 package com.beykus.beygram.ui.screens.theme
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.DoneAll
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material3.Icon
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Text
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.ChatWallpaper
-import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.WallpaperFiles
-import com.beykus.beygram.data.appearance.ThemePreset
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.screens.chat.ChatWallpaperLayer
-import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
-import com.beykus.beygram.ui.theme.BeyGramTheme
-import com.beykus.beygram.ui.theme.BeyGramTokens
-import com.beykus.beygram.ui.theme.SystemColorsAvailable
+import com.beykus.beygram.ui.theme.contrastIssues
 import com.beykus.beygram.ui.theme.resolveTokens
 
+internal enum class AppearancePage {
+    Overview,
+    Colors,
+    Messages,
+    Animations,
+    Wallpapers,
+    CustomColors,
+    Preview
+}
+
+private val AppearancePage.depth: Int get() = when (this) {
+    AppearancePage.Overview -> 0
+    AppearancePage.Preview -> 2
+    else -> 1
+}
+
 /**
- * Lets the user pick a palette and a brightness. The preview shows the choice as it is being made.
- * The choice reaches the rest of the app only after «Применить». Unapplied changes survive visiting the editor.
+ * The single entry point into appearance. Pages share one draft, so moving between sections, opening the full
+ * preview, rotation and applying never create separate unsaved copies. Apply stays visible on every editing page.
  */
 @Composable
 fun ThemeSettingsScreen(
@@ -71,255 +70,214 @@ fun ThemeSettingsScreen(
     draft: AppearanceConfig,
     onDraftChange: (AppearanceConfig) -> Unit,
     onSave: (AppearanceConfig) -> Unit,
-    onOpenEditor: (AppearanceConfig) -> Unit,
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
     val systemDark = isSystemInDarkTheme()
-    val preset = draft.preset.takeUnless { it == ThemePreset.MaterialYou && !SystemColorsAvailable } ?: ThemePreset.Warm
-    val mode = draft.mode
-    val wallpaper = draft.wallpaper
-    val previewMetrics = bubbleMetricsFor(draft.bubbleStyle, draft.density, draft.bubbleCornerRadiusDp)
+    var pageName by rememberSaveable { mutableStateOf(AppearancePage.Overview.name) }
+    var previewReturnName by rememberSaveable { mutableStateOf(AppearancePage.Overview.name) }
+    var replayKey by rememberSaveable { mutableIntStateOf(0) }
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
-    fun requestBack() {
-        if (draft != saved) confirmDiscard = true else onBack()
+    var confirmResetAll by rememberSaveable { mutableStateOf(false) }
+    val page = AppearancePage.entries.firstOrNull { it.name == pageName } ?: AppearancePage.Overview
+    val previewReturn = AppearancePage.entries.firstOrNull { it.name == previewReturnName } ?: AppearancePage.Overview
+    val draftTokens = resolveTokens(draft, systemDark)
+    val issues = contrastIssues(
+        draftTokens,
+        draft.outgoingBubbleColor,
+        draft.messageTextColor,
+        draft.messageTimeColor
+    )
+    val applyState = appearanceApplyState(draft, saved, issues.blocking && draft != saved)
+    val history = remember { DraftHistory<AppearanceConfig>() }
+    var lastCheckpointAt by remember { mutableLongStateOf(0L) }
+    val currentDraft by rememberUpdatedState(draft)
+    val currentSaved by rememberUpdatedState(saved)
+    val currentOnBack by rememberUpdatedState(onBack)
+
+    // A slider emits many values in a row; one checkpoint per short burst keeps Undo meaningful without recording
+    // every pixel. Discrete edits are separated by more than the window and keep their own step.
+    fun changeDraft(next: AppearanceConfig) {
+        if (next == draft) return
+        val now = SystemClock.uptimeMillis()
+        if (!history.canUndo || now - lastCheckpointAt > 450L) {
+            history.checkpoint(draft)
+        }
+        lastCheckpointAt = now
+        onDraftChange(next)
     }
-    // Once a picture is applied, the copies of the pictures that were only tried are no longer needed.
+
+    fun undoDraft() {
+        val previous = history.undo() ?: return
+        lastCheckpointAt = 0L
+        onDraftChange(previous)
+    }
+
+    fun openPage(target: AppearancePage) {
+        if (target == AppearancePage.Preview) {
+            previewReturnName = page.name
+            replayKey++
+        }
+        pageName = target.name
+    }
+
+    fun leaveAppearance() {
+        if (currentDraft != currentSaved) confirmDiscard = true else currentOnBack()
+    }
+
+    fun navigateBack() {
+        val target = appearanceBackTarget(page, previewReturn)
+        if (target == null) leaveAppearance() else pageName = target.name
+    }
+
+    // Read the state inside the callback. A bare function reference can keep the values from the composition
+    // that first registered it, which used to make system Back leave the screen from a subpage.
+    BackHandler {
+        val currentPage = AppearancePage.entries.firstOrNull { it.name == pageName } ?: AppearancePage.Overview
+        val currentReturn = AppearancePage.entries.firstOrNull { it.name == previewReturnName } ?: AppearancePage.Overview
+        val target = appearanceBackTarget(currentPage, currentReturn)
+        if (target == null) {
+            if (currentDraft != currentSaved) confirmDiscard = true else currentOnBack()
+        } else {
+            pageName = target.name
+        }
+    }
+
+    // Clean up pictures left by an earlier visit once, but keep the restored draft's photo. Deleting on every
+    // draft change would break Undo when it points back to a photo the user only tried.
     val context = LocalContext.current
-    LaunchedEffect(saved.wallpaper) {
-        // The restored draft is kept too, so turning the screen does not delete a picture that is still on screen.
-        WallpaperFiles.deleteAllExcept(context, setOfNotNull((saved.wallpaper as? ChatWallpaper.Photo)?.fileName, (wallpaper as? ChatWallpaper.Photo)?.fileName))
+    LaunchedEffect(Unit) {
+        WallpaperFiles.deleteAllExcept(
+            context,
+            setOfNotNull(
+                (saved.wallpaper as? ChatWallpaper.Photo)?.fileName,
+                (draft.wallpaper as? ChatWallpaper.Photo)?.fileName
+            )
+        )
     }
-    BackHandler(onBack = ::requestBack)
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.theme_title), ::requestBack)
-        Column(
-            Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+    Column(
+        Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
+    ) {
+        ProfileToolbar(
+            title = stringResource(page.titleRes()),
+            onBack = ::navigateBack
         ) {
-            SectionTitle(stringResource(R.string.theme_preview_title))
-            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark),
-                messageTextSizeSp = draft.messageTextSizeSp, messageLineSpacing = draft.messageLineSpacing) {
-                ThemePreview(bubbleRadius = previewMetrics.cornerRadius, spacing = previewMetrics.itemSpacing, wallpaper = wallpaper)
-            }
-
-            SectionTitle(stringResource(R.string.theme_palette_title))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(vertical = 4.dp)) {
-                PresetRow(
-                    title = stringResource(R.string.theme_palette_warm),
-                    selected = preset == ThemePreset.Warm,
-                    swatch = resolveTokens(ThemePreset.Warm, mode, systemDark)
-                ) { onDraftChange(draft.copy(preset = ThemePreset.Warm)) }
-                PresetRow(
-                    title = stringResource(R.string.theme_palette_graphite),
-                    selected = preset == ThemePreset.Graphite,
-                    swatch = resolveTokens(ThemePreset.Graphite, mode, systemDark)
-                ) { onDraftChange(draft.copy(preset = ThemePreset.Graphite)) }
-                if (SystemColorsAvailable) {
-                    PresetRow(
-                        title = stringResource(R.string.theme_palette_system),
-                        selected = preset == ThemePreset.MaterialYou,
-                        swatch = resolveTokens(ThemePreset.MaterialYou, mode, systemDark)
-                    ) { onDraftChange(draft.copy(preset = ThemePreset.MaterialYou)) }
+            if (page != AppearancePage.Preview && history.canUndo) {
+                IconButton(onClick = ::undoDraft) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.Undo,
+                        stringResource(R.string.theme_editor_undo),
+                        tint = palette.textPrimary
+                    )
                 }
             }
-
-            SectionTitle(stringResource(R.string.theme_brightness_title))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(vertical = 4.dp)) {
-                BrightnessRow(stringResource(R.string.theme_brightness_system), ThemeMode.FollowSystem, mode) { onDraftChange(draft.copy(mode = ThemeMode.FollowSystem)) }
-                BrightnessRow(stringResource(R.string.theme_brightness_light), ThemeMode.Light, mode) { onDraftChange(draft.copy(mode = ThemeMode.Light)) }
-                BrightnessRow(stringResource(R.string.theme_brightness_dark), ThemeMode.Dark, mode) { onDraftChange(draft.copy(mode = ThemeMode.Dark)) }
-                BrightnessRow(stringResource(R.string.theme_brightness_amoled), ThemeMode.Amoled, mode) { onDraftChange(draft.copy(mode = ThemeMode.Amoled)) }
+            if (page == AppearancePage.Preview) {
+                IconButton(onClick = { replayKey++ }) {
+                    Icon(
+                        Icons.Rounded.Replay,
+                        stringResource(R.string.theme_animations_replay),
+                        tint = palette.textPrimary
+                    )
+                }
             }
-            SectionTitle(stringResource(R.string.theme_animations_title))
-            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark),
-                messageTextSizeSp = draft.messageTextSizeSp, messageLineSpacing = draft.messageLineSpacing) {
-                MessageAnimationSettingsSection(
-                    config = draft.messageAnimations,
-                    onChange = { onDraftChange(draft.copy(messageAnimations = it)) }
-                )
-            }
-
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).clickable { onOpenEditor(draft) }.padding(horizontal = 18.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.theme_editor_open), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = palette.textSecondary)
-            }
-            SectionTitle(stringResource(R.string.wallpaper_title))
-            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark)) {
-                WallpaperSection(
-                    selected = wallpaper, saved = saved.wallpaper,
-                    bubbleRadius = previewMetrics.cornerRadius, spacing = previewMetrics.itemSpacing,
-                    onSelect = { onDraftChange(draft.copy(wallpaper = it)) }
-                )
-            }
-            Text(stringResource(R.string.theme_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
         }
-        Button(
-            onClick = { onSave(draft) },
-            enabled = draft != saved,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            Text(stringResource(R.string.theme_apply))
+        AnimatedContent(
+            targetState = page,
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            transitionSpec = {
+                val forward = targetState.depth >= initialState.depth
+                val direction = if (forward) 1 else -1
+                (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { direction * it / 12 }) togetherWith
+                    (fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { -direction * it / 12 })
+            },
+            label = "appearancePage"
+        ) { target ->
+            when (target) {
+                AppearancePage.Overview -> AppearanceOverviewPage(
+                    draft = draft,
+                    systemDark = systemDark,
+                    onOpenPage = ::openPage,
+                    onOpenPreview = { openPage(AppearancePage.Preview) }
+                )
+                AppearancePage.Colors -> AppearanceColorsPage(
+                    draft = draft,
+                    systemDark = systemDark,
+                    onDraftChange = ::changeDraft,
+                    onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
+                    onOpenPreview = { openPage(AppearancePage.Preview) },
+                    onResetAll = { confirmResetAll = true }
+                )
+                AppearancePage.Messages -> AppearanceMessagesPage(
+                    draft = draft,
+                    systemDark = systemDark,
+                    onDraftChange = ::changeDraft,
+                    onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
+                    onOpenPreview = { openPage(AppearancePage.Preview) }
+                )
+                AppearancePage.Animations -> AppearanceAnimationsPage(
+                    draft = draft,
+                    systemDark = systemDark,
+                    onDraftChange = ::changeDraft,
+                    onOpenPreview = { openPage(AppearancePage.Preview) }
+                )
+                AppearancePage.Wallpapers -> AppearanceWallpapersPage(
+                    draft = draft,
+                    systemDark = systemDark,
+                    onDraftChange = ::changeDraft,
+                    onOpenPreview = { openPage(AppearancePage.Preview) }
+                )
+                AppearancePage.CustomColors -> AppearanceCustomColorsPage(
+                    draft = draft,
+                    systemDark = systemDark,
+                    issues = issues,
+                    onDraftChange = ::changeDraft,
+                    onOpenPreview = { openPage(AppearancePage.Preview) }
+                )
+                AppearancePage.Preview -> AppearanceFullPreviewPage(
+                    config = draft,
+                    systemDark = systemDark,
+                    replayKey = replayKey,
+                    onReplay = { replayKey++ },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+        if (page != AppearancePage.Preview) {
+            AppearanceApplyBar(
+                hasChanges = applyState.hasChanges,
+                canApply = applyState.canApply,
+                blockedByContrast = applyState.blockedByContrast,
+                onApply = {
+                    onSave(draft)
+                    history.clear()
+                    lastCheckpointAt = 0L
+                }
+            )
         }
     }
+
     if (confirmDiscard) ThemeDiscardDialog(
         onKeepEditing = { confirmDiscard = false },
         onDiscard = { confirmDiscard = false; onBack() }
     )
+    if (confirmResetAll) AppearanceResetDialog(
+        title = stringResource(R.string.appearance_reset_all_title),
+        message = stringResource(R.string.appearance_reset_all_message),
+        onConfirm = {
+            confirmResetAll = false
+            changeDraft(draft.resetAllAppearance())
+        },
+        onDismiss = { confirmResetAll = false }
+    )
 }
 
-@Composable
-internal fun SectionTitle(text: String) {
-    val palette = beyGramPalette()
-    Text(text, color = palette.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 4.dp))
+private fun AppearancePage.titleRes(): Int = when (this) {
+    AppearancePage.Overview -> R.string.theme_title
+    AppearancePage.Colors -> R.string.appearance_colors_title
+    AppearancePage.Messages -> R.string.appearance_messages_title
+    AppearancePage.Animations -> R.string.theme_animations_title
+    AppearancePage.Wallpapers -> R.string.wallpaper_title
+    AppearancePage.CustomColors -> R.string.appearance_custom_colors_title
+    AppearancePage.Preview -> R.string.theme_preview_title
 }
-
-/** A small chat with fake messages, drawn with the tokens of the choice being made. */
-@Composable
-internal fun ThemePreview(
-    bubbleRadius: Dp = 16.dp,
-    spacing: Dp = 8.dp,
-    wallpaper: ChatWallpaper = ChatWallpaper.None
-) {
-    val palette = beyGramPalette()
-    val messageSize = com.beykus.beygram.ui.theme.LocalMessageTextSize.current
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.screen),
-        verticalArrangement = Arrangement.spacedBy(0.dp)
-    ) {
-        // The header is not wallpapered in the actual chat either.
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accentSoft), contentAlignment = Alignment.Center) {
-                Text(stringResource(R.string.theme_preview_contact).take(1), color = palette.accentInk, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            }
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(stringResource(R.string.theme_preview_contact), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text(stringResource(R.string.theme_preview_last_message), color = palette.textSecondary, fontSize = 13.sp)
-            }
-            Text(stringResource(R.string.theme_preview_time), color = palette.textSecondary, fontSize = 12.sp)
-        }
-        Box(Modifier.fillMaxWidth()) {
-            ChatWallpaperLayer(wallpaper, modifier = Modifier.matchParentSize())
-            Column(
-                Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(spacing)
-            ) {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(
-                        stringResource(R.string.theme_preview_today),
-                        color = palette.textSecondary,
-                        fontSize = 12.sp,
-                        modifier = Modifier.clip(RoundedCornerShape(12.dp))
-                            .background(palette.surface2).padding(horizontal = 10.dp, vertical = 3.dp)
-                    )
-                }
-                PreviewBubble(text = stringResource(R.string.theme_preview_incoming), time = stringResource(R.string.theme_preview_time), outgoing = false, radius = bubbleRadius)
-                PreviewBubble(
-                    text = stringResource(R.string.theme_preview_outgoing),
-                    time = stringResource(R.string.theme_preview_time_reply),
-                    outgoing = true, radius = bubbleRadius,
-                    reply = stringResource(R.string.theme_preview_reply)
-                )
-                PreviewBubble(
-                    text = stringResource(R.string.theme_preview_media_caption),
-                    time = stringResource(R.string.theme_preview_time_reply),
-                    outgoing = false, radius = bubbleRadius,
-                    media = true
-                )
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(
-                        stringResource(R.string.theme_preview_service),
-                        color = palette.textSecondary, fontSize = 12.sp,
-                        modifier = Modifier.clip(RoundedCornerShape(12.dp))
-                            .background(palette.surface2).padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        }
-        // The input surface also stays solid so controls remain legible.
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                stringResource(R.string.wallpaper_preview_input),
-                color = palette.textSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                    .background(palette.surface2).padding(horizontal = 14.dp, vertical = 10.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun PreviewBubble(
-    text: String, time: String, outgoing: Boolean, radius: Dp,
-    reply: String? = null, media: Boolean = false
-) {
-    val palette = beyGramPalette()
-    val messageSize = com.beykus.beygram.ui.theme.LocalMessageTextSize.current
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start
-    ) {
-        Column(
-            Modifier.widthIn(max = 280.dp).clip(RoundedCornerShape(radius))
-                .background(if (outgoing) palette.outgoingBubble else palette.incomingBubble)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            if (reply != null) {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(palette.accentSoft)
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                ) {
-                    Text(reply, color = palette.accentInk, fontSize = 12.sp)
-                }
-            }
-            if (media) {
-                Box(
-                    Modifier.fillMaxWidth().height(82.dp).clip(RoundedCornerShape(9.dp))
-                        .background(palette.accentSoft),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Rounded.Image, contentDescription = null, tint = palette.accentInk,
-                        modifier = Modifier.size(29.dp))
-                }
-            }
-            Text(text, color = palette.messageText, fontSize = messageSize,
-                lineHeight = (messageSize.value * com.beykus.beygram.ui.theme.LocalMessageLineSpacing.current).sp)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically) {
-                Text(time, color = palette.messageTime, fontSize = 11.sp)
-                if (outgoing) Icon(Icons.Rounded.DoneAll, null, tint = palette.accent,
-                    modifier = Modifier.padding(start = 3.dp).size(14.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PresetRow(title: String, selected: Boolean, swatch: BeyGramTokens, onClick: () -> Unit) {
-    val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected = selected, onClick = onClick)
-        Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f).padding(start = 6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(22.dp).clip(CircleShape).background(swatch.bg))
-            Box(Modifier.size(22.dp).clip(CircleShape).background(swatch.surface2))
-            Box(Modifier.size(22.dp).clip(CircleShape).background(swatch.accent))
-        }
-    }
-}
-
-@Composable
-private fun BrightnessRow(title: String, value: ThemeMode, selected: ThemeMode, onClick: () -> Unit) {
-    val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected = selected == value, onClick = onClick)
-        Text(title, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.padding(start = 6.dp))
-    }
-}
-

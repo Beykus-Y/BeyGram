@@ -183,7 +183,7 @@ internal fun ComposerLaunchOverlay(
 }
 
 @Composable
-private fun ComposerLaunchLayer(
+internal fun ComposerLaunchLayer(
     launch: ComposerLaunch,
     chatId: Long,
     overlayBounds: Rect,
@@ -266,7 +266,7 @@ private fun ComposerLaunchLayer(
 }
 
 @Composable
-private fun ComposerLaunchBubble(message: ChatMessage, modifier: Modifier = Modifier) {
+internal fun ComposerLaunchBubble(message: ChatMessage, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
     val shape = bubbleShape(outgoing = true, metrics)
