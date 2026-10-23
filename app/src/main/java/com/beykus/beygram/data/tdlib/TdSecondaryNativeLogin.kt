@@ -193,8 +193,10 @@ internal class TdSecondaryNativeLogin internal constructor(
         check(authPhase.value == TdAccountAuthPhase.READY && !routePaused.value) {
             "Secondary account is not connected and ready"
         }
-        val bounded = text.trim()
-        require(bounded.isNotBlank() && bounded.length <= 4096) { "Invalid Telegram message length" }
+        val bounded = text
+        require(bounded.isNotBlank() && bounded.codePointCount(0, bounded.length) <= 4096) {
+            "Invalid Telegram message length"
+        }
         val content = TdApi.InputMessageText().apply {
             this.text = TdApi.FormattedText(bounded, emptyArray())
             clearDraft = true
@@ -222,7 +224,7 @@ internal class TdSecondaryNativeLogin internal constructor(
         }
         check(authPhase.value == TdAccountAuthPhase.READY && !routePaused.value)
         val response = request(TdApi.ViewMessages(
-            chat.chatId, longArrayOf(messageId), TdApi.MessageSourceChatList(), true
+            chat.chatId, longArrayOf(messageId), TdApi.MessageSourceChatHistory(), true
         ))
         if (response is TdApi.Error) throw IllegalStateException(
             "Unable to mark secondary message as read (code ${response.code})"
