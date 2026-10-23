@@ -37,9 +37,8 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         if (intent.action != NotificationIntents.REPLY) return
         // The session that made the action. An action from a session that has signed out since is ignored.
         val accountId = NotificationIntents.replyAccount(intent) ?: return
-        val session = if (accountId == "legacy") NotificationIntents.replySession(context, intent)
-            else NotificationIntents.replySessionForAccount(context, intent, accountId)
-            ?: return
+        val session = (if (accountId == "legacy") NotificationIntents.replySession(context, intent)
+            else NotificationIntents.replySessionForAccount(context, intent, accountId)) ?: return
         val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(NotificationIntents.REPLY_TEXT)?.toString() ?: ""
         // The send may outlive this broadcast; the runtime finishes it within the receiver's time limit.
         val pending = goAsync()
