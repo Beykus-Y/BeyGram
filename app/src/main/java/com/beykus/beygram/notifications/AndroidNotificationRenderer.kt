@@ -22,6 +22,13 @@ import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.text.resolve
 import java.util.concurrent.ConcurrentHashMap
 
+/** Stable across restarts; Android tags must never collide across TDLib clients. */
+internal fun accountNotificationTag(accountId: String, groupId: Int): String {
+    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+    return if (accountId == "legacy") "beygram_message_$groupId"
+    else "beygram_message_${accountId}_$groupId"
+}
+
 internal class AndroidNotificationRenderer(
     private val context: Context,
     private val preferences: NotificationPreferencesStore,
@@ -29,7 +36,7 @@ internal class AndroidNotificationRenderer(
 ) {
     private val ownTagPrefix = if (accountId == "legacy") "beygram_message_"
         else "beygram_message_${accountId}_"
-    private fun tag(id: Int) = "$ownTagPrefix$id"
+    private fun tag(id: Int) = accountNotificationTag(accountId, id)
     // Re-read the selected locale at render time, not only at service creation.
     private val localizedContext get() = AppLocale.context(context)
     private val manager = context.getSystemService(NotificationManager::class.java)
