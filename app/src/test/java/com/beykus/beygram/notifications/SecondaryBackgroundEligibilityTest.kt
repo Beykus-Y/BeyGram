@@ -13,7 +13,11 @@ class SecondaryBackgroundEligibilityTest {
         assertFalse(secondaryColdStartRouteEligible(shared, legacyCanStart = false))
         assertTrue(secondaryColdStartRouteEligible(direct, legacyCanStart = false))
         assertTrue(secondaryColdStartRouteEligible(follow, legacyCanStart = true))
-        assertTrue(secondaryColdStartRouteEligible(shared, legacyCanStart = true))
+        assertFalse(secondaryColdStartRouteEligible(shared, legacyCanStart = true))
+        assertTrue(secondaryColdStartRouteEligible(shared, legacyCanStart = true,
+            sharedListenerActive = true))
+        assertTrue(secondaryColdStartRouteEligible(shared, legacyCanStart = false,
+            sharedListenerActive = true))
         assertFalse(secondaryColdStartRouteEligible(null, legacyCanStart = true))
     }
 
