@@ -182,6 +182,55 @@ internal class TdSecondaryNativeLogin internal constructor(
             else -> error("Unexpected secondary history result")
         }
     }
+    /**
+     * Account-keyed, real TDLib messaging: no legacy repository or active-UI
+     * numeric chat fallback. A caller must resolve THIS native session first.
+     */
+    suspend fun sendSecondaryText(chat: TdAccountChatKey, text: String) {
+        require(chat.accountId == accountId && chat.chatId != 0L) {
+            "Cannot send Telegram message to another account"
+        }
+        check(authPhase.value == TdAccountAuthPhase.READY && !routePaused.value) {
+            "Secondary account is not connected and ready"
+        }
+        val bounded = text
+        require(bounded.isNotBlank() && bounded.codePointCount(0, bounded.length) <= 4096) {
+            "Invalid Telegram message length"
+        }
+        val content = TdApi.InputMessageText().apply {
+            this.text = TdApi.FormattedText(bounded, emptyArray())
+            clearDraft = true
+        }
+        val sendFunction = TdApi.SendMessage().apply {
+            chatId = chat.chatId
+            inputMessageContent = content
+        }
+        val response = request(sendFunction)
+        when (response) {
+            is TdApi.Message -> {
+                check(response.chatId == chat.chatId) { "TDLib returned a different chat" }
+                chatStore.appendSentMessage(response)
+            }
+            is TdApi.Error -> throw IllegalStateException(
+                "Secondary message rejected by Telegram (code ${response.code})"
+            )
+            else -> error("Unexpected TDLib secondary message response")
+        }
+    }
+
+    suspend fun readSecondaryChat(chat: TdAccountChatKey, messageId: Long) {
+        require(chat.accountId == accountId && chat.chatId != 0L && messageId > 0L) {
+            "Foreign or invalid chat read target"
+        }
+        check(authPhase.value == TdAccountAuthPhase.READY && !routePaused.value)
+        val response = request(TdApi.ViewMessages(
+            chat.chatId, longArrayOf(messageId), TdApi.MessageSourceChatHistory(), true
+        ))
+        if (response is TdApi.Error) throw IllegalStateException(
+            "Unable to mark secondary message as read (code ${response.code})"
+        )
+    }
+
     private val routeMutex = Mutex()
     private val _routePaused = MutableStateFlow(false)
     val routePaused: StateFlow<Boolean> = _routePaused.asStateFlow()

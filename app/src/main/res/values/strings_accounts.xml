@@ -15,14 +15,14 @@
     <string name="secondary_accounts_follow_route">Как у основного</string>
     <string name="secondary_accounts_explicit_direct">Прямое соединение (явно)</string>
     <string name="secondary_accounts_connect">Подключить аккаунт</string>
-    <string name="secondary_accounts_ready_no_chats">Вход выполнен. Можно просмотреть чаты только для чтения; отправка сообщений и отдельные уведомления появятся позже.</string>
+    <string name="secondary_accounts_ready_no_chats">Вход выполнен. Текстовые сообщения доступны; медиа, звонки и отдельные уведомления находятся в разработке.</string>
     <string name="secondary_accounts_other_auth">Telegram запросил дополнительный способ авторизации, ещё не поддерживаемый этой бета-версией.</string>
     <string name="secondary_accounts_connecting">Подключаемся к Telegram…</string>
     <string name="secondary_accounts_disconnect">Остановить эту сессию (без выхода из Telegram)</string>
     <string name="secondary_accounts_route_paused">Маршрут аккаунта изменился или недоступен: соединение приостановлено. Остановите сессию и подключите её заново с нужным маршрутом.</string>
     <string name="secondary_accounts_action_error">Операция не выполнена. Проверьте подключение и маршрут прокси; основная сессия не затронута.</string>
     <string name="secondary_chats_title">Чаты второго аккаунта</string>
-    <string name="secondary_chats_readonly">Просмотр только для чтения · отдельная TDLib-сессия</string>
+    <string name="secondary_chats_readonly">Отдельная TDLib-сессия · текстовые сообщения</string>
     <string name="secondary_chats_unavailable">Сессия не запущена, закрыта или её сетевой маршрут приостановлен. Вернитесь к аккаунтам.</string>
     <string name="secondary_chats_go_back">К аккаунтам</string>
     <string name="secondary_chats_load_error">Не получилось загрузить данные этого аккаунта.</string>
@@ -30,7 +30,18 @@
     <string name="secondary_chats_loading">Загрузка чатов…</string>
     <string name="secondary_chats_empty">Список пока пуст. Проверьте подключение и нажмите «Обновить».</string>
     <string name="secondary_chats_history_empty">Сообщения ещё загружаются или история пуста.</string>
-    <string name="secondary_chats_open">Просмотреть чаты (только чтение)</string>
+    <string name="secondary_chats_open">Открыть чаты второго аккаунта</string>
     <string name="secondary_chats_media_message">Медиафайл</string>
     <string name="secondary_chats_empty_message">Сообщение</string>
+    <string name="secondary_chats_message_hint">Сообщение</string>
+    <string name="secondary_chats_send">Отправить</string>
+    <string name="secondary_chats_sending">Отправляется</string>
+    <string name="secondary_chats_failed">Не отправлено</string>
+    <string name="secondary_accounts_switch">Переключить аккаунт</string>
+    <string name="secondary_accounts_switch_offline">Сессия отключена — откройте управление аккаунтами</string>
+    <string name="secondary_accounts_switch_note">Чаты и сообщения второго аккаунта открываются в отдельном интерфейсе. Остальные разделы основного аккаунта не смешиваются.</string>
+    <string name="secondary_accounts_registry_error">Невозможно открыть реестр Telegram-аккаунтов. Данные не изменены. Проверьте хранилище приложения.</string>
+    <string name="secondary_accounts_switch_failed">Не удалось переключиться: аккаунт должен быть подключен, авторизован и доступен по выбранному маршруту.</string>
+    <string name="secondary_accounts_share_target_title">Выберите аккаунт для отправки</string>
+    <string name="secondary_accounts_share_target_warning">Системная отправка файлов и текста пока работает только через основной Telegram-аккаунт. Переключитесь на него или отмените отправку.</string>
 </resources>
