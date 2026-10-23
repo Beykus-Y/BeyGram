@@ -182,8 +182,10 @@ internal class TdSecondaryAccountController private constructor(
             kotlinx.coroutines.withContext(
                 kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO
             ) {
-                if (accountId in registry.loadOrCreate().accountIds) {
-                    restoreStore.clearDeletionPending(accountId)
+                runCatching {
+                    if (accountId in registry.loadOrCreate().accountIds) {
+                        restoreStore.clearDeletionPending(accountId)
+                    }
                 }
             }
             throw cancelled
