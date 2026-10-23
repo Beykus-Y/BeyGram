@@ -72,10 +72,12 @@ profile, search, calls and media already depend on `TelegramRepository` /
 
 - **Secondary account logout is not Close.** The confirmed "Выйти и удалить"
   action sends TDLib `LogOut` from that account's native Client, awaits
-  `AuthorizationStateClosed` (lease release), revokes only its persisted
-  restore authorization and notification reply tokens, updates the registry
-  atomically to remove that ID, and deletes only the secondary's app-private
-  root without following symbolic links. If TDLib rejects LogOut or never
+  `AuthorizationStateClosed` AND the owner's separate lease-retired
+  completion signal (the phase alone can precede the owner's finally block),
+  revokes only its persisted restore authorization and notification reply
+  tokens, updates the registry atomically to remove that ID, and deletes only
+  that secondary's app-private root, noBackup reply/diagnostic files and named
+  per-account SharedPreferences without following symbolic links. If TDLib rejects LogOut or never
   reaches CLOSED, registration and disk files are not removed. The existing
   "Остановить" action still uses Close and preserves Telegram login.
 - **Secondary quick replies** have account-specific mutable PendingIntent
