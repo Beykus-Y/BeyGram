@@ -25,6 +25,7 @@ internal interface TdSecondaryAuthSession {
     suspend fun resendCode()
     fun close()
     suspend fun logOutAndAwaitClosed() { error("Native logout is unavailable") }
+    suspend fun awaitClosedLease() {}
 
     /**
      * Only the native session that owns the database lease may provide its
@@ -60,6 +61,7 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun resendCode() = login.resendCode()
     override fun close() = login.close()
     override suspend fun logOutAndAwaitClosed() = login.logOutAndAwaitClosed()
+    override suspend fun awaitClosedLease() = login.awaitNativeClosed()
     override fun fullRepository(context: android.content.Context): com.beykus.beygram.domain.repository.TelegramRepository =
         login.unifiedRepository(context)
     override val chatStore: TdSecondaryChatStore get() = login.chatStore
@@ -130,6 +132,7 @@ internal class TdSecondarySessionCoordinator(
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) { "Legacy TDLib is already running" }
         require(accountId in registry.loadOrCreate().accountIds) { "Account not registered" }
         if (running[accountId]?.handle?.authPhase?.value == TdAccountAuthPhase.CLOSED) {
+            running[accountId]?.handle?.awaitClosedLease()
             running.remove(accountId)?.subscription?.cancel()
         }
         check(accountId !in running) { "Secondary account is already active" }
@@ -219,6 +222,7 @@ internal class TdSecondarySessionCoordinator(
         withTimeout(45_000) {
             current.authPhase.first { it == TdAccountAuthPhase.CLOSED }
         }
+        current.awaitClosedLease()
         connect(accountId, preference)
     }
 
