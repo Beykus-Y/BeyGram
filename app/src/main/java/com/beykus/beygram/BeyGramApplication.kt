@@ -6,6 +6,8 @@ import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
+import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
+import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.notifications.TelegramNotificationService
@@ -54,6 +56,17 @@ class BeyGramApplication : Application() {
                 setTdLibProxy = repository::setMihomoProxyEnabled,
                 isTdLibProxyEnabled = repository::isMihomoProxyEnabled
             )
+            // When background notifications are enabled, previous *authorized*
+            // secondary accounts may restore their own native sessions too.
+            // Each restore rechecks its route and never silently selects DIRECT.
+            val secondary = TdSecondaryAccountController.get(this) {
+                repository.currentRoute().getOrNull()
+            }
+            applicationScope.launch {
+                repository.authState.collect { state ->
+                    if (state == AuthState.Ready) secondary.restoreRemembered()
+                }
+            }
         }
     }
 }
