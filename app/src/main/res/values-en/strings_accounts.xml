@@ -33,4 +33,7 @@
     <string name="secondary_chats_open">Preview chats (read only)</string>
     <string name="secondary_chats_media_message">Media</string>
     <string name="secondary_chats_empty_message">Message</string>
+    <string name="secondary_accounts_switch">Switch account</string>
+    <string name="secondary_accounts_switch_offline">Session is offline — open account management</string>
+    <string name="secondary_accounts_switch_note">The secondary account has its own chat interface. Other primary-account screens stay isolated.</string>
 </resources>
