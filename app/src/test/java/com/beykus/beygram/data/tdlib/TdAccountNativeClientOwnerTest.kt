@@ -12,6 +12,15 @@ import java.io.File
 import java.nio.file.Files
 
 class TdAccountNativeClientOwnerTest {
+    private fun awaitCondition(description: String, predicate: () -> Boolean) {
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        while (System.nanoTime() < deadline) {
+            if (predicate()) return
+            Thread.sleep(10)
+        }
+        assertTrue(description, predicate())
+    }
+
     private data class FakeClient(val config: TdLibConfig, val handler: Client.ResultHandler) {
         fun emit(update: TdApi.Object) = handler.onResult(update)
         fun close() = emit(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
@@ -39,7 +48,7 @@ class TdAccountNativeClientOwnerTest {
 
     @Test fun twoClientsHaveDistinctDirectoriesAndNeverCrossDeliver() = withOwner { registry, owner ->
         val (_, bId) = registry.prepareSecondaryAccount()
-        val received = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
+        val received = java.util.concurrent.CopyOnWriteArrayList<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
         val primary = owner.create("legacy", { received.add(it) }, ::FakeClient)
         val secondary = owner.create(bId, { received.add(it) }, ::FakeClient)
         assertNotEquals(primary.config.databaseDirectory, secondary.config.databaseDirectory)
@@ -47,7 +56,8 @@ class TdAccountNativeClientOwnerTest {
         registry.selectAccount(bId)
         primary.emit(TdApi.Ok())
         secondary.emit(TdApi.Ok())
-        assertEquals(listOf("legacy", bId), received.map { it.accountId })
+        awaitCondition("Both native clients delivered") { received.size == 2 }
+        assertEquals(setOf("legacy", bId), received.map { it.accountId }.toSet())
         primary.close()
         secondary.close()
     }
@@ -59,7 +69,7 @@ class TdAccountNativeClientOwnerTest {
             clientFactory = ::FakeClient
         )
         first.close()
-        assertTrue(successor != null)
+        awaitCondition("Lease retired before successor starts") { successor != null }
         successor!!.close()
     }
 
@@ -75,7 +85,17 @@ class TdAccountNativeClientOwnerTest {
             fail("LoggingOut prematurely released database")
         } catch (_: IllegalStateException) { }
         first.close()
-        val replacement = owner.create("legacy", {}, ::FakeClient)
+        // A CLOSED update retires the leased client on its account worker.
+        val replacement = run {
+            var result: FakeClient? = null
+            awaitCondition("Lease released after close") {
+                if (result == null) {
+                    result = runCatching { owner.create("legacy", {}, ::FakeClient) }.getOrNull()
+                }
+                result != null
+            }
+            result!!
+        }
         first.close() // duplicate late close of previous generation
         try {
             owner.create("legacy", {}, ::FakeClient)
@@ -86,11 +106,15 @@ class TdAccountNativeClientOwnerTest {
 
     @Test fun exceptionInClosedConsumerCannotStrandAccountLease() = withOwner { _, owner ->
         val primary = owner.create("legacy", { throw IllegalArgumentException("handler failed") }, ::FakeClient)
-        try {
-            primary.close()
-            fail("Expected consumer error")
-        } catch (_: IllegalArgumentException) { }
-        owner.create("legacy", {}, ::FakeClient).close()
+        primary.close()
+        // A malformed subscriber must not crash TDLib's native receiver thread.
+        var replacement: FakeClient? = null
+        awaitCondition("Lease released despite consumer exception") {
+            if (replacement == null)
+                replacement = runCatching { owner.create("legacy", {}, ::FakeClient) }.getOrNull()
+            replacement != null
+        }
+        replacement!!.close()
     }
 
     @Test fun failureInNativeFactoryReleasesRouteAndDatabaseLease() = withOwner { _, owner ->
