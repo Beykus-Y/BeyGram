@@ -11,6 +11,15 @@ import java.io.File
 import java.nio.file.Files
 
 class TdAccountUpdateRoutingTest {
+    private fun awaitCondition(description: String, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        while (System.nanoTime() < deadline) {
+            if (condition()) return
+            Thread.sleep(10)
+        }
+        assertTrue(description, condition())
+    }
+
     private fun withRegistry(block: (TdAccountRegistry) -> Unit) {
         val dir = Files.createTempDirectory("beygram-routes-").toFile()
         try {
@@ -60,40 +69,47 @@ class TdAccountUpdateRoutingTest {
     @Test fun callbacksRemainBoundToCreationAccountAfterActiveAccountSwitch() = withRegistry { registry ->
         val (_, secondaryId) = registry.prepareSecondaryAccount()
         val router = TdAccountUpdateRouter(registry)
-        val legacy = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
-        val secondary = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
+        val legacy = java.util.concurrent.CopyOnWriteArrayList<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
+        val secondary = java.util.concurrent.CopyOnWriteArrayList<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
         val original = router.register("legacy") { legacy.add(it) }
         val other = router.register(secondaryId) { secondary.add(it) }
         registry.selectAccount(secondaryId) // UI switches while the original client is alive
         original.updateHandler.onResult(TdApi.Ok())
         other.updateHandler.onResult(TdApi.Ok())
+        awaitCondition("Both account updates delivered") { legacy.size == 1 && secondary.size == 1 }
         assertEquals(listOf("legacy"), legacy.map { it.accountId })
         assertEquals(listOf(secondaryId), secondary.map { it.accountId })
         assertNotEquals(original.generation, other.generation)
         assertEquals(setOf("legacy", secondaryId), router.registeredSessions())
         original.onNativeClosed()
         other.onNativeClosed()
+        awaitCondition("Both workers retired") { router.registeredSessions().isEmpty() }
     }
 
     @Test fun closedGenerationCannotDeliverIntoReplacementClient() = withRegistry { registry ->
         val router = TdAccountUpdateRouter(registry)
-        val firstEvents = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
+        val firstEvents = java.util.concurrent.CopyOnWriteArrayList<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
         val first = router.register("legacy") { firstEvents.add(it) }
         first.updateHandler.onResult(TdApi.Ok())
         first.updateHandler.onResult(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
+        awaitCondition("Closed generation drained") {
+            firstEvents.size == 2 && "legacy" !in router.registeredSessions()
+        }
         assertEquals(2, firstEvents.size)
         assertFalse("legacy" in router.registeredSessions())
 
-        val nextEvents = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
+        val nextEvents = java.util.concurrent.CopyOnWriteArrayList<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
         val next = router.register("legacy") { nextEvents.add(it) }
         first.updateHandler.onResult(TdApi.Ok())
         first.onNativeClosed() // late duplicate close must not detach a replacement
         next.updateHandler.onResult(TdApi.Ok())
+        awaitCondition("Replacement receives update") { nextEvents.size == 1 }
         assertEquals(2, firstEvents.size)
         assertEquals(1, nextEvents.size)
         assertTrue(next.generation > first.generation)
         assertTrue("legacy" in router.registeredSessions())
         next.onNativeClosed()
+        awaitCondition("Replacement worker retired") { router.registeredSessions().isEmpty() }
     }
 
     @Test fun duplicateAndUnknownAccountRegistrationIsRejected() = withRegistry { registry ->
@@ -108,31 +124,36 @@ class TdAccountUpdateRoutingTest {
             fail("Must not register two handlers for one account")
         } catch (_: IllegalStateException) { }
         original.onNativeClosed()
-        assertTrue(router.registeredSessions().isEmpty())
+        awaitCondition("Owner retired") { router.registeredSessions().isEmpty() }
     }
 
     @Test fun closingOneAccountDoesNotUnregisterAnother() = withRegistry { registry ->
         val (_, second) = registry.prepareSecondaryAccount()
         val router = TdAccountUpdateRouter(registry)
-        var legacyCount = 0
-        var otherCount = 0
-        val a = router.register("legacy") { legacyCount++ }
-        val b = router.register(second) { otherCount++ }
+        val legacyCount = java.util.concurrent.atomic.AtomicInteger()
+        val otherCount = java.util.concurrent.atomic.AtomicInteger()
+        val a = router.register("legacy") { legacyCount.incrementAndGet() }
+        val b = router.register(second) { otherCount.incrementAndGet() }
         a.updateHandler.onResult(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
         b.updateHandler.onResult(TdApi.Ok())
-        assertEquals(1, legacyCount)
-        assertEquals(1, otherCount)
+        awaitCondition("Close and second update delivered") {
+            legacyCount.get() == 1 && otherCount.get() == 1 &&
+                router.registeredSessions() == setOf(second)
+        }
+        assertEquals(1, legacyCount.get())
+        assertEquals(1, otherCount.get())
         assertEquals(setOf(second), router.registeredSessions())
         b.onNativeClosed()
+        awaitCondition("Second worker retired") { router.registeredSessions().isEmpty() }
     }
 
     @Test fun terminalStateDetachesEvenIfDispatchThrows() = withRegistry { registry ->
         val router = TdAccountUpdateRouter(registry)
         val owner = router.register("legacy") { throw IllegalStateException("subscriber failed") }
-        try {
-            owner.updateHandler.onResult(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
-            fail("Expected handler failure")
-        } catch (_: IllegalStateException) { }
-        assertTrue(router.registeredSessions().isEmpty())
+        owner.updateHandler.onResult(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
+        // Callback errors are logged by the worker and cannot strand the lease.
+        awaitCondition("Worker retired after a callback exception") {
+            router.registeredSessions().isEmpty()
+        }
     }
 }
