@@ -69,8 +69,10 @@ class NotificationRuntime private constructor(private val context: Context) {
                             if (source.dismissNotifications(group, newest).isSuccess)
                                 prefs.acknowledge(group, newest)
                         }
-                    } else if (state == AuthState.WaitingForPhone) {
-                        // TDLib IDs may be reused by another authorization in this slot.
+                    } else if (state == AuthState.WaitingForPhone &&
+                        (source as? TdLibTelegramRepository)?.hasSecondaryAuthorizationLoss == true) {
+                        // TDLib Close alone does not invalidate authorization: preserve dismissals
+                        // until an actual logout / phone-required transition.
                         prefs.authorized = false
                     }
                 }
