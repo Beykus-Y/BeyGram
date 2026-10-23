@@ -25,6 +25,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.TorchState
 import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
+import androidx.camera.core.ResolutionInfo
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.ViewPort
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -84,6 +85,8 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteCameraSurvey
+import com.beykus.beygram.data.media.VideoNoteUseCaseGeometry
+import com.beykus.beygram.data.media.videoNoteUseCaseGeometrySummary
 import com.beykus.beygram.data.media.VideoNoteFpsCheck
 import com.beykus.beygram.data.media.VideoNoteFpsDecision
 import com.beykus.beygram.data.media.VideoNoteStatus
@@ -177,6 +180,9 @@ internal class VideoNoteRecorder(
     private var previewFpsRange: IntRange? = null
     private var captureCameraId: String? = null
     private var captureSourceSize: Pair<Int, Int>? = null
+    /** Actual CameraX stream/crop rectangles, as opposed to the requested SD/HD plan. */
+    private var previewGeometry: String? = null
+    private var videoGeometry: String? = null
     private var captureQuality: com.beykus.beygram.data.media.VideoNoteSourceQuality? = null
     /** Persistent-запись не отвязывается от VideoCapture при перепривязке камеры. Если устройство её не умеет, переключение скрывается. */
     private var persistentSupported = true
@@ -614,10 +620,39 @@ internal class VideoNoteRecorder(
             .build()
         val bound = cameraProvider.bindToLifecycle(lifecycleOwner, selector, group)
         camera = bound
+        if (settings.diagnosticsEnabled) {
+            // Query AFTER binding: requested Quality and the 1:1 ViewPort do not tell us
+            // which stream dimensions/crops CameraX actually negotiated on this device.
+            previewGeometry = videoNoteUseCaseGeometrySummary(useCaseGeometry(preview.resolutionInfo))
+            videoGeometry = videoNoteUseCaseGeometrySummary(useCaseGeometry(capture.resolutionInfo))
+            take?.let { recordBoundGeometry(it.sessionName) } // Camera switch during an existing take.
+        } else {
+            previewGeometry = null
+            videoGeometry = null
+        }
         lightMode = videoNoteLightMode(selector == CameraSelector.DEFAULT_FRONT_CAMERA,
             runCatching { bound.cameraInfo.hasFlashUnit() }.getOrDefault(false))
         lightEnabled = false
         applyZoom(bound, zoomRatio)
+    }
+
+    private fun useCaseGeometry(info: ResolutionInfo?): VideoNoteUseCaseGeometry? {
+        info ?: return null
+        val bounds = info.cropRect
+        val size = info.resolution
+        return VideoNoteUseCaseGeometry(
+            size.width, size.height, bounds.left, bounds.top, bounds.right, bounds.bottom,
+            info.rotationDegrees
+        )
+    }
+
+    /** These are CameraX output-stream crops; they do not establish the optical sensor FOV. */
+    private fun recordBoundGeometry(sessionName: String) {
+        val unknown = context.getString(R.string.vn_entry_usecase_geometry_unknown)
+        VideoNoteDiagnostics.append(sessionName,
+            context.getString(R.string.vn_entry_usecase_geometry, "Preview", previewGeometry ?: unknown))
+        VideoNoteDiagnostics.append(sessionName,
+            context.getString(R.string.vn_entry_usecase_geometry, "VideoCapture", videoGeometry ?: unknown))
     }
 
     private fun unbindCamera() {
@@ -690,6 +725,7 @@ internal class VideoNoteRecorder(
         )
         if (settings.diagnosticsEnabled) {
             VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_fov_viewport))
+            recordBoundGeometry(sessionName)
             val (sourceWidth, sourceHeight) = captureSourceSize ?: VideoNoteCameraSurvey.sourceSize(settings)
             VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_source_plan,
                 captureQuality?.name ?: "?", sourceWidth, sourceHeight))
