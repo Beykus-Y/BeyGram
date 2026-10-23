@@ -14,6 +14,7 @@ class MessageUrlTest {
     }
     @Test fun `link cards open only web urls and fall back to their host`() {
         assertEquals("https://example.com/story", safeLinkPreviewUrl("example.com/story"))
+        assertEquals("https://example.com/original", safeLinkPreviewUrl("https://example.com/original"))
         listOf("tg://user?id=1", "mailto:a@example.com", "tel:+123", "javascript:alert(1)").forEach { assertNull(safeLinkPreviewUrl(it)) }
         assertEquals("example.com", linkPreviewHost("https://www.example.com/story"))
         assertEquals("", linkPreviewHost(""))

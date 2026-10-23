@@ -18,12 +18,16 @@ class LinkPreviewMappingTest {
     private fun photo(vararg sizes: TdApi.PhotoSize) = TdApi.Photo(false, null, arrayOf(*sizes))
 
     private fun preview(kind: TdApi.LinkPreviewType) = TdApi.LinkPreview().apply {
-        displayUrl = "https://example.com/story"
+        url = "https://example.com/original"
+        displayUrl = "example.com/story"
         siteName = "Example"
         title = "A story"
         description = TdApi.FormattedText("Short summary", emptyArray())
         type = kind
     }
+
+    private fun thumbnail(format: TdApi.ThumbnailFormat, id: Int, width: Int, height: Int) =
+        TdApi.Thumbnail(format, width, height, file(id))
 
     private fun text(preview: TdApi.LinkPreview?) = TdApi.MessageText().apply {
         text = TdApi.FormattedText("https://example.com/story", emptyArray())
@@ -41,7 +45,8 @@ class LinkPreviewMappingTest {
 
         val card = mapper.linkPreview(text(preview(article)), isSecretChat = false)!!
 
-        assertEquals("https://example.com/story", card.displayUrl)
+        assertEquals("https://example.com/original", card.url)
+        assertEquals("example.com/story", card.displayUrl)
         assertEquals("Example", card.siteName)
         assertEquals("A story", card.title)
         assertEquals("Short summary", card.description)
@@ -60,6 +65,29 @@ class LinkPreviewMappingTest {
         assertEquals(4, photoCard.photoFileId)
         assertEquals(5, videoCard.photoFileId)
         assertEquals(500, videoCard.photoWidth)
+    }
+
+    @Test fun videoWithoutCoverFallsBackToItsThumbnail() {
+        val mapper = TdMediaMapper(MediaFileStore())
+        val video = TdApi.Video().apply {
+            thumbnail = thumbnail(TdApi.ThumbnailFormatJpeg(), id = 7, width = 320, height = 180)
+        }
+        val card = mapper.linkPreview(text(preview(TdApi.LinkPreviewTypeVideo(video, null, 0))), false)!!
+
+        assertEquals(7, card.photoFileId)
+        assertEquals(320, card.photoWidth)
+        assertEquals(180, card.photoHeight)
+    }
+
+    @Test fun nonImageThumbnailFormatFallsBackToATextOnlyCard() {
+        val mapper = TdMediaMapper(MediaFileStore())
+        val animation = TdApi.Animation().apply {
+            thumbnail = thumbnail(TdApi.ThumbnailFormatMpeg4(), id = 8, width = 320, height = 180)
+        }
+        val card = mapper.linkPreview(text(preview(TdApi.LinkPreviewTypeAnimation(animation))), false)!!
+
+        assertNull(card.photoFileId)
+        assertEquals("A story", card.title)
     }
 
     @Test fun unknownTypeKeepsTextOnlyCard() {

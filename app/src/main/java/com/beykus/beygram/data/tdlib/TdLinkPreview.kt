@@ -26,8 +26,11 @@ internal fun TdApi.Photo.linkPreviewImageSource(): LinkPreviewImageSource? {
     return LinkPreviewImageSource(selected.photo ?: return null, selected.width, selected.height)
 }
 
+/** LocalMediaImage decodes still images only; an MP4/WebM/TGS "thumbnail" would fail after download. */
 internal fun TdApi.Thumbnail.linkPreviewImageSource(): LinkPreviewImageSource? =
-    file?.let { LinkPreviewImageSource(it, width, height) }
+    if (format is TdApi.ThumbnailFormatJpeg || format is TdApi.ThumbnailFormatPng || format is TdApi.ThumbnailFormatWebp) {
+        file?.let { LinkPreviewImageSource(it, width, height) }
+    } else null
 
 /**
  * Known media-bearing preview types use their cover/thumbnail. Every other type, including future TDLib variants,
@@ -36,7 +39,8 @@ internal fun TdApi.Thumbnail.linkPreviewImageSource(): LinkPreviewImageSource? =
 internal fun TdApi.LinkPreview.linkPreviewImageSource(): LinkPreviewImageSource? = when (val kind = type) {
     is TdApi.LinkPreviewTypeArticle -> kind.photo?.linkPreviewImageSource()
     is TdApi.LinkPreviewTypePhoto -> kind.photo?.linkPreviewImageSource()
-    is TdApi.LinkPreviewTypeVideo -> kind.cover?.linkPreviewImageSource()
+    // A video preview's cover is nullable, but the video itself often carries a usable thumbnail.
+    is TdApi.LinkPreviewTypeVideo -> kind.cover?.linkPreviewImageSource() ?: kind.video?.thumbnail?.linkPreviewImageSource()
     is TdApi.LinkPreviewTypeAnimation -> kind.animation?.thumbnail?.linkPreviewImageSource()
     is TdApi.LinkPreviewTypeAudio -> kind.audio?.albumCoverThumbnail?.linkPreviewImageSource()
     is TdApi.LinkPreviewTypeDocument -> kind.document?.thumbnail?.linkPreviewImageSource()
@@ -48,6 +52,7 @@ internal fun TdApi.LinkPreview.linkPreviewImageSource(): LinkPreviewImageSource?
 internal fun TdApi.LinkPreview.toMessageLinkPreview(registerPhoto: (TdApi.File) -> Int = { it.id }): MessageLinkPreview {
     val image = linkPreviewImageSource()
     return MessageLinkPreview(
+        url = url.orEmpty(),
         displayUrl = displayUrl.orEmpty(),
         siteName = siteName.orEmpty(),
         title = title.orEmpty(),

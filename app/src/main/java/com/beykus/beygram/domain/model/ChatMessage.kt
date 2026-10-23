@@ -36,6 +36,8 @@ data class ChatMessage(
  * points at a small photo size already registered in the media store, not at the page's original image.
  */
 data class MessageLinkPreview(
+    /** The original destination TDLib resolved; may differ from the human-readable [displayUrl]. */
+    val url: String,
     val displayUrl: String,
     val siteName: String = "",
     val title: String = "",
@@ -46,7 +48,7 @@ data class MessageLinkPreview(
 ) {
     /** A card with no text at all would render as an empty box, so it is not shown. */
     val hasContent: Boolean
-        get() = displayUrl.isNotBlank() || siteName.isNotBlank() || title.isNotBlank() || description.isNotBlank()
+        get() = url.isNotBlank() || displayUrl.isNotBlank() || siteName.isNotBlank() || title.isNotBlank() || description.isNotBlank()
 }
 
 /**

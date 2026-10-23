@@ -45,7 +45,8 @@ internal fun MessageLinkPreviewCard(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
-    val target = safeLinkPreviewUrl(preview.displayUrl)
+    // Navigate to TDLib's original URL; displayUrl is a shortened human-readable form that may not be navigable.
+    val target = safeLinkPreviewUrl(preview.url.ifBlank { preview.displayUrl })
     val shape = RoundedCornerShape(8.dp)
     Row(
         modifier.fillMaxWidth().padding(top = 6.dp)
