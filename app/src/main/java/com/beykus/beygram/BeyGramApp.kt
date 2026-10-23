@@ -370,6 +370,17 @@ private fun BeyGramAppContent(
     LaunchedEffect(authState, notificationRequest?.token) {
         val request = notificationRequest ?: return@LaunchedEffect
         if (authState != AuthState.Ready) return@LaunchedEffect
+        // Notifications currently originate ONLY from the legacy client.
+        // Switch explicitly to the source account before resolving its chat ID.
+        if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+            withContext(Dispatchers.IO) {
+                accountRegistry.selectAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+            }
+            PlaybackEngine.stop()
+            selectedAccountId = TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+            selectedChatId = 0L
+            secondaryChatsAccountId = null
+        }
         if (request.proxy) openProxy(AppRoute.Chats)
         else if (request.settings) openNotifications(AppRoute.Chats)
         else request.chatId?.let { chatId ->
@@ -387,7 +398,8 @@ private fun BeyGramAppContent(
         onNotificationHandled(request.token)
     }
     // Текст из другого приложения выбирает чат и подтверждает отправку на отдельном экране поверх приложения.
-    if (incomingShare != null && authState == AuthState.Ready) {
+    if (incomingShare != null && authState == AuthState.Ready &&
+        selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
         // Архивные чаты тоже можно выбрать: отправка в них не требует вынимать их из архива.
         val shareChats by repository.chats.collectAsStateWithLifecycle()
         val shareArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
@@ -434,6 +446,25 @@ private fun BeyGramAppContent(
                 )
             }
         }
+    }
+
+    if (incomingShare != null && authState == AuthState.Ready &&
+        selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
+            title = { Text(stringResource(R.string.secondary_accounts_share_target_title)) },
+            text = { Text(stringResource(R.string.secondary_accounts_share_target_warning)) },
+            confirmButton = {
+                TextButton(onClick = { chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }) {
+                    Text(stringResource(R.string.secondary_accounts_primary))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { onIncomingShareHandled(incomingShare.requestId) }) {
+                    Text(stringResource(R.string.common_close))
+                }
+            }
+        )
     }
 
     // ---- Реактивная навигация по AuthState -----------------------------------
