@@ -118,6 +118,7 @@ internal class TdSecondarySessionCoordinator(
     private val running = mutableMapOf<String, Active>()
     /** Prevent background restore and user connect from racing route transitions. */
     private val switchingAccounts = mutableSetOf<String>()
+    private val loggingOutAccounts = mutableSetOf<String>()
     private val _snapshot = MutableStateFlow(TdSecondaryAccountsSnapshot())
     val snapshot: StateFlow<TdSecondaryAccountsSnapshot> = _snapshot.asStateFlow()
 
@@ -136,6 +137,7 @@ internal class TdSecondarySessionCoordinator(
         check(accountId !in switchingAccounts || fromRouteSwitch) {
             "Account route is being changed"
         }
+        check(accountId !in loggingOutAccounts) { "Account is logging out" }
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) { "Legacy TDLib is already running" }
         require(accountId in registry.loadOrCreate().accountIds) { "Account not registered" }
         if (running[accountId]?.handle?.authPhase?.value == TdAccountAuthPhase.CLOSED) {
@@ -196,6 +198,7 @@ internal class TdSecondarySessionCoordinator(
     /** Return the exact account-bound session, never an active-UI-account proxy. */
     suspend fun chatSession(accountId: String): TdSecondaryAuthSession = mutex.withLock {
         val handle = running[accountId]?.handle ?: error("Secondary TDLib session is not running")
+        check(accountId !in loggingOutAccounts) { "Account is logging out" }
         check(handle.authPhase.value == TdAccountAuthPhase.READY) {
             "Secondary Telegram account is not authorized"
         }
@@ -206,16 +209,34 @@ internal class TdSecondarySessionCoordinator(
 
     /** A confirmed logout is different from Close. TDLib must close and release
      * its lease BEFORE its slot is removed from durable registry metadata. */
-    suspend fun logoutSecondary(accountId: String) = mutex.withLock {
+    suspend fun logoutSecondary(accountId: String) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
-        val active = running[accountId] ?: error("Secondary account must be connected to log out")
-        check(active.handle.authPhase.value == TdAccountAuthPhase.READY)
-        active.handle.logOutAndAwaitClosed()
-        // Never allow the old credentials to be restored from disk after logout.
-        onLogoutConfirmed(accountId)
-        running.remove(accountId)?.subscription?.cancel()
-        registry.unregisterSecondaryAccount(accountId)
-        publish()
+        val active = mutex.withLock {
+            check(loggingOutAccounts.add(accountId)) { "Logout already running" }
+            try {
+                check(accountId !in switchingAccounts)
+                (running[accountId] ?: error("Secondary account must be connected to log out")).also {
+                    check(it.handle.authPhase.value == TdAccountAuthPhase.READY)
+                }
+            } catch (failure: Throwable) {
+                loggingOutAccounts.remove(accountId)
+                throw failure
+            }
+        }
+        try {
+            // Native Close can take tens of seconds. Other accounts' chats,
+            // picker and TDLib session updates must remain responsive.
+            active.handle.logOutAndAwaitClosed()
+            mutex.withLock {
+                check(running[accountId] === active)
+                onLogoutConfirmed(accountId)
+                running.remove(accountId)?.subscription?.cancel()
+                registry.unregisterSecondaryAccount(accountId)
+                publish()
+            }
+        } finally {
+            mutex.withLock { loggingOutAccounts.remove(accountId) }
+        }
     }
 
     /** Explicit route edit: Close the same session without logout, wait for the
@@ -258,6 +279,7 @@ internal class TdSecondarySessionCoordinator(
     /** Leaves TDLib authorization and the files on disk unchanged. */
     suspend fun disconnect(accountId: String) = mutex.withLock {
         val active = running[accountId] ?: return@withLock
+        check(accountId !in loggingOutAccounts && accountId !in switchingAccounts)
         // Record user intent BEFORE asynchronous native Close.
         onManualStop(accountId)
         active.handle.close()
