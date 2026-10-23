@@ -833,6 +833,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
     private val historyRequests = ConcurrentHashMap<Long, Long>()
     private val chatListScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Keep logout + account-ID publications ordered even if a pending profile lookup completes. */
+    private val analyticsAccountLock = Any()
+    private var analyticsSessionGeneration = 0L
+    private var analyticsProfileJob: Job? = null
     private val chatListPublisher = CoalescedPublisher(chatListScope, CHAT_LIST_PUBLISH_DELAY_MS) {
         // Main-list ordering comes from Telegram, including pins and draft activity.
         val previews = chatCache.values.map { it.withMute() }
@@ -1395,14 +1399,27 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     }
                 }
                 syncArchiveReturnSetting()
+                val analyticsGeneration = synchronized(analyticsAccountLock) {
+                    analyticsSessionGeneration++
+                    analyticsProfileJob?.cancel()
+                    analyticsSessionGeneration
+                }
                 profiles.refreshMe()
-                chatListScope.launch {
-                    // Telemetry only reports the own ID, so it waits for the profile instead of blocking Ready.
-                    // Wait for this refresh to finish: after a logout the old profile is still in the state until then.
+                val profileJob = chatListScope.launch {
                     val me = runCatching {
                         withTimeout(60_000) { profiles.me.first { !it.isLoading && it.error == null && it.info != null }.info }
                     }.getOrNull()
-                    AnalyticsSync.onAccountsChanged(listOfNotNull(me?.id?.takeIf { it > 0 }))
+                    synchronized(analyticsAccountLock) {
+                        // Authorization state can change on the TDLib thread while this suspends.
+                        // Serializing with logout means the old ID can never win after an empty list.
+                        if (analyticsSessionGeneration == analyticsGeneration && _authState.value == AuthState.Ready) {
+                            AnalyticsSync.onAccountsChanged(listOfNotNull(me?.id?.takeIf { it > 0 }))
+                        }
+                    }
+                }
+                synchronized(analyticsAccountLock) {
+                    if (analyticsSessionGeneration == analyticsGeneration) analyticsProfileJob = profileJob
+                    else profileJob.cancel()
                 }
                 conversationActions.initialize()
                 conversationEffects.authorized()
@@ -1411,7 +1428,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
-                AnalyticsSync.onAccountsChanged(emptyList())
+                synchronized(analyticsAccountLock) {
+                    analyticsSessionGeneration++
+                    analyticsProfileJob?.cancel()
+                    analyticsProfileJob = null
+                    AnalyticsSync.onAccountsChanged(emptyList())
+                }
                 groupRequestGeneration.incrementAndGet()
                 groupCreationPrefs.edit().remove("unconfirmed").apply()
                 _groupCreation.value = GroupCreationState.Idle
@@ -1422,6 +1444,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 cacheMaintenance.signedOut()
             }
             is TdApi.AuthorizationStateClosed -> {
+                synchronized(analyticsAccountLock) {
+                    analyticsSessionGeneration++
+                    analyticsProfileJob?.cancel()
+                    analyticsProfileJob = null
+                    AnalyticsSync.onAccountsChanged(emptyList())
+                }
                 clearFolderState()
                 _authState.value = AuthState.WaitingForPhone
                 conversationEffects.signedOut()
