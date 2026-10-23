@@ -30,9 +30,13 @@ private const val DRAFTS_PREFS = "chat_message_drafts"
  * A stale TDLib update is never allowed to replace text changed in an open editor.
  * Once TDLib holds a value, its backup is marked synced, so a draft cleared on another device is never sent back.
  */
-internal fun tdDraftPreferencesName(accountId: String): String =
-    if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) DRAFTS_PREFS
-    else "${DRAFTS_PREFS}_${TdAccountStorageLayout.requireAccountId(accountId)}"
+internal fun tdDraftPreferencesName(accountId: String): String {
+    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}"))) {
+        "Invalid account identifier for local drafts"
+    }
+    return if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) DRAFTS_PREFS
+    else "${DRAFTS_PREFS}_$accountId"
+}
 
 internal class TdChatDrafts(
     context: Context,
