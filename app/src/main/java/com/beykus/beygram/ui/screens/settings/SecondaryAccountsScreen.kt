@@ -58,7 +58,8 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun SecondaryAccountsScreen(
     controller: TdSecondaryAccountController,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenChats: (String) -> Unit
 ) {
     val palette = beyGramPalette()
     val coordinator = controller.coordinator
@@ -248,9 +249,14 @@ internal fun SecondaryAccountsScreen(
                             Text(stringResource(R.string.auth_sign_in))
                         }
                     }
-                    TdAccountAuthPhase.READY -> Text(
-                        stringResource(R.string.secondary_accounts_ready_no_chats),
-                        color = palette.textSecondary, modifier = Modifier.padding(vertical = 14.dp))
+                    TdAccountAuthPhase.READY -> {
+                        Text(stringResource(R.string.secondary_accounts_ready_no_chats),
+                            color = palette.textSecondary, modifier = Modifier.padding(vertical = 14.dp))
+                        if (!selected.networkSuspended) Button(
+                            onClick = { onOpenChats(selected.accountId) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(stringResource(R.string.secondary_chats_open)) }
+                    }
                     TdAccountAuthPhase.OTHER -> Text(stringResource(R.string.secondary_accounts_other_auth),
                         color = palette.textSecondary, modifier = Modifier.padding(vertical = 14.dp))
                     else -> Text(stringResource(R.string.secondary_accounts_connecting),
