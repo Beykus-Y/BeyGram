@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import org.junit.Assert.assertEquals
@@ -26,10 +27,11 @@ class WallpaperPresetsTest {
         var selected: ChatWallpaper = ChatWallpaper.None
         composeRule.setContent {
             BeyGramTheme {
-                WallpaperSection(
-                    selected = selected,
-                    saved = ChatWallpaper.None,
-                    onSelect = { selected = it }
+                AppearanceWallpapersPage(
+                    draft = AppearanceConfig(wallpaper = ChatWallpaper.Preset("mint-air")),
+                    systemDark = false,
+                    onDraftChange = { selected = it.wallpaper },
+                    onOpenPreview = {}
                 )
             }
         }
