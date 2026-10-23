@@ -230,6 +230,7 @@ private fun BeyGramAppContent(
     // Route carries the source account; never fall back to legacy on missing ID.
     var secondaryChatsAccountId by rememberSaveable { mutableStateOf<String?>(null) }
     var notificationSecondaryChatId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var notificationSecondaryChatToken by rememberSaveable { mutableStateOf<Long?>(null) }
     var globalSearchQuery by rememberSaveable { mutableStateOf("") }
     val globalSearchSession = rememberSaveable(saver = GlobalSearchSession.stateSaver) { GlobalSearchSession(globalSearchQuery) }
     val globalSearchNavScope = rememberCoroutineScope()
@@ -270,6 +271,7 @@ private fun BeyGramAppContent(
                 chatFocusMessageId = 0L
                 secondaryChatsAccountId = null
                 notificationSecondaryChatId = null
+                notificationSecondaryChatToken = null
                 selectedAccountId = target
                 routeName = when {
                     target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> AppRoute.Chats.name
@@ -399,6 +401,7 @@ private fun BeyGramAppContent(
                 chatFocusMessageId = 0L
                 secondaryChatsAccountId = target
                 notificationSecondaryChatId = request.chatId
+                notificationSecondaryChatToken = request.token
                 selectedAccountId = target
                 routeName = AppRoute.Chats.name
             } catch (_: Exception) {
@@ -890,6 +893,13 @@ private fun BeyGramAppContent(
                     accountId = selectedAccountId,
                     coordinator = secondaryAccountController.coordinator,
                     initialChatId = notificationSecondaryChatId,
+                    initialChatToken = notificationSecondaryChatToken,
+                    onInitialChatConsumed = { token ->
+                        if (notificationSecondaryChatToken == token) {
+                            notificationSecondaryChatId = null
+                            notificationSecondaryChatToken = null
+                        }
+                    },
                     onBack = { routeName = AppRoute.AccountPicker.name },
                     onSwitchAccount = { routeName = AppRoute.AccountPicker.name }
                 )
