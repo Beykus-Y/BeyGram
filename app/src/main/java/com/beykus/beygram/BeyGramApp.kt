@@ -577,6 +577,26 @@ private fun BeyGramAppContent(
             chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
         }
     }
+    if (incomingShare != null && incomingShare.targetChatId != 0L &&
+        shareAccountTarget == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+        legacyAuthState != AuthState.Ready && accountRegistryReady && !accountRegistryError) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
+            title = { Text(stringResource(R.string.multi_share_unavailable_title)) },
+            text = { Text(stringResource(R.string.multi_share_unavailable_note)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onIncomingShareHandled(incomingShare.requestId)
+                    routeName = AppRoute.AccountPicker.name
+                }) { Text(stringResource(R.string.multi_share_choose_other)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { onIncomingShareHandled(incomingShare.requestId) }) {
+                    Text(stringResource(R.string.common_close))
+                }
+            }
+        )
+    }
     if (incomingShare != null && shareAccountTarget == null && accountRegistryReady && !accountRegistryError) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
@@ -589,14 +609,21 @@ private fun BeyGramAppContent(
                             if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
                         }) { Text(stringResource(R.string.secondary_accounts_primary)) }
                     }
-                    accountChoice.accounts.filter {
-                        it.phase == com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY &&
-                            it.connectedInThisProcess && !it.networkSuspended
-                    }.forEachIndexed { index, row ->
-                        TextButton(onClick = {
-                            shareAccountTarget = row.accountId
-                            if (selectedAccountId != row.accountId) chooseAccount(row.accountId)
-                        }) { Text(stringResource(R.string.secondary_accounts_account_label, index + 2)) }
+                    accountChoice.accounts.forEachIndexed { index, row ->
+                        val ready = row.phase == com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY &&
+                            row.connectedInThisProcess && !row.networkSuspended
+                        val label = pickerMetadata[row.accountId]?.title?.takeIf { it.isNotBlank() }
+                            ?: stringResource(R.string.secondary_accounts_account_label, index + 2)
+                        TextButton(
+                            enabled = ready,
+                            onClick = {
+                                shareAccountTarget = row.accountId
+                                if (selectedAccountId != row.accountId) chooseAccount(row.accountId)
+                            }
+                        ) {
+                            Text(if (ready) label else "$label · " +
+                                context.getString(R.string.secondary_accounts_switch_offline))
+                        }
                     }
                 }
             },
