@@ -42,7 +42,16 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
         val generation: Long
     ) {
         /** Install as this TDLib client's callback. Never route through a global active account. */
-        val updateHandler = Client.ResultHandler { update -> deliver(accountId, generation, update) }
+        val updateHandler = Client.ResultHandler { update ->
+            try {
+                deliver(accountId, generation, update)
+            } finally {
+                if (update is TdApi.UpdateAuthorizationState &&
+                    update.authorizationState is TdApi.AuthorizationStateClosed) {
+                    onNativeClosed()
+                }
+            }
+        }
 
         /** Called only after TDLib AuthorizationStateClosed. Idempotent and generation-scoped. */
         fun onNativeClosed() = synchronized(monitor) {
