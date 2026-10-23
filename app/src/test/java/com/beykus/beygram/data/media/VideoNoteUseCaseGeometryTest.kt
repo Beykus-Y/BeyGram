@@ -21,6 +21,28 @@ class VideoNoteUseCaseGeometryTest {
             videoNoteUseCaseGeometrySummary(VideoNoteUseCaseGeometry(720, 720, 0, 0, 720, 720, 90)))
     }
 
+
+    @Test
+    fun portraitRotationDoesNotInventExtraCropOrSensorZoom() {
+        val preview = VideoNoteUseCaseGeometry(
+            streamWidth = 1920, streamHeight = 1080,
+            cropLeft = 420, cropTop = 0, cropRight = 1500, cropBottom = 1080,
+            rotationDegrees = 270
+        )
+        assertEquals(
+            "stream=1920x1080 crop=(420,0) 1080x1080 retained=56%W/100%H rotation=270°",
+            videoNoteUseCaseGeometrySummary(preview)
+        )
+    }
+
+    @Test
+    fun partialCropIsReportedWithoutRoundingToAnImaginaryFullFrame() {
+        assertEquals(
+            "stream=1000x1000 crop=(100,100) 800x800 retained=80%W/80%H rotation=0°",
+            videoNoteUseCaseGeometrySummary(VideoNoteUseCaseGeometry(1000, 1000, 100, 100, 900, 900, 0))
+        )
+    }
+
     @Test
     fun missingOrImpossibleMetadataMustNotBeReportedAsMeasuredFov() {
         assertNull(videoNoteUseCaseGeometrySummary(null))
