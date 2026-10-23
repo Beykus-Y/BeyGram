@@ -19,7 +19,9 @@ data class AppearanceConfig(
     /** Text colour of messages in bubbles, or null for the theme's text colour. */
     val messageTextColor: Int? = null,
     /** Colour of the message time and the sending clock in bubbles, or null for the theme's muted colour. */
-    val messageTimeColor: Int? = null
+    val messageTimeColor: Int? = null,
+    /** Entrance animation of new sent and received messages. */
+    val messageAnimations: MessageAnimationConfig = MessageAnimationConfig()
 )
 
 const val DEFAULT_MESSAGE_TEXT_SIZE_SP = 16

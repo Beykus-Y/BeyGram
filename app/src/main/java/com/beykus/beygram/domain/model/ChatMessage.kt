@@ -59,8 +59,17 @@ data class ChatHistory(
     val hasNewerMessages: Boolean = false,
     val error: UiText? = null,
     val lastReadInboxMessageId: Long = 0L,
-    val lastReadOutboxMessageId: Long = 0L
+    val lastReadOutboxMessageId: Long = 0L,
+    /**
+     * Messages inserted by live TDLib updates, oldest first and bounded by the history store. Loading and refreshing
+     * history never adds entries, so the UI can animate only genuinely new messages and never a page of old ones.
+     */
+    val liveArrivals: List<LiveMessageArrival> = emptyList(),
+    val liveArrivalSequence: Long = 0L
 )
+
+/** One live insertion, ordered by [sequence] within a history store. A temporary-to-server replacement is not an arrival. */
+data class LiveMessageArrival(val sequence: Long, val messageId: Long)
 
 data class MessageReply(val chatId: Long, val messageId: Long, val text: UiText, val senderName: String = "", val isUnavailable: Boolean = false)
 data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boolean = false, val canEdit: Boolean = false, val canDeleteForSelf: Boolean = false, val canDeleteForAll: Boolean = false, val canForward: Boolean = false, val canSave: Boolean = false)

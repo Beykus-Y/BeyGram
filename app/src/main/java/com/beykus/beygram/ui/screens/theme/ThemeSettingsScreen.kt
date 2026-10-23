@@ -132,6 +132,15 @@ fun ThemeSettingsScreen(
                 BrightnessRow(stringResource(R.string.theme_brightness_dark), ThemeMode.Dark, mode) { onDraftChange(draft.copy(mode = ThemeMode.Dark)) }
                 BrightnessRow(stringResource(R.string.theme_brightness_amoled), ThemeMode.Amoled, mode) { onDraftChange(draft.copy(mode = ThemeMode.Amoled)) }
             }
+            SectionTitle(stringResource(R.string.theme_animations_title))
+            BeyGramTheme(darkTheme = mode.isDark(systemDark), tokens = resolveTokens(draft, systemDark),
+                messageTextSizeSp = draft.messageTextSizeSp, messageLineSpacing = draft.messageLineSpacing) {
+                MessageAnimationSettingsSection(
+                    config = draft.messageAnimations,
+                    onChange = { onDraftChange(draft.copy(messageAnimations = it)) }
+                )
+            }
+
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).clickable { onOpenEditor(draft) }.padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically

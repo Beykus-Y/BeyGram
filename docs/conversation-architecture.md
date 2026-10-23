@@ -30,6 +30,12 @@ Edit and delete menus use `GetMessageProperties`, including protected-content co
 
 Native content/edit/delete updates patch visible history. In-flight history pages carry a revision captured before their request, so a late page cannot roll back a newer live edit or resurrect a permanently deleted/retired message. Temporary-to-server ID replacement remains authoritative.
 
+## Message entrance animations
+
+`ChatHistory.liveArrivals` is a bounded, sequenced log of messages inserted by live updates. Only a newly inserted message is recorded: history pages, edits, delivery/read updates and the `replaces` server-ID confirmation are not arrivals. The chat screen's `MessageArrivalTracker` seeds the current sequence on its first snapshot, so opening a chat, returning to it or recreating the screen does not replay animations. Each row then claims its arrival once; pending claims and the log are bounded. This keeps animation tied to message life cycle rather than recomposition or list key changes.
+
+The sent and received presets, speed, intensity, offset and scale live in `AppearanceConfig.messageAnimations` and are stored with the rest of the appearance choice. The settings preview uses the same `MessageAnimationFrame` as the chat list and never sends Telegram messages. Compose's animation clock applies Android's animator duration scale.
+
 ## Extending privacy behavior
 
 Future unread mode can deny `ReadHistory`; content receipts and online presence are separate decisions. `Typing` gates every chat activity shown to other members (typing, recording and uploading), and the sender rechecks it while an activity lasts. Any new presence, typing, draft-sync or read side effect must pass a domain policy boundary; never add a direct native call to a composable or history loader.

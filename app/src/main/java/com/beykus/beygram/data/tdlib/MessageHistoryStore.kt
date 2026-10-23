@@ -3,6 +3,7 @@ package com.beykus.beygram.data.tdlib
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.LiveMessageArrival
 import com.beykus.beygram.domain.model.MessageSendState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +16,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     private val retiredIds = mutableMapOf<Long, MutableSet<Long>>()
     private val lock = Any()
     private var revision = 0L
+    private var liveArrivalSequence = 0L
     // Only messages changed while their chat loads are recorded, so an older snapshot cannot overwrite them.
     private val changed = mutableMapOf<Long, MutableMap<Long, Long>>()
     private val openedChats = mutableSetOf<Long>()
@@ -50,7 +52,17 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         val state = flow(message.chatId)
         // A jump window does not reach the newest messages, so an incoming message would leave a gap; it shows once they load.
         if (state.value.hasNewerMessages && replaces == null && message.sendState == MessageSendState.Sent && state.value.messages.none { it.id == message.id }) return@synchronized
-        state.value = state.value.copy(messages = merge(message.chatId, state.value.messages, listOf(message)))
+        val history = state.value
+        val replacedWasVisible = replaces != null && history.messages.any { it.id == replaces }
+        val inserted = history.messages.none { it.id == message.id }
+        // A confirmed send replaces the temporary bubble the user already saw, so the server id is not a new arrival.
+        val arrival = if (inserted && !replacedWasVisible) LiveMessageArrival(++liveArrivalSequence, message.id) else null
+        val arrivals = if (arrival == null) history.liveArrivals else (history.liveArrivals + arrival).takeLast(MAX_LIVE_ARRIVALS)
+        state.value = history.copy(
+            messages = merge(message.chatId, history.messages, listOf(message)),
+            liveArrivals = arrivals,
+            liveArrivalSequence = arrival?.sequence ?: history.liveArrivalSequence
+        )
         keepCached(message.chatId)
     }
 
@@ -196,5 +208,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
 
     private companion object {
         const val MAX_RETIRED_IDS_PER_CHAT = 256
+        /** Enough to cover a burst of messages delivered while the chat is composing, without growing without bound. */
+        const val MAX_LIVE_ARRIVALS = 64
     }
 }

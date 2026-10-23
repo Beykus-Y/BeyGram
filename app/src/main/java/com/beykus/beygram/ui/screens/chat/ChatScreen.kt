@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
@@ -67,6 +68,7 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlin.math.roundToInt
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
@@ -82,7 +84,8 @@ fun ChatScreen(
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
     recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
-    onServiceUser: (Long) -> Unit = {}
+    onServiceUser: (Long) -> Unit = {},
+    messageAnimations: MessageAnimationConfig = MessageAnimationConfig()
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val canPostHere = chat.canPost && topicCanPost
@@ -304,20 +307,38 @@ fun ChatScreen(
     val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
     val currentMessageItemsByKey by rememberUpdatedState(messageItemsByKey)
     val currentMessages by rememberUpdatedState(messages)
+    // Live insertions are claimed before the lazy list composes its rows, so only genuinely new messages animate once.
+    val animationTracker = remember(chat.id, forumTopicId) { MessageArrivalTracker() }
+    remember(history) { animationTracker.observe(history) }
     val newest = messages.lastOrNull()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    // A batch collected while the app was away is not a burst of entrances; keep the tracker paused through the first resume frames.
+    val animationResumeJob = remember { mutableStateOf<Job?>(null) }
     // Запись кружка и голосового в фоне отменяется. Воспроизведение идёт через общий плеер и продолжается вне ленты.
     DisposableEffect(lifecycle) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                PlaybackEngine.stopSecret()
-                videoNote.stopForRecovery()
-                audioNote.stopForRecovery()
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    PlaybackEngine.stopSecret()
+                    videoNote.stopForRecovery()
+                    audioNote.stopForRecovery()
+                    animationResumeJob.value?.cancel()
+                    animationTracker.pause()
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    animationResumeJob.value?.cancel()
+                    animationResumeJob.value = scope.launch {
+                        delay(300)
+                        animationTracker.resume()
+                    }
+                }
+                else -> Unit
             }
         }
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            animationResumeJob.value?.cancel()
             PlaybackEngine.stopSecret()
         }
     }
@@ -613,19 +634,25 @@ fun ChatScreen(
                     PendingVideoNoteBubble(listItem.pendingVideoNote)
                 } else if (listItem.mediaAlbumId != 0L) {
                     val latest = listItem.messages.maxByOrNull { it.id }
-                    MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
-                        isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
-                        highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
-                        onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
-                        onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
+                    val animateArrival = remember(listItem.key) { animationTracker.claim(listItem.messages.map { it.id }) }
+                    MessageAnimationFrame(animate = animateArrival, outgoing = latest?.isOutgoing == true, config = messageAnimations) {
+                        MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
+                            isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
+                            highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
+                            onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                            onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
+                    }
                 } else {
                     val message = listItem.messages.single()
-                    if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
-                    else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
-                    else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
-                        highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
-                        onPlayed = { conversation.openMessageContent(chat.id, message.id) },
-                        onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
+                    val animateArrival = remember(listItem.key) { animationTracker.claim(listOf(message.id)) }
+                    MessageAnimationFrame(animate = animateArrival, outgoing = message.isOutgoing, config = messageAnimations) {
+                        if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
+                        else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
+                        else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
+                            highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                            onPlayed = { conversation.openMessageContent(chat.id, message.id) },
+                            onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
+                    }
                 }
             }
             history.error?.let { historyError -> item(key = "history_error") {

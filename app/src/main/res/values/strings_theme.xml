@@ -66,4 +66,25 @@
     <string name="theme_editor_colour_grey">Серый</string>
     <string name="theme_editor_warning_message_colour">Этот цвет плохо читается на пузырях сообщений. Выберите другой.</string>
     <string name="theme_editor_undo">Отменить изменение</string>
+    <string name="theme_animations_title">Анимации сообщений</string>
+    <string name="theme_animations_enabled">Анимации сообщений</string>
+    <string name="theme_animations_enabled_detail">Плавное появление новых сообщений</string>
+    <string name="theme_animations_disabled">Анимации отключены. Новые сообщения появляются сразу.</string>
+    <string name="theme_animations_preview">Предпросмотр</string>
+    <string name="theme_animations_replay">Повторить</string>
+    <string name="theme_animations_preview_note">Демонстрационные сообщения. Настройки сохраняются кнопкой «Применить».</string>
+    <string name="theme_animations_sent">Отправленные</string>
+    <string name="theme_animations_received">Полученные</string>
+    <string name="theme_animations_preset_none">Без анимации</string>
+    <string name="theme_animations_preset_fade">Плавная</string>
+    <string name="theme_animations_preset_slide">Скольжение</string>
+    <string name="theme_animations_preset_spring">Пружина</string>
+    <string name="theme_animations_preset_custom">Собственная</string>
+    <string name="theme_animations_speed">Скорость</string>
+    <string name="theme_animations_intensity">Интенсивность</string>
+    <string name="theme_animations_offset">Смещение</string>
+    <string name="theme_animations_scale">Масштаб</string>
+    <string name="theme_animations_percent_value">%1$d%%</string>
+    <string name="theme_animations_offset_value">%1$d dp</string>
+    <string name="theme_animations_reset">Сбросить анимации</string>
 </resources>
