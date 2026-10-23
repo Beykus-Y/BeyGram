@@ -123,7 +123,10 @@ internal object VideoNoteExportCenter {
         if (!previewFirst) _pendingNotes.update { it + PendingVideoNote(chatId, sessionName, processing = true, topicId = topicId, accountId = accountId) }
         scope.launchExclusiveExport {
             try {
-                val outputDirectory = File(appContext.filesDir, "uploads").resolve(sessionName).apply { mkdirs() }
+                val outputDirectory = File(appContext.filesDir, "uploads").resolve(sessionName).apply {
+                    check(mkdirs()) { "Cannot create video-note output directory" }
+                    com.beykus.beygram.data.tdlib.markUploadDirectoryOwner(this, accountId)
+                }
                 Log.i(TAG, "video_processing_started session=" + sessionName + " chatId=" + chatId)
                 val media = VideoNoteProcessor(appContext).process(source, settings, outputDirectory, sessionName)
                 Log.i(TAG, "video_processing_completed session=" + sessionName + " segments=" + media.size)
