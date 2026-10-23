@@ -103,9 +103,13 @@ class TelegramNotificationService : Service() {
                         connectionReady = true; startupWakeLock.releaseIfHeld(); reportConnectedOnce()
                     }
                     if (!config.enabled || !config.background || auth == AuthState.WaitingForPhone) {
-                        if (!shouldRun(this@TelegramNotificationService)) {
-                            stopReason = if (!config.enabled || !config.background) "disabled" else "logged_out"
-                            stopSelf()
+                        scope.launch {
+                            if (!withContext(Dispatchers.IO) {
+                                shouldRun(this@TelegramNotificationService)
+                            }) {
+                                stopReason = if (!config.enabled || !config.background) "disabled" else "logged_out"
+                                stopSelf()
+                            }
                         }
                         return@combine
                     }
@@ -125,7 +129,10 @@ class TelegramNotificationService : Service() {
         scope.launch {
             while (isActive) {
                 delay(15_000L)
-                if (!shouldRun(this@TelegramNotificationService)) {
+                val permitted = withContext(Dispatchers.IO) {
+                    shouldRun(this@TelegramNotificationService)
+                }
+                if (!permitted) {
                     stopReason = "not_allowed"
                     stopSelf()
                     break
