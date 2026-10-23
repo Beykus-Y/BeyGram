@@ -5,6 +5,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SecondaryBackgroundEligibilityTest {
+    @Test fun secondaryOnlyColdStartRequiresIndependentlyReachableRoute() {
+        val follow = com.beykus.beygram.data.tdlib.TdSecondaryRoutePreference.FOLLOW_PRIMARY
+        val shared = com.beykus.beygram.data.tdlib.TdSecondaryRoutePreference.SHARED_MIHOMO
+        val direct = com.beykus.beygram.data.tdlib.TdSecondaryRoutePreference.EXPLICIT_DIRECT
+        assertFalse(secondaryColdStartRouteEligible(follow, legacyCanStart = false))
+        assertFalse(secondaryColdStartRouteEligible(shared, legacyCanStart = false))
+        assertTrue(secondaryColdStartRouteEligible(direct, legacyCanStart = false))
+        assertTrue(secondaryColdStartRouteEligible(follow, legacyCanStart = true))
+        assertTrue(secondaryColdStartRouteEligible(shared, legacyCanStart = true))
+        assertFalse(secondaryColdStartRouteEligible(null, legacyCanStart = true))
+    }
+
     @Test fun onlyAuthorizedConfirmedEnabledAccountStartsInBackground() {
         assertTrue(secondaryBackgroundEligible(
             routeConfirmed = true, authorized = true, enabled = true, background = true
