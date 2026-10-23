@@ -42,6 +42,7 @@ import com.beykus.beygram.domain.model.ArchiveSettings
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
+import com.beykus.beygram.navigation.secondaryAccountMayOpen
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
 import com.beykus.beygram.navigation.TabVisibility
@@ -503,7 +504,7 @@ private fun BeyGramAppContent(
     // display legacy profiles, messages, files, or notifications under its label.
     LaunchedEffect(selectedAccountId, routeName) {
         if (accountRegistryReady && selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-            route !in setOf(AppRoute.Chats, AppRoute.AccountPicker, AppRoute.SecondaryAccounts)) {
+            !secondaryAccountMayOpen(route)) {
             routeName = AppRoute.Chats.name
         }
     }
@@ -850,7 +851,7 @@ private fun BeyGramAppContent(
                     onSwitchAccount = { routeName = AppRoute.AccountPicker.name }
                 )
                 selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-                    route !in setOf(AppRoute.AccountPicker, AppRoute.SecondaryAccounts) ->
+                    route != AppRoute.Chats && !secondaryAccountMayOpen(route) ->
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
                 else -> when (route) {
                 AppRoute.Start -> StartScreen(
