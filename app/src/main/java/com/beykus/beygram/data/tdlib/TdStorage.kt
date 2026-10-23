@@ -18,7 +18,8 @@ internal class TdStorage(
     private val client: () -> Client,
     private val uploadDirectories: List<File>,
     private val sentUploads: File,
-    private val mediaFileIds: () -> Set<Int>
+    private val mediaFileIds: () -> Set<Int>,
+    private val accountId: String = TdAccountStorageLayout.LEGACY_ACCOUNT_ID
 ) {
     private val requests = TdRequests(client)
     /** Очистка и применение лимита идут по одному, включая фоновую проверку: TDLib не должен удалять файлы параллельно. */
@@ -81,7 +82,7 @@ internal class TdStorage(
                 val inUse = now - lastUsed < IN_USE_GRACE_MILLIS || files.any { it.canonicalPath in referenced.keys }
                 val sent = File(folder, SENT_UPLOAD_MARKER).exists()
                 // Метка без id осталась от прежней сборки: TDLib может держать файл скачанным, и без id его не забыть. Такую папку не трогаем.
-                val ids = sentUploadFileIds(folder)
+                val ids = sentUploadFileIds(folder, accountId)
                 SentUpload(folder, bytes = files.sumOf { it.length() }, lastUsedMillis = lastUsed, inUse = inUse || !sent || ids.isEmpty(), fileIds = ids)
             }
             val candidates = folders.filter { !it.inUse }.sortedBy { it.lastUsedMillis }
@@ -177,16 +178,53 @@ private class SentUpload(val folder: File, val bytes: Long, val lastUsedMillis: 
  */
 internal const val SENT_UPLOAD_MARKER = ".sent"
 
-/** Дописывает id файла копии в метку отправки. Метка уже может хранить другие id, поэтому список дополняется. */
-internal fun markSentUpload(folder: File, fileId: Int) {
-    val known = sentUploadFileIds(folder)
-    if (fileId !in known) File(folder, SENT_UPLOAD_MARKER).writeText((known + fileId).joinToString(separator = "\n"))
+/**
+ * Legacy markers contain numeric file IDs only. Secondary accounts write their immutable
+ * owner ID on the first line because TDLib file IDs are NOT unique across accounts.
+ * Unknown / foreign markers are never candidates for cleanup.
+ */
+private const val SENT_UPLOAD_OWNER_PREFIX = "account_id="
+
+/** Keep the legacy on-disk marker format intact for upgrades. Reject mixed-account folders. */
+internal fun markSentUpload(
+    folder: File,
+    fileId: Int,
+    accountId: String = TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+) = synchronized(SENT_UPLOAD_MARKER_LOCK) {
+    val marker = File(folder, SENT_UPLOAD_MARKER)
+    val contents = if (marker.isFile) marker.readLines() else emptyList()
+    val existingOwner = when {
+        contents.isEmpty() || contents.all { it.trim().toIntOrNull() != null } -> TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+        contents.firstOrNull()?.startsWith(SENT_UPLOAD_OWNER_PREFIX) == true ->
+            contents.first().removePrefix(SENT_UPLOAD_OWNER_PREFIX)
+        else -> null
+    }
+    require(!marker.exists() || existingOwner == accountId) {
+        "Upload marker belongs to a different or unknown Telegram account"
+    }
+    val ids = sentUploadFileIds(folder, accountId) + fileId
+    val header = if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) ""
+        else "$SENT_UPLOAD_OWNER_PREFIX$accountId\n"
+    marker.writeText(header + ids.joinToString(separator = "\n"))
 }
 
-/** Id файлов, записанные в метку отправки. Метка без строк, как у прежних версий, даёт пустой набор. */
-internal fun sentUploadFileIds(folder: File): Set<Int> {
+private val SENT_UPLOAD_MARKER_LOCK = Any()
+
+/** Only returns IDs explicitly owned by this TDLib account (numeric markers = legacy). */
+internal fun sentUploadFileIds(
+    folder: File,
+    accountId: String = TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+): Set<Int> {
     val marker = File(folder, SENT_UPLOAD_MARKER)
-    return if (marker.isFile) marker.readLines().mapNotNullTo(mutableSetOf()) { it.trim().toIntOrNull() } else emptySet()
+    if (!marker.isFile) return emptySet()
+    val lines = marker.readLines()
+    val tagged = lines.firstOrNull()?.startsWith(SENT_UPLOAD_OWNER_PREFIX) == true
+    val owner = if (tagged) lines.first().removePrefix(SENT_UPLOAD_OWNER_PREFIX)
+        else TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+    if (owner != accountId) return emptySet()
+    val ids = if (tagged) lines.drop(1) else lines
+    if (ids.any { it.isNotBlank() && it.trim().toIntOrNull() == null }) return emptySet()
+    return ids.mapNotNullTo(mutableSetOf()) { it.trim().toIntOrNull() }
 }
 
 /** Размер всех файлов в папках, включая вложенные. Папки, которых нет, занимают 0 байт. */
