@@ -45,7 +45,8 @@ internal class TdConversationActions(
         MessageCapabilities(properties.canBeReplied, properties.canBeCopied && editable(message.content),
             properties.canBeEdited && message.isOutgoing && editable(message.content),
             properties.canBeDeletedOnlyForSelf, properties.canBeDeletedForAllUsers,
-            canForward = properties.canBeForwarded, canSave = properties.canBeSaved)
+            canForward = properties.canBeForwarded, canSave = properties.canBeSaved,
+            canGetLink = properties.canGetLink)
     }
 
     /** Предполагаем, что TDLib считает позицию от новых к старым, как результаты поиска: номер от самого раннего — total - position + 1. */
@@ -285,11 +286,21 @@ internal class TdConversationActions(
         history.delete(chatId, listOf(messageId))
     }
 
-    /** Пересылка без копии: TDLib сам отказывает, если сообщение нельзя переслать или содержимое защищено. */
-    suspend fun forward(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit> = conversationResult {
+    /**
+     * Пересылка обычная или без автора ([asCopy]). TDLib сам отказывает, если сообщение нельзя переслать
+     * или содержимое защищено.
+     */
+    suspend fun forward(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean = false): Result<Unit> = conversationResult {
         if (!request(TdApi.GetMessageProperties(fromChatId, messageId)).canBeForwarded) throw UserMessageException(UiText.Res(R.string.err_message_cannot_forward))
-        val forwarded = request(TdApi.ForwardMessages(toChatId, null, fromChatId, longArrayOf(messageId), TdApi.MessageSendOptions(), false, false))
+        val forwarded = request(forwardMessagesRequest(toChatId, fromChatId, messageId, asCopy))
         if (!forwarded.messages.orEmpty().any { it != null }) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
+    }
+
+    /** A Telegram link to the message; comments in a thread need the thread form. */
+    suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean): Result<String> = conversationResult {
+        val link = request(messageLinkRequest(chatId, messageId, inMessageThread)).link
+        if (link.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_link_unavailable))
+        link
     }
 
     /**
@@ -434,6 +445,12 @@ private const val MAX_FORUM_TOPIC_PAGES = 20
 internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(text.take(180)) else UiText.Res(when (media?.kind) {
     MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title
 })
+
+internal fun messageLinkRequest(chatId: Long, messageId: Long, inMessageThread: Boolean) =
+    TdApi.GetMessageLink(chatId, messageId, 0, 0, "", false, inMessageThread)
+
+internal fun forwardMessagesRequest(toChatId: Long, fromChatId: Long, messageId: Long, asCopy: Boolean) =
+    TdApi.ForwardMessages(toChatId, null, fromChatId, longArrayOf(messageId), TdApi.MessageSendOptions(), asCopy, false)
 
 internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L) = TdApi.SearchChatMessages().apply {
     this.chatId = chatId
