@@ -32,6 +32,7 @@ import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
+import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
@@ -69,6 +70,7 @@ import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
+import com.beykus.beygram.ui.screens.settings.SecondaryAccountsScreen
 import com.beykus.beygram.ui.screens.settings.ActiveSessionsScreen
 import com.beykus.beygram.ui.screens.settings.LanguageScreen
 import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
@@ -183,6 +185,9 @@ private fun BeyGramAppContent(
     val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
     val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
     val connectionState by repository.connectionState.collectAsStateWithLifecycle()
+    val secondaryAccountController = remember(context, repository) {
+        TdSecondaryAccountController.get(context) { repository.currentRoute().getOrNull() }
+    }
     val myProfile by repository.myProfile.collectAsStateWithLifecycle()
     val bioLimit by repository.bioLengthLimit.collectAsStateWithLifecycle()
     val lastSeenStyle by lastSeenSettings.style.collectAsStateWithLifecycle()
@@ -422,6 +427,7 @@ private fun BeyGramAppContent(
         routeName = if (route == AppRoute.ProxyConnect) AppRoute.Proxy.name else proxyReturnRouteName
     }
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.SecondaryAccounts) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
@@ -878,10 +884,15 @@ private fun BeyGramAppContent(
                         onDiagnostics = { routeName = AppRoute.Diagnostics.name },
                         onUpdates = { routeName = AppRoute.Updates.name },
                         onLanguage = { routeName = AppRoute.Language.name },
-                        onSessions = { routeName = AppRoute.Sessions.name }
+                        onSessions = { routeName = AppRoute.Sessions.name },
+                        onSecondaryAccounts = { routeName = AppRoute.SecondaryAccounts.name }
                     )
                 }
                 AppRoute.Language -> LanguageScreen(onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.SecondaryAccounts -> SecondaryAccountsScreen(
+                    controller = secondaryAccountController,
+                    onBack = { routeName = AppRoute.Settings.name }
+                )
                 AppRoute.Sessions -> ActiveSessionsScreen(
                     onBack = { routeName = AppRoute.Settings.name },
                     load = repository::activeSessions,
