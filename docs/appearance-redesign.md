@@ -92,7 +92,7 @@ Local checks performed during development:
 - targeted JVM tests for appearance data, draft restoration, theme tokens and English resource coverage
 - eight appearance instrumentation tests on the emulator: navigation, apply, undo, system Back, discard safety,
   Activity recreation, preview composition, wallpaper selection and colour swatch accessibility
-- screenshots in dark, light and AMOLED modes, plus a 1.3× system font scale check
+- screenshots in dark, light and AMOLED modes, plus 1.3× and 2.0× system font scale checks
 
 The full JVM suite still contains pre-existing `AccessDeniedException` failures in TDLib account tests on this
 Windows host; the appearance/data/theme subset passes. Lint reports pre-existing errors in unrelated files (for
