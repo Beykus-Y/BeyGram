@@ -58,7 +58,9 @@ internal fun SecondaryChatsScreen(
     coordinator: TdSecondarySessionCoordinator,
     onBack: () -> Unit,
     onSwitchAccount: () -> Unit = {},
-    initialChatId: Long? = null
+    initialChatId: Long? = null,
+    initialChatToken: Long? = null,
+    onInitialChatConsumed: (Long) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -73,11 +75,14 @@ internal fun SecondaryChatsScreen(
     val available = account?.connectedInThisProcess == true &&
         account.phase == TdAccountAuthPhase.READY && !account.networkSuspended
 
-    LaunchedEffect(accountId, initialChatId, available) {
-        if (available && initialChatId != null && initialChatId != 0L) {
-            // A notification references the SOURCE session, even if the chat
-            // isn't present in the secondary Main list (e.g. archived chat).
-            selectedChat = TdAccountChatKey(accountId, initialChatId)
+    LaunchedEffect(accountId, initialChatToken, available) {
+        val chatId = initialChatId
+        val token = initialChatToken
+        if (available && chatId != null && chatId != 0L && token != null) {
+            // Consume exactly once. Offline accounts leave this pending until
+            // their actual source-native TDLib session becomes READY again.
+            selectedChat = TdAccountChatKey(accountId, chatId)
+            onInitialChatConsumed(token)
         }
     }
 
