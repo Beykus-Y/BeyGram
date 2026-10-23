@@ -840,6 +840,22 @@ class TdLibTelegramRepository private constructor(
     private val muteState = ChatMuteState()
     // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
     private val historyRequests = ConcurrentHashMap<Long, Long>()
+    @Volatile private var secondaryDisposed = false
+    /** The native TDLib owner remains responsible for Client/lease shutdown. */
+    internal fun disposeSecondaryRepository() {
+        if (isLegacyAccount || secondaryDisposed) return
+        synchronized(this) {
+            if (secondaryDisposed) return
+            secondaryDisposed = true
+        }
+        networkMonitor.stop()
+        messageDrafts.dispose()
+        notificationFeed.dispose()
+        com.beykus.beygram.data.media.VideoNoteLossDiagnostics.releaseRepository(this)
+        chatListScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+        authScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
+
     private val chatListScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     /** Keep logout + account-ID publications ordered even if a pending profile lookup completes. */
     private val analyticsAccountLock = Any()
@@ -1527,6 +1543,7 @@ class TdLibTelegramRepository private constructor(
                 _authState.value = AuthState.WaitingForPhone
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
+                if (!isLegacyAccount) disposeSecondaryRepository()
             }
             else -> Unit
         }
