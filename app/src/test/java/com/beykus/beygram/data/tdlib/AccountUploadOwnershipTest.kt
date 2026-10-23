@@ -31,6 +31,10 @@ class AccountUploadOwnershipTest {
         markSentUpload(staging, 19, "a-second")
         assertTrue(uploadFolderBelongsToAccount(staging, "a-second"))
         try {
+            markSentUpload(staging, 22, "a-other")
+            org.junit.Assert.fail("Foreign TDLib client claimed someone else's staged media")
+        } catch (_: IllegalStateException) { }
+        try {
             markUploadDirectoryOwner(staging, "a-other")
             org.junit.Assert.fail("Cross-account staging ownership was overwritten")
         } catch (_: IllegalStateException) { }
