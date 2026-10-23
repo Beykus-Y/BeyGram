@@ -67,9 +67,8 @@ class NotificationRuntime private constructor(private val context: Context) {
 
     /**
      * Shared Android renderer, separate account-tag and watermark namespaces.
-     * Legacy stays attached to its original process-wide outbox. Secondary
-     * inline replies deliberately remain disabled until their outbox can
-     * authenticate account-scoped broadcasts.
+     * Legacy retains its original process-wide outbox; secondary replies use
+     * independently authenticated per-account persistent outboxes.
      */
     @Synchronized fun attachSecondary(accountId: String, source: TelegramRepository) {
         require(accountId != "legacy" && accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
@@ -82,6 +81,12 @@ class NotificationRuntime private constructor(private val context: Context) {
         val prefs = preferencesForAccount(accountId)
         val scopedRenderer = AndroidNotificationRenderer(context, prefs, accountId)
         val job = scope.launch {
+            launch {
+                source.myProfile.collect { profile ->
+                    scopedRenderer.updateAccountDisplayName(profile.info?.title.orEmpty())
+                    invalidations.update { it + 1 }
+                }
+            }
             // The foreground service must hold the same bounded delivery wake
             // lock for pending secondary TDLib notices as for the legacy client.
             launch {
@@ -259,7 +264,7 @@ class NotificationRuntime private constructor(private val context: Context) {
         if (accountId == "legacy" || !accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")) ||
             groupId <= 0 || maxId <= 0) return
         val registered = secondaries[accountId]
-        val scopedPrefs = registered?.preferences ?: NotificationPreferencesStore(context, accountId)
+        val scopedPrefs = registered?.preferences ?: preferencesForAccount(accountId)
         scopedPrefs.dismiss(groupId, maxId)
         registered?.renderer?.cancelGroup(groupId)
         invalidations.update { it + 1 }
