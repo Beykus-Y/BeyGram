@@ -433,7 +433,7 @@ internal class VideoNoteRecorder(
                     // Some cameras cannot bind an HD 4:3 VideoCapture together with Preview.
                     // Do not fail the entire recording: retry ONCE with the original CameraX
                     // aspect policy, before a persistent Recording is started.
-                    if (!capturePrefersFourThree) throw bindFailure
+                    if (!videoNoteShouldRetryDefaultAspect(capturePrefersFourThree, bindFailure)) throw bindFailure
                     Log.w(TAG, "video_fov_4_3_unavailable_fallback", bindFailure)
                     cameraProvider.unbindAll()
                     camera = null
@@ -1167,6 +1167,11 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
 internal fun videoNotePreferFourThreeCapture(quality: VideoNoteSourceQuality, selectedFrameRate: IntRange?): Boolean =
     quality == VideoNoteSourceQuality.HD && selectedFrameRate != null &&
         selectedFrameRate.last <= 30
+
+/** Only retry incompatible camera configurations. Permission and runtime failures
+ * must propagate instead of being misdiagnosed as an unsupported aspect ratio. */
+internal fun videoNoteShouldRetryDefaultAspect(preferredFourThree: Boolean, failure: Throwable): Boolean =
+    preferredFourThree && failure is IllegalArgumentException
 
 /** Only use the advertised zoom bounds once ZoomState is ready. The first 1x request
  * must still be sent before LiveData publishes its initial value. */
