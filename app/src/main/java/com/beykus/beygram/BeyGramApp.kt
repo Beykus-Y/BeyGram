@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -29,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
+import com.beykus.beygram.data.archive.archivePreferencesName
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
@@ -151,7 +153,7 @@ fun BeyGramApp(
     DisposableEffect(repository, notificationRuntime) { notificationRuntime.attach(repository); onDispose { } }
 
     BeyGramAppContent(
-        repository = repository,
+        legacyRepository = repository,
         tdLibReadiness = tdLibReadiness,
         appearance = appearance,
         onAppearanceChange = onAppearanceChange,
@@ -168,7 +170,7 @@ fun BeyGramApp(
 
 @Composable
 private fun BeyGramAppContent(
-    repository: TelegramRepository,
+    legacyRepository: TelegramRepository,
     tdLibReadiness: TdLibReadiness,
     appearance: AppearanceConfig,
     onAppearanceChange: (AppearanceConfig) -> Unit,
@@ -183,17 +185,10 @@ private fun BeyGramAppContent(
 ) {
     val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
-    val authState by repository.authState.collectAsStateWithLifecycle()
-    // Observe shortcuts from process scope so they stay fresh while this Activity is stopped.
-    LaunchedEffect(repository) {
-        (context.applicationContext as BeyGramApplication).startDirectShare(repository)
-    }
-    val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
-    val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
-    val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
-    val connectionState by repository.connectionState.collectAsStateWithLifecycle()
-    val secondaryAccountController = remember(context, repository) {
-        TdSecondaryAccountController.get(context) { repository.currentRoute().getOrNull() }
+    // The original TDLib singleton is always the legacy session. It must NOT
+    // be reused as a stand-in for an offline or newly selected second account.
+    val secondaryAccountController = remember(context, legacyRepository) {
+        TdSecondaryAccountController.get(context) { legacyRepository.currentRoute().getOrNull() }
     }
     val accountRegistry = remember(context) { TdAccountRegistry(context.applicationContext.filesDir) }
     var selectedAccountId by remember { mutableStateOf(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }
@@ -208,6 +203,39 @@ private fun BeyGramAppContent(
         } catch (_: Exception) {
             accountRegistryError = true
         } finally { accountRegistryReady = true }
+    }
+    val accountRow = accountChoice.accounts.firstOrNull { it.accountId == selectedAccountId }
+    val repositorySelection by produceState<TelegramRepository?>(
+        initialValue = if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+            legacyRepository else null,
+        selectedAccountId, accountRow?.phase, accountRow?.networkSuspended
+    ) {
+        value = when {
+            selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> legacyRepository
+            accountRow?.connectedInThisProcess != true ||
+                accountRow.phase != com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY ||
+                accountRow.networkSuspended -> null
+            else -> runCatching {
+                withContext(Dispatchers.IO) {
+                    secondaryAccountController.coordinator.fullRepository(
+                        selectedAccountId, context.applicationContext
+                    )
+                }
+            }.getOrNull()
+        }
+    }
+    // The unavailable repository is intentionally EMPTY, not legacy data.
+    // No caller of a secondary route may fall back to the first account.
+    val unavailableAccountRepository = remember { UnavailableTelegramRepository() }
+    val repository = repositorySelection ?: unavailableAccountRepository
+    val authState by repository.authState.collectAsStateWithLifecycle()
+    val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
+    val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
+    val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
+    val connectionState by repository.connectionState.collectAsStateWithLifecycle()
+    // Direct-share shortcuts and their bare IDs originate ONLY from legacy.
+    LaunchedEffect(legacyRepository) {
+        (context.applicationContext as BeyGramApplication).startDirectShare(legacyRepository)
     }
     val myProfile by repository.myProfile.collectAsStateWithLifecycle()
     val bioLimit by repository.bioLengthLimit.collectAsStateWithLifecycle()
@@ -260,7 +288,7 @@ private fun BeyGramAppContent(
                 // A persisted slot is not enough. A secondary session must
                 // already be authorized, online and bound to its own store.
                 if (target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
-                    secondaryAccountController.coordinator.chatSession(target)
+                    secondaryAccountController.coordinator.fullRepository(target, context.applicationContext)
                 }
                 withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
                 PlaybackEngine.stop()
@@ -304,13 +332,17 @@ private fun BeyGramAppContent(
         }
     }
     // Скрытый архив остаётся скрытым после перезапуска: флаг лежит в настройках приложения.
-    val chatPreferences = remember(context) { context.applicationContext.getSharedPreferences("chats", Context.MODE_PRIVATE) }
+    val chatPreferences = remember(context, selectedAccountId) {
+        context.applicationContext.getSharedPreferences(archivePreferencesName(selectedAccountId), Context.MODE_PRIVATE)
+    }
     var archiveHidden by remember { mutableStateOf(chatPreferences.getBoolean("archive_hidden", false)) }
     val onArchiveHiddenChange: (Boolean) -> Unit = { hidden ->
         archiveHidden = hidden
         chatPreferences.edit().putBoolean("archive_hidden", hidden).apply()
     }
-    val archiveSettingsStore = remember(context) { ArchiveSettingsStore.get(context) }
+    val archiveSettingsStore = remember(context, selectedAccountId) {
+        ArchiveSettingsStore.get(context, selectedAccountId)
+    }
     val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
     val archiveSettingsScope = rememberCoroutineScope()
     val onArchiveSettingsChange: (ArchiveSettings) -> Unit = { next ->
@@ -432,7 +464,7 @@ private fun BeyGramAppContent(
         if (request.proxy) openProxy(AppRoute.Chats)
         else if (request.settings) openNotifications(AppRoute.Chats)
         else request.chatId?.let { chatId ->
-            val result = repository.loadChat(chatId)
+            val result = legacyRepository.loadChat(chatId)
             if (result.isSuccess) {
                 selectedChatId = chatId
                 selectedTopicChatId = chatId
@@ -517,6 +549,23 @@ private fun BeyGramAppContent(
         )
     }
 
+    // Open a notification's chat in its EXACT full repository. Never pass
+    // its numeric ID into the legacy repository when the native session is
+    // restoring. A consumed request will not reopen on Back/navigation.
+    LaunchedEffect(selectedAccountId, repositorySelection, notificationSecondaryChatToken) {
+        if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+            repositorySelection != null && notificationSecondaryChatId != null) {
+            val id = notificationSecondaryChatId ?: return@LaunchedEffect
+            if (repository.loadChat(id).isSuccess) {
+                selectedChatId = id
+                chatBackRouteName = AppRoute.Chats.name
+                routeName = AppRoute.Chat.name
+                notificationSecondaryChatId = null
+                notificationSecondaryChatToken = null
+            }
+        }
+    }
+
     // ---- Реактивная навигация по AuthState -----------------------------------
     // Следим за authState и автоматически переходим на нужный экран.
     // Это гарантирует, что переход происходит ПОСЛЕ того, как TDLib подтвердил
@@ -546,14 +595,8 @@ private fun BeyGramAppContent(
 
     // ---- Маршрутизация -------------------------------------------------------
     val route = AppRoute.valueOf(routeName)
-    // When a secondary is selected, no primary-only screen may accidentally
-    // display legacy profiles, messages, files, or notifications under its label.
-    LaunchedEffect(selectedAccountId, routeName) {
-        if (accountRegistryReady && selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-            !secondaryAccountMayOpen(route)) {
-            routeName = AppRoute.Chats.name
-        }
-    }
+    // The same screens are now used for all READY account repositories.
+    // An unavailable second session is handled before route rendering.
     // Назад из разделов нижнего меню ведёт туда, откуда раздел открыли: в чаты или в профиль.
     BackHandler(enabled = route == AppRoute.Calls || route == AppRoute.Contacts || route == AppRoute.Settings) {
         routeName = tabReturnRouteName
@@ -889,23 +932,17 @@ private fun BeyGramAppContent(
                     modifier = Modifier.align(Alignment.Center)
                 )
                 selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-                    route == AppRoute.Chats -> SecondaryChatsScreen(
-                    accountId = selectedAccountId,
-                    coordinator = secondaryAccountController.coordinator,
-                    initialChatId = notificationSecondaryChatId,
-                    initialChatToken = notificationSecondaryChatToken,
-                    onInitialChatConsumed = { token ->
-                        if (notificationSecondaryChatToken == token) {
-                            notificationSecondaryChatId = null
-                            notificationSecondaryChatToken = null
-                        }
-                    },
-                    onBack = { routeName = AppRoute.AccountPicker.name },
-                    onSwitchAccount = { routeName = AppRoute.AccountPicker.name }
-                )
-                selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-                    route != AppRoute.Chats && !secondaryAccountMayOpen(route) ->
-                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    repositorySelection == null && route !in setOf(AppRoute.AccountPicker, AppRoute.SecondaryAccounts) ->
+                    AccountPickerScreen(
+                        state = accountChoice,
+                        selectedId = selectedAccountId,
+                        onSelect = chooseAccount,
+                        onManage = {
+                            accountManagerReturnRouteName = AppRoute.AccountPicker.name
+                            routeName = AppRoute.SecondaryAccounts.name
+                        },
+                        onBack = { routeName = AppRoute.AccountPicker.name }
+                    )
                 else -> when (route) {
                 AppRoute.Start -> StartScreen(
                     tdLibReadiness = tdLibReadiness,
@@ -1072,16 +1109,10 @@ private fun BeyGramAppContent(
                     onBack = { routeName = accountManagerReturnRouteName },
                     onOpenChats = { accountId -> chooseAccount(accountId) }
                 )
-                AppRoute.SecondaryChats -> {
-                    val accountId = secondaryChatsAccountId
-                    if (accountId != null) SecondaryChatsScreen(
-                        accountId = accountId,
-                        coordinator = secondaryAccountController.coordinator,
-                        onBack = { routeName = AppRoute.SecondaryAccounts.name },
-                        onSwitchAccount = { routeName = AppRoute.AccountPicker.name }
-                    ) else LaunchedEffect(Unit) {
-                        routeName = AppRoute.SecondaryAccounts.name
-                    }
+                AppRoute.SecondaryChats -> LaunchedEffect(selectedAccountId) {
+                    // Old saved navigation state from experimental builds.
+                    // Resolve it through the common full repository instead.
+                    routeName = AppRoute.Chats.name
                 }
                 AppRoute.Sessions -> ActiveSessionsScreen(
                     onBack = { routeName = AppRoute.Settings.name },
