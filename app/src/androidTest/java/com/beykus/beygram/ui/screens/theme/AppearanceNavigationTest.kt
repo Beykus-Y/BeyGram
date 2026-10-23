@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.beykus.beygram.R
@@ -45,15 +46,17 @@ class AppearanceNavigationTest {
         }
 
         composeRule.onNodeWithText(context.getString(R.string.appearance_messages_title))
+            .performScrollTo()
             .assertIsDisplayed()
             .performClick()
         composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square))
+            .performScrollTo()
             .performClick()
         composeRule.onNodeWithContentDescription(context.getString(R.string.theme_editor_undo))
             .performClick()
         composeRule.runOnIdle { assertEquals(BubbleStyle.Rounded, draft.bubbleStyle) }
 
-        composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).performScrollTo().performClick()
         composeRule.onNodeWithText(context.getString(R.string.theme_apply)).assertIsEnabled()
         composeRule.onNodeWithText(context.getString(R.string.theme_apply)).performClick()
         composeRule.runOnIdle {
@@ -81,8 +84,8 @@ class AppearanceNavigationTest {
             }
         }
 
-        composeRule.onNodeWithText(context.getString(R.string.appearance_messages_title)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(R.string.appearance_messages_title)).performScrollTo().performClick()
+        composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).performScrollTo().assertIsDisplayed()
         composeRule.runOnUiThread { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
         composeRule.onNodeWithText(context.getString(R.string.theme_title)).assertIsDisplayed()
     }
@@ -102,8 +105,8 @@ class AppearanceNavigationTest {
             }
         }
 
-        composeRule.onNodeWithText(context.getString(R.string.appearance_messages_title)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.appearance_messages_title)).performScrollTo().performClick()
+        composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).performScrollTo().performClick()
         composeRule.runOnUiThread { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
         composeRule.onNodeWithText(context.getString(R.string.theme_title)).assertIsDisplayed()
         composeRule.runOnUiThread { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
@@ -129,13 +132,13 @@ class AppearanceNavigationTest {
             }
         }
 
-        composeRule.onNodeWithText(context.getString(R.string.appearance_messages_title)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.appearance_messages_title)).performScrollTo().performClick()
+        composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).performScrollTo().performClick()
         composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).assertIsSelected()
 
         restoration.emulateSavedInstanceStateRestore()
 
         composeRule.onNodeWithText(context.getString(R.string.appearance_messages_title)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).assertIsSelected()
+        composeRule.onNodeWithText(context.getString(R.string.theme_editor_shape_square)).performScrollTo().assertIsSelected()
     }
 }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
@@ -38,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -346,28 +348,55 @@ internal fun AppearanceApplyBar(
     onApply: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val compact = LocalConfiguration.current.screenHeightDp < 500
+    val statusText = stringResource(
+        when {
+            blockedByContrast -> R.string.appearance_apply_blocked
+            hasChanges -> R.string.appearance_apply_hint
+            else -> R.string.appearance_applied
+        }
+    )
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         HorizontalDivider(color = palette.divider)
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                stringResource(
-                    when {
-                        blockedByContrast -> R.string.appearance_apply_blocked
-                        hasChanges -> R.string.appearance_apply_hint
-                        else -> R.string.appearance_applied
-                    }
-                ),
-                color = if (blockedByContrast) palette.danger else palette.textSecondary,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
-            )
-            Button(
-                onClick = onApply,
-                enabled = canApply,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
-                shape = RoundedCornerShape(16.dp)
+        if (compact) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(stringResource(R.string.theme_apply), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    statusText,
+                    color = if (blockedByContrast) palette.danger else palette.textSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 2,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = onApply,
+                    enabled = canApply,
+                    modifier = Modifier.widthIn(min = 132.dp).heightIn(min = 44.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(stringResource(R.string.theme_apply), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        } else {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    statusText,
+                    color = if (blockedByContrast) palette.danger else palette.textSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+                Button(
+                    onClick = onApply,
+                    enabled = canApply,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(stringResource(R.string.theme_apply), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }

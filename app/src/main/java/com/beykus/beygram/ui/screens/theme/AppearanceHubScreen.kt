@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -48,6 +49,7 @@ internal fun AppearanceOverviewPage(
     onOpenPreview: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val compactHeight = LocalConfiguration.current.screenHeightDp < 500
     val tokens = resolveTokens(draft, systemDark)
     val effectivePreset = draft.preset.takeUnless { it == ThemePreset.MaterialYou && !SystemColorsAvailable } ?: ThemePreset.Warm
     val themeSummary = stringResource(
@@ -93,21 +95,23 @@ internal fun AppearanceOverviewPage(
             }
         }
         val previewDescription = stringResource(R.string.appearance_preview_open_description)
-        Box(
-            Modifier.fillMaxWidth().clip(AppearanceDimens.cardShape)
-                .border(1.dp, palette.divider, AppearanceDimens.cardShape)
-                .clickable(role = Role.Button, onClick = onOpenPreview)
-                .semantics { contentDescription = previewDescription }
-        ) {
-            AppearanceChatPreview(
-                config = draft,
-                compact = true,
-                animate = false,
-                replayKey = 0,
-                systemDark = systemDark,
-                showComposer = false,
-                modifier = Modifier.fillMaxWidth()
-            )
+        if (!compactHeight) {
+            Box(
+                Modifier.fillMaxWidth().clip(AppearanceDimens.cardShape)
+                    .border(1.dp, palette.divider, AppearanceDimens.cardShape)
+                    .clickable(role = Role.Button, onClick = onOpenPreview)
+                    .semantics { contentDescription = previewDescription }
+            ) {
+                AppearanceChatPreview(
+                    config = draft,
+                    compact = true,
+                    animate = false,
+                    replayKey = 0,
+                    systemDark = systemDark,
+                    showComposer = false,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
 
         AppearanceSectionLabel(stringResource(R.string.appearance_section_navigation))

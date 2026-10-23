@@ -11,11 +11,14 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Undo
@@ -32,9 +35,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.ChatWallpaper
@@ -193,54 +198,61 @@ fun ThemeSettingsScreen(
             },
             label = "appearancePage"
         ) { target ->
-            when (target) {
-                AppearancePage.Overview -> AppearanceOverviewPage(
-                    draft = draft,
-                    systemDark = systemDark,
-                    onOpenPage = ::openPage,
-                    onOpenPreview = { openPage(AppearancePage.Preview) }
-                )
-                AppearancePage.Colors -> AppearanceColorsPage(
-                    draft = draft,
-                    systemDark = systemDark,
-                    onDraftChange = ::changeDraft,
-                    onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
-                    onOpenPreview = { openPage(AppearancePage.Preview) },
-                    onResetAll = { confirmResetAll = true }
-                )
-                AppearancePage.Messages -> AppearanceMessagesPage(
-                    draft = draft,
-                    systemDark = systemDark,
-                    onDraftChange = ::changeDraft,
-                    onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
-                    onOpenPreview = { openPage(AppearancePage.Preview) }
-                )
-                AppearancePage.Animations -> AppearanceAnimationsPage(
-                    draft = draft,
-                    systemDark = systemDark,
-                    onDraftChange = ::changeDraft,
-                    onOpenPreview = { openPage(AppearancePage.Preview) }
-                )
-                AppearancePage.Wallpapers -> AppearanceWallpapersPage(
-                    draft = draft,
-                    systemDark = systemDark,
-                    onDraftChange = ::changeDraft,
-                    onOpenPreview = { openPage(AppearancePage.Preview) }
-                )
-                AppearancePage.CustomColors -> AppearanceCustomColorsPage(
-                    draft = draft,
-                    systemDark = systemDark,
-                    issues = issues,
-                    onDraftChange = ::changeDraft,
-                    onOpenPreview = { openPage(AppearancePage.Preview) }
-                )
-                AppearancePage.Preview -> AppearanceFullPreviewPage(
-                    config = draft,
-                    systemDark = systemDark,
-                    replayKey = replayKey,
-                    onReplay = { replayKey++ },
-                    modifier = Modifier.fillMaxSize()
-                )
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                Box(
+                    if (target == AppearancePage.Preview) Modifier.fillMaxSize()
+                    else Modifier.widthIn(max = 720.dp).fillMaxHeight()
+                ) {
+                    when (target) {
+                        AppearancePage.Overview -> AppearanceOverviewPage(
+                            draft = draft,
+                            systemDark = systemDark,
+                            onOpenPage = ::openPage,
+                            onOpenPreview = { openPage(AppearancePage.Preview) }
+                        )
+                        AppearancePage.Colors -> AppearanceColorsPage(
+                            draft = draft,
+                            systemDark = systemDark,
+                            onDraftChange = ::changeDraft,
+                            onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
+                            onOpenPreview = { openPage(AppearancePage.Preview) },
+                            onResetAll = { confirmResetAll = true }
+                        )
+                        AppearancePage.Messages -> AppearanceMessagesPage(
+                            draft = draft,
+                            systemDark = systemDark,
+                            onDraftChange = ::changeDraft,
+                            onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
+                            onOpenPreview = { openPage(AppearancePage.Preview) }
+                        )
+                        AppearancePage.Animations -> AppearanceAnimationsPage(
+                            draft = draft,
+                            systemDark = systemDark,
+                            onDraftChange = ::changeDraft,
+                            onOpenPreview = { openPage(AppearancePage.Preview) }
+                        )
+                        AppearancePage.Wallpapers -> AppearanceWallpapersPage(
+                            draft = draft,
+                            systemDark = systemDark,
+                            onDraftChange = ::changeDraft,
+                            onOpenPreview = { openPage(AppearancePage.Preview) }
+                        )
+                        AppearancePage.CustomColors -> AppearanceCustomColorsPage(
+                            draft = draft,
+                            systemDark = systemDark,
+                            issues = issues,
+                            onDraftChange = ::changeDraft,
+                            onOpenPreview = { openPage(AppearancePage.Preview) }
+                        )
+                        AppearancePage.Preview -> AppearanceFullPreviewPage(
+                            config = draft,
+                            systemDark = systemDark,
+                            replayKey = replayKey,
+                            onReplay = { replayKey++ },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
             }
         }
         if (page != AppearancePage.Preview) {

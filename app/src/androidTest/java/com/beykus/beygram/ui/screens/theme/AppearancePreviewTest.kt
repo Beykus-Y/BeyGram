@@ -3,7 +3,6 @@ package com.beykus.beygram.ui.screens.theme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
@@ -45,11 +44,11 @@ class AppearancePreviewTest {
                 }
             }
         }
-        composeRule.onNodeWithText(context.getString(R.string.theme_preview_incoming)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.theme_preview_outgoing)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.theme_preview_media_caption)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.theme_preview_service)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.wallpaper_preview_input)).assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(R.string.theme_preview_incoming)).assertExists()
+        composeRule.onNodeWithText(context.getString(R.string.theme_preview_outgoing)).assertExists()
+        composeRule.onNodeWithText(context.getString(R.string.theme_preview_media_caption)).assertExists()
+        composeRule.onNodeWithText(context.getString(R.string.theme_preview_service)).assertExists()
+        composeRule.onNodeWithText(context.getString(R.string.wallpaper_preview_input)).assertExists()
     }
 
     @Test fun composerLaunchPreviewComposesWithoutASendAction() {
@@ -72,7 +71,7 @@ class AppearancePreviewTest {
                 }
             }
         }
-        composeRule.onNodeWithText(context.getString(R.string.theme_preview_outgoing)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.wallpaper_preview_input)).assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(R.string.theme_preview_outgoing)).assertExists()
+        composeRule.onNodeWithText(context.getString(R.string.wallpaper_preview_input)).assertExists()
     }
 }

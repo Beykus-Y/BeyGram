@@ -76,6 +76,11 @@ not horizontal scroll rows. Sliders have a circular thumb and no tick dots.
 | --- | --- |
 | ![Custom colours](appearance-redesign/08-custom-colours-dark.jpg) | ![Full preview](appearance-redesign/09-full-preview-dark.jpg) |
 
+In landscape the overview keeps the Preview/Open row but drops the inline chat fragment so the section list remains
+reachable; the Apply bar becomes one compact row.
+
+![Overview in landscape](appearance-redesign/12-overview-landscape.jpg)
+
 The screenshots come from a debug-only visual harness (`AppearancePreviewHarnessActivity`) on an Android 15
 emulator at 1080×2400, with no account or TDLib data. The harness exists only in the debug source set.
 
