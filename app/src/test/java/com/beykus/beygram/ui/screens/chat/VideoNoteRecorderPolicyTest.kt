@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.data.media.VideoNoteSourceQuality
 import com.beykus.beygram.ui.screens.chat.VideoTakeOutcome.Discarded
 import com.beykus.beygram.ui.screens.chat.VideoTakeOutcome.SaveFailed
 import com.beykus.beygram.ui.screens.chat.VideoTakeOutcome.Send
@@ -10,6 +11,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoNoteRecorderPolicyTest {
+    @Test fun hdAt30PrefersFourThreeToReduceSquareCrop() {
+        assertTrue(videoNotePreferFourThreeCapture(VideoNoteSourceQuality.HD, 30..30))
+        assertTrue(videoNotePreferFourThreeCapture(VideoNoteSourceQuality.HD, 15..30))
+    }
+
+    @Test fun hdAt60MustRetainKnownCameraXFrameRateCombination() {
+        assertFalse(videoNotePreferFourThreeCapture(VideoNoteSourceQuality.HD, 30..60))
+        assertFalse(videoNotePreferFourThreeCapture(VideoNoteSourceQuality.HD, 55..60))
+        assertFalse(videoNotePreferFourThreeCapture(VideoNoteSourceQuality.HD, 24..50))
+    }
+
+    @Test fun sdAndUnknownFpsKeepOriginalCameraXAspect() {
+        assertFalse(videoNotePreferFourThreeCapture(VideoNoteSourceQuality.SD, 30..30))
+        assertFalse(videoNotePreferFourThreeCapture(VideoNoteSourceQuality.SD, 30..60))
+        assertFalse(videoNotePreferFourThreeCapture(VideoNoteSourceQuality.HD, null))
+    }
+
     @Test fun missingZoomStateStillSendsNative1xRequest() {
         assertEquals(1f, videoNoteZoomTarget(1f, null, null), 0f)
         assertEquals(2f, videoNoteZoomTarget(2f, null, null), 0f)
