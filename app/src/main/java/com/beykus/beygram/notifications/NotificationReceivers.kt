@@ -36,11 +36,25 @@ class NotificationReplyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != NotificationIntents.REPLY) return
         // The session that made the action. An action from a session that has signed out since is ignored.
-        val session = NotificationIntents.replySession(context, intent) ?: return
+        val accountId = NotificationIntents.replyAccount(intent) ?: return
+        val session = if (accountId == "legacy") NotificationIntents.replySession(context, intent)
+            else NotificationIntents.replySessionForAccount(context, intent, accountId)
+            ?: return
         val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(NotificationIntents.REPLY_TEXT)?.toString() ?: ""
         // The send may outlive this broadcast; the runtime finishes it within the receiver's time limit.
         val pending = goAsync()
-        NotificationRuntime.get(context).reply(
+        val runtime = NotificationRuntime.get(context)
+        if (accountId != "legacy") {
+            runtime.replySecondary(accountId,
+                chatId = intent.getLongExtra(NotificationIntents.CHAT_ID, 0L),
+                groupId = intent.getIntExtra(NotificationIntents.GROUP_ID, 0),
+                maxId = intent.getIntExtra(NotificationIntents.MAX_ID, 0),
+                replyToMessageId = intent.getLongExtra(NotificationIntents.REPLY_TO, 0L),
+                topicId = intent.getLongExtra(NotificationIntents.TOPIC, 0L),
+                text = text, session = session, finished = { pending.finish() })
+            return
+        }
+        runtime.reply(
             chatId = intent.getLongExtra(NotificationIntents.CHAT_ID, 0L),
             groupId = intent.getIntExtra(NotificationIntents.GROUP_ID, 0),
             maxId = intent.getIntExtra(NotificationIntents.MAX_ID, 0),
