@@ -91,8 +91,7 @@ internal fun shouldHideComposerDraft(
     draft: String,
     activeLaunchKey: Long?,
     launch: ComposerLaunch?
-): Boolean = !editing && draft.isNotBlank() && launch != null && launch.key == activeLaunchKey &&
-    launch.awaitingSend && launch.text == draft
+): Boolean = !editing && draft.isNotBlank() && launch != null && launch.key == activeLaunchKey && launch.awaitingSend
 
 /** Follows a temporary message id through a bounded chain of send confirmations. */
 internal fun resolveMessageIdThroughReplacements(id: Long, replacements: List<MessageIdReplacement>): Long {

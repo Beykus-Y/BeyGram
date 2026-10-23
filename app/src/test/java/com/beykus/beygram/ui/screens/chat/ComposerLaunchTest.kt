@@ -182,6 +182,13 @@ class ComposerLaunchTest {
         assertFalse(shouldHideComposerDraft(false, "OK", activeLaunchKey = 2L, launch = first))
         assertTrue(shouldHideComposerDraft(false, "OK", activeLaunchKey = 2L, launch = second))
         assertFalse(shouldHideComposerDraft(true, "OK", activeLaunchKey = 2L, launch = second))
-        assertFalse(shouldHideComposerDraft(false, "later", activeLaunchKey = 2L, launch = second))
+    }
+
+    @Test fun anOverLimitDraftIsHiddenByItsBoundedSendAttempt() {
+        val raw = "abcdefghijklmnopqrst"
+        val bounded = composerLaunchPayload(raw, emptyList(), 10)
+        val attempt = launch(key = 7L, text = bounded.text, awaitingSend = true)
+        // The launch records the bounded text, while the composer still holds the raw draft; the attempt key ties them.
+        assertTrue(shouldHideComposerDraft(false, raw, activeLaunchKey = 7L, launch = attempt))
     }
 }
