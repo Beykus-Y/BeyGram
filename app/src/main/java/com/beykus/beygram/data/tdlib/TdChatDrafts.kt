@@ -262,6 +262,9 @@ internal class TdChatDrafts(
         }
     }
 
+    /** Close cancels pending writes without clearing a still-authorized draft. */
+    fun dispose() { scope.coroutineContext[kotlinx.coroutines.Job]?.cancel() }
+
     /** Only a real logout removes the local single-account cache; a process restart never does. */
     fun signedOut() {
         synchronized(guard) {
