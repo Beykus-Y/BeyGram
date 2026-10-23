@@ -31,21 +31,33 @@ internal class TelegramNetworkMonitor(
     private val manager = context.getSystemService(ConnectivityManager::class.java)
     private var lastRoute: String? = null
     private var probeJob: kotlinx.coroutines.Job? = null
+    @Volatile private var started = false
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = refresh()
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = refresh()
         override fun onLost(network: Network) = refresh()
     }
 
-    fun start() {
+    @Synchronized fun start() {
+        if (started) return
         manager.registerDefaultNetworkCallback(callback)
+        started = true
         refresh()
+    }
+
+    @Synchronized fun stop() {
+        if (!started) return
+        started = false
+        manager.unregisterNetworkCallback(callback)
+        probeJob?.cancel()
+        probeJob = null
     }
 
     fun reconnect() = refresh(force = true)
 
     @Synchronized
     private fun refresh(force: Boolean = false) {
+        if (!started) return
         val network = manager.activeNetwork
         val capabilities = network?.let(manager::getNetworkCapabilities)
         val internet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
