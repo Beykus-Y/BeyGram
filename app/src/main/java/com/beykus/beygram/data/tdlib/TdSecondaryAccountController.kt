@@ -165,7 +165,7 @@ internal class TdSecondaryAccountController private constructor(
                 notificationPreferencesName(accountId),
                 "pending_group_creation_$accountId",
                 "mihomo_tdlib_proxy_$accountId"
-            ).forEach(app::deleteSharedPreferences)
+            ).forEach { prefName -> app.deleteSharedPreferences(prefName) }
         }
     }
 
