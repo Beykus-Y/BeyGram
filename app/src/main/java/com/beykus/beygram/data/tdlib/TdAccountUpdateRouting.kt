@@ -39,7 +39,8 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
 
     inner class Registration internal constructor(
         val accountId: String,
-        val generation: Long
+        val generation: Long,
+        private val onAfterClosed: () -> Unit
     ) {
         /** Install as this TDLib client's callback. Never route through a global active account. */
         val updateHandler = Client.ResultHandler { update ->
@@ -54,14 +55,24 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
         }
 
         /** Called only after TDLib AuthorizationStateClosed. Idempotent and generation-scoped. */
-        fun onNativeClosed() = synchronized(monitor) {
-            if (live[accountId]?.generation == generation) live.remove(accountId)
-            Unit
+        fun onNativeClosed() {
+            val owned = synchronized(monitor) {
+                if (live[accountId]?.generation == generation) {
+                    live.remove(accountId)
+                    true
+                } else false
+            }
+            // Native owner has already released the database lease during
+            // delivery; now the generation-scoped router is fully unregistered.
+            if (owned) onAfterClosed()
         }
     }
 
     /** Fails closed for unknown IDs; never creates DBs or starts a TDLib client itself. */
     fun register(accountId: String, onUpdate: (TdAccountRoutedUpdate) -> Unit): Registration =
+        register(accountId, {}, onUpdate)
+
+    fun register(accountId: String, onAfterClosed: () -> Unit, onUpdate: (TdAccountRoutedUpdate) -> Unit): Registration =
         synchronized(monitor) {
             require(accountId in registry.loadOrCreate().accountIds) {
                 "Cannot route events for an unregistered TDLib account"
@@ -69,7 +80,7 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
             check(accountId !in live) { "TDLib update listener is already registered for this account" }
             val generation = ++nextGeneration
             live[accountId] = Listener(generation, onUpdate)
-            Registration(accountId, generation)
+            Registration(accountId, generation, onAfterClosed)
         }
 
     private fun deliver(accountId: String, generation: Long, update: TdApi.Object) {
