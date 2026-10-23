@@ -51,15 +51,20 @@ class TdSecondarySessionCoordinatorTest {
             assertEquals(2, manager.snapshot.value.accounts.size)
             assertEquals("legacy", registry.loadOrCreate().activeAccountId)
             manager.connect(a, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
-            manager.connect(b, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            try {
+                manager.connect(b, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+                fail("Beta may not start a third native TDLib session")
+            } catch (_: IllegalStateException) { }
             manager.submitPhone(a, "+123456")
             manager.submitCode(a, "12345")
             assertEquals(TdAccountAuthPhase.READY, sessions[a]?.phase?.value)
-            assertEquals(TdAccountAuthPhase.WAIT_PHONE, sessions[b]?.phase?.value)
-            manager.disconnect(b)
-            assertTrue(sessions[b]!!.closed)
             assertFalse(sessions[a]!!.closed)
             assertTrue(manager.snapshot.value.accounts.any { it.accountId == a && it.connectedInThisProcess })
+            manager.disconnect(a)
+            assertTrue(sessions[a]!!.closed)
+            sessions[a]!!.phase.value = TdAccountAuthPhase.CLOSED
+            manager.connect(b, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            assertEquals(TdAccountAuthPhase.WAIT_PHONE, sessions[b]?.phase?.value)
             assertEquals(listOf("legacy", a, b), TdAccountRegistry(root).loadOrCreate().accountIds)
         } finally { job.cancel(); root.deleteRecursively() }
     }
@@ -117,14 +122,17 @@ class TdSecondarySessionCoordinatorTest {
             val sharedId = manager.reserveAccount()
             val directId = manager.reserveAccount()
             manager.connect(sharedId, TdSecondaryRoutePreference.SHARED_MIHOMO)
-            manager.connect(directId, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
             manager.reconcileShared { false }
             assertEquals(1, native[sharedId]!!.paused)
-            assertEquals(0, native[directId]!!.paused)
             manager.reconcileShared { preference ->
                 preference == TdSecondaryRoutePreference.SHARED_MIHOMO
             }
             assertEquals(1, native[sharedId]!!.resumed)
+            manager.disconnect(sharedId)
+            native[sharedId]!!.phase.value = TdAccountAuthPhase.CLOSED
+            manager.connect(directId, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            manager.reconcileShared { false }
+            assertEquals(0, native[directId]!!.paused)
             assertEquals(0, native[directId]!!.resumed)
         } finally { job.cancel(); root.deleteRecursively() }
     }
