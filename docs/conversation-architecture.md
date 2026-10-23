@@ -34,7 +34,11 @@ Native content/edit/delete updates patch visible history. In-flight history page
 
 `ChatHistory.liveArrivals` is a bounded, sequenced log of messages inserted by live updates. Only a newly inserted message is recorded: history pages, edits, delivery/read updates and the `replaces` server-ID confirmation are not arrivals. The chat screen's `MessageArrivalTracker` seeds the current sequence on its first snapshot, so opening a chat, returning to it or recreating the screen does not replay animations. Each row then claims its arrival once; pending claims and the log are bounded. This keeps animation tied to message life cycle rather than recomposition or list key changes.
 
-The sent and received presets, speed, intensity, offset and scale live in `AppearanceConfig.messageAnimations` and are stored with the rest of the appearance choice. The settings preview uses the same `MessageAnimationFrame` as the chat list and never sends Telegram messages. Compose's animation clock applies Android's animator duration scale.
+`AppearanceConfig.messageAnimations` stores a linked shared direction plus preserved independent sent/received directions. Linking uses the shared record without rewriting the individual ones; unlinking restores the last independent choices. `ComposerLaunch` is outgoing-only and maps to `Flow` for incoming messages. The versioned storage format accepts the original PR #348 value, so existing users keep their presets and tuning.
+
+The settings preview and the chat list share `MessageAnimationFrame`; animated card thumbnails are static, while the selected preset and the composer scenario animate on demand. Compose's animation clock applies Android's animator duration scale.
+
+Composer Launch is a spatial overlay, not a row entrance. The composer field and the real bubble report `boundsInWindow`; the real row is hidden while `ComposerLaunchLayer` interpolates a synthetic but content-identical bubble from the field center to the measured bubble bounds. `ChatHistory.recentReplacements` lets the launch follow the temporary-to-server ID confirmation. A send failure, a missing visible destination or a six-second safety limit cancels the overlay and reveals the row/field. The TDLib send is never awaited by the visual transition. Media sends keep their regular entrance until a safe spatial implementation exists.
 
 ## Extending privacy behavior
 

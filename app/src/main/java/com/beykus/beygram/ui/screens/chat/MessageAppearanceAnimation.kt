@@ -2,7 +2,9 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -14,11 +16,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationDirection
+import com.beykus.beygram.data.appearance.MessageAnimationEasing
+import com.beykus.beygram.data.appearance.MessageAnimationMotionDirection
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.data.appearance.validated
 import kotlin.math.roundToInt
@@ -27,24 +32,35 @@ import kotlin.math.roundToInt
 internal data class MessageAnimationPlan(
     val alphaFrom: Float,
     val scaleFrom: Float,
-    val offsetDp: Float,
+    val offsetXDp: Float,
+    val offsetYDp: Float,
+    val rotationYDegrees: Float = 0f,
+    val rotationZDegrees: Float = 0f,
     val durationMillis: Int,
+    val easing: MessageAnimationEasing = MessageAnimationEasing.Smooth,
     val springDampingRatio: Float? = null,
     val springStiffness: Float = 0f
 )
 
 private const val BASE_DURATION_MILLIS = 220
-private const val SPRING_DAMPING = 0.82f
+private const val POP_DURATION_MILLIS = 200
+private const val FLOW_DURATION_MILLIS = 280
+private const val DRIFT_DURATION_MILLIS = 320
+private const val QUICK_DURATION_MILLIS = 90
+private const val TILT_DURATION_MILLIS = 260
+private const val SWAY_DURATION_MILLIS = 240
 
 /**
- * Turns a preset into starting values. Sent messages move in from the right and received ones from the left; the
- * signed offset is applied only by slide and custom presets.
+ * Turns a preset into starting values. Sent and received entrances mirror each other unless the tuning overrides the
+ * direction. Offsets are applied through graphicsLayer, so no preset changes list heights.
  */
 internal fun messageAnimationPlan(direction: MessageAnimationDirection, outgoing: Boolean): MessageAnimationPlan? {
     if (direction.preset == MessageAnimationPreset.None) return null
     val tuning = direction.tuning.validated()
     val intensity = tuning.intensity
-    val signedOffset = tuning.offsetDp.toFloat() * intensity * if (outgoing) 1f else -1f
+    val horizontal = horizontalSign(outgoing, tuning.motionDirection)
+    val vertical = verticalSign(tuning.motionDirection)
+    val signedOffset = tuning.offsetDp.toFloat() * intensity
     val scaleFrom = (1f - (1f - tuning.scale) * intensity).coerceIn(0.5f, 1f)
     val duration = (BASE_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(80, 600)
     return when (direction.preset) {
@@ -52,28 +68,91 @@ internal fun messageAnimationPlan(direction: MessageAnimationDirection, outgoing
         MessageAnimationPreset.Fade -> MessageAnimationPlan(
             alphaFrom = (1f - 0.9f * intensity).coerceIn(0f, 1f),
             scaleFrom = scaleFrom,
-            offsetDp = 0f,
-            durationMillis = duration
+            offsetXDp = 0f,
+            offsetYDp = 0f,
+            durationMillis = duration,
+            easing = tuning.easing
         )
         MessageAnimationPreset.Slide -> MessageAnimationPlan(
             alphaFrom = (1f - 0.35f * intensity).coerceIn(0f, 1f),
             scaleFrom = 1f,
-            offsetDp = signedOffset,
-            durationMillis = duration
+            offsetXDp = if (vertical != 0f) 0f else horizontal * signedOffset,
+            offsetYDp = if (vertical != 0f) vertical * signedOffset else 0f,
+            durationMillis = duration,
+            easing = tuning.easing
         )
         MessageAnimationPreset.Spring -> MessageAnimationPlan(
             alphaFrom = (1f - 0.45f * intensity).coerceIn(0f, 1f),
             scaleFrom = scaleFrom,
-            offsetDp = 0f,
+            offsetXDp = 0f,
+            offsetYDp = 0f,
             durationMillis = duration,
-            springDampingRatio = SPRING_DAMPING,
+            springDampingRatio = springDamping(tuning.springiness),
             springStiffness = (420f * tuning.speed).coerceIn(180f, 900f)
+        )
+        MessageAnimationPreset.Pop -> MessageAnimationPlan(
+            alphaFrom = (1f - 0.35f * intensity).coerceIn(0f, 1f),
+            scaleFrom = (tuning.scale - 0.08f).coerceIn(0.72f, 0.98f),
+            offsetXDp = 0f,
+            offsetYDp = 0f,
+            durationMillis = (POP_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(80, 420),
+            springDampingRatio = (0.9f - 0.3f * tuning.springiness).coerceIn(0.58f, 0.9f),
+            springStiffness = (520f * tuning.speed).coerceIn(220f, 980f)
+        )
+        MessageAnimationPreset.Flow -> MessageAnimationPlan(
+            alphaFrom = (1f - 0.5f * intensity).coerceIn(0f, 1f),
+            scaleFrom = (scaleFrom * 0.985f).coerceIn(0.5f, 1f),
+            offsetXDp = if (vertical != 0f) 0f else horizontal * signedOffset,
+            offsetYDp = if (vertical != 0f) vertical * signedOffset * 0.75f else -minOf(6f, signedOffset * 0.35f),
+            durationMillis = (FLOW_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(100, 620),
+            easing = tuning.easing
+        )
+        MessageAnimationPreset.Drift -> MessageAnimationPlan(
+            alphaFrom = (1f - 0.45f * intensity).coerceIn(0f, 1f),
+            scaleFrom = (scaleFrom * 0.97f).coerceIn(0.5f, 1f),
+            offsetXDp = if (vertical != 0f) 0f else horizontal * signedOffset * 1.3f,
+            offsetYDp = if (vertical != 0f) vertical * signedOffset * 1.3f else -signedOffset * 0.85f,
+            durationMillis = (DRIFT_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(120, 700),
+            easing = MessageAnimationEasing.EaseOut
+        )
+        MessageAnimationPreset.Quick -> MessageAnimationPlan(
+            alphaFrom = (1f - 0.18f * intensity).coerceIn(0f, 1f),
+            scaleFrom = (1f - 0.015f * intensity).coerceIn(0.96f, 1f),
+            offsetXDp = horizontal * 2f * intensity,
+            offsetYDp = 0f,
+            durationMillis = (QUICK_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(60, 160),
+            easing = MessageAnimationEasing.Smooth
+        )
+        MessageAnimationPreset.Tilt -> MessageAnimationPlan(
+            alphaFrom = (1f - 0.55f * intensity).coerceIn(0f, 1f),
+            scaleFrom = scaleFrom,
+            offsetXDp = 0f,
+            offsetYDp = -2f * intensity,
+            rotationYDegrees = horizontal * 8f * intensity,
+            durationMillis = (TILT_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(100, 620),
+            easing = tuning.easing
+        )
+        MessageAnimationPreset.Sway -> MessageAnimationPlan(
+            alphaFrom = (1f - 0.45f * intensity).coerceIn(0f, 1f),
+            scaleFrom = scaleFrom,
+            offsetXDp = horizontal * 3f * intensity,
+            offsetYDp = 0f,
+            rotationZDegrees = horizontal * 2.4f * intensity,
+            durationMillis = (SWAY_DURATION_MILLIS / tuning.speed).roundToInt().coerceIn(100, 620),
+            easing = tuning.easing
+        )
+        // The row itself is hidden while the spatial composer transition runs. If the transition is unavailable,
+        // the same row falls back to BeyGram Flow instead of appearing without an effect.
+        MessageAnimationPreset.ComposerLaunch -> messageAnimationPlan(
+            direction.copy(preset = MessageAnimationPreset.Flow), outgoing
         )
         MessageAnimationPreset.Custom -> MessageAnimationPlan(
             alphaFrom = (1f - 0.9f * intensity).coerceIn(0f, 1f),
             scaleFrom = scaleFrom,
-            offsetDp = signedOffset,
-            durationMillis = duration
+            offsetXDp = if (vertical != 0f) 0f else horizontal * signedOffset,
+            offsetYDp = if (vertical != 0f) vertical * signedOffset else 0f,
+            durationMillis = duration,
+            easing = tuning.easing
         )
     }
 }
@@ -82,9 +161,34 @@ internal fun messageAnimationPlan(direction: MessageAnimationDirection, outgoing
 internal fun messageAnimationPlan(config: MessageAnimationConfig, animate: Boolean, outgoing: Boolean): MessageAnimationPlan? =
     if (!config.enabled || !animate) null else messageAnimationPlan(config.direction(outgoing), outgoing)
 
+private fun horizontalSign(outgoing: Boolean, direction: MessageAnimationMotionDirection): Float = when (direction) {
+    MessageAnimationMotionDirection.Auto -> if (outgoing) 1f else -1f
+    MessageAnimationMotionDirection.FromEnd -> 1f
+    MessageAnimationMotionDirection.FromStart -> -1f
+    MessageAnimationMotionDirection.FromTop, MessageAnimationMotionDirection.FromBottom -> 0f
+}
+
+private fun verticalSign(direction: MessageAnimationMotionDirection): Float = when (direction) {
+    MessageAnimationMotionDirection.FromTop -> -1f
+    MessageAnimationMotionDirection.FromBottom -> 1f
+    else -> 0f
+}
+
+/** Matches the damping of the original PR #348 spring at the default springiness (0.4 -> 0.82). */
+internal fun springDamping(springiness: Float): Float =
+    (1f - 0.45f * springiness).coerceIn(0.55f, 1f)
+
 private fun MessageAnimationPlan.spec(): AnimationSpec<Float> =
     if (springDampingRatio != null) spring(dampingRatio = springDampingRatio, stiffness = springStiffness)
-    else tween(durationMillis = durationMillis, easing = FastOutSlowInEasing)
+    else tween(durationMillis = durationMillis, easing = easing.toComposeEasing())
+
+private fun MessageAnimationEasing.toComposeEasing() = when (this) {
+    MessageAnimationEasing.Smooth -> FastOutSlowInEasing
+    MessageAnimationEasing.Linear -> LinearEasing
+    MessageAnimationEasing.EaseIn -> CubicBezierEasing(0.42f, 0f, 1f, 1f)
+    MessageAnimationEasing.EaseOut -> CubicBezierEasing(0f, 0f, 0.2f, 1f)
+    MessageAnimationEasing.Expressive -> CubicBezierEasing(0.18f, 0.9f, 0.2f, 1f)
+}
 
 /**
  * Plays the entrance for one already-present list row. [animate] is a one-shot claim from [MessageArrivalTracker]:
@@ -117,7 +221,12 @@ internal fun MessageAnimationFrame(
             val scale = plan.scaleFrom + (1f - plan.scaleFrom) * p
             scaleX = scale
             scaleY = scale
-            translationX = with(density) { (plan.offsetDp * (1f - clamped)).dp.toPx() }
+            translationX = with(density) { (plan.offsetXDp * (1f - clamped)).dp.toPx() }
+            translationY = with(density) { (plan.offsetYDp * (1f - clamped)).dp.toPx() }
+            rotationY = plan.rotationYDegrees * (1f - clamped)
+            rotationZ = plan.rotationZDegrees * (1f - clamped)
+            cameraDistance = 12f * density.density
+            transformOrigin = TransformOrigin.Center
         }
     } else Modifier
     Box(modifier.fillMaxWidth().then(animated)) { content() }

@@ -4,6 +4,7 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.LiveMessageArrival
+import com.beykus.beygram.domain.model.MessageIdReplacement
 import com.beykus.beygram.domain.model.MessageSendState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,10 +59,14 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         // A confirmed send replaces the temporary bubble the user already saw, so the server id is not a new arrival.
         val arrival = if (inserted && !replacedWasVisible) LiveMessageArrival(++liveArrivalSequence, message.id) else null
         val arrivals = if (arrival == null) history.liveArrivals else (history.liveArrivals + arrival).takeLast(MAX_LIVE_ARRIVALS)
+        val replacements = if (replaces != null && replaces != message.id) {
+            (history.recentReplacements + MessageIdReplacement(replaces, message.id)).takeLast(MAX_ID_REPLACEMENTS)
+        } else history.recentReplacements
         state.value = history.copy(
             messages = merge(message.chatId, history.messages, listOf(message)),
             liveArrivals = arrivals,
-            liveArrivalSequence = arrival?.sequence ?: history.liveArrivalSequence
+            liveArrivalSequence = arrival?.sequence ?: history.liveArrivalSequence,
+            recentReplacements = replacements
         )
         keepCached(message.chatId)
     }
@@ -210,5 +215,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         const val MAX_RETIRED_IDS_PER_CHAT = 256
         /** Enough to cover a burst of messages delivered while the chat is composing, without growing without bound. */
         const val MAX_LIVE_ARRIVALS = 64
+        /** Composer Launch follows an id across its temporary-to-server confirmation. */
+        const val MAX_ID_REPLACEMENTS = 64
     }
 }
