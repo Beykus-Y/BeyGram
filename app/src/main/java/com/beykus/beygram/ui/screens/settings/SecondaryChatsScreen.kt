@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.Button
@@ -41,7 +42,9 @@ import com.beykus.beygram.data.tdlib.TdSecondaryAuthSession
 import com.beykus.beygram.data.tdlib.TdSecondarySessionCoordinator
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * An account-scoped preview rather than the legacy ChatsScreen:
@@ -96,10 +99,23 @@ internal fun SecondaryChatsScreen(
         if (chat.accountId != accountId || !available) return
         selectedChat = chat
         error = false
-        scope.launch {
-            try { coordinator.chatSession(accountId).loadHistory(chat) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { error = true }
+    }
+
+    // Pair native OpenChat and CloseChat even if the user navigates back,
+    // changes the selected chat or the screen disappears. Otherwise TDLib
+    // stops sending complete channel/supergroup updates.
+    LaunchedEffect(accountId, selectedChat, client, available) {
+        val opened = client ?: return@LaunchedEffect
+        val chat = selectedChat ?: return@LaunchedEffect
+        if (!available) return@LaunchedEffect
+        try {
+            opened.loadHistory(chat)
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { error = true }
+        finally {
+            withContext(NonCancellable) {
+                try { opened.closeHistory(chat) } catch (_: Exception) { }
+            }
         }
     }
 
@@ -156,7 +172,9 @@ internal fun SecondaryChatsScreen(
                             if (chat.unreadCount > 0) Text(chat.unreadCount.toString(),
                                 color = palette.accent)
                         }
-                        if (chat.preview.isNotBlank()) Text(chat.preview,
+                        val preview = if (chat.previewIsMedia)
+                            stringResource(R.string.secondary_chats_media_message) else chat.preview
+                        if (preview.isNotBlank()) Text(preview,
                             color = palette.textSecondary, maxLines = 2, fontSize = 13.sp)
                     }
                 }
@@ -164,16 +182,24 @@ internal fun SecondaryChatsScreen(
         } else {
             val chat = selectedChat!!
             val messages = histories[chat].orEmpty()
+            val listState = rememberLazyListState()
+            LaunchedEffect(chat, messages.size) {
+                if (messages.isNotEmpty()) listState.scrollToItem(messages.lastIndex)
+            }
             if (messages.isEmpty()) {
                 Text(stringResource(R.string.secondary_chats_history_empty),
                     color = palette.textSecondary, modifier = Modifier.padding(20.dp))
             }
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize(), state = listState) {
                 items(messages, key = { it.key.messageId }) { message ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
                         horizontalArrangement = if (message.outgoing)
                             Arrangement.End else Arrangement.Start) {
-                        Text(message.text,
+                        Text(if (message.isMedia)
+                                stringResource(R.string.secondary_chats_media_message)
+                            else message.text.ifBlank {
+                                stringResource(R.string.secondary_chats_empty_message)
+                            },
                             color = palette.textPrimary, fontSize = 15.sp,
                             modifier = Modifier.fillMaxWidth(0.85f)
                                 .background(palette.surface)
