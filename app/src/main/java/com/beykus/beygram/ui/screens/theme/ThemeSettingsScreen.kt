@@ -1,6 +1,5 @@
 package com.beykus.beygram.ui.screens.theme
 
-import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -26,10 +25,10 @@ import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -77,7 +76,8 @@ fun ThemeSettingsScreen(
     draft: AppearanceConfig,
     onDraftChange: (AppearanceConfig) -> Unit,
     onSave: (AppearanceConfig) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    manageWallpaperFiles: Boolean = true
 ) {
     val palette = beyGramPalette()
     val systemDark = isSystemInDarkTheme()
@@ -103,31 +103,28 @@ fun ThemeSettingsScreen(
     val retainedAppliedPhotos = remember { mutableSetOf<String>() }
     var finishing by remember { mutableStateOf(false) }
     val history = remember { DraftHistory<AppearanceConfig>() }
-    var continuousBurstAt by remember { mutableLongStateOf(0L) }
+    val undoCoalescer = remember { AppearanceDraftUndoCoalescer() }
     val currentDraft by rememberUpdatedState(draft)
     val currentSaved by rememberUpdatedState(saved)
     val currentOnBack by rememberUpdatedState(onBack)
 
-    // Slider values arrive in bursts; only those continuous updates are coalesced. Every discrete style, density,
-    // palette, toggle or preset edit gets its own Undo step even when it happens milliseconds after the previous one.
+    // A slider gesture gets exactly one checkpoint at its first value. A discrete edit always checkpoints, even when
+    // it happens milliseconds after the previous selection or toggle.
     fun changeDraft(next: AppearanceConfig) {
         if (next == draft) return
-        val now = SystemClock.uptimeMillis()
-        if (isContinuousAppearanceChange(draft, next)) {
-            if (continuousBurstAt == 0L || now - continuousBurstAt > 600L) {
-                history.checkpoint(draft)
-            }
-            continuousBurstAt = now
-        } else {
+        if (undoCoalescer.shouldCheckpoint(isContinuousAppearanceChange(draft, next))) {
             history.checkpoint(draft)
-            continuousBurstAt = 0L
         }
         onDraftChange(next)
     }
 
+    fun finishContinuousGesture() {
+        undoCoalescer.endGesture()
+    }
+
     fun undoDraft() {
         val previous = history.undo() ?: return
-        continuousBurstAt = 0L
+        undoCoalescer.endGesture()
         onDraftChange(previous)
     }
 
@@ -140,6 +137,7 @@ fun ThemeSettingsScreen(
     }
 
     fun cleanupPhotos(includeDraft: Boolean) {
+        if (!manageWallpaperFiles) return
         val keep = photoKeepSet(includeDraft)
         scope.launch { runCatching { WallpaperFiles.deleteAllExcept(context, keep) } }
     }
@@ -147,6 +145,10 @@ fun ThemeSettingsScreen(
     fun finishAppearance() {
         if (finishing) return
         finishing = true
+        if (!manageWallpaperFiles) {
+            currentOnBack()
+            return
+        }
         val keep = photoKeepSet(includeDraft = false)
         scope.launch {
             runCatching { WallpaperFiles.deleteAllExcept(context, keep) }
@@ -187,6 +189,7 @@ fun ThemeSettingsScreen(
     // Clean up pictures left by an earlier visit once, but keep the restored draft's photo. Deleting on every
     // draft change would break Undo when it points back to a photo the user only tried.
     LaunchedEffect(Unit) {
+        if (!manageWallpaperFiles) return@LaunchedEffect
         WallpaperFiles.deleteAllExcept(
             context,
             setOfNotNull(
@@ -222,70 +225,72 @@ fun ThemeSettingsScreen(
                 }
             }
         }
-        AnimatedContent(
-            targetState = page,
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            transitionSpec = {
-                val forward = targetState.depth >= initialState.depth
-                val direction = if (forward) 1 else -1
-                (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { direction * it / 12 }) togetherWith
-                    (fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { -direction * it / 12 })
-            },
-            label = "appearancePage"
-        ) { target ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                Box(
-                    if (target == AppearancePage.Preview) Modifier.fillMaxSize()
-                    else Modifier.widthIn(max = 720.dp).fillMaxHeight()
-                ) {
-                    when (target) {
-                        AppearancePage.Overview -> AppearanceOverviewPage(
-                            draft = draft,
-                            systemDark = systemDark,
-                            onOpenPage = ::openPage,
-                            onOpenPreview = { openPage(AppearancePage.Preview) }
-                        )
-                        AppearancePage.Colors -> AppearanceColorsPage(
-                            draft = draft,
-                            systemDark = systemDark,
-                            onDraftChange = ::changeDraft,
-                            onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
-                            onOpenPreview = { openPage(AppearancePage.Preview) },
-                            onResetAll = { confirmResetAll = true }
-                        )
-                        AppearancePage.Messages -> AppearanceMessagesPage(
-                            draft = draft,
-                            systemDark = systemDark,
-                            onDraftChange = ::changeDraft,
-                            onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
-                            onOpenPreview = { openPage(AppearancePage.Preview) }
-                        )
-                        AppearancePage.Animations -> AppearanceAnimationsPage(
-                            draft = draft,
-                            systemDark = systemDark,
-                            onDraftChange = ::changeDraft,
-                            onOpenPreview = { openPage(AppearancePage.Preview) }
-                        )
-                        AppearancePage.Wallpapers -> AppearanceWallpapersPage(
-                            draft = draft,
-                            systemDark = systemDark,
-                            onDraftChange = ::changeDraft,
-                            onOpenPreview = { openPage(AppearancePage.Preview) }
-                        )
-                        AppearancePage.CustomColors -> AppearanceCustomColorsPage(
-                            draft = draft,
-                            systemDark = systemDark,
-                            issues = issues,
-                            onDraftChange = ::changeDraft,
-                            onOpenPreview = { openPage(AppearancePage.Preview) }
-                        )
-                        AppearancePage.Preview -> AppearanceFullPreviewPage(
-                            config = draft,
-                            systemDark = systemDark,
-                            replayKey = replayKey,
-                            onReplay = { replayKey++ },
-                            modifier = Modifier.fillMaxSize()
-                        )
+        CompositionLocalProvider(LocalAppearanceSliderGestureFinished provides ::finishContinuousGesture) {
+            AnimatedContent(
+                targetState = page,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                transitionSpec = {
+                    val forward = targetState.depth >= initialState.depth
+                    val direction = if (forward) 1 else -1
+                    (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { direction * it / 12 }) togetherWith
+                        (fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { -direction * it / 12 })
+                },
+                label = "appearancePage"
+            ) { target ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    Box(
+                        if (target == AppearancePage.Preview) Modifier.fillMaxSize()
+                        else Modifier.widthIn(max = 720.dp).fillMaxHeight()
+                    ) {
+                        when (target) {
+                            AppearancePage.Overview -> AppearanceOverviewPage(
+                                draft = draft,
+                                systemDark = systemDark,
+                                onOpenPage = ::openPage,
+                                onOpenPreview = { openPage(AppearancePage.Preview) }
+                            )
+                            AppearancePage.Colors -> AppearanceColorsPage(
+                                draft = draft,
+                                systemDark = systemDark,
+                                onDraftChange = ::changeDraft,
+                                onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
+                                onOpenPreview = { openPage(AppearancePage.Preview) },
+                                onResetAll = { confirmResetAll = true }
+                            )
+                            AppearancePage.Messages -> AppearanceMessagesPage(
+                                draft = draft,
+                                systemDark = systemDark,
+                                onDraftChange = ::changeDraft,
+                                onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
+                                onOpenPreview = { openPage(AppearancePage.Preview) }
+                            )
+                            AppearancePage.Animations -> AppearanceAnimationsPage(
+                                draft = draft,
+                                systemDark = systemDark,
+                                onDraftChange = ::changeDraft,
+                                onOpenPreview = { openPage(AppearancePage.Preview) }
+                            )
+                            AppearancePage.Wallpapers -> AppearanceWallpapersPage(
+                                draft = draft,
+                                systemDark = systemDark,
+                                onDraftChange = ::changeDraft,
+                                onOpenPreview = { openPage(AppearancePage.Preview) }
+                            )
+                            AppearancePage.CustomColors -> AppearanceCustomColorsPage(
+                                draft = draft,
+                                systemDark = systemDark,
+                                issues = issues,
+                                onDraftChange = ::changeDraft,
+                                onOpenPreview = { openPage(AppearancePage.Preview) }
+                            )
+                            AppearancePage.Preview -> AppearanceFullPreviewPage(
+                                config = draft,
+                                systemDark = systemDark,
+                                replayKey = replayKey,
+                                onReplay = { replayKey++ },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
             }
@@ -300,7 +305,7 @@ fun ThemeSettingsScreen(
                     cleanupPhotos(includeDraft = true)
                     onSave(draft)
                     history.clear()
-                    continuousBurstAt = 0L
+                    undoCoalescer.reset()
                 }
             )
         }

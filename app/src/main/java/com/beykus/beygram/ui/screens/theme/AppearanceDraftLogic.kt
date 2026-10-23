@@ -79,6 +79,33 @@ private fun wallpaperSliderOnly(previous: ChatWallpaper, next: ChatWallpaper): B
     else -> false
 }
 
+/**
+ * Decides when the shared draft history needs a checkpoint. A discrete edit always gets one. A slider gesture gets
+ * exactly one at its first value; [endGesture] is called when the slider reports `onValueChangeFinished`, so the next
+ * gesture (even on another slider or the same one) starts a new Undo step.
+ */
+internal class AppearanceDraftUndoCoalescer {
+    private var continuousGestureActive = false
+
+    fun shouldCheckpoint(continuous: Boolean): Boolean {
+        if (!continuous) {
+            continuousGestureActive = false
+            return true
+        }
+        if (continuousGestureActive) return false
+        continuousGestureActive = true
+        return true
+    }
+
+    fun endGesture() {
+        continuousGestureActive = false
+    }
+
+    fun reset() {
+        continuousGestureActive = false
+    }
+}
+
 /** Clears the optional colours that were chosen in the expert editor. */
 internal fun AppearanceConfig.resetCustomColors(): AppearanceConfig = copy(
     accentColor = null,

@@ -69,7 +69,10 @@ class AppearancePreviewHarnessActivity : ComponentActivity() {
                             draft = draft,
                             onDraftChange = { draft = it },
                             onSave = { saved = it; draft = it },
-                            onBack = { finish() }
+                            onBack = { finish() },
+                            // The harness shares the debug app's filesDir. Never let its synthetic preview delete
+                            // a wallpaper imported by the real Dev build.
+                            manageWallpaperFiles = false
                         )
                     }
                 }

@@ -91,8 +91,7 @@ class AppearanceDraftLogicTest {
         assertEquals(AppearanceConfig(), changedAppearance().resetAllAppearance())
     }
 
-    @Test fun undoCoalescesOnlyContinuousSliderUpdates() {
-        val base = changedAppearance()
+    @Test fun undoCoalescesOnlyContinuousSliderUpdates() {        val base = changedAppearance()
         assertTrue(isContinuousAppearanceChange(base, base.copy(messageTextSizeSp = 20)))
         assertTrue(isContinuousAppearanceChange(base, base.copy(bubbleCornerRadiusDp = 12)))
         assertTrue(
@@ -130,6 +129,22 @@ class AppearanceDraftLogicTest {
         )
         assertFalse(isContinuousAppearanceChange(base, base.copy(wallpaper = ChatWallpaper.Preset("arctic-blue", 35))))
         assertFalse(isContinuousAppearanceChange(photo, photo.copy(wallpaper = ChatWallpaper.Photo("trial.jpg", 20, blurred = false))))
+    }
+
+    @Test fun undoCoalescerSeparatesEveryDiscreteEditAndEverySliderGesture() {
+        val coalescer = AppearanceDraftUndoCoalescer()
+        assertTrue(coalescer.shouldCheckpoint(continuous = false))
+        assertTrue(coalescer.shouldCheckpoint(continuous = false))
+        assertTrue(coalescer.shouldCheckpoint(continuous = true))
+        assertFalse(coalescer.shouldCheckpoint(continuous = true))
+        coalescer.endGesture()
+        assertTrue(coalescer.shouldCheckpoint(continuous = true))
+        coalescer.endGesture()
+        assertTrue(coalescer.shouldCheckpoint(continuous = false))
+        assertTrue(coalescer.shouldCheckpoint(continuous = true))
+        assertFalse(coalescer.shouldCheckpoint(continuous = true))
+        coalescer.reset()
+        assertTrue(coalescer.shouldCheckpoint(continuous = true))
     }
 
     @Test fun backFromSubpageReturnsToOverviewAndPreviewReturnsToItsOrigin() {

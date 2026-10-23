@@ -35,6 +35,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +62,9 @@ internal object AppearanceDimens {
     val leadingTileShape = RoundedCornerShape(12.dp)
     val minTouchTarget: Dp = 48.dp
 }
+
+/** Called when a slider gesture ends, so Undo can start a fresh step for the next gesture. */
+internal val LocalAppearanceSliderGestureFinished = staticCompositionLocalOf<() -> Unit> { {} }
 
 @Composable
 internal fun AppearanceSectionLabel(text: String, modifier: Modifier = Modifier) {
@@ -228,6 +232,7 @@ internal fun AppearanceSliderRow(
 ) {
     val palette = beyGramPalette()
     val description = stringResource(R.string.appearance_slider_description, title, valueText)
+    val finishSliderGesture: () -> Unit = LocalAppearanceSliderGestureFinished.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = palette.textPrimary, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
@@ -239,7 +244,10 @@ internal fun AppearanceSliderRow(
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = description },
             enabled = enabled,
             valueRange = range,
-            onValueChangeFinished = onValueChangeFinished,
+            onValueChangeFinished = {
+                finishSliderGesture()
+                onValueChangeFinished()
+            },
             colors = SliderDefaults.colors(
                 thumbColor = palette.accent,
                 activeTrackColor = palette.accent,

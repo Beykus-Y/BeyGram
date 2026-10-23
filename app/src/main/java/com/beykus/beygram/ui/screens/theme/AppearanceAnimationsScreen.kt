@@ -211,7 +211,10 @@ internal fun AppearanceAnimationsPage(
                 updateDirection { it.copy(tuning = it.tuning.copy(easing = easing)) }
                 replayKey++
             },
-            onReset = { updateDirection { it.copy(tuning = MessageAnimationTuning()) } },
+            onReset = {
+                updateDirection { it.copy(tuning = MessageAnimationTuning()) }
+                replayKey++
+            },
             onTuningChange = { change -> updateTuning(change) },
             onSliderFinished = { replayKey++ }
         )
@@ -233,6 +236,7 @@ internal fun AppearanceAnimationsPage(
         onConfirm = {
             confirmReset = false
             onDraftChange(draft.resetAnimations())
+            replayKey++
         },
         onDismiss = { confirmReset = false }
     )

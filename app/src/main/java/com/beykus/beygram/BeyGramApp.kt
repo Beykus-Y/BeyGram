@@ -516,12 +516,17 @@ private fun BeyGramAppContent(
         )
     }
 
+    // ---- Маршрутизация -------------------------------------------------------
+    // Read the restored route through the safe parser before auth redirection uses it. A legacy ThemeEditor value
+    // becomes Appearance, and an unknown value becomes Start, without a second effect racing the auth redirect.
+    val route = appRouteFromStored(routeName)
+
     // ---- Реактивная навигация по AuthState -----------------------------------
     // Следим за authState и автоматически переходим на нужный экран.
     // Это гарантирует, что переход происходит ПОСЛЕ того, как TDLib подтвердил
     // успешную смену состояния, а не при нажатии кнопки.
-    LaunchedEffect(authState) {
-        val currentRoute = appRouteFromStored(routeName)
+    LaunchedEffect(authState, route) {
+        val currentRoute = route
         when (authState) {
             is AuthState.WaitingForPhone -> {
                 // Попадаем сюда только если были на начальном экране или пришли из ошибки
@@ -544,11 +549,6 @@ private fun BeyGramAppContent(
     }
 
     // ---- Маршрутизация -------------------------------------------------------
-    val route = appRouteFromStored(routeName)
-    // Normalise a route saved by an older build (notably the removed ThemeEditor) before the next save.
-    LaunchedEffect(routeName) {
-        if (routeName != route.name) routeName = route.name
-    }
     // When a secondary is selected, no primary-only screen may accidentally
     // display legacy profiles, messages, files, or notifications under its label.
     LaunchedEffect(selectedAccountId, routeName) {
