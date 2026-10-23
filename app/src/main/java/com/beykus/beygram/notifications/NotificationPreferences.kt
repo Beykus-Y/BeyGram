@@ -46,6 +46,14 @@ class NotificationPreferencesStore(
             }
             preferences.edit().putBoolean("authorized", value).apply()
         }
+    /** Synchronous write barrier before account data is physically removed.
+     * Flushes any earlier async apply() on the same SharedPreferences file. */
+    @Synchronized internal fun retireForRemoval() {
+        check(preferences.edit().clear().commit()) {
+            "Unable to flush notification session before deletion"
+        }
+    }
+
     fun handled(groupId: Int) = preferences.getInt("handled_$groupId", 0)
     fun handled(groupId: Int, maxId: Int) { if (maxId > handled(groupId)) preferences.edit().putInt("handled_$groupId", maxId).apply() }
     fun dismissed(groupId: Int) = preferences.getInt("dismissed_$groupId", 0)
