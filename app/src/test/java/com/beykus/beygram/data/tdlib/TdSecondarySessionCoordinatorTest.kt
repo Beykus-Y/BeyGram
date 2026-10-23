@@ -103,6 +103,36 @@ class TdSecondarySessionCoordinatorTest {
         } finally { work.cancel(); root.deleteRecursively() }
     }
 
+    @Test fun blockedRoutePreflightPreservesExistingSessionAndBackgroundRestorePolicy() = runBlocking {
+        val root = Files.createTempDirectory("beygram-preflight-").toFile()
+        val work = SupervisorJob()
+        try {
+            val registry = TdAccountRegistry(root)
+            val native = Fake().apply { autoClose = true }
+            val stopped = mutableListOf<String>()
+            val manager = TdSecondarySessionCoordinator(
+                registry, CoroutineScope(work + Dispatchers.Unconfined),
+                onManualStop = { stopped += it },
+                openNative = { _, _ -> native }
+            )
+            val id = manager.reserveAccount()
+            manager.connect(id, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+            native.phase.value = TdAccountAuthPhase.READY
+            try {
+                manager.reconnectWithRoute(id, TdSecondaryRoutePreference.SHARED_MIHOMO) {
+                    throw IllegalStateException("Listener unavailable")
+                }
+                fail("Blocked route must refuse reconnect")
+            } catch (_: IllegalStateException) { }
+            assertFalse(native.closed)
+            assertTrue(stopped.isEmpty())
+            assertTrue(manager.snapshot.value.accounts.single().connectedInThisProcess)
+            assertEquals(TdSecondaryRoutePreference.FOLLOW_PRIMARY,
+                manager.snapshot.value.accounts.single().routePreference)
+            assertEquals(listOf("legacy", id), registry.loadOrCreate().accountIds)
+        } finally { work.cancel(); root.deleteRecursively() }
+    }
+
     @Test fun changingSecondaryRouteClosesSameClientWithoutLoggingOutOrEditingSibling() = runBlocking {
         val root = Files.createTempDirectory("beygram-route-switch-").toFile()
         val work = SupervisorJob()
