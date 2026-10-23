@@ -4,6 +4,7 @@ import android.content.Context
 import com.beykus.beygram.BeyGramApplication
 import com.beykus.beygram.data.vpn.MihomoProxyService
 import com.beykus.beygram.domain.model.TelegramRoute
+import com.beykus.beygram.notifications.NotificationRuntime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -64,6 +65,26 @@ internal class TdSecondaryAccountController private constructor(
             // Attempt once when the process is first brought up. The route
             // policy may still block until legacy/Mihomo are ready.
             restoreRemembered()
+        }
+        app.applicationScope.launch {
+            // The same full repository drives normal Compose screens and
+            // secondary Android alerts. Installing this subscription when
+            // native auth becomes READY allows notifications after a process
+            // restart even before the user opens that account's chat list.
+            coordinator.snapshot.map { snapshot ->
+                snapshot.accounts.filter {
+                    it.connectedInThisProcess &&
+                        it.phase == TdAccountAuthPhase.READY &&
+                        !it.networkSuspended
+                }.map { it.accountId }.toSet()
+            }.distinctUntilChanged().collectLatest { accountIds ->
+                for (id in accountIds) {
+                    runCatching {
+                        val full = coordinator.fullRepository(id, app)
+                        NotificationRuntime.get(app).attachSecondary(id, full)
+                    }
+                }
+            }
         }
         app.applicationScope.launch {
             // React immediately to every listener status transition, including
