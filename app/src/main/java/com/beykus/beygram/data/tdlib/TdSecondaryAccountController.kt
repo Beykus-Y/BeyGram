@@ -56,8 +56,9 @@ internal class TdSecondaryAccountController private constructor(
         onAuthorized = { id, preference -> restoreStore.recordNativeReady(id, preference) },
         onManualStop = restoreStore::pauseAfterUserStop,
         onLogoutConfirmed = { id ->
-            restoreStore.forget(id)
-            NotificationRuntime.get(app).detachSecondary(id)
+            try { restoreStore.forget(id) } finally {
+                NotificationRuntime.get(app).detachSecondary(id)
+            }
         },
         openNative = { accountId, preference ->
             TdNativeSecondaryAuthSession(launcher.openRegisteredSecondary(accountId, preference))
@@ -197,6 +198,7 @@ internal class TdSecondaryAccountController private constructor(
             "mihomo_tdlib_proxy_$accountId"
         ).forEach { prefName -> app.deleteSharedPreferences(prefName) }
         com.beykus.beygram.data.archive.ArchiveSettingsStore.releaseAccount(accountId)
+        restoreStore.forget(accountId)
         restoreStore.clearDeletionPending(accountId)
     }
 
