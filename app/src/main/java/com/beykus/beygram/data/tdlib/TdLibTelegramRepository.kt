@@ -106,15 +106,21 @@ import java.util.Date
  *  - потокобезопасную запись (value=),
  *  - автоматический recomposition в Compose через collectAsStateWithLifecycle().
  */
-class TdLibTelegramRepository private constructor(context: Context, policy: InteractionPolicy) : TelegramRepository {
+class TdLibTelegramRepository private constructor(
+    context: Context,
+    policy: InteractionPolicy,
+    private val nativeSecondary: TdSecondaryNativeLogin? = null
+) : TelegramRepository {
+    val accountId: String = nativeSecondary?.accountId ?: TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+    private val isLegacyAccount: Boolean get() = nativeSecondary == null
 
     private val appContext = context.applicationContext
     private val proxyMutex = Mutex()
-    private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences("mihomo_tdlib_proxy", Context.MODE_PRIVATE)
+    private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences(if (isLegacyAccount) "mihomo_tdlib_proxy" else "mihomo_tdlib_proxy_$accountId", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
     private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
-    private val messageDrafts = TdChatDrafts(appContext) { client }
+    private val messageDrafts = TdChatDrafts(appContext, accountId) { client }
 
     // ---- Прокси Telegram -----------------------------------------------------
 
@@ -242,7 +248,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
 
-    private val config = TdLibConfig.from(context)
+    private val config = nativeSecondary?.config ?: TdLibConfig.from(context)
 
     // ---- Реактивное состояние ------------------------------------------------
 
@@ -540,7 +546,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
      * repeated taps observe the same in-flight request rather than create a duplicate.
      */
     private val groupRequestLock = Any()
-    private val groupCreationPrefs = appContext.getSharedPreferences("pending_group_creation", Context.MODE_PRIVATE)
+    private val groupCreationPrefs = appContext.getSharedPreferences(if (isLegacyAccount) "pending_group_creation" else "pending_group_creation_$accountId", Context.MODE_PRIVATE)
     private val _groupCreation = MutableStateFlow<GroupCreationState>(
         if (groupCreationPrefs.getBoolean("unconfirmed", false)) GroupCreationState.NeedsVerification
         else GroupCreationState.Idle
@@ -851,7 +857,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     // ---- TDLib Client --------------------------------------------------------
 
-    private val client: Client = TdAccountClientLifecycle(appContext.filesDir).open(
+    private val client: Client = nativeSecondary?.client ?: TdAccountClientLifecycle(appContext.filesDir).open(
         TdAccountStorageLayout.LEGACY_ACCOUNT_ID
     ) { directories, onNativeClientClosed ->
         // Existing installs MUST keep precisely the old filesDir/tdlib database,
@@ -895,7 +901,20 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 if (BuildConfig.DEBUG) android.util.Log.w(TelegramNetworkMonitor.TAG, "SetNetworkType failed: ${result.code}")
             }
         })
-    }.also { it.start() }
+    }.also { if (isLegacyAccount) it.start() }
+
+    init {
+        // Reuse the already-authorized secondary native owner. It retains the
+        // only database lease and validated network route. Do NOT instantiate
+        // a second TDLib Client, release its lease or replay TDLib parameters.
+        nativeSecondary?.let { secondary ->
+            secondary.observeFullUpdates(::handleUpdate)
+            if (secondary.authPhase.value == TdAccountAuthPhase.READY &&
+                _authState.value != AuthState.Ready) {
+                handleAuthorizationState(TdApi.AuthorizationStateReady())
+            }
+        }
+    }
 
     // =========================================================================
     // Публичные методы репозитория
@@ -1395,7 +1414,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         authTimeoutJob?.cancel()
         when (state) {
             is TdApi.AuthorizationStateWaitTdlibParameters -> {
-                client.send(buildTdLibParameters(), errorHandler())
+                if (isLegacyAccount) client.send(buildTdLibParameters(), errorHandler())
+                // The secondary native owner itself configures TDLib parameters,
+                // proxy and listener while network is forced OFF.
             }
             is TdApi.AuthorizationStateWaitPhoneNumber -> {
                 _authState.value = AuthState.WaitingForPhone
@@ -1431,7 +1452,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     synchronized(analyticsAccountLock) {
                         // Authorization state can change on the TDLib thread while this suspends.
                         // Serializing with logout means the old ID can never win after an empty list.
-                        if (analyticsSessionGeneration == analyticsGeneration && _authState.value == AuthState.Ready) {
+                        if (isLegacyAccount && analyticsSessionGeneration == analyticsGeneration &&
+                            _authState.value == AuthState.Ready) {
                             AnalyticsSync.onAccountsChanged(listOfNotNull(me?.id?.takeIf { it > 0 }))
                         }
                     }
@@ -1451,7 +1473,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     analyticsSessionGeneration++
                     analyticsProfileJob?.cancel()
                     analyticsProfileJob = null
-                    AnalyticsSync.onAccountsChanged(emptyList())
+                    if (isLegacyAccount) AnalyticsSync.onAccountsChanged(emptyList())
                 }
                 groupRequestGeneration.incrementAndGet()
                 groupCreationPrefs.edit().remove("unconfirmed").apply()
@@ -1927,6 +1949,21 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             instance ?: synchronized(this) {
                 instance ?: TdLibTelegramRepository(context.applicationContext, policy).also { instance = it }
             }
+
+        /**
+         * A secondary's TDLib Client is already owned by TdAccountNativeClientOwner.
+         * Its single repository is cached on TdSecondaryNativeLogin, not globally.
+         * This method never opens, logs out, or migrates the original database.
+         */
+        internal fun forExistingSecondary(
+            context: Context,
+            native: TdSecondaryNativeLogin,
+            policy: InteractionPolicy = InteractionPolicy.Standard
+        ): TdLibTelegramRepository {
+            require(native.accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+            check(native.authPhase.value == TdAccountAuthPhase.READY && !native.routePaused.value)
+            return TdLibTelegramRepository(context.applicationContext, policy, native)
+        }
     }
 }
 
