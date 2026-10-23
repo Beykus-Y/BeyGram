@@ -192,7 +192,7 @@ internal fun accountSwitcherRows(input: AccountSwitcherInput): List<AccountSwitc
         },
         busy = false,
         error = null,
-        canSelect = input.legacyReady && !primaryIsCurrent,
+        canSelect = !primaryIsCurrent,
         canSignIn = false,
         canDelete = false,
         canDisconnect = false,

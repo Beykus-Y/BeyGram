@@ -121,9 +121,9 @@ internal fun AccountSwitcherSheet(
     var confirmLogoutId by remember { mutableStateOf<String?>(null) }
     var confirmDiscardId by remember { mutableStateOf<String?>(null) }
     var confirmDisconnectId by remember { mutableStateOf<String?>(null) }
-    var phone by rememberSaveable(authAccountId) { mutableStateOf("") }
-    var code by rememberSaveable(authAccountId) { mutableStateOf("") }
-    var password by rememberSaveable(authAccountId) { mutableStateOf("") }
+    var phone by remember(authAccountId) { mutableStateOf("") }
+    var code by remember(authAccountId) { mutableStateOf("") }
+    var password by remember(authAccountId) { mutableStateOf("") }
 
     fun setAccountError(accountId: String, reason: AccountSwitcherErrorReason) {
         errors = errors + (accountId to AccountSwitcherError(accountId, reason))

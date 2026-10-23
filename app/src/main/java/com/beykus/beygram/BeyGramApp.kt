@@ -436,7 +436,10 @@ private fun BeyGramAppContent(
                     legacyRepository.authState.value is AuthState.WaitingForPhone -> AppRoute.LoginPhone.name
                     legacyRepository.authState.value is AuthState.WaitingForCode -> AppRoute.LoginCode.name
                     legacyRepository.authState.value is AuthState.WaitingForPassword -> AppRoute.LoginPassword.name
-                    else -> AppRoute.Chats.name
+                    legacyRepository.authState.value == AuthState.Ready -> AppRoute.Chats.name
+                    // A signed-out or still loading primary must not open an
+                    // empty chat list: Start owns the retry/sign-in entry point.
+                    else -> AppRoute.Start.name
                 }
             }
             Result.success(Unit)
@@ -719,7 +722,6 @@ private fun BeyGramAppContent(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    onIncomingShareHandled(incomingShare.requestId)
                     accountSwitcherAddMode = true
                     accountSwitcherVisible = true
                 }) { Text(stringResource(R.string.account_switcher_add)) }

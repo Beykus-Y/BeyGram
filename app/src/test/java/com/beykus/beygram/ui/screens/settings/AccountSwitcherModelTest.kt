@@ -204,7 +204,7 @@ class AccountSwitcherModelTest {
         )
     }
 
-    @Test fun primaryWhileSignedOutCannotBeSelected() {
+    @Test fun signedOutPrimaryCanStillOpenItsSignInFlow() {
         val input = AccountSwitcherInput(
             currentAccountId = "a-1",
             legacyReady = false,
@@ -214,6 +214,6 @@ class AccountSwitcherModelTest {
         )
         val primary = accountSwitcherRows(input).single()
         assertEquals(AccountSwitcherStatus.PRIMARY_SIGNED_OUT, primary.status)
-        assertFalse(primary.canSelect)
+        assertTrue(primary.canSelect)
     }
 }
