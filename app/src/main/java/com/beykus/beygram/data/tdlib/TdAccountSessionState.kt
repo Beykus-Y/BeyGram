@@ -39,6 +39,10 @@ internal class TdAccountSessionState(val accountId: String, val generation: Long
         if (current.authorization == TdAccountAuthPhase.CLOSED) return
         when (val update = event.update) {
             is TdApi.UpdateAuthorizationState -> _snapshot.value = current.copy(
+                // CLOSED terminates *both* authorization and connectivity. There
+                // cannot be a live network connection once this owner is closed.
+                connection = if (update.authorizationState is TdApi.AuthorizationStateClosed)
+                    TdAccountConnectionPhase.UNKNOWN else current.connection,
                 authorization = when (update.authorizationState) {
                     is TdApi.AuthorizationStateWaitTdlibParameters -> TdAccountAuthPhase.WAIT_PARAMETERS
                     is TdApi.AuthorizationStateWaitPhoneNumber -> TdAccountAuthPhase.WAIT_PHONE
