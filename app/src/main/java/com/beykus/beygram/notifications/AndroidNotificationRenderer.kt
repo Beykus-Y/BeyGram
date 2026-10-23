@@ -34,6 +34,10 @@ internal class AndroidNotificationRenderer(
     private val preferences: NotificationPreferencesStore,
     private val accountId: String = "legacy"
 ) {
+    @Volatile private var accountDisplayName: String = ""
+    fun updateAccountDisplayName(name: String) {
+        accountDisplayName = name.trim().take(80)
+    }
     private val ownTagPrefix = if (accountId == "legacy") "beygram_message_"
         else "beygram_message_${accountId}_"
     private fun tag(id: Int) = accountNotificationTag(accountId, id)
@@ -94,10 +98,16 @@ internal class AndroidNotificationRenderer(
                 .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId, latest.topicId, accountId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId, accountId))
                 .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH)
             // A reply needs a visible chat title and a chat the user can write to, so other groups get no reply action.
-            // Native accounts share the UI, not the reply outbox/session token.
+            // Quick replies carry the native account's independently signed token.
             if (!hideContent && group.replyable)
                 builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId, latest.topicId))
-            if (failedReplies.containsKey(group.id)) builder.setSubText(localizedContext.getString(R.string.notif_reply_failed))
+            val accountSubtitle = if (accountId == "legacy") null else
+                localizedContext.getString(R.string.multi_notification_account,
+                    accountDisplayName.ifBlank { localizedContext.getString(R.string.secondary_accounts_others) })
+            val replyFailed = if (failedReplies.containsKey(group.id))
+                localizedContext.getString(R.string.notif_reply_failed) else null
+            val subtitle = listOfNotNull(accountSubtitle, replyFailed).joinToString(" · ")
+            if (subtitle.isNotBlank()) builder.setSubText(subtitle)
             val notification = builder.build()
             try {
                 compat.notify(tag, 0, notification)
