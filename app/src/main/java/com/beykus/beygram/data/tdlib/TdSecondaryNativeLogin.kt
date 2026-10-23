@@ -267,6 +267,14 @@ internal class TdSecondaryNativeLogin internal constructor(
      * primary route changes later, it must go offline too; pausing only
      * shared-Mihomo sessions would leak traffic onto an outdated route.
      */
+    /** Forward Android connectivity transitions without overriding a suspended route policy. */
+    internal suspend fun onConnectivityChanged(type: TdApi.NetworkType) = routeMutex.withLock {
+        if (authPhase.value == TdAccountAuthPhase.CLOSED) return@withLock
+        val applied = if (_routePaused.value) TdApi.NetworkTypeNone() else type
+        val response = request(TdApi.SetNetworkType(applied))
+        if (response is TdApi.Error) error("TDLib secondary network update failed (code ${response.code})")
+    }
+
     suspend fun pauseNetwork() = routeMutex.withLock {
         if (authPhase.value == TdAccountAuthPhase.CLOSED || _routePaused.value) return@withLock
         val result = request(TdApi.SetNetworkType(TdApi.NetworkTypeNone()))
