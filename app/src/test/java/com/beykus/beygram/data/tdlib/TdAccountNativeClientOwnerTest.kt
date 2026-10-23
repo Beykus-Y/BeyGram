@@ -52,6 +52,17 @@ class TdAccountNativeClientOwnerTest {
         secondary.close()
     }
 
+    @Test fun closedCallbackRunsOnlyAfterItsDatabaseLeaseIsReleased() = withOwner { _, owner ->
+        var successor: FakeClient? = null
+        val first = owner.create("legacy", {},
+            onClosed = { successor = owner.create("legacy", {}, ::FakeClient) },
+            clientFactory = ::FakeClient
+        )
+        first.close()
+        assertTrue(successor != null)
+        successor!!.close()
+    }
+
     @Test fun duplicateSameAccountCannotBeOpenedBeforeNativeClosed() = withOwner { _, owner ->
         val first = owner.create("legacy", {}, ::FakeClient)
         try {
