@@ -246,6 +246,7 @@ private fun BeyGramAppContent(
     var memberReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.ChatInfo.name) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    var noticeError by remember { mutableStateOf<UiText?>(null) }
     val accountSwitchScope = rememberCoroutineScope()
     val chooseAccount: (String) -> Unit = { target ->
         accountSwitchScope.launch {
@@ -270,7 +271,6 @@ private fun BeyGramAppContent(
             }
         }
     }
-    var noticeError by remember { mutableStateOf<UiText?>(null) }
     // «Показать в чате» из мини-плеера открывает сообщение, из которого запущен файл. Назад из чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     val currentAuthState by rememberUpdatedState(authState)
     // Выход из аккаунта останавливает общий плеер: его файл и «Показать в чате» относятся к прошлой сессии.
@@ -1116,6 +1116,7 @@ private fun BeyGramAppContent(
                     initialTab = ProxyConnectTab.valueOf(proxyConnectTabName),
                     onBack = { routeName = AppRoute.Proxy.name }
                 )
+            }
             }
         }
         if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
