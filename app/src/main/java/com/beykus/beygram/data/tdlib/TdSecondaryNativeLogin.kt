@@ -199,11 +199,11 @@ internal class TdSecondaryNativeLogin internal constructor(
             this.text = TdApi.FormattedText(bounded, emptyArray())
             clearDraft = true
         }
-        val request = TdApi.SendMessage().apply {
+        val sendFunction = TdApi.SendMessage().apply {
             chatId = chat.chatId
             inputMessageContent = content
         }
-        val response = request(request)
+        val response = request(sendFunction)
         when (response) {
             is TdApi.Message -> {
                 check(response.chatId == chat.chatId) { "TDLib returned a different chat" }
