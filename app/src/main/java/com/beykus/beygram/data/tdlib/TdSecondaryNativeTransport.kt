@@ -17,7 +17,8 @@ internal class TdSecondaryNativeTransport(
     private val request: suspend (TdApi.Function<*>) -> TdApi.Object,
     private val awaitParameters: suspend () -> Unit,
     private val revalidate: suspend () -> TdSecondaryRouteDecision,
-    private val proxyEndpoint: () -> TdApi.Proxy
+    private val proxyEndpoint: () -> TdApi.Proxy,
+    private val systemVersion: () -> String = { Build.VERSION.RELEASE }
 ) {
     suspend fun initialize(config: TdLibConfig, planned: TdSecondaryRouteDecision) {
         require(planned !is TdSecondaryRouteDecision.Blocked) { "Secondary account route is blocked" }
@@ -31,7 +32,7 @@ internal class TdSecondaryNativeTransport(
             false, config.databaseDirectory, config.filesDirectory, ByteArray(0),
             true, true, config.useMessageDatabase, config.useSecretChats,
             config.apiId, config.apiHash, config.systemLanguageCode,
-            config.deviceModel, Build.VERSION.RELEASE, config.applicationVersion
+            config.deviceModel, systemVersion(), config.applicationVersion
         ))
 
         when (planned) {
