@@ -80,6 +80,7 @@ import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.settings.SecondaryAccountsScreen
 import com.beykus.beygram.ui.screens.settings.SecondaryChatsScreen
 import com.beykus.beygram.ui.screens.settings.AccountPickerScreen
+import com.beykus.beygram.ui.screens.settings.AccountPickerMeta
 import com.beykus.beygram.ui.screens.settings.ActiveSessionsScreen
 import com.beykus.beygram.ui.screens.settings.LanguageScreen
 import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
@@ -114,6 +115,8 @@ import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 
 /** Экраны, где мини-плеер встроен в свою разметку: над нижним меню или над полем ввода. На остальных экранах он стоит снизу. */
 private val playerBarHostRoutes = setOf(AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat)
@@ -198,6 +201,46 @@ private fun BeyGramAppContent(
     var accountRegistryReady by remember { mutableStateOf(false) }
     var accountRegistryError by remember { mutableStateOf(false) }
     val accountChoice = secondaryAccountController.coordinator.snapshot.collectAsStateWithLifecycle().value
+    // The picker observes each READY account's own profile/file and chat flows;
+    // unread IDs and avatar file IDs are never resolved by another repository.
+    val legacyPickerProfile by legacyRepository.myProfile.collectAsStateWithLifecycle()
+    val legacyPickerChats by legacyRepository.chats.collectAsStateWithLifecycle()
+    val secondaryPickerMetadata by produceState<Map<String, AccountPickerMeta>>(
+        initialValue = emptyMap(), accountChoice.accounts
+    ) {
+        value = emptyMap()
+        kotlinx.coroutines.coroutineScope {
+            accountChoice.accounts.filter {
+                it.connectedInThisProcess &&
+                    it.phase == com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY &&
+                    !it.networkSuspended
+            }.forEach { row ->
+                launch {
+                    val source = runCatching {
+                        secondaryAccountController.coordinator.fullRepository(row.accountId, context.applicationContext)
+                    }.getOrNull() ?: return@launch
+                    combine(source.myProfile, source.chats) { profile, chats ->
+                        AccountPickerMeta(
+                            title = profile.info?.title.orEmpty(),
+                            unread = chats.sumOf { it.unreadCount.coerceAtLeast(0) },
+                            photo = profile.info?.photo,
+                            observeFile = source::observeFile,
+                            downloadFile = source::downloadFile
+                        )
+                    }.collect { details -> value = value + (row.accountId to details) }
+                }
+            }
+        }
+    }
+    val pickerMetadata = secondaryPickerMetadata + mapOf(
+        TdAccountStorageLayout.LEGACY_ACCOUNT_ID to AccountPickerMeta(
+            title = legacyPickerProfile.info?.title.orEmpty(),
+            unread = legacyPickerChats.sumOf { it.unreadCount.coerceAtLeast(0) },
+            photo = legacyPickerProfile.info?.photo,
+            observeFile = legacyRepository::observeFile,
+            downloadFile = legacyRepository::downloadFile
+        )
+    )
     LaunchedEffect(accountRegistry) {
         try {
             val state = withContext(Dispatchers.IO) { accountRegistry.loadOrCreate() }
@@ -983,6 +1026,7 @@ private fun BeyGramAppContent(
                     AccountPickerScreen(
                         state = accountChoice,
                         selectedId = selectedAccountId,
+                    metadata = pickerMetadata,
                         onSelect = chooseAccount,
                         onManage = {
                             accountManagerReturnRouteName = AppRoute.AccountPicker.name
@@ -1146,6 +1190,7 @@ private fun BeyGramAppContent(
                 AppRoute.AccountPicker -> AccountPickerScreen(
                     state = accountChoice,
                     selectedId = selectedAccountId,
+                    metadata = pickerMetadata,
                     onSelect = chooseAccount,
                     onManage = {
                         accountManagerReturnRouteName = AppRoute.AccountPicker.name
