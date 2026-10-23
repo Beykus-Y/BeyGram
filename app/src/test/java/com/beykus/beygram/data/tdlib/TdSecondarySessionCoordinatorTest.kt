@@ -182,6 +182,28 @@ class TdSecondarySessionCoordinatorTest {
         } finally { job.cancel(); root.deleteRecursively() }
     }
 
+    @Test fun chatSessionNeverReturnsForeignOrNotReadySession() = runBlocking {
+        val root = Files.createTempDirectory("beygram-secondary-send-gate-").toFile()
+        val job = SupervisorJob()
+        try {
+            val native = Fake()
+            val manager = TdSecondarySessionCoordinator(
+                TdAccountRegistry(root), CoroutineScope(job + Dispatchers.Unconfined)
+            ) { _, _ -> native }
+            val id = manager.reserveAccount()
+            try { manager.chatSession(id); fail("Unopened client must fail") }
+            catch (_: IllegalStateException) {}
+            manager.connect(id, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+            try { manager.chatSession(id); fail("Unauthorized client must fail") }
+            catch (_: IllegalStateException) {}
+            native.phase.value = TdAccountAuthPhase.READY
+            try { manager.chatSession(id); fail("No chat store must fail closed") }
+            catch (_: IllegalStateException) {}
+            try { manager.chatSession("legacy"); fail("Cannot send from secondary via legacy") }
+            catch (_: IllegalStateException) {}
+        } finally { job.cancel(); root.deleteRecursively() }
+    }
+
     @Test fun startupFailureLeavesAccountMetadataButNeverClaimsRunning() = runBlocking {
         val root = Files.createTempDirectory("beygram-manager-").toFile()
         val job = SupervisorJob()

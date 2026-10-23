@@ -28,6 +28,12 @@ internal interface TdSecondaryAuthSession {
     suspend fun loadChats() { error("Secondary chat store unavailable") }
     suspend fun loadHistory(key: TdAccountChatKey) { error("Secondary chat store unavailable") }
     suspend fun closeHistory(key: TdAccountChatKey) { error("Secondary chat store unavailable") }
+    suspend fun sendText(key: TdAccountChatKey, text: String) {
+        error("Secondary chat messaging unavailable")
+    }
+    suspend fun markRead(key: TdAccountChatKey, lastMessageId: Long) {
+        error("Secondary chat read unavailable")
+    }
 
     val plannedRoute: TdSecondaryRouteDecision get() = TdSecondaryRouteDecision.Direct
     val networkSuspended: Boolean get() = false
@@ -48,6 +54,10 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun loadChats() = login.loadSecondaryChats()
     override suspend fun loadHistory(key: TdAccountChatKey) = login.openSecondaryHistory(key)
     override suspend fun closeHistory(key: TdAccountChatKey) = login.closeSecondaryHistory(key)
+    override suspend fun sendText(key: TdAccountChatKey, text: String) =
+        login.sendSecondaryText(key, text)
+    override suspend fun markRead(key: TdAccountChatKey, lastMessageId: Long) =
+        login.readSecondaryChat(key, lastMessageId)
     override val plannedRoute: TdSecondaryRouteDecision get() = login.plannedRoute
     override val networkSuspended: Boolean get() = login.routePaused.value
     override suspend fun pauseNetwork() = login.pauseNetwork()
