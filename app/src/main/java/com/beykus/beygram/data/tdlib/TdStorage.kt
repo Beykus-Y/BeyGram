@@ -247,8 +247,12 @@ internal fun markSentUpload(
 ) = synchronized(SENT_UPLOAD_MARKER_LOCK) {
     // A SendMessage in account B must never claim media staged under account A.
     // This check also protects media prepared before an account switch.
-    check(uploadFolderBelongsToAccount(folder, accountId)) {
-        "Cannot mark sent media owned by another Telegram account"
+    // Older secondary staging folders predate .owner; retain their existing
+    // .sent format while enforcing all newly staged folders' explicit owner.
+    if (File(folder, STAGED_UPLOAD_OWNER_MARKER).exists()) {
+        check(uploadFolderBelongsToAccount(folder, accountId)) {
+            "Cannot mark sent media owned by another Telegram account"
+        }
     }
     val marker = File(folder, SENT_UPLOAD_MARKER)
     val contents = if (marker.isFile) marker.readLines() else emptyList()
