@@ -14,14 +14,12 @@ import org.drinkless.tdlib.TdApi
  * updates: every callback is bound to the account that created that client.
  */
 internal class TdAccountNativeClientOwner(
-    private val privateFilesDir: File,
     private val registry: TdAccountRegistry,
     private val lifecycle: TdAccountClientLifecycle,
     private val router: TdAccountUpdateRouter,
     private val configForAccount: (String) -> TdLibConfig
 ) {
     constructor(context: Context) : this(
-        context.filesDir,
         TdAccountRegistry(context.filesDir),
         TdAccountClientLifecycle(context.filesDir),
         TdAccountUpdateRouter(TdAccountRegistry(context.filesDir)),
@@ -47,8 +45,8 @@ internal class TdAccountNativeClientOwner(
             val config = configForAccount(accountId)
             // Never allow a bug in the config provider to map a different ID
             // onto this client's leased database or onto an unsafe directory.
-            require(config.databaseDirectory.let(::File).canonicalFile == paths.database &&
-                config.filesDirectory.let(::File).canonicalFile == paths.files) {
+            require(File(config.databaseDirectory).canonicalFile == paths.database &&
+                File(config.filesDirectory).canonicalFile == paths.files) {
                 "TDLib configuration is not isolated to its leased account paths"
             }
             val registration = router.register(accountId) { routed ->
