@@ -2,6 +2,13 @@ package com.beykus.beygram.data.tdlib
 
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.logging.Level
+import java.util.logging.Logger
 
 /** A Telegram chat ID is only meaningful inside one TDLib account. */
 internal data class TdAccountChatKey(val accountId: String, val chatId: Long)
@@ -26,11 +33,22 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
         val generation: Long,
         val onUpdate: (TdAccountRoutedUpdate) -> Unit
     ) {
-        // Serialize ONLY this native client's callbacks; never hold the
-        // registry-wide monitor while TDLib repository code runs.
+        // Keep expensive repository callbacks off TDLib's ResponseReceiver thread.
+        // The bounded, single-worker queue preserves per-client delivery order.
         val dispatchLock = Any()
         var accepting = true // guarded by dispatchLock
+        val dispatcher = ThreadPoolExecutor(
+            1, 1, 0L, TimeUnit.MILLISECONDS,
+            ArrayBlockingQueue(4096),
+            { runnable -> Thread(runnable, "beygram-tdlib-$generation").apply { isDaemon = true } },
+            { runnable, executor ->
+                // Never drop a state update: apply backpressure in extreme bursts.
+                if (executor.isShutdown) throw RejectedExecutionException("TDLib dispatcher closed")
+                executor.queue.put(runnable)
+            }
+        )
     }
+    private val logger = Logger.getLogger(TdAccountUpdateRouter::class.java.name)
     private val monitor = Any()
     private val live = mutableMapOf<String, Listener>()
     private var nextGeneration = 0L
@@ -64,21 +82,31 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
             val listener = synchronized(monitor) {
                 live[accountId]?.takeIf { it.generation == generation }
             } ?: return
-            // Wait for the last callback of THIS account, not every other
-            // account. Once closed, no old update may reach a new generation.
-            val owned = synchronized(listener.dispatchLock) {
-                if (!listener.accepting) false
-                else {
-                    listener.accepting = false
-                    synchronized(monitor) {
-                        if (live[accountId] === listener) {
-                            live.remove(accountId)
-                            true
-                        } else false
+            // Queue retirement AFTER every already accepted update. Do not block
+            // the shared native callback thread waiting for repository work.
+            val drained = if (!notifyOwner) CountDownLatch(1) else null
+            synchronized(listener.dispatchLock) {
+                if (!listener.accepting) return
+                listener.accepting = false
+                listener.dispatcher.execute {
+                    try {
+                        synchronized(monitor) {
+                            if (live[accountId] === listener) live.remove(accountId)
+                        }
+                        if (notifyOwner) onAfterClosed()
+                    } catch (error: Throwable) {
+                        logger.log(Level.SEVERE, "TDLib native client retirement failed", error)
+                    } finally {
+                        listener.dispatcher.shutdown()
+                        drained?.countDown()
                     }
                 }
             }
-            if (owned && notifyOwner) onAfterClosed()
+            // Factory failure is special: its DB lease is released by the
+            // caller immediately, so drain any callbacks before returning.
+            if (drained != null) check(drained.await(30, TimeUnit.SECONDS)) {
+                "Timed out draining failed TDLib client callbacks"
+            }
         }
     }
 
@@ -101,13 +129,15 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
         val listener = synchronized(monitor) {
             live[accountId]?.takeIf { it.generation == generation }
         } ?: return
-        // This avoids holding OUR registry mutex during repository callbacks.
-        // Some TDLib Java builds still dispatch clients on one ResponseReceiver
-        // thread; the per-account lock does not promise independent native
-        // callback threads or eliminate costly synchronous handleUpdate work.
         synchronized(listener.dispatchLock) {
             if (listener.accepting) {
-                listener.onUpdate(TdAccountRoutedUpdate(accountId, generation, update))
+                listener.dispatcher.execute {
+                    try {
+                        listener.onUpdate(TdAccountRoutedUpdate(accountId, generation, update))
+                    } catch (error: Throwable) {
+                        logger.log(Level.SEVERE, "TDLib account callback failed: $accountId", error)
+                    }
+                }
             }
         }
     }
