@@ -35,6 +35,13 @@ class NotificationRuntime private constructor(private val context: Context) {
         val job: Job
     )
     private val secondaries = ConcurrentHashMap<String, SecondarySubscription>()
+    private val secondaryPreferences = ConcurrentHashMap<String, NotificationPreferencesStore>()
+
+    /** Settings and renderer must share the same live per-account StateFlow. */
+    fun preferencesForAccount(accountId: String): NotificationPreferencesStore =
+        if (accountId == "legacy") preferences else secondaryPreferences.computeIfAbsent(accountId) {
+            NotificationPreferencesStore(context, it)
+        }
 
     /**
      * Shared Android renderer, separate account-tag and watermark namespaces.
@@ -50,7 +57,7 @@ class NotificationRuntime private constructor(private val context: Context) {
         val previous = secondaries[accountId]
         if (previous?.source === source) return
         previous?.job?.cancel()
-        val prefs = NotificationPreferencesStore(context, accountId)
+        val prefs = preferencesForAccount(accountId)
         val scopedRenderer = AndroidNotificationRenderer(context, prefs, accountId)
         val job = scope.launch {
             launch {
@@ -62,6 +69,9 @@ class NotificationRuntime private constructor(private val context: Context) {
                             if (source.dismissNotifications(group, newest).isSuccess)
                                 prefs.acknowledge(group, newest)
                         }
+                    } else if (state == AuthState.WaitingForPhone) {
+                        // TDLib IDs may be reused by another authorization in this slot.
+                        prefs.authorized = false
                     }
                 }
             }
