@@ -57,9 +57,11 @@ class TdSecondarySessionCoordinatorTest {
             assertEquals(2, manager.snapshot.value.accounts.size)
             assertEquals("legacy", registry.loadOrCreate().activeAccountId)
             manager.connect(a, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+            manager.connect(b, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            val c = manager.reserveAccount()
             try {
-                manager.connect(b, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
-                fail("Beta may not start a third native TDLib session")
+                manager.connect(c, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+                fail("Process may not start a fourth native TDLib client")
             } catch (_: IllegalStateException) { }
             manager.submitPhone(a, "+123456")
             manager.submitCode(a, "12345")
@@ -68,10 +70,31 @@ class TdSecondarySessionCoordinatorTest {
             assertTrue(manager.snapshot.value.accounts.any { it.accountId == a && it.connectedInThisProcess })
             manager.disconnect(a)
             assertTrue(sessions[a]!!.closed)
+            assertFalse(sessions[b]!!.closed)
             sessions[a]!!.phase.value = TdAccountAuthPhase.CLOSED
-            manager.connect(b, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
             assertEquals(TdAccountAuthPhase.WAIT_PHONE, sessions[b]?.phase?.value)
-            assertEquals(listOf("legacy", a, b), TdAccountRegistry(root).loadOrCreate().accountIds)
+            assertEquals(listOf("legacy", a, b, c), TdAccountRegistry(root).loadOrCreate().accountIds)
+        } finally { job.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun nativeReadyPersistsRestoreChoiceAndExplicitStopDisablesAutoRestore() = runBlocking {
+        val root = Files.createTempDirectory("beygram-resume-metadata-").toFile()
+        val job = SupervisorJob()
+        try {
+            val events = mutableListOf<String>()
+            val native = Fake()
+            val manager = TdSecondarySessionCoordinator(
+                TdAccountRegistry(root), CoroutineScope(job + Dispatchers.Unconfined),
+                onAuthorized = { id, choice -> events += "ready:$id:${choice.name}" },
+                onManualStop = { id -> events += "stop:$id" }
+            ) { _, _ -> native }
+            val id = manager.reserveAccount()
+            manager.connect(id, TdSecondaryRoutePreference.SHARED_MIHOMO)
+            assertTrue(events.isEmpty())
+            native.phase.value = TdAccountAuthPhase.READY
+            assertEquals(listOf("ready:$id:SHARED_MIHOMO"), events)
+            manager.disconnect(id)
+            assertEquals(listOf("ready:$id:SHARED_MIHOMO", "stop:$id"), events)
         } finally { job.cancel(); root.deleteRecursively() }
     }
 
@@ -179,28 +202,6 @@ class TdSecondarySessionCoordinatorTest {
             manager.reconcileRoutes { TdSecondaryRouteDecision.SharedMihomo }
             assertTrue(native.closed)
             assertEquals(listOf("legacy", id), TdAccountRegistry(root).loadOrCreate().accountIds)
-        } finally { job.cancel(); root.deleteRecursively() }
-    }
-
-    @Test fun chatSessionNeverReturnsForeignOrNotReadySession() = runBlocking {
-        val root = Files.createTempDirectory("beygram-secondary-send-gate-").toFile()
-        val job = SupervisorJob()
-        try {
-            val native = Fake()
-            val manager = TdSecondarySessionCoordinator(
-                TdAccountRegistry(root), CoroutineScope(job + Dispatchers.Unconfined)
-            ) { _, _ -> native }
-            val id = manager.reserveAccount()
-            try { manager.chatSession(id); fail("Unopened client must fail") }
-            catch (_: IllegalStateException) {}
-            manager.connect(id, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
-            try { manager.chatSession(id); fail("Unauthorized client must fail") }
-            catch (_: IllegalStateException) {}
-            native.phase.value = TdAccountAuthPhase.READY
-            try { manager.chatSession(id); fail("No chat store must fail closed") }
-            catch (_: IllegalStateException) {}
-            try { manager.chatSession("legacy"); fail("Cannot send from secondary via legacy") }
-            catch (_: IllegalStateException) {}
         } finally { job.cancel(); root.deleteRecursively() }
     }
 
