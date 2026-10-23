@@ -15,6 +15,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
+import com.beykus.beygram.data.tdlib.TdSecondaryRoutePreference
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -36,6 +40,10 @@ internal fun SecondaryProxySettingsScreen(
     val row = accounts.accounts.firstOrNull { it.accountId == accountId }
     var route by remember(accountId, repository) { mutableStateOf<TelegramRoute?>(null) }
     var failed by remember(accountId) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var changing by remember(accountId) { mutableStateOf(false) }
+    var changeFailed by remember(accountId) { mutableStateOf(false) }
+    var desiredRoute by remember(accountId) { mutableStateOf<TdSecondaryRoutePreference?>(null) }
     LaunchedEffect(accountId, repository, row?.networkSuspended) {
         val result = repository.currentRoute()
         route = result.getOrNull()
@@ -75,6 +83,52 @@ internal fun SecondaryProxySettingsScreen(
                 "Настройки первого аккаунта здесь не изменяются.",
             color = palette.textSecondary, fontSize = 14.sp
         )
-        Button(onClick = onManage, modifier = Modifier.fillMaxWidth()) { Text("Управление аккаунтами и маршрутом") }
+        Text("Изменить маршрут", color = palette.textPrimary, fontSize = 18.sp)
+        Text("Переключение остановит TDLib этого аккаунта и откроет её заново с проверкой нового маршрута. Авторизация останется на устройстве.",
+            color = palette.textSecondary, fontSize = 13.sp)
+        listOf(
+            TdSecondaryRoutePreference.FOLLOW_PRIMARY to "Наследовать основной маршрут",
+            TdSecondaryRoutePreference.SHARED_MIHOMO to "Общий Mihomo",
+            TdSecondaryRoutePreference.EXPLICIT_DIRECT to "Прямое соединение"
+        ).forEach { (preference, title) ->
+            OutlinedButton(
+                onClick = { desiredRoute = preference },
+                enabled = !changing && row?.phase == com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY &&
+                    row.routePreference != preference,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(title + if (row?.routePreference == preference) " ✓" else "") }
+        }
+        if (changing) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (changeFailed) Text(
+            "Переключить маршрут не удалось. Предыдущая авторизация сохранена; повторите подключение в управлении аккаунтами.",
+            color = palette.danger, fontSize = 13.sp
+        )
+        Button(onClick = onManage, modifier = Modifier.fillMaxWidth()) { Text("Управление аккаунтами") }
+    }
+    desiredRoute?.let { preference ->
+        AlertDialog(
+            onDismissRequest = { if (!changing) desiredRoute = null },
+            title = { Text("Переподключить Telegram-аккаунт?") },
+            text = { Text("Текущие отправки могут прерваться. Общий Mihomo не будет остановлен, настройки первого аккаунта не изменятся.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    desiredRoute = null
+                    changing = true
+                    changeFailed = false
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                controller.coordinator.reconnectWithRoute(accountId, preference)
+                            }
+                        } catch (_: Exception) {
+                            changeFailed = true
+                        } finally { changing = false }
+                    }
+                }, enabled = !changing) { Text("Переподключить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { desiredRoute = null }, enabled = !changing) { Text("Отмена") }
+            }
+        )
     }
 }
