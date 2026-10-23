@@ -20,6 +20,7 @@ import android.view.Surface
 import android.view.ViewGroup
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.TorchState
@@ -85,6 +86,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteCameraSurvey
+import com.beykus.beygram.data.media.VideoNoteSourceQuality
 import com.beykus.beygram.data.media.VideoNoteUseCaseGeometry
 import com.beykus.beygram.data.media.videoNoteUseCaseGeometrySummary
 import com.beykus.beygram.data.media.VideoNoteFpsCheck
@@ -183,7 +185,10 @@ internal class VideoNoteRecorder(
     /** Actual CameraX stream/crop rectangles, as opposed to the requested SD/HD plan. */
     private var previewGeometry: String? = null
     private var videoGeometry: String? = null
-    private var captureQuality: com.beykus.beygram.data.media.VideoNoteSourceQuality? = null
+    private var captureQuality: VideoNoteSourceQuality? = null
+    /** Only a freshly created HD Recorder can retry with default aspect; persistent recording is never rebuilt mid-take. */
+    private var capturePrefersFourThree = false
+    private var captureFourThreeFallback = false
     /** Persistent-запись не отвязывается от VideoCapture при перепривязке камеры. Если устройство её не умеет, переключение скрывается. */
     private var persistentSupported = true
     private var take: VideoTake? = null
@@ -390,6 +395,8 @@ internal class VideoNoteRecorder(
         started = false
         clearLight(resetMode = true)
         zoomRatio = 1f
+        capturePrefersFourThree = false
+        captureFourThreeFallback = false
         elapsedMs = 0L
         val current = ++attempt
         if (stoppingCheck != null) {
@@ -418,9 +425,23 @@ internal class VideoNoteRecorder(
                     CameraSelector.DEFAULT_FRONT_CAMERA
                 } else CameraSelector.DEFAULT_BACK_CAMERA
                 preferFrontCamera = startSelector == CameraSelector.DEFAULT_FRONT_CAMERA
-                val capture = createCapture(cameraProvider, startSelector, settings)
-                videoCapture = capture
-                bind(cameraProvider, startSelector, settings, capture)
+                try {
+                    val preferred = createCapture(cameraProvider, startSelector, settings, allowFourThree = true)
+                    videoCapture = preferred
+                    bind(cameraProvider, startSelector, settings, preferred)
+                } catch (bindFailure: Exception) {
+                    // Some cameras cannot bind an HD 4:3 VideoCapture together with Preview.
+                    // Do not fail the entire recording: retry ONCE with the original CameraX
+                    // aspect policy, before a persistent Recording is started.
+                    if (!capturePrefersFourThree) throw bindFailure
+                    Log.w(TAG, "video_fov_4_3_unavailable_fallback", bindFailure)
+                    cameraProvider.unbindAll()
+                    camera = null
+                    val fallback = createCapture(cameraProvider, startSelector, settings, allowFourThree = false)
+                    videoCapture = fallback
+                    bind(cameraProvider, startSelector, settings, fallback)
+                    captureFourThreeFallback = true
+                }
                 startRecording(settings)
             } catch (failure: Exception) {
                 Log.e(TAG, "video_camera_open_failed")
@@ -550,7 +571,8 @@ internal class VideoNoteRecorder(
     private fun createCapture(
         cameraProvider: ProcessCameraProvider,
         selector: CameraSelector,
-        settings: VideoMessageSettings
+        settings: VideoMessageSettings,
+        allowFourThree: Boolean
     ): VideoCapture<Recorder> {
         val side = when (settings.preset) {
             VideoQualityPreset.Standard -> 384
@@ -570,20 +592,25 @@ internal class VideoNoteRecorder(
             cameraProvider.getCameraInfo(selector)
         )
         val decision = plan.decision
-        val quality = if (plan.quality == com.beykus.beygram.data.media.VideoNoteSourceQuality.SD) Quality.SD else requestedQuality
+        val quality = if (plan.quality == VideoNoteSourceQuality.SD) Quality.SD else requestedQuality
         captureSourceSize = plan.width to plan.height
         captureQuality = plan.quality
         val chosenFps = decision.selected
         val fpsRange = chosenFps?.let { Range(it.first, it.last) }
         captureFpsDecision = decision
         Log.i(TAG, "video_fps requested=${decision.requested} selected=$chosenFps cause=${decision.cause} quality=$quality")
+        // HD commonly negotiates a 16:9 stream. A square ViewPort then discards
+        // more horizontal pixels than a 4:3 source. Prefer 4:3 only for HD at
+        // normal <=30 FPS: forcing it at 60 FPS could invalidate the FPS plan.
+        // Recorder.setAspectRatio can reject an unsupported combination at bind,
+        // so openCamera retries with CameraX's original default aspect once.
+        capturePrefersFourThree = allowFourThree && videoNotePreferFourThreeCapture(plan.quality, chosenFps)
         val qualitySelector = QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(quality))
-        val captureBuilder = VideoCapture.Builder(
-            Recorder.Builder()
-                .setQualitySelector(qualitySelector)
-                .setTargetVideoEncodingBitRate(bitrate)
-                .build()
-        )
+        val recorderBuilder = Recorder.Builder()
+            .setQualitySelector(qualitySelector)
+            .setTargetVideoEncodingBitRate(bitrate)
+        if (capturePrefersFourThree) recorderBuilder.setAspectRatio(AspectRatio.RATIO_4_3)
+        val captureBuilder = VideoCapture.Builder(recorderBuilder.build())
         // Запись фронтальной камеры отражается так же, как превью: отправленный кружок совпадает с тем, что видно при записи.
         captureBuilder.setMirrorMode(mirrorMode(settings))
         if (fpsRange != null) captureBuilder.setTargetFrameRate(fpsRange)
@@ -725,6 +752,11 @@ internal class VideoNoteRecorder(
         )
         if (settings.diagnosticsEnabled) {
             VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_fov_viewport))
+            VideoNoteDiagnostics.append(sessionName, context.getString(
+                if (captureFourThreeFallback) R.string.vn_entry_fov_capture_aspect_fallback
+                else if (capturePrefersFourThree) R.string.vn_entry_fov_capture_aspect_four_three
+                else R.string.vn_entry_fov_capture_aspect_default
+            ))
             recordBoundGeometry(sessionName)
             val (sourceWidth, sourceHeight) = captureSourceSize ?: VideoNoteCameraSurvey.sourceSize(settings)
             VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_source_plan,
@@ -1129,6 +1161,12 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
         }
     }
 }
+
+/** Request a wider square field of view for HD while preserving known >=50 FPS combinations.
+ * Unknown FPS stays on CameraX defaults; no claim about physical optics is made. */
+internal fun videoNotePreferFourThreeCapture(quality: VideoNoteSourceQuality, selectedFrameRate: IntRange?): Boolean =
+    quality == VideoNoteSourceQuality.HD && selectedFrameRate != null &&
+        selectedFrameRate.last <= 30
 
 /** Only use the advertised zoom bounds once ZoomState is ready. The first 1x request
  * must still be sent before LiveData publishes its initial value. */
