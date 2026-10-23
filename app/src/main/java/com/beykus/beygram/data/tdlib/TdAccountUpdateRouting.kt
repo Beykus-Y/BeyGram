@@ -22,10 +22,15 @@ internal data class TdAccountFileKey(val accountId: String, val fileId: Int)
  * handler must be registered here and must terminate with [Registration.onNativeClosed].
  */
 internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
-    private data class Listener(
+    private class Listener(
         val generation: Long,
         val onUpdate: (TdAccountRoutedUpdate) -> Unit
-    )
+    ) {
+        // Serialize ONLY this native client's callbacks; never hold the
+        // registry-wide monitor while TDLib repository code runs.
+        val dispatchLock = Any()
+        var accepting = true // guarded by dispatchLock
+    }
     private val monitor = Any()
     private val live = mutableMapOf<String, Listener>()
     private var nextGeneration = 0L
@@ -56,14 +61,23 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
 
         /** Called only after TDLib AuthorizationStateClosed. Idempotent and generation-scoped. */
         fun onNativeClosed(notifyOwner: Boolean = true) {
-            val owned = synchronized(monitor) {
-                if (live[accountId]?.generation == generation) {
-                    live.remove(accountId)
-                    true
-                } else false
+            val listener = synchronized(monitor) {
+                live[accountId]?.takeIf { it.generation == generation }
+            } ?: return
+            // Wait for the last callback of THIS account, not every other
+            // account. Once closed, no old update may reach a new generation.
+            val owned = synchronized(listener.dispatchLock) {
+                if (!listener.accepting) false
+                else {
+                    listener.accepting = false
+                    synchronized(monitor) {
+                        if (live[accountId] === listener) {
+                            live.remove(accountId)
+                            true
+                        } else false
+                    }
+                }
             }
-            // Native owner has already released the database lease during
-            // delivery; now the generation-scoped router is fully unregistered.
             if (owned && notifyOwner) onAfterClosed()
         }
     }
@@ -84,11 +98,13 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
         }
 
     private fun deliver(accountId: String, generation: Long, update: TdApi.Object) {
-        // Serialize close vs delivery: after onNativeClosed returns no old event
-        // can reach a newly attached owner. The callback must be cheap/nonblocking.
-        synchronized(monitor) {
-            val listener = live[accountId]
-            if (listener?.generation == generation) {
+        val listener = synchronized(monitor) {
+            live[accountId]?.takeIf { it.generation == generation }
+        } ?: return
+        // Independent native TDLib sessions must never block each other's
+        // update processing or register()/registeredSessions() under one lock.
+        synchronized(listener.dispatchLock) {
+            if (listener.accepting) {
                 listener.onUpdate(TdAccountRoutedUpdate(accountId, generation, update))
             }
         }
