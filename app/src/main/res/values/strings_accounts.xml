@@ -31,4 +31,6 @@
     <string name="secondary_chats_empty">Список пока пуст. Проверьте подключение и нажмите «Обновить».</string>
     <string name="secondary_chats_history_empty">Сообщения ещё загружаются или история пуста.</string>
     <string name="secondary_chats_open">Просмотреть чаты (только чтение)</string>
+    <string name="secondary_chats_media_message">Медиафайл</string>
+    <string name="secondary_chats_empty_message">Сообщение</string>
 </resources>
