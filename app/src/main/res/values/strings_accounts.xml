@@ -46,6 +46,7 @@
     <string name="account_switcher_auth_continue_title">Продолжить вход</string>
     <string name="account_switcher_auth_later">Позже</string>
     <string name="account_switcher_auth_preparing">Создаём сессию…</string>
+    <string name="account_switcher_auth_prepare_failed">Не удалось создать сессию</string>
     <string name="account_switcher_auth_switch_progress">Входим в аккаунт…</string>
     <string name="account_switcher_auth_closed">Сессия закрыта. Подключите аккаунт ещё раз.</string>
     <string name="account_switcher_auth_unsupported">Telegram запросил способ входа, который пока не поддерживается. Удалите незавершённый вход и попробуйте другой аккаунт.</string>
