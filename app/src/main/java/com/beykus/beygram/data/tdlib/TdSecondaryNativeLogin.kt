@@ -75,7 +75,9 @@ internal class TdSecondaryNativeLoginLauncher(
         val fullRepositoryObservers = CopyOnWriteArrayList<(TdApi.Object) -> Unit>()
         val startupReplay = TdSecondaryStartupReplay()
         val waitParameters = CompletableDeferred<Unit>()
+        val nativeLeaseClosed = CompletableDeferred<Unit>()
         val bound = owner.create(accountId,
+            onClosed = { nativeLeaseClosed.complete(Unit) },
             onUpdate = { event ->
                 // Never dispatch secondary updates through the legacy chat
                 // repository, global notification feed or shared media cache.
@@ -118,7 +120,7 @@ internal class TdSecondaryNativeLoginLauncher(
             clientFactory = { config, handler ->
                 val client = createNativeClient(handler)
                 TdSecondaryNativeLogin(accountId, config, client, phases, planned, chatStore,
-                    fullRepositoryObservers, startupReplay)
+                    fullRepositoryObservers, startupReplay, nativeLeaseClosed)
             }
         )
         try {
@@ -150,7 +152,8 @@ internal class TdSecondaryNativeLogin internal constructor(
     internal val plannedRoute: TdSecondaryRouteDecision,
     val chatStore: TdSecondaryChatStore,
     private val fullRepositoryObservers: CopyOnWriteArrayList<(TdApi.Object) -> Unit>,
-    private val startupReplay: TdSecondaryStartupReplay
+    private val startupReplay: TdSecondaryStartupReplay,
+    private val nativeLeaseClosed: CompletableDeferred<Unit>
 ) {
     private val fullRepositoryLock = Any()
     private var fullRepository: TdLibTelegramRepository? = null
@@ -330,6 +333,11 @@ internal class TdSecondaryNativeLogin internal constructor(
         expectOk(TdApi.ResendAuthenticationCode(null))
     }
 
+    /** Signals AFTER native owner has finalized the TDLib database lease. */
+    suspend fun awaitNativeClosed() {
+        withTimeout(45_000) { nativeLeaseClosed.await() }
+    }
+
     /** LogOut invalidates this secondary Telegram authorization. Database ownership
      * remains with native TDLib until the CLOSED event releases its lease. */
     suspend fun logOutAndAwaitClosed() {
@@ -337,9 +345,8 @@ internal class TdSecondaryNativeLogin internal constructor(
             "Account must be authorized before logout"
         }
         expectOk(TdApi.LogOut())
-        kotlinx.coroutines.withTimeout(45_000) {
-            authPhase.first { it == TdAccountAuthPhase.CLOSED }
-        }
+        // CLOSED is published before the owner's finally{} releases its lease.
+        awaitNativeClosed()
     }
 
     /** Close keeps the TDLib database and user login. Do not call LogOut here. */
