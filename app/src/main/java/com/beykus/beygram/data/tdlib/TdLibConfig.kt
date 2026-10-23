@@ -20,14 +20,21 @@ data class TdLibConfig(
         get() = apiId != 0 && apiHash.isNotBlank()
 
     companion object {
-        fun from(context: Context): TdLibConfig {
-            val tdlibRoot = context.filesDir.resolve("tdlib")
+        /** The existing login always keeps its database; registry selection is not
+         * consumed until account-scoped TDLib repositories exist. */
+        fun from(context: Context): TdLibConfig =
+            forAccount(context, TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+
+        /** The storage contract for a future TDLib client owned by [accountId].
+         * Caller must first register this account and acquire its database lease. */
+        fun forAccount(context: Context, accountId: String): TdLibConfig {
+            val directories = TdAccountStorageLayout(context.filesDir).forAccount(accountId)
 
             return TdLibConfig(
                 apiId = BuildConfig.TELEGRAM_API_ID,
                 apiHash = BuildConfig.TELEGRAM_API_HASH,
-                databaseDirectory = tdlibRoot.resolve("database").absolutePath,
-                filesDirectory = tdlibRoot.resolve("files").absolutePath,
+                databaseDirectory = directories.database.absolutePath,
+                filesDirectory = directories.files.absolutePath,
                 systemLanguageCode = Locale.getDefault().toLanguageTag(),
                 deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
                 applicationVersion = BuildConfig.VERSION_NAME
