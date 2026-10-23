@@ -657,29 +657,35 @@ fun ChatScreen(
     fun jumpToPinned(message: ChatMessage) = jumpToMessage(message.id, R.string.chat_pinned_failed)
     fun jumpToFirstUnread() {
         val boundary = history.lastReadInboxMessageId
-        if (boundary <= 0L) return
-        // The boundary page must be loaded, or the oldest loaded row is merely the oldest fetched unread message.
-        val readLoaded = rawMessageItems.any { item -> item.messages.any { it.id <= boundary } }
-        val firstUnread = firstUnreadItemIndex(rawMessageItems, boundary)
-        if (!needsUnreadWindow(readLoaded, firstUnread)) {
-            val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
+        // With no read watermark every incoming message is unread. Otherwise the boundary page must be loaded, or the
+        // oldest loaded row is merely the oldest fetched unread message.
+        val unreadBoundary = boundary.coerceAtLeast(0L)
+        val readLoaded = boundary > 0L && rawMessageItems.any { item -> item.messages.any { it.id <= boundary } }
+        val firstUnread = firstUnreadItemIndex(rawMessageItems, unreadBoundary)
+        val canScrollNow = if (boundary <= 0L) firstUnread >= 0 else !needsUnreadWindow(readLoaded, firstUnread)
+        if (canScrollNow) {
+            val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
             scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
             return
         }
+        // A zero watermark has no message to anchor GetChatHistory; extend the oldest loaded page instead.
+        val anchor = if (boundary > 0L) boundary
+        else rawMessageItems.lastOrNull { it.messages.isNotEmpty() }?.messages?.minOfOrNull { it.id }
+            ?: return
         // Request the boundary page. This also covers a window that is entirely older than the boundary: readLoaded is
         // true there, but there is no unread row to scroll to. Resolve the target from the applied window itself, then
         // let the existing pendingJumpId effect wait until that row is in the list.
         scope.launch {
-            (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, boundary)
-            else conversation.loadMessagesAround(chat.id, boundary))
+            (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, anchor)
+            else conversation.loadMessagesAround(chat.id, anchor))
                 .onSuccess { applied ->
                     if (!applied) return@onSuccess
                     val loaded = if (forumTopicId > 0L) conversation.observeForumTopicHistory(chat.id, forumTopicId).value.messages
                     else conversation.observeChatHistory(chat.id).value.messages
                     val items = groupTelegramMediaAlbums(loaded)
-                    val index = firstUnreadItemIndex(items, boundary)
+                    val index = firstUnreadItemIndex(items, unreadBoundary)
                     if (index >= 0) {
-                        pendingJumpId = items[index].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
+                        pendingJumpId = items[index].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
                     }
                 }
                 .onFailure { error = it.userMessage(context, R.string.err_chat_history_load_failed) }
@@ -705,7 +711,7 @@ fun ChatScreen(
         else ChatTopBar(
             chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true },
             observeFile, onDownloadFile, forumTopicTitle,
-            hasUnread = (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0 && history.lastReadInboxMessageId > 0L,
+            hasUnread = (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0,
             onMarkUnread = {
                 scope.launch {
                     conversation.markChatUnread(chat.id)

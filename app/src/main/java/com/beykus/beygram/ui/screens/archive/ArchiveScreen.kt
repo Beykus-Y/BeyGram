@@ -48,6 +48,7 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chats.ChatSwipeAction
+import com.beykus.beygram.ui.screens.chats.showsUnreadIndicator
 import com.beykus.beygram.ui.screens.chats.SwipeChatRow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -109,7 +110,7 @@ fun ArchiveScreen(
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { onChatClick(chat) },
-                        read = readAction.copy(enabled = chat.unreadCount > 0),
+                        read = readAction.copy(enabled = showsUnreadIndicator(chat)),
                         primary = unarchiveAction
                     )
                 }
