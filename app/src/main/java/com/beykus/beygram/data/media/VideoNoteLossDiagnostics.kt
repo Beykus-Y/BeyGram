@@ -107,14 +107,11 @@ internal class VideoNoteLossDiagnostics(
     private var activeJob: Job? = null
 
     companion object {
-        // Survives navigation and Activity recreation; repository identity prevents using
-        // another account's test state for deletion.
-        @Volatile private var instance: VideoNoteLossDiagnostics? = null
-        @Synchronized fun getInstance(context: Context, repository: TelegramRepository): VideoNoteLossDiagnostics {
-            val old = instance
-            if (old != null && old.repository === repository) return old
-            return VideoNoteLossDiagnostics(context.applicationContext, repository).also { instance = it }
-        }
+        // Keep each repository's diagnostic sender and sentMessageId alive while switching
+        // UI accounts. Identity keys prevent a different TDLib session claiming the result.
+        private val instances = java.util.IdentityHashMap<TelegramRepository, VideoNoteLossDiagnostics>()
+        @Synchronized fun getInstance(context: Context, repository: TelegramRepository): VideoNoteLossDiagnostics =
+            instances.getOrPut(repository) { VideoNoteLossDiagnostics(context.applicationContext, repository) }
     }
 
     @Synchronized fun start(fps: Int = VideoNoteSyntheticSource.FPS_30): Boolean {
