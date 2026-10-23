@@ -159,9 +159,17 @@ internal class TdSecondaryAccountController private constructor(
         try {
             coordinator.logoutSecondary(accountId)
         } catch (error: Throwable) {
-            if (accountId in registry.loadOrCreate().accountIds)
+            if (accountId in registry.loadOrCreate().accountIds) {
                 restoreStore.clearDeletionPending(accountId)
-            throw error
+                throw error
+            }
+            // The native session was already committed out of the registry,
+            // but secondary preference cleanup failed. Finish the durable
+            // tombstone now instead of orphaning a deleted account.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                cleanupUnregisteredAccount(accountId)
+            }
+            return
         }
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             cleanupUnregisteredAccount(accountId)
