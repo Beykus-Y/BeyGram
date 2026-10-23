@@ -851,11 +851,30 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     // ---- TDLib Client --------------------------------------------------------
 
-    private val client: Client = run {
+    private val client: Client = TdAccountClientLifecycle(appContext.filesDir).open(
+        TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+    ) { directories, onNativeClientClosed ->
+        // Existing installs MUST keep precisely the old filesDir/tdlib database,
+        // even though the registry may already contain prepared secondary IDs.
+        check(config.databaseDirectory == directories.database.absolutePath &&
+            config.filesDirectory == directories.files.absolutePath) {
+            "TDLib legacy session storage does not match its database lease"
+        }
         // Don't let TDLib include API credentials or phone numbers in logcat.
         runCatching { Client.execute(TdApi.SetLogVerbosityLevel(if (BuildConfig.DEBUG) 2 else 0)) }
         Client.create(
-            /* updateHandler          = */ Client.ResultHandler { update -> handleUpdate(update) },
+            /* updateHandler          = */ Client.ResultHandler { update ->
+                try {
+                    handleUpdate(update)
+                } finally {
+                    // TDLib owns the SQLite database until native close finishes.
+                    // Never release on logout, screen disposal, or a Close request.
+                    if (update is TdApi.UpdateAuthorizationState &&
+                        update.authorizationState is TdApi.AuthorizationStateClosed) {
+                        onNativeClientClosed()
+                    }
+                }
+            },
             /* updateExceptionHandler = */ null,
             /* defaultExceptionHandler= */ null
         )
