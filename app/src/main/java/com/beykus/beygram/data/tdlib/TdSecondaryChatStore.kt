@@ -28,6 +28,7 @@ internal data class TdSecondaryTextMessage(
  * threads, so a single lock owns all mutations of both StateFlows.
  */
 internal class TdSecondaryChatStore(val accountId: String) {
+    private companion object { const val MAX_CACHED_MESSAGES_PER_CHAT = 100 }
     private val lock = Any()
     private val byId = mutableMapOf<TdAccountChatKey, TdSecondaryChatSummary>()
     private val _chats = MutableStateFlow<List<TdSecondaryChatSummary>>(emptyList())
@@ -55,7 +56,8 @@ internal class TdSecondaryChatStore(val accountId: String) {
         }
         synchronized(lock) {
             _history.value = _history.value + (chat to messages.distinctBy { it.key }
-                .sortedWith(compareBy<TdSecondaryTextMessage> { it.date }.thenBy { it.key.messageId }))
+                .sortedWith(compareBy<TdSecondaryTextMessage> { it.date }.thenBy { it.key.messageId })
+                .takeLast(MAX_CACHED_MESSAGES_PER_CHAT))
         }
     }
 
@@ -111,7 +113,8 @@ internal class TdSecondaryChatStore(val accountId: String) {
                     val added = textMessage(update.message)
                     _history.value = _history.value + (chatKey to
                         (existing + added).distinctBy { it.key }
-                            .sortedWith(compareBy<TdSecondaryTextMessage> { it.date }.thenBy { it.key.messageId }))
+                            .sortedWith(compareBy<TdSecondaryTextMessage> { it.date }.thenBy { it.key.messageId })
+                            .takeLast(MAX_CACHED_MESSAGES_PER_CHAT))
                 }
             }
         }
