@@ -33,6 +33,8 @@ import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
+import com.beykus.beygram.data.tdlib.TdAccountRegistry
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
@@ -72,6 +74,7 @@ import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.settings.SecondaryAccountsScreen
 import com.beykus.beygram.ui.screens.settings.SecondaryChatsScreen
+import com.beykus.beygram.ui.screens.settings.AccountPickerScreen
 import com.beykus.beygram.ui.screens.settings.ActiveSessionsScreen
 import com.beykus.beygram.ui.screens.settings.LanguageScreen
 import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
@@ -103,6 +106,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Экраны, где мини-плеер встроен в свою разметку: над нижним меню или над полем ввода. На остальных экранах он стоит снизу. */
 private val playerBarHostRoutes = setOf(AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat)
@@ -189,6 +194,20 @@ private fun BeyGramAppContent(
     val secondaryAccountController = remember(context, repository) {
         TdSecondaryAccountController.get(context) { repository.currentRoute().getOrNull() }
     }
+    val accountRegistry = remember(context) { TdAccountRegistry(context.applicationContext.filesDir) }
+    var selectedAccountId by remember { mutableStateOf(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }
+    var accountRegistryReady by remember { mutableStateOf(false) }
+    var accountRegistryError by remember { mutableStateOf(false) }
+    val accountChoice = secondaryAccountController.coordinator.snapshot.collectAsStateWithLifecycle().value
+    LaunchedEffect(accountRegistry) {
+        try {
+            val state = withContext(Dispatchers.IO) { accountRegistry.loadOrCreate() }
+            selectedAccountId = state.activeAccountId
+            secondaryAccountController.coordinator.refresh()
+        } catch (_: Exception) {
+            accountRegistryError = true
+        } finally { accountRegistryReady = true }
+    }
     val myProfile by repository.myProfile.collectAsStateWithLifecycle()
     val bioLimit by repository.bioLengthLimit.collectAsStateWithLifecycle()
     val lastSeenStyle by lastSeenSettings.style.collectAsStateWithLifecycle()
@@ -227,6 +246,30 @@ private fun BeyGramAppContent(
     var memberReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.ChatInfo.name) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    val accountSwitchScope = rememberCoroutineScope()
+    val chooseAccount: (String) -> Unit = { target ->
+        accountSwitchScope.launch {
+            try {
+                // A persisted slot is not enough. A secondary session must
+                // already be authorized, online and bound to its own store.
+                if (target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+                    secondaryAccountController.coordinator.chatSession(target)
+                }
+                withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
+                PlaybackEngine.stop()
+                selectedChatId = 0L
+                selectedForumTopicId = 0L
+                selectedTopicChatId = 0L
+                trustedForumTopicId = 0L
+                chatFocusMessageId = 0L
+                secondaryChatsAccountId = null
+                selectedAccountId = target
+                routeName = AppRoute.Chats.name
+            } catch (_: Exception) {
+                noticeError = UiText.Raw(context.getString(R.string.secondary_accounts_switch_failed))
+            }
+        }
+    }
     var noticeError by remember { mutableStateOf<UiText?>(null) }
     // «Показать в чате» из мини-плеера открывает сообщение, из которого запущен файл. Назад из чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     val currentAuthState by rememberUpdatedState(authState)
@@ -422,6 +465,14 @@ private fun BeyGramAppContent(
 
     // ---- Маршрутизация -------------------------------------------------------
     val route = AppRoute.valueOf(routeName)
+    // When a secondary is selected, no primary-only screen may accidentally
+    // display legacy profiles, messages, files, or notifications under its label.
+    LaunchedEffect(selectedAccountId, routeName) {
+        if (accountRegistryReady && selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+            route !in setOf(AppRoute.Chats, AppRoute.AccountPicker, AppRoute.SecondaryAccounts)) {
+            routeName = AppRoute.Chats.name
+        }
+    }
     // Назад из разделов нижнего меню ведёт туда, откуда раздел открыли: в чаты или в профиль.
     BackHandler(enabled = route == AppRoute.Calls || route == AppRoute.Contacts || route == AppRoute.Settings) {
         routeName = tabReturnRouteName
@@ -430,7 +481,11 @@ private fun BeyGramAppContent(
         routeName = if (route == AppRoute.ProxyConnect) AppRoute.Proxy.name else proxyReturnRouteName
     }
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
-    BackHandler(enabled = route == AppRoute.SecondaryAccounts) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.SecondaryAccounts) {
+        routeName = if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+            AppRoute.Settings.name else AppRoute.Chats.name
+    }
+    BackHandler(enabled = route == AppRoute.AccountPicker) { routeName = AppRoute.Chats.name }
     BackHandler(enabled = route == AppRoute.SecondaryChats) { routeName = AppRoute.SecondaryAccounts.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
@@ -469,6 +524,7 @@ private fun BeyGramAppContent(
                 observeFile = repository::observeFile,
                 downloadFile = repository::downloadFile,
                 onMyProfile = { routeName = AppRoute.MyProfile.name },
+                onAccountPicker = { routeName = AppRoute.AccountPicker.name },
                 onArchiveClick = { routeName = AppRoute.Archive.name },
                 onMarkRead = markChatRead,
                 onArchive = archiveChat,
@@ -746,7 +802,23 @@ private fun BeyGramAppContent(
 
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (route) {
+            when {
+                !accountRegistryReady -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                accountRegistryError -> Text(
+                    stringResource(R.string.secondary_accounts_registry_error),
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+                    route == AppRoute.Chats -> SecondaryChatsScreen(
+                    accountId = selectedAccountId,
+                    coordinator = secondaryAccountController.coordinator,
+                    onBack = { routeName = AppRoute.AccountPicker.name },
+                    onSwitchAccount = { routeName = AppRoute.AccountPicker.name }
+                )
+                selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+                    route !in setOf(AppRoute.AccountPicker, AppRoute.SecondaryAccounts) ->
+                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                else -> when (route) {
                 AppRoute.Start -> StartScreen(
                     tdLibReadiness = tdLibReadiness,
                     authState = authState,
@@ -894,12 +966,23 @@ private fun BeyGramAppContent(
                     )
                 }
                 AppRoute.Language -> LanguageScreen(onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.AccountPicker -> AccountPickerScreen(
+                    state = accountChoice,
+                    selectedId = selectedAccountId,
+                    onSelect = chooseAccount,
+                    onManage = { routeName = AppRoute.SecondaryAccounts.name },
+                    onBack = { routeName = AppRoute.Chats.name }
+                )
                 AppRoute.SecondaryAccounts -> SecondaryAccountsScreen(
                     controller = secondaryAccountController,
                     onBack = { routeName = AppRoute.Settings.name },
                     onOpenChats = { accountId ->
-                        secondaryChatsAccountId = accountId
-                        routeName = AppRoute.SecondaryChats.name
+                        if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+                            chooseAccount(accountId)
+                        } else {
+                            secondaryChatsAccountId = accountId
+                            routeName = AppRoute.SecondaryChats.name
+                        }
                     }
                 )
                 AppRoute.SecondaryChats -> {
@@ -907,7 +990,8 @@ private fun BeyGramAppContent(
                     if (accountId != null) SecondaryChatsScreen(
                         accountId = accountId,
                         coordinator = secondaryAccountController.coordinator,
-                        onBack = { routeName = AppRoute.SecondaryAccounts.name }
+                        onBack = { routeName = AppRoute.SecondaryAccounts.name },
+                        onSwitchAccount = { routeName = AppRoute.AccountPicker.name }
                     ) else LaunchedEffect(Unit) {
                         routeName = AppRoute.SecondaryAccounts.name
                     }
@@ -1034,7 +1118,8 @@ private fun BeyGramAppContent(
                 )
             }
         }
-        if (route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
+        if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+            route !in playerBarHostRoutes) NowPlayingBar(bottomInset = true)
     }
     noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
         text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
