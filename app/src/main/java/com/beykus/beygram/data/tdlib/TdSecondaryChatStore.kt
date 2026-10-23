@@ -16,12 +16,15 @@ internal data class TdSecondaryChatSummary(
     val previewIsMedia: Boolean = false
 )
 
+internal enum class TdSecondarySendStatus { PENDING, SENT, FAILED }
+
 internal data class TdSecondaryTextMessage(
     val key: TdAccountMessageKey,
     val text: String,
     val outgoing: Boolean,
     val date: Int,
-    val isMedia: Boolean = false
+    val isMedia: Boolean = false,
+    val sendStatus: TdSecondarySendStatus = TdSecondarySendStatus.SENT
 )
 
 /**
@@ -66,8 +69,7 @@ internal class TdSecondaryChatStore(val accountId: String) {
     fun appendSentMessage(message: TdApi.Message) {
         synchronized(lock) {
             val chat = key(message.chatId)
-            if (!byId.containsKey(chat)) return
-            val old = _history.value[chat] ?: return
+            val old = _history.value[chat].orEmpty()
             val updated = (old + textMessage(message)).distinctBy { it.key }
                 .sortedWith(compareBy<TdSecondaryTextMessage> { it.date }.thenBy { it.key.messageId })
                 .takeLast(MAX_CACHED_MESSAGES_PER_CHAT)
@@ -128,6 +130,29 @@ internal class TdSecondaryChatStore(val accountId: String) {
                     byId[chatKey]?.let { byId[chatKey] = it.copy(unreadCount = update.unreadCount) }
                     publish()
                 }
+                is TdApi.UpdateMessageSendSucceeded -> {
+                    val message = update.message
+                    val chatKey = key(message.chatId)
+                    val old = _history.value[chatKey].orEmpty()
+                    if (_history.value.containsKey(chatKey)) {
+                        _history.value = _history.value + (chatKey to
+                            (old.filterNot { it.key.messageId == update.oldMessageId } + textMessage(message))
+                                .distinctBy { it.key }
+                                .sortedWith(compareBy<TdSecondaryTextMessage> { it.date }.thenBy { it.key.messageId })
+                                .takeLast(MAX_CACHED_MESSAGES_PER_CHAT))
+                    }
+                }
+                is TdApi.UpdateMessageSendFailed -> {
+                    val chatKey = key(update.message.chatId)
+                    val old = _history.value[chatKey]
+                    if (old != null) {
+                        _history.value = _history.value + (chatKey to old.map {
+                            if (it.key.messageId == update.oldMessageId)
+                                it.copy(sendStatus = TdSecondarySendStatus.FAILED)
+                            else it
+                        })
+                    }
+                }
                 is TdApi.UpdateNewMessage -> {
                     val chatKey = key(update.message.chatId)
                     val existing = _history.value[chatKey] ?: return
@@ -156,7 +181,12 @@ internal class TdSecondaryChatStore(val accountId: String) {
     private fun textMessage(message: TdApi.Message): TdSecondaryTextMessage =
         TdSecondaryTextMessage(
             TdAccountMessageKey(accountId, message.chatId, message.id),
-            preview(message), message.isOutgoing, message.date, isMedia(message)
+            preview(message), message.isOutgoing, message.date, isMedia(message),
+            when (message.sendingState) {
+                is TdApi.MessageSendingStatePending -> TdSecondarySendStatus.PENDING
+                is TdApi.MessageSendingStateFailed -> TdSecondarySendStatus.FAILED
+                else -> TdSecondarySendStatus.SENT
+            }
         )
 
     fun convertHistory(chat: TdAccountChatKey, messages: Array<out TdApi.Message>): List<TdSecondaryTextMessage> {
