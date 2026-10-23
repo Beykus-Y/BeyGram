@@ -55,7 +55,7 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
         }
 
         /** Called only after TDLib AuthorizationStateClosed. Idempotent and generation-scoped. */
-        fun onNativeClosed() {
+        fun onNativeClosed(notifyOwner: Boolean = true) {
             val owned = synchronized(monitor) {
                 if (live[accountId]?.generation == generation) {
                     live.remove(accountId)
@@ -64,7 +64,7 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
             }
             // Native owner has already released the database lease during
             // delivery; now the generation-scoped router is fully unregistered.
-            if (owned) onAfterClosed()
+            if (owned && notifyOwner) onAfterClosed()
         }
     }
 
