@@ -23,6 +23,21 @@ class TdSecondaryStartupReplayTest {
         assertEquals(listOf(newChat, newUser, inbox, unread, newMessage), received)
     }
 
+    @Test fun overflowingStartupBudgetFailsClosedInsteadOfRenderingIncompleteChats() {
+        val buffer = TdSecondaryStartupReplay()
+        repeat(16_385) {
+            buffer.record(TdApi.UpdateNewChat(), hasObservers = false)
+        }
+        try {
+            buffer.replay { }
+            org.junit.Assert.fail("Incomplete startup replay must not be treated as current")
+        } catch (_: IllegalStateException) { }
+        buffer.clear()
+        val afterReset = mutableListOf<TdApi.Object>()
+        buffer.replay { afterReset.add(it) }
+        assertTrue(afterReset.isEmpty())
+    }
+
     @Test fun snapshotAndFollowingDeltasReplayInOrder() {
         val buffer = TdSecondaryStartupReplay()
         val snapshot = TdApi.UpdateActiveNotifications()
