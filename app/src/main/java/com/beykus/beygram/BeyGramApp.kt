@@ -586,6 +586,21 @@ private fun BeyGramAppContent(
             }
         )
     }
+    if (incomingShare != null && shareAccountTarget != null &&
+        shareAccountTarget != selectedAccountId && accountRegistryReady && !accountRegistryError) {
+        val target = shareAccountTarget!!
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { shareAccountTarget = null },
+            title = { Text("Переключение Telegram-аккаунта") },
+            text = { Text("Чтобы отправить содержимое, нужно открыть выбранный аккаунт. Ничего не будет отправлено автоматически.") },
+            confirmButton = {
+                TextButton(onClick = { chooseAccount(target) }) { Text("Переключиться") }
+            },
+            dismissButton = {
+                TextButton(onClick = { shareAccountTarget = null }) { Text("Выбрать другой") }
+            }
+        )
+    }
     if (incomingShare != null && shareAccountTarget == selectedAccountId &&
         authState == AuthState.Ready && accountRegistryReady && !accountRegistryError) {
         // Архивные чаты тоже можно выбрать: отправка в них не требует вынимать их из архива.
