@@ -204,6 +204,28 @@ private fun BeyGramAppContent(
             accountRegistryError = true
         } finally { accountRegistryReady = true }
     }
+    // Every running secondary account owns its notification feed, even when it is not
+    // the visible UI account. The manager keeps those repositories alive per TDLib session.
+    LaunchedEffect(accountRegistryReady, accountChoice.accounts, notificationRuntime) {
+        if (accountRegistryReady && !accountRegistryError) {
+            for (row in accountChoice.accounts) {
+                if (!row.connectedInThisProcess ||
+                    row.phase != com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY ||
+                    row.networkSuspended) continue
+                try {
+                    val source = secondaryAccountController.coordinator.fullRepository(
+                        row.accountId, context.applicationContext
+                    )
+                    notificationRuntime.attachSecondary(row.accountId, source)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // A session can close while its READY snapshot is being processed.
+                    android.util.Log.w("BeyGramNotify", "Secondary notification attach failed", error)
+                }
+            }
+        }
+    }
     val accountRow = accountChoice.accounts.firstOrNull { it.accountId == selectedAccountId }
     val repositorySelection by produceState<TelegramRepository?>(
         initialValue = if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
