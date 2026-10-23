@@ -39,6 +39,24 @@ class TdAccountRegistryTest {
         assertTrue(legacyCache.isFile)
     }
 
+    @Test fun removingSecondaryRehomesSelectionButNeverDeletesSiblingOrLegacy() = withAppFiles { app ->
+        val registry = TdAccountRegistry(app)
+        val first = registry.prepareSecondaryAccount().second
+        val second = registry.prepareSecondaryAccount().second
+        registry.selectAccount(first)
+        val bytes = app.resolve("tdlib/database/original.db").apply {
+            parentFile!!.mkdirs(); writeText("original")
+        }
+        val newState = registry.unregisterSecondaryAccount(first)
+        assertEquals(listOf("legacy", second), newState.accountIds)
+        assertEquals("legacy", newState.activeAccountId)
+        assertEquals(newState, TdAccountRegistry(app).loadOrCreate())
+        assertEquals("original", bytes.readText())
+        try { registry.unregisterSecondaryAccount("legacy"); fail("Legacy must be protected") }
+        catch (_: IllegalArgumentException) { }
+        assertEquals(newState, registry.loadOrCreate())
+    }
+
     @Test fun repeatedLaunchDoesNotResetOrRewriteAccounts() = withAppFiles { app ->
         val registry = TdAccountRegistry(app)
         val (prepared, id) = registry.prepareSecondaryAccount()
