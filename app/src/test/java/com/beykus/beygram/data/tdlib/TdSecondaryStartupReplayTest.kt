@@ -8,6 +8,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TdSecondaryStartupReplayTest {
+    @Test fun transientChatsUsersAndReadCountersAreNotLostBeforeRepositoryAttachment() {
+        val buffer = TdSecondaryStartupReplay()
+        val newChat = TdApi.UpdateNewChat()
+        val newUser = TdApi.UpdateUser()
+        val inbox = TdApi.UpdateChatReadInbox()
+        val unread = TdApi.UpdateUnreadChatCount()
+        val newMessage = TdApi.UpdateNewMessage()
+        listOf(newChat, newUser, inbox, unread, newMessage).forEach {
+            buffer.record(it, hasObservers = false)
+        }
+        val received = mutableListOf<TdApi.Object>()
+        buffer.replay { received.add(it) }
+        assertEquals(listOf(newChat, newUser, inbox, unread, newMessage), received)
+    }
+
     @Test fun snapshotAndFollowingDeltasReplayInOrder() {
         val buffer = TdSecondaryStartupReplay()
         val snapshot = TdApi.UpdateActiveNotifications()
