@@ -317,12 +317,13 @@ private fun PreviewMessagesContent(
     }
     if (composerLaunch) {
         Box(
-            Modifier.fillMaxWidth()
-                .alpha(if (showOutgoing) 1f else 0f)
-                .onGloballyPositioned { onTargetPositioned(it.boundsInWindow()) }
+            Modifier.fillMaxWidth().alpha(if (showOutgoing) 1f else 0f)
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                ComposerLaunchBubble(outgoingMessage)
+                ComposerLaunchBubble(
+                    outgoingMessage,
+                    Modifier.onGloballyPositioned { onTargetPositioned(it.boundsInWindow()) }
+                )
             }
         }
     } else {

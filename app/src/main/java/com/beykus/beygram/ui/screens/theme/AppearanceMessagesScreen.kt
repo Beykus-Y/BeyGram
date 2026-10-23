@@ -49,6 +49,7 @@ internal fun AppearanceMessagesPage(
     draft: AppearanceConfig,
     systemDark: Boolean,
     onDraftChange: (AppearanceConfig) -> Unit,
+    onDraftChangeContinuous: (AppearanceConfig) -> Unit,
     onOpenCustomColors: () -> Unit,
     onOpenPreview: () -> Unit
 ) {
@@ -102,7 +103,7 @@ internal fun AppearanceMessagesPage(
                 value = effectiveRadius.toFloat(),
                 range = MIN_BUBBLE_CORNER_RADIUS_DP.toFloat()..MAX_BUBBLE_CORNER_RADIUS_DP.toFloat()
             ) { value ->
-                onDraftChange(
+                onDraftChangeContinuous(
                     draft.copy(
                         bubbleCornerRadiusDp = value.roundToInt()
                             .coerceIn(MIN_BUBBLE_CORNER_RADIUS_DP, MAX_BUBBLE_CORNER_RADIUS_DP)
@@ -130,7 +131,7 @@ internal fun AppearanceMessagesPage(
                 value = draft.messageTextSizeSp.toFloat(),
                 range = MIN_MESSAGE_TEXT_SIZE_SP.toFloat()..MAX_MESSAGE_TEXT_SIZE_SP.toFloat()
             ) { value ->
-                onDraftChange(
+                onDraftChangeContinuous(
                     draft.copy(
                         messageTextSizeSp = value.roundToInt()
                             .coerceIn(MIN_MESSAGE_TEXT_SIZE_SP, MAX_MESSAGE_TEXT_SIZE_SP)

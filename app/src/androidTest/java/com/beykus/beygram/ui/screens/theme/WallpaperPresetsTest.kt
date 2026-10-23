@@ -32,6 +32,7 @@ class WallpaperPresetsTest {
                     draft = AppearanceConfig(wallpaper = ChatWallpaper.Preset("mint-air")),
                     systemDark = false,
                     onDraftChange = { selected = it.wallpaper },
+                    onDraftChangeContinuous = { selected = it.wallpaper },
                     onOpenPreview = {}
                 )
             }

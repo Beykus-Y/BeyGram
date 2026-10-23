@@ -76,6 +76,7 @@ internal fun AppearanceWallpapersPage(
     draft: AppearanceConfig,
     systemDark: Boolean,
     onDraftChange: (AppearanceConfig) -> Unit,
+    onDraftChangeContinuous: (AppearanceConfig) -> Unit,
     onOpenPreview: () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -167,7 +168,8 @@ internal fun AppearanceWallpapersPage(
                 selected = selected,
                 draft = draft,
                 tokens = tokens,
-                onDraftChange = onDraftChange
+                onDraftChange = onDraftChange,
+                onDraftChangeContinuous = onDraftChangeContinuous
             )
             WallpaperCategory.Colors -> ColorsSection(
                 selected = selected,
@@ -176,6 +178,7 @@ internal fun AppearanceWallpapersPage(
             WallpaperCategory.Photo -> PhotoSection(
                 selected = selected,
                 onSelect = { onDraftChange(draft.copy(wallpaper = it)) },
+                onSelectContinuous = { onDraftChangeContinuous(draft.copy(wallpaper = it)) },
                 onPick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
             )
         }
@@ -194,7 +197,8 @@ private fun PatternsSection(
     selected: ChatWallpaper,
     draft: AppearanceConfig,
     tokens: com.beykus.beygram.ui.theme.BeyGramTokens,
-    onDraftChange: (AppearanceConfig) -> Unit
+    onDraftChange: (AppearanceConfig) -> Unit,
+    onDraftChangeContinuous: (AppearanceConfig) -> Unit
 ) {
     val palette = beyGramPalette()
     val selectedPreset = selected as? ChatWallpaper.Preset
@@ -222,7 +226,7 @@ private fun PatternsSection(
                     value = selectedPreset.intensityPercent.toFloat(),
                     range = 0f..ChatWallpaper.MAX_PATTERN_INTENSITY.toFloat()
                 ) { value ->
-                    onDraftChange(
+                    onDraftChangeContinuous(
                         draft.copy(
                             wallpaper = selectedPreset.copy(
                                 intensityPercent = value.toInt().coerceIn(0, ChatWallpaper.MAX_PATTERN_INTENSITY)
@@ -426,6 +430,7 @@ private fun ColorTile(
 private fun PhotoSection(
     selected: ChatWallpaper,
     onSelect: (ChatWallpaper) -> Unit,
+    onSelectContinuous: (ChatWallpaper) -> Unit,
     onPick: () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -477,7 +482,7 @@ private fun PhotoSection(
                 value = photo.dimPercent.toFloat(),
                 range = 0f..ChatWallpaper.MAX_DIM_PERCENT.toFloat()
             ) { value ->
-                onSelect(photo.copy(dimPercent = value.toInt().coerceIn(0, ChatWallpaper.MAX_DIM_PERCENT)))
+                onSelectContinuous(photo.copy(dimPercent = value.toInt().coerceIn(0, ChatWallpaper.MAX_DIM_PERCENT)))
             }
             AppearanceToggleRow(
                 title = stringResource(R.string.wallpaper_blur),

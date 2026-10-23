@@ -110,13 +110,15 @@ fun ThemeSettingsScreen(
 
     // A slider gesture gets exactly one checkpoint at its first value. A discrete edit always checkpoints, even when
     // it happens milliseconds after the previous selection or toggle.
-    fun changeDraft(next: AppearanceConfig) {
+    fun recordDraftChange(next: AppearanceConfig, continuous: Boolean) {
         if (next == draft) return
-        if (undoCoalescer.shouldCheckpoint(isContinuousAppearanceChange(draft, next))) {
-            history.checkpoint(draft)
-        }
+        if (undoCoalescer.shouldCheckpoint(continuous)) history.checkpoint(draft)
         onDraftChange(next)
     }
+
+    fun changeDraft(next: AppearanceConfig) = recordDraftChange(next, continuous = false)
+
+    fun changeDraftContinuous(next: AppearanceConfig) = recordDraftChange(next, continuous = true)
 
     fun finishContinuousGesture() {
         undoCoalescer.endGesture()
@@ -261,6 +263,7 @@ fun ThemeSettingsScreen(
                                 draft = draft,
                                 systemDark = systemDark,
                                 onDraftChange = ::changeDraft,
+                                onDraftChangeContinuous = ::changeDraftContinuous,
                                 onOpenCustomColors = { openPage(AppearancePage.CustomColors) },
                                 onOpenPreview = { openPage(AppearancePage.Preview) }
                             )
@@ -268,12 +271,14 @@ fun ThemeSettingsScreen(
                                 draft = draft,
                                 systemDark = systemDark,
                                 onDraftChange = ::changeDraft,
+                                onDraftChangeContinuous = ::changeDraftContinuous,
                                 onOpenPreview = { openPage(AppearancePage.Preview) }
                             )
                             AppearancePage.Wallpapers -> AppearanceWallpapersPage(
                                 draft = draft,
                                 systemDark = systemDark,
                                 onDraftChange = ::changeDraft,
+                                onDraftChangeContinuous = ::changeDraftContinuous,
                                 onOpenPreview = { openPage(AppearancePage.Preview) }
                             )
                             AppearancePage.CustomColors -> AppearanceCustomColorsPage(

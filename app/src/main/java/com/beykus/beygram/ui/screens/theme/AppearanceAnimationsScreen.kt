@@ -89,6 +89,7 @@ internal fun AppearanceAnimationsPage(
     draft: AppearanceConfig,
     systemDark: Boolean,
     onDraftChange: (AppearanceConfig) -> Unit,
+    onDraftChangeContinuous: (AppearanceConfig) -> Unit,
     onOpenPreview: () -> Unit
 ) {
     val config = draft.messageAnimations
@@ -116,7 +117,14 @@ internal fun AppearanceAnimationsPage(
     }
 
     fun updateTuning(change: (MessageAnimationTuning) -> MessageAnimationTuning) {
-        updateDirection { it.copy(tuning = change(it.tuning)) }
+        onDraftChangeContinuous(
+            draft.copy(
+                messageAnimations = config.withDirection(
+                    activeOutgoing,
+                    active.copy(tuning = change(active.tuning))
+                )
+            )
+        )
     }
 
     Column(
