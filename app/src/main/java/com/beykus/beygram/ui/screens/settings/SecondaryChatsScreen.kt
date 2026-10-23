@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,7 +56,8 @@ import kotlinx.coroutines.withContext
 internal fun SecondaryChatsScreen(
     accountId: String,
     coordinator: TdSecondarySessionCoordinator,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onSwitchAccount: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -130,6 +132,11 @@ internal fun SecondaryChatsScreen(
                     color = palette.textPrimary)
                 Text(stringResource(R.string.secondary_chats_readonly),
                     fontSize = 12.sp, color = palette.textSecondary)
+            }
+            IconButton(onClick = onSwitchAccount) {
+                Icon(Icons.Rounded.People,
+                    contentDescription = stringResource(R.string.secondary_accounts_switch),
+                    tint = palette.textPrimary)
             }
         }
         if (!available) {
