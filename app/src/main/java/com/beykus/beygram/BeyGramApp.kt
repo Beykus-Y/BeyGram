@@ -205,6 +205,7 @@ private fun BeyGramAppContent(
     // unread IDs and avatar file IDs are never resolved by another repository.
     val legacyPickerProfile by legacyRepository.myProfile.collectAsStateWithLifecycle()
     val legacyPickerChats by legacyRepository.chats.collectAsStateWithLifecycle()
+    val legacyPickerArchive by legacyRepository.archivedChats.collectAsStateWithLifecycle()
     val secondaryPickerMetadata by produceState<Map<String, AccountPickerMeta>>(
         initialValue = emptyMap(), accountChoice.accounts
     ) {
@@ -219,10 +220,11 @@ private fun BeyGramAppContent(
                     val source = runCatching {
                         secondaryAccountController.coordinator.fullRepository(row.accountId, context.applicationContext)
                     }.getOrNull() ?: return@launch
-                    combine(source.myProfile, source.chats) { profile, chats ->
+                    combine(source.myProfile, source.chats, source.archivedChats) { profile, chats, archived ->
                         AccountPickerMeta(
                             title = profile.info?.title.orEmpty(),
-                            unread = chats.sumOf { it.unreadCount.coerceAtLeast(0) },
+                            unread = (chats + archived).distinctBy { it.id }
+                                .sumOf { it.unreadCount.coerceAtLeast(0) },
                             photo = profile.info?.photo,
                             observeFile = source::observeFile,
                             downloadFile = source::downloadFile
@@ -235,7 +237,8 @@ private fun BeyGramAppContent(
     val pickerMetadata = secondaryPickerMetadata + mapOf(
         TdAccountStorageLayout.LEGACY_ACCOUNT_ID to AccountPickerMeta(
             title = legacyPickerProfile.info?.title.orEmpty(),
-            unread = legacyPickerChats.sumOf { it.unreadCount.coerceAtLeast(0) },
+            unread = (legacyPickerChats + legacyPickerArchive).distinctBy { it.id }
+                .sumOf { it.unreadCount.coerceAtLeast(0) },
             photo = legacyPickerProfile.info?.photo,
             observeFile = legacyRepository::observeFile,
             downloadFile = legacyRepository::downloadFile
