@@ -723,7 +723,7 @@ class TdLibTelegramRepository private constructor(
 
     // Copies listed in the profile's shared media stay protected from the cache policy while that listing is recent.
     private val listedMediaFiles = ListedMediaFiles()
-    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")), File(appContext.filesDir, "uploads")) { messageHistory.mediaFileIds() + listedMediaFiles.current() }
+    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")), File(appContext.filesDir, "uploads"), { messageHistory.mediaFileIds() + listedMediaFiles.current() }, accountId)
     private val storageSettings = StorageSettingsStore.getInstance(context)
     private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
     override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
@@ -1383,7 +1383,7 @@ class TdLibTelegramRepository private constructor(
                 if (content !is TdApi.MessageVoiceNote && content !is TdApi.MessageVideoNote) {
                     val folder = generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }
                     // The mark keeps the file id, so the cache policy can tell TDLib that this copy is gone.
-                    markSentUpload(folder, tdFile.id)
+                    markSentUpload(folder, tdFile.id, accountId)
                     return@runCatching
                 }
                 if (content is TdApi.MessageVideoNote) {
