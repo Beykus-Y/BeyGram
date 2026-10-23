@@ -33,4 +33,13 @@ class DraftHistoryTest {
         assertEquals(2, history.undo())
         assertNull(history.undo())
     }
+
+    @Test fun clearDropsEveryStep() {
+        val history = DraftHistory<Int>()
+        history.checkpoint(1)
+        history.checkpoint(2)
+        history.clear()
+        assertFalse(history.canUndo)
+        assertNull(history.undo())
+    }
 }

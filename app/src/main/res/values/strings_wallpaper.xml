@@ -9,8 +9,6 @@
     <string name="wallpaper_import_failed">Не удалось открыть это фото</string>
     <string name="wallpaper_curated_title">Узорные обои</string>
     <string name="wallpaper_curated_subtitle">16 узоров, созданных для BeyGram. Оттенки подстраиваются под тему.</string>
-    <string name="wallpaper_pattern_intensity">Интенсивность узора: %1$d%%</string>
-    <string name="wallpaper_classic_title">Простые фоны и свои фото</string>
     <string name="wallpaper_preview_input">Сообщение…</string>
     <string name="wallpaper_preset_lavender_flow">Лавандовые волны</string>
     <string name="wallpaper_preset_arctic_blue">Арктический лёд</string>
@@ -28,9 +26,9 @@
     <string name="wallpaper_preset_terracotta_dust">Терракотовая пыль</string>
     <string name="wallpaper_preset_silver_mist">Серебряный туман</string>
     <string name="wallpaper_preset_emerald_tide">Изумрудная волна</string>
-    <string name="wallpaper_preview_title">Предпросмотр беседы</string>
-    <string name="wallpaper_horizontal_hint">Проведите влево или вправо, чтобы посмотреть другие обои</string>
     <string name="wallpaper_reset">Сбросить фон</string>
     <string name="wallpaper_blur">Размыть фото</string>
     <string name="wallpaper_blur_hint">Работает на Android 12 и новее. На старых версиях фото затемняется сильнее.</string>
+    <string name="wallpaper_option_solid_custom">Свой фон</string>
+    <string name="wallpaper_option_gradient_custom">Свой градиент</string>
 </resources>
