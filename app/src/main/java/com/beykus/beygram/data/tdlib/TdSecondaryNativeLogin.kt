@@ -126,24 +126,28 @@ internal class TdSecondaryNativeLogin internal constructor(
 ) {
     val authPhase: StateFlow<TdAccountAuthPhase> = mutablePhase.asStateFlow()
     private val routeMutex = Mutex()
-    private var networkPaused = false
+    private val _routePaused = MutableStateFlow(false)
+    val routePaused: StateFlow<Boolean> = _routePaused.asStateFlow()
 
-    /** Only for sessions using the shared authenticated Mihomo listener. */
-    suspend fun pauseSharedNetwork() = routeMutex.withLock {
-        if (plannedRoute != TdSecondaryRouteDecision.SharedMihomo ||
-            authPhase.value == TdAccountAuthPhase.CLOSED || networkPaused) return@withLock
+    /**
+     * A FOLLOW_PRIMARY account may have originally started DIRECT. If the
+     * primary route changes later, it must go offline too; pausing only
+     * shared-Mihomo sessions would leak traffic onto an outdated route.
+     */
+    suspend fun pauseNetwork() = routeMutex.withLock {
+        if (authPhase.value == TdAccountAuthPhase.CLOSED || _routePaused.value) return@withLock
         val result = request(TdApi.SetNetworkType(TdApi.NetworkTypeNone()))
         if (result is TdApi.Error) error("TDLib failed to pause secondary network")
-        networkPaused = true
+        _routePaused.value = true
     }
 
-    /** Caller must have just revalidated own SOCKS listener and primary route. */
-    suspend fun resumeSharedNetwork(verified: Boolean) = routeMutex.withLock {
-        if (plannedRoute != TdSecondaryRouteDecision.SharedMihomo ||
-            authPhase.value == TdAccountAuthPhase.CLOSED || !networkPaused || !verified) return@withLock
+    /** Re-enable only if the newly verified policy STILL matches the original. */
+    suspend fun resumeNetwork(verified: Boolean) = routeMutex.withLock {
+        if (authPhase.value == TdAccountAuthPhase.CLOSED ||
+            !_routePaused.value || !verified) return@withLock
         val result = request(TdApi.SetNetworkType(TdApi.NetworkTypeOther()))
         if (result is TdApi.Error) error("TDLib failed to resume secondary network")
-        networkPaused = false
+        _routePaused.value = false
     }
 
     suspend fun submitPhoneNumber(phone: String) {
