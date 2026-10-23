@@ -186,6 +186,15 @@ internal fun SecondaryChatsScreen(
         } else {
             val chat = selectedChat!!
             val messages = histories[chat].orEmpty()
+            val lastInboundMessageId = messages.lastOrNull { !it.outgoing }?.key?.messageId
+            LaunchedEffect(chat, available, lastInboundMessageId) {
+                if (available && lastInboundMessageId != null && lastInboundMessageId > 0L) {
+                    try {
+                        coordinator.chatSession(accountId).markRead(chat, lastInboundMessageId)
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { /* Read receipts must not crash an open chat. */ }
+                }
+            }
             val listState = rememberLazyListState()
             LaunchedEffect(chat, messages.size) {
                 if (messages.isNotEmpty()) listState.scrollToItem(messages.lastIndex)
