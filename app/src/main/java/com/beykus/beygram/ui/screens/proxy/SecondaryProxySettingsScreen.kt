@@ -58,38 +58,35 @@ internal fun SecondaryProxySettingsScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
             }
-            Text("Подключение аккаунта", fontSize = 22.sp, color = palette.textPrimary)
+            Text(stringResource(R.string.multi_proxy_title), fontSize = 22.sp, color = palette.textPrimary)
         }
         Column(
             Modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(20.dp)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(Icons.Rounded.Shield, contentDescription = null, tint = palette.accent)
-            Text("Маршрут TDLib", color = palette.textPrimary, fontSize = 18.sp)
+            Text(stringResource(R.string.multi_proxy_route), color = palette.textPrimary, fontSize = 18.sp)
             Text(when (route) {
-                TelegramRoute.Direct -> "Прямое соединение"
-                TelegramRoute.Subscription -> "Общий Mihomo (SOCKS5)"
-                is TelegramRoute.Proxy -> "Отдельный прокси Telegram"
-                null -> if (failed) "Не удалось определить маршрут" else "Проверяем маршрут…"
+                TelegramRoute.Direct -> stringResource(R.string.multi_proxy_direct)
+                TelegramRoute.Subscription -> stringResource(R.string.multi_proxy_mihomo)
+                is TelegramRoute.Proxy -> stringResource(R.string.multi_proxy_manual)
+                null -> if (failed) stringResource(R.string.multi_proxy_unknown) else stringResource(R.string.multi_proxy_checking)
             }, color = palette.textPrimary)
             if (row?.networkSuspended == true)
-                Text("Подключение приостановлено: текущий маршрут не прошёл проверку безопасности.",
+                Text(stringResource(R.string.multi_proxy_paused),
                     color = palette.danger)
         }
         Text(
-            "Mihomo принадлежит всему приложению, а не отдельному Telegram-аккаунту. " +
-                "Чтобы изменить маршрут этой сессии, остановите её в управлении аккаунтами " +
-                "и подключите заново, выбрав «Наследовать», «Mihomo» или «Прямое». " +
-                "Настройки первого аккаунта здесь не изменяются.",
+            stringResource(R.string.multi_proxy_description),
             color = palette.textSecondary, fontSize = 14.sp
         )
-        Text("Изменить маршрут", color = palette.textPrimary, fontSize = 18.sp)
-        Text("Переключение остановит TDLib этого аккаунта и откроет её заново с проверкой нового маршрута. Авторизация останется на устройстве.",
+        Text(stringResource(R.string.multi_proxy_change), color = palette.textPrimary, fontSize = 18.sp)
+        Text(stringResource(R.string.multi_proxy_change_note),
             color = palette.textSecondary, fontSize = 13.sp)
         listOf(
-            TdSecondaryRoutePreference.FOLLOW_PRIMARY to "Наследовать основной маршрут",
-            TdSecondaryRoutePreference.SHARED_MIHOMO to "Общий Mihomo",
-            TdSecondaryRoutePreference.EXPLICIT_DIRECT to "Прямое соединение"
+            TdSecondaryRoutePreference.FOLLOW_PRIMARY to stringResource(R.string.multi_proxy_follow),
+            TdSecondaryRoutePreference.SHARED_MIHOMO to stringResource(R.string.multi_proxy_shared),
+            TdSecondaryRoutePreference.EXPLICIT_DIRECT to stringResource(R.string.multi_proxy_direct)
         ).forEach { (preference, title) ->
             OutlinedButton(
                 onClick = { desiredRoute = preference },
@@ -100,16 +97,16 @@ internal fun SecondaryProxySettingsScreen(
         }
         if (changing) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (changeFailed) Text(
-            "Переключить маршрут не удалось. Предыдущая авторизация сохранена; повторите подключение в управлении аккаунтами.",
+            stringResource(R.string.multi_proxy_failed),
             color = palette.danger, fontSize = 13.sp
         )
-        Button(onClick = onManage, modifier = Modifier.fillMaxWidth()) { Text("Управление аккаунтами") }
+        Button(onClick = onManage, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.multi_proxy_manage)) }
     }
     desiredRoute?.let { preference ->
         AlertDialog(
             onDismissRequest = { if (!changing) desiredRoute = null },
-            title = { Text("Переподключить Telegram-аккаунт?") },
-            text = { Text("Текущие отправки могут прерваться. Общий Mihomo не будет остановлен, настройки первого аккаунта не изменятся.") },
+            title = { Text(stringResource(R.string.multi_proxy_confirm_title)) },
+            text = { Text(stringResource(R.string.multi_proxy_confirm_note)) },
             confirmButton = {
                 TextButton(onClick = {
                     desiredRoute = null
@@ -124,10 +121,10 @@ internal fun SecondaryProxySettingsScreen(
                             changeFailed = true
                         } finally { changing = false }
                     }
-                }, enabled = !changing) { Text("Переподключить") }
+                }, enabled = !changing) { Text(stringResource(R.string.multi_proxy_reconnect)) }
             },
             dismissButton = {
-                TextButton(onClick = { desiredRoute = null }, enabled = !changing) { Text("Отмена") }
+                TextButton(onClick = { desiredRoute = null }, enabled = !changing) { Text(stringResource(R.string.multi_account_cancel)) }
             }
         )
     }
