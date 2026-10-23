@@ -21,6 +21,9 @@ internal interface TdSecondaryAuthSession {
     suspend fun submitPassword(password: String)
     suspend fun resendCode()
     fun close()
+    val sharedMihomo: Boolean get() = false
+    suspend fun pauseSharedNetwork() {}
+    suspend fun resumeSharedNetwork(verified: Boolean) {}
 }
 
 internal class TdNativeSecondaryAuthSession(
@@ -32,6 +35,9 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun submitPassword(password: String) = login.submitPassword(password)
     override suspend fun resendCode() = login.resendCode()
     override fun close() = login.close()
+    override val sharedMihomo: Boolean get() = login.plannedRoute == TdSecondaryRouteDecision.SharedMihomo
+    override suspend fun pauseSharedNetwork() = login.pauseSharedNetwork()
+    override suspend fun resumeSharedNetwork(verified: Boolean) = login.resumeSharedNetwork(verified)
 }
 
 internal data class TdSecondaryAccountRow(
@@ -61,6 +67,7 @@ internal class TdSecondarySessionCoordinator(
 ) {
     private data class Active(
         val handle: TdSecondaryAuthSession,
+        val preference: TdSecondaryRoutePreference,
         val subscription: Job
     )
 
@@ -91,7 +98,7 @@ internal class TdSecondarySessionCoordinator(
             val job = scope.launch {
                 handle.authPhase.collect { mutex.withLock { publish() } }
             }
-            running[accountId] = Active(handle, job)
+            running[accountId] = Active(handle, preference, job)
         } finally {
             publish()
         }
@@ -117,6 +124,27 @@ internal class TdSecondarySessionCoordinator(
         // The subscription will publish that terminal state; it does not
         // remove the entry while TDLib might still own the database.
         publish()
+    }
+
+    /**
+     * Reconciles all shared Mihomo sessions whenever the process listener
+     * changes state (or on an explicit foreground refresh). The caller must
+     * provide a fresh cryptographic SOCKS ownership/preference check; never
+     * substitute a bare open TCP port or a RUNNING flag for verification.
+     */
+    suspend fun reconcileShared(networkAllowed: suspend (TdSecondaryRoutePreference) -> Boolean) {
+        val active = mutex.withLock { running.values.filter { it.handle.sharedMihomo }.toList() }
+        for (entry in active) {
+            if (entry.handle.authPhase.value == TdAccountAuthPhase.CLOSED) continue
+            val allowed = try { networkAllowed(entry.preference) } catch (_: Exception) { false }
+            try {
+                if (allowed) entry.handle.resumeSharedNetwork(true)
+                else entry.handle.pauseSharedNetwork()
+            } catch (_: Exception) {
+                // Never try direct on proxy failure. Next listener transition or
+                // screen resume will retry; keep the session's TDLib route intact.
+            }
+        }
     }
 
     /** Do not return a handle for an account which has never been opened. */
