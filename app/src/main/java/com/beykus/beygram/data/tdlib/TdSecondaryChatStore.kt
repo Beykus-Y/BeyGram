@@ -63,6 +63,18 @@ internal class TdSecondaryChatStore(val accountId: String) {
         }
     }
 
+    fun appendSentMessage(message: TdApi.Message) {
+        synchronized(lock) {
+            val chat = key(message.chatId)
+            if (!byId.containsKey(chat)) return
+            val old = _history.value[chat] ?: return
+            val updated = (old + textMessage(message)).distinctBy { it.key }
+                .sortedWith(compareBy<TdSecondaryTextMessage> { it.date }.thenBy { it.key.messageId })
+                .takeLast(MAX_CACHED_MESSAGES_PER_CHAT)
+            _history.value = _history.value + (chat to updated)
+        }
+    }
+
     fun discardHistory(chat: TdAccountChatKey) {
         requireOwn(chat)
         synchronized(lock) { _history.value = _history.value - chat }
