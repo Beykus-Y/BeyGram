@@ -57,6 +57,16 @@ profile, search, calls and media already depend on `TelegramRepository` /
   Secondary notification preferences must come from that account's store,
   not the legacy store. Secondary inline reply intentionally remains disabled
   until the account-bound reply outbox supports authenticated background replies.
+- Cold-start foreground notification service eligibility checks registered secondary
+  account IDs, confirmed native restore routes and per-account enabled/background/
+  authorized preferences. Only those accounts auto-restore in a background-only
+  process. Primary TDLib/VpnBackend is not constructed for secondary-only delivery;
+  FOLLOW_PRIMARY with an unknown legacy route stays blocked rather than going DIRECT.
+  Opening the UI upgrades this controller to its full session-restoration policy.
+- A foreground service started for secondary accounts observes their connected and
+  pending-notification states, using the existing bounded wake-lock policy. The
+  process-wide "Stop background notifications" service action disables background
+  delivery for all configured accounts. Individual settings still remain scoped.
 
 ## Important verification requirements
 
