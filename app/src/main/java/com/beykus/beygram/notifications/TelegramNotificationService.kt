@@ -17,6 +17,7 @@ import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdSecondaryRestoreStore
+import com.beykus.beygram.data.vpn.MihomoProxyClient
 import com.beykus.beygram.data.tdlib.TdSecondaryRoutePreference
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.domain.model.AuthState
@@ -31,9 +32,17 @@ import kotlinx.coroutines.flow.*
  */
 internal fun secondaryColdStartRouteEligible(
     route: TdSecondaryRoutePreference?,
-    legacyCanStart: Boolean
-): Boolean = route != null &&
-    (legacyCanStart || route == TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+    legacyCanStart: Boolean,
+    sharedListenerActive: Boolean = false
+): Boolean = when (route) {
+    TdSecondaryRoutePreference.EXPLICIT_DIRECT -> true
+    TdSecondaryRoutePreference.FOLLOW_PRIMARY -> legacyCanStart
+    // A legacy account using DIRECT cannot bootstrap a listener merely by
+    // being authorized. Require a listener already owned by this process;
+    // native route preflight independently validates SOCKS credentials.
+    TdSecondaryRoutePreference.SHARED_MIHOMO -> sharedListenerActive
+    null -> false
+}
 
 /** Pure policy used by cold-start eligibility and regression tests. */
 internal fun secondaryBackgroundEligible(
@@ -212,6 +221,13 @@ class TelegramNotificationService : Service() {
                     .filter { it != TdAccountStorageLayout.LEGACY_ACCOUNT_ID }
             }.getOrDefault(emptyList())
 
+        fun secondaryBackgroundRouteReady(
+            route: TdSecondaryRoutePreference?,
+            legacyCanStart: Boolean
+        ): Boolean = secondaryColdStartRouteEligible(
+            route, legacyCanStart, MihomoProxyClient.isRunning()
+        )
+
         fun shouldRunLegacy(context: Context): Boolean =
             NotificationRuntime.get(context).preferences.let {
                 it.authorized && it.state.value.enabled && it.state.value.background &&
@@ -230,7 +246,8 @@ class TelegramNotificationService : Service() {
                         // cannot resolve FOLLOW_PRIMARY or start shared Mihomo.
                         // Fail closed instead of an endless foreground service.
                         routeConfirmed = secondaryColdStartRouteEligible(
-                            route, shouldRunLegacy(context)),
+                            route, shouldRunLegacy(context),
+                            MihomoProxyClient.isRunning()),
                         authorized = prefs.authorized,
                         enabled = prefs.state.value.enabled,
                         background = prefs.state.value.background
