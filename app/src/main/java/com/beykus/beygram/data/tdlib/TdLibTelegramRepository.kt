@@ -113,6 +113,8 @@ class TdLibTelegramRepository private constructor(
 ) : TelegramRepository {
     val accountId: String = nativeSecondary?.accountId ?: TdAccountStorageLayout.LEGACY_ACCOUNT_ID
     private val isLegacyAccount: Boolean get() = nativeSecondary == null
+    @Volatile private var secondaryAuthorizationLost = false
+    internal val hasSecondaryAuthorizationLoss: Boolean get() = secondaryAuthorizationLost
 
     private val appContext = context.applicationContext
     private val proxyMutex = Mutex()
@@ -1445,6 +1447,7 @@ class TdLibTelegramRepository private constructor(
                 // proxy and listener while network is forced OFF.
             }
             is TdApi.AuthorizationStateWaitPhoneNumber -> {
+                if (!isLegacyAccount) secondaryAuthorizationLost = true
                 _authState.value = AuthState.WaitingForPhone
             }
             is TdApi.AuthorizationStateWaitCode -> {
@@ -1454,6 +1457,7 @@ class TdLibTelegramRepository private constructor(
                 _authState.value = AuthState.WaitingForPassword(state.passwordHint.orEmpty())
             }
             is TdApi.AuthorizationStateReady -> {
+                secondaryAuthorizationLost = false
                 _authState.value = AuthState.Ready
                 loadChatsWithNotificationScopes()
                 // Folder metadata can arrive while TDLib is still authorizing. Re-attempt
@@ -1495,6 +1499,7 @@ class TdLibTelegramRepository private constructor(
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
+                if (!isLegacyAccount) secondaryAuthorizationLost = true
                 synchronized(analyticsAccountLock) {
                     analyticsSessionGeneration++
                     analyticsProfileJob?.cancel()
