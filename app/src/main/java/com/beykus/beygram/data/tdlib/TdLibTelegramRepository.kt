@@ -1489,7 +1489,7 @@ class TdLibTelegramRepository private constructor(
                     analyticsSessionGeneration++
                     analyticsProfileJob?.cancel()
                     analyticsProfileJob = null
-                    AnalyticsSync.onAccountsChanged(emptyList())
+                    if (isLegacyAccount) AnalyticsSync.onAccountsChanged(emptyList())
                 }
                 clearFolderState()
                 _authState.value = AuthState.WaitingForPhone
@@ -1622,7 +1622,7 @@ class TdLibTelegramRepository private constructor(
     private fun syncArchiveReturnSetting() {
         chatListScope.launch {
             archiveReturnsOnNewMessage().onSuccess { returns ->
-                val store = ArchiveSettingsStore.get(appContext)
+                val store = ArchiveSettingsStore.get(appContext, accountId)
                 store.update(store.state.value.copy(returnOnNewMessage = returns))
             }
         }
@@ -1747,7 +1747,7 @@ class TdLibTelegramRepository private constructor(
         // Muted archived chats stay in the archive, as they do in Telegram. Until the chat's notification settings are
         // known, it stays in the archive too: it may be muted.
         if (!message.isOutgoing && chat != null && chat.archiveOrder > 0L && muteState.isKnown(message.chatId) &&
-            !muteState.isMuted(message.chatId) && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage
+            !muteState.isMuted(message.chatId) && ArchiveSettingsStore.get(appContext, accountId).state.value.returnOnNewMessage
         ) {
             returningFromArchive += message.chatId
             chatListScope.launch {
