@@ -303,7 +303,7 @@ private fun BeyGramAppContent(
                     )
                 }.collect { item ->
                     val old = value[TdAccountStorageLayout.LEGACY_ACCOUNT_ID]
-                    if (old?.title != item.title || old.unread != item.unread || old.photo != item.photo)
+                    if (old?.title != item.title || old?.unread != item.unread || old?.photo != item.photo)
                         value = value + (TdAccountStorageLayout.LEGACY_ACCOUNT_ID to item)
                 }
             }
@@ -329,7 +329,7 @@ private fun BeyGramAppContent(
                         )
                     }.collect { item ->
                         val old = value[row.accountId]
-                        if (old?.title != item.title || old.unread != item.unread || old.photo != item.photo)
+                        if (old?.title != item.title || old?.unread != item.unread || old?.photo != item.photo)
                             value = value + (row.accountId to item)
                     }
                 }
