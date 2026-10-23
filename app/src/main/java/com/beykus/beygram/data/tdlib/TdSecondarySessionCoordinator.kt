@@ -116,6 +116,8 @@ internal class TdSecondarySessionCoordinator(
 
     private val mutex = Mutex()
     private val running = mutableMapOf<String, Active>()
+    /** Prevent background restore and user connect from racing route transitions. */
+    private val switchingAccounts = mutableSetOf<String>()
     private val _snapshot = MutableStateFlow(TdSecondaryAccountsSnapshot())
     val snapshot: StateFlow<TdSecondaryAccountsSnapshot> = _snapshot.asStateFlow()
 
@@ -128,7 +130,12 @@ internal class TdSecondarySessionCoordinator(
         id
     }
 
-    suspend fun connect(accountId: String, preference: TdSecondaryRoutePreference) = mutex.withLock {
+    suspend fun connect(
+        accountId: String, preference: TdSecondaryRoutePreference, fromRouteSwitch: Boolean = false
+    ) = mutex.withLock {
+        check(accountId !in switchingAccounts || fromRouteSwitch) {
+            "Account route is being changed"
+        }
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) { "Legacy TDLib is already running" }
         require(accountId in registry.loadOrCreate().accountIds) { "Account not registered" }
         if (running[accountId]?.handle?.authPhase?.value == TdAccountAuthPhase.CLOSED) {
@@ -213,17 +220,39 @@ internal class TdSecondarySessionCoordinator(
 
     /** Explicit route edit: Close the same session without logout, wait for the
      * database lease to retire, then reopen after the new route preflight. */
-    suspend fun reconnectWithRoute(accountId: String, preference: TdSecondaryRoutePreference) {
+    suspend fun reconnectWithRoute(
+        accountId: String,
+        preference: TdSecondaryRoutePreference,
+        verifyNewRoute: suspend (TdSecondaryRoutePreference) -> Unit = {}
+    ) {
         val current = mutex.withLock {
-            running[accountId]?.handle ?: error("Secondary session is not running")
+            check(switchingAccounts.add(accountId)) { "Route transition already active" }
+            try {
+                val session = running[accountId]?.handle
+                    ?: error("Secondary session is not running")
+                check(session.authPhase.value == TdAccountAuthPhase.READY)
+                session
+            } catch (error: Throwable) {
+                switchingAccounts.remove(accountId)
+                throw error
+            }
         }
-        check(current.authPhase.value == TdAccountAuthPhase.READY)
-        disconnect(accountId)
-        withTimeout(45_000) {
-            current.authPhase.first { it == TdAccountAuthPhase.CLOSED }
+        try {
+            // Check proxy ownership BEFORE closing the working native session.
+            // No manual-stop marker is written: a failed route transition must
+            // retain the previous background restore policy.
+            verifyNewRoute(preference)
+            mutex.withLock {
+                check(running[accountId]?.handle === current)
+                current.close()
+                publish()
+            }
+            withTimeout(45_000) { current.authPhase.first { it == TdAccountAuthPhase.CLOSED } }
+            current.awaitClosedLease()
+            connect(accountId, preference, fromRouteSwitch = true)
+        } finally {
+            mutex.withLock { switchingAccounts.remove(accountId) }
         }
-        current.awaitClosedLease()
-        connect(accountId, preference)
     }
 
     /** Leaves TDLib authorization and the files on disk unchanged. */
