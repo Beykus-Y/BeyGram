@@ -55,8 +55,9 @@ profile, search, calls and media already depend on `TelegramRepository` /
 - The process-scoped secondary session controller already attaches all READY
   secondary repositories to the notification runtime on startup/restore.
   Secondary notification preferences must come from that account's store,
-  not the legacy store. Secondary inline reply intentionally remains disabled
-  until the account-bound reply outbox supports authenticated background replies.
+  not the legacy store. Secondary inline replies now use separate authenticated
+  account-bound PendingIntents and an independent durable outbox; queued sends
+  can replay only after the owning TDLib repository becomes READY.
 - Cold-start foreground notification service eligibility checks registered secondary
   account IDs, confirmed native restore routes and per-account enabled/background/
   authorized preferences. Only those accounts auto-restore in a background-only
