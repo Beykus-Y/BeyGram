@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.StateFlow
 interface ConversationRepository {
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
     suspend fun pinnedMessages(chatId: Long, fromMessageId: Long = 0L, forumTopicId: Long = 0L): Result<PinnedMessagePage>
+    /** Pins or unpins a message in its parent chat; forum messages keep their topic. */
+    suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit>
     fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?>
     suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit>
     suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer>

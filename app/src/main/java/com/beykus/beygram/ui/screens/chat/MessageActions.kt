@@ -2,6 +2,7 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,8 +15,11 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,6 +28,10 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -45,14 +53,18 @@ internal fun MessageActionsBar(
     error: String?,
     hasText: Boolean,
     isMedia: Boolean,
+    canPin: Boolean,
+    isPinned: Boolean,
     onClose: () -> Unit,
     onRetry: () -> Unit,
     onReply: () -> Unit,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onTogglePin: () -> Unit
 ) {
     val palette = beyGramPalette()
+    var pinMenu by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textPrimary) }
@@ -62,6 +74,19 @@ internal fun MessageActionsBar(
                     if (capabilities.canReply) ActionIcon(Icons.AutoMirrored.Rounded.Reply, stringResource(R.string.message_action_reply), palette.accent, onReply)
                     if (capabilities.canCopy && hasText) ActionIcon(Icons.Rounded.ContentCopy, stringResource(R.string.message_action_copy_text), palette.accent, onCopy)
                     if (capabilities.canEdit) ActionIcon(Icons.Rounded.Edit, if (isMedia) stringResource(R.string.message_action_edit_caption) else stringResource(R.string.message_action_edit), palette.accent, onEdit)
+                    if (canPin) {
+                        Box {
+                            IconButton(onClick = { pinMenu = true }) {
+                                Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = palette.accent)
+                            }
+                            DropdownMenu(expanded = pinMenu, onDismissRequest = { pinMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(if (isPinned) R.string.message_action_unpin else R.string.message_action_pin)) },
+                                    onClick = { pinMenu = false; onTogglePin() }
+                                )
+                            }
+                        }
+                    }
                     if (capabilities.canDeleteForSelf || capabilities.canDeleteForAll) ActionIcon(Icons.Rounded.Delete, stringResource(R.string.common_delete), palette.danger, onDelete)
                 }
                 error != null -> TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry), color = palette.accent) }

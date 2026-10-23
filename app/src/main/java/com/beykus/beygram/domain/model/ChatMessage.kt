@@ -26,7 +26,9 @@ data class ChatMessage(
     /** User referred to by a service action, if available, for clickable profile navigation. */
     val serviceUserId: Long = 0L,
     /** TDLib forum topic id for opening a global search hit in its original topic. */
-    val forumTopicId: Long = 0L
+    val forumTopicId: Long = 0L,
+    /** The message is pinned in its chat (TDLib's Message.isPinned). */
+    val isPinned: Boolean = false
 )
 
 /**
@@ -77,7 +79,14 @@ data class LiveMessageArrival(val sequence: Long, val messageId: Long)
 data class MessageIdReplacement(val oldId: Long, val newId: Long)
 
 data class MessageReply(val chatId: Long, val messageId: Long, val text: UiText, val senderName: String = "", val isUnavailable: Boolean = false)
-data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boolean = false, val canEdit: Boolean = false, val canDeleteForSelf: Boolean = false, val canDeleteForAll: Boolean = false, val canForward: Boolean = false, val canSave: Boolean = false)
+data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boolean = false, val canEdit: Boolean = false, val canDeleteForSelf: Boolean = false, val canDeleteForAll: Boolean = false, val canForward: Boolean = false, val canSave: Boolean = false, val canPin: Boolean = false)
+
+/**
+ * An existing pin can always be removed, even when TDLib is conservative about the capability.
+ * Only pinning an unpinned message requires the server's canBePinned permission.
+ */
+fun canTogglePin(isPinned: Boolean, canPin: Boolean): Boolean = isPinned || canPin
+
 enum class DeleteMessageScope { ForSelf, ForEveryone }
 data class MessageContext(val chatId: Long, val title: String, val targetId: Long, val messages: List<ChatMessage>)
 data class MessageSearchPage(val messages: List<ChatMessage>, val nextFromMessageId: Long)
