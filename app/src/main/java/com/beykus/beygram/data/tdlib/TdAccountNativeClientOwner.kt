@@ -36,6 +36,7 @@ internal class TdAccountNativeClientOwner(
     fun <T : Any> create(
         accountId: String,
         onUpdate: (TdAccountUpdateRouter.TdAccountRoutedUpdate) -> Unit,
+        onClosed: () -> Unit = {},
         clientFactory: (TdLibConfig, Client.ResultHandler) -> T
     ): T {
         require(accountId in registry.loadOrCreate().accountIds) {
@@ -55,7 +56,7 @@ internal class TdAccountNativeClientOwner(
                 } finally {
                     if (routed.update is TdApi.UpdateAuthorizationState &&
                         routed.update.authorizationState is TdApi.AuthorizationStateClosed) {
-                        closed()
+                        try { closed() } finally { onClosed() }
                     }
                 }
             }
