@@ -940,6 +940,7 @@ class TdLibTelegramRepository private constructor(
         // only database lease and validated network route. Do NOT instantiate
         // a second TDLib Client, release its lease or replay TDLib parameters.
         nativeSecondary?.let { secondary ->
+            try {
             // Establish the already-authorized state BEFORE replaying the
             // pending updates or installing a live observer. Otherwise a new
             // message can be processed before the repository is authorized.
@@ -962,6 +963,13 @@ class TdLibTelegramRepository private constructor(
                         loadChat(chatId)
                     }
                 }
+            }
+            } catch (error: Throwable) {
+                // If startup replay is corrupt/overflowed, this constructor
+                // can throw before an instance is returned to the coordinator.
+                // Close all children now rather than leaking half-built scopes.
+                disposeSecondaryRepository()
+                throw error
             }
         }
     }
