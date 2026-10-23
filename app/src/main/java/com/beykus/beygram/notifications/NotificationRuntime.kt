@@ -66,7 +66,7 @@ class NotificationRuntime private constructor(private val context: Context) {
                 }
             }
             combine(source.notifications, source.notificationPresentation,
-                source.authState, preferences.state, invalidations
+                source.authState, prefs.state, invalidations
             ) { notices, presentation, auth, config, _ ->
                 if (config.background || presentation.foreground) {
                     runCatching { scopedRenderer.render(notices, config, presentation, auth == AuthState.Ready) }
