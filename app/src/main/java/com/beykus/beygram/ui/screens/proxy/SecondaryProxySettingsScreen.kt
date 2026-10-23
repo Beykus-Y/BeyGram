@@ -10,6 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,8 +94,10 @@ internal fun SecondaryProxySettingsScreen(
                 onClick = { desiredRoute = preference },
                 enabled = !changing && row?.phase == com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY &&
                     row.routePreference != preference,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(title + if (row?.routePreference == preference) " ✓" else "") }
+                modifier = Modifier.fillMaxWidth().semantics {
+                    selected = row?.routePreference == preference
+                }
+            ) { Text(title) }
         }
         if (changing) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (changeFailed) Text(
