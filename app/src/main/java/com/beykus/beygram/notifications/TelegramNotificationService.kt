@@ -23,6 +23,14 @@ import com.beykus.beygram.domain.model.TelegramConnectionState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
+/** Pure policy used by cold-start eligibility and regression tests. */
+internal fun secondaryBackgroundEligible(
+    routeConfirmed: Boolean,
+    authorized: Boolean,
+    enabled: Boolean,
+    background: Boolean
+): Boolean = routeConfirmed && authorized && enabled && background
+
 class TelegramNotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var runtime: NotificationRuntime
@@ -183,9 +191,14 @@ class TelegramNotificationService : Service() {
             val restore = TdSecondaryRestoreStore(context)
             val runtime = NotificationRuntime.get(context)
             return registeredSecondaryAccounts(context).any { id ->
-                restore.confirmedRoute(id) != null &&
-                    runtime.preferencesForAccount(id).let { prefs ->
-                        prefs.authorized && prefs.state.value.enabled && prefs.state.value.background
+                val routeConfirmed = restore.confirmedRoute(id) != null
+                runtime.preferencesForAccount(id).let { prefs ->
+                        secondaryBackgroundEligible(
+                        routeConfirmed = routeConfirmed,
+                        authorized = prefs.authorized,
+                        enabled = prefs.state.value.enabled,
+                        background = prefs.state.value.background
+                    )
                     }
             }
         }
