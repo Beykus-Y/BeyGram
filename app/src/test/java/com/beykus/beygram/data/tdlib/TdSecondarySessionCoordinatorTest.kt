@@ -23,7 +23,11 @@ class TdSecondarySessionCoordinatorTest {
         override var networkSuspended = false
         var paused = 0
         var resumed = 0
-        override suspend fun pauseNetwork() { paused++; networkSuspended = true }
+        var failPause = false
+        override suspend fun pauseNetwork() {
+            if (failPause) throw IllegalStateException("Cannot disable network")
+            paused++; networkSuspended = true
+        }
         override suspend fun resumeNetwork(verified: Boolean) {
             if (verified && networkSuspended) { resumed++; networkSuspended = false }
         }
@@ -159,6 +163,22 @@ class TdSecondarySessionCoordinatorTest {
             manager.reconcileRoutes { TdSecondaryRouteDecision.Direct }
             assertEquals(1, native.resumed)
             assertFalse(manager.snapshot.value.accounts.single().networkSuspended)
+        } finally { job.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun unsuccessfulNetworkPauseClosesOnlySecondaryWithoutLoggingOut() = runBlocking {
+        val root = Files.createTempDirectory("beygram-route-failure-").toFile()
+        val job = SupervisorJob()
+        try {
+            val native = Fake().apply { failPause = true }
+            val manager = TdSecondarySessionCoordinator(
+                TdAccountRegistry(root), CoroutineScope(job + Dispatchers.Unconfined)
+            ) { _, _ -> native }
+            val id = manager.reserveAccount()
+            manager.connect(id, TdSecondaryRoutePreference.FOLLOW_PRIMARY)
+            manager.reconcileRoutes { TdSecondaryRouteDecision.SharedMihomo }
+            assertTrue(native.closed)
+            assertEquals(listOf("legacy", id), TdAccountRegistry(root).loadOrCreate().accountIds)
         } finally { job.cancel(); root.deleteRecursively() }
     }
 
