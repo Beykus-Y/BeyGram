@@ -20,7 +20,7 @@ import org.junit.runner.RunWith
 class SettingsScreenSectionsTest {
     @get:Rule val composeRule = createComposeRule()
 
-    @Test fun allElevenRoutesAreAccessibleAfterGrouping() {
+    @Test fun allTwelveRoutesAreAccessibleAfterGrouping() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val opened = mutableListOf<String>()
         composeRule.setContent {
@@ -36,7 +36,8 @@ class SettingsScreenSectionsTest {
                     onDiagnostics = { opened += "diagnostics" },
                     onUpdates = { opened += "updates" },
                     onLanguage = { opened += "language" },
-                    onSessions = { opened += "sessions" }
+                    onSessions = { opened += "sessions" },
+                    onSecondaryAccounts = { opened += "secondaryAccounts" }
                 )
             }
         }
@@ -56,6 +57,7 @@ class SettingsScreenSectionsTest {
             R.string.theme_title to "appearance",
             R.string.settings_video_recording_title to "video",
             R.string.notif_title to "notifications",
+            R.string.secondary_accounts_title to "secondaryAccounts",
             R.string.feature_sessions to "sessions",
             R.string.settings_last_seen_title to "lastSeen",
             R.string.start_proxy_settings to "proxy",
