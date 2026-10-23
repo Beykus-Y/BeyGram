@@ -268,11 +268,6 @@ internal fun SecondaryAccountsScreen(
                     onClick = { runAction { coordinator.disconnect(selected.accountId) } },
                     enabled = !working, modifier = Modifier.fillMaxWidth()
                 ) { Text(stringResource(R.string.secondary_accounts_disconnect)) }
-                androidx.compose.material3.TextButton(
-                    onClick = { confirmLogoutAccountId = selected.accountId },
-                    enabled = !working,
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Выйти из Telegram и удалить аккаунт") }
             }
         }
         if (selected != null && selected.phase == TdAccountAuthPhase.READY) {
