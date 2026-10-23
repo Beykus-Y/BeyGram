@@ -18,6 +18,7 @@ class TdSecondarySessionCoordinatorTest {
         val phase = MutableStateFlow(TdAccountAuthPhase.WAIT_PHONE)
         override val authPhase: StateFlow<TdAccountAuthPhase> = phase
         var closed = false
+        var autoClose = false
         var logoutCount = 0
         var failLogout = false
         override suspend fun logOutAndAwaitClosed() {
@@ -45,7 +46,10 @@ class TdSecondarySessionCoordinatorTest {
         override suspend fun submitCode(code: String) { phase.value = TdAccountAuthPhase.READY }
         override suspend fun submitPassword(password: String) { phase.value = TdAccountAuthPhase.READY }
         override suspend fun resendCode() {}
-        override fun close() { closed = true }
+        override fun close() {
+            closed = true
+            if (autoClose) phase.value = TdAccountAuthPhase.CLOSED
+        }
     }
 
     @Test fun logoutRemovesOnlyClosedSecondaryAndPreservesLegacyAndSibling() = runBlocking {
@@ -96,6 +100,33 @@ class TdSecondarySessionCoordinatorTest {
             catch (_: IllegalStateException) {}
             assertTrue(account in registry.loadOrCreate().accountIds)
             assertEquals(0, native.logoutCount)
+        } finally { work.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun changingSecondaryRouteClosesSameClientWithoutLoggingOutOrEditingSibling() = runBlocking {
+        val root = Files.createTempDirectory("beygram-route-switch-").toFile()
+        val work = SupervisorJob()
+        try {
+            val opened = mutableListOf<Pair<TdSecondaryRoutePreference, Fake>>()
+            val registry = TdAccountRegistry(root)
+            val manager = TdSecondarySessionCoordinator(
+                registry, CoroutineScope(work + Dispatchers.Unconfined),
+                openNative = { _, pref ->
+                    Fake().also {
+                        it.autoClose = true
+                        opened += pref to it
+                    }
+                }
+            )
+            val id = manager.reserveAccount()
+            manager.connect(id, TdSecondaryRoutePreference.SHARED_MIHOMO)
+            opened.single().second.phase.value = TdAccountAuthPhase.READY
+            manager.reconnectWithRoute(id, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            assertEquals(2, opened.size)
+            assertTrue(opened.first().second.closed)
+            assertEquals(0, opened.first().second.logoutCount)
+            assertEquals(TdSecondaryRoutePreference.EXPLICIT_DIRECT, opened.last().first)
+            assertEquals(listOf("legacy", id), registry.loadOrCreate().accountIds)
         } finally { work.cancel(); root.deleteRecursively() }
     }
 
