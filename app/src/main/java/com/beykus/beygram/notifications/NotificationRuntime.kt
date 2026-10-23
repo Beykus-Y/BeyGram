@@ -27,6 +27,75 @@ class NotificationRuntime private constructor(private val context: Context) {
     private val renderer = AndroidNotificationRenderer(context, preferences)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var repository: TelegramRepository? = null
+
+    private data class SecondarySubscription(
+        val source: TelegramRepository,
+        val renderer: AndroidNotificationRenderer,
+        val preferences: NotificationPreferencesStore,
+        val job: Job
+    )
+    private val secondaries = ConcurrentHashMap<String, SecondarySubscription>()
+
+    /**
+     * Shared Android renderer, separate account-tag and watermark namespaces.
+     * Legacy stays attached to its original process-wide outbox. Secondary
+     * inline replies deliberately remain disabled until their outbox can
+     * authenticate account-scoped broadcasts.
+     */
+    @Synchronized fun attachSecondary(accountId: String, source: TelegramRepository) {
+        require(accountId != "legacy" && accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        check((source as? TdLibTelegramRepository)?.accountId == accountId) {
+            "Notification source must match the native secondary TDLib account"
+        }
+        val previous = secondaries[accountId]
+        if (previous?.source === source) return
+        previous?.job?.cancel()
+        val prefs = NotificationPreferencesStore(context, accountId)
+        val scopedRenderer = AndroidNotificationRenderer(context, prefs, accountId)
+        val job = scope.launch {
+            combine(source.notifications, source.notificationPresentation,
+                source.authState, preferences.state, invalidations
+            ) { notices, presentation, auth, config, _ ->
+                if (config.background || presentation.foreground) {
+                    runCatching { scopedRenderer.render(notices, config, presentation, auth == AuthState.Ready) }
+                } else if (auth == AuthState.Ready) {
+                    notices.groups.forEach { group ->
+                        prefs.handled(group.id, group.notices.maxOfOrNull { it.id } ?: 0)
+                    }
+                }
+            }.collect()
+        }
+        secondaries[accountId] = SecondarySubscription(source, scopedRenderer, prefs, job)
+        scope.launch {
+            source.authState.collect { state ->
+                if (state == AuthState.Ready) {
+                    prefs.authorized = true
+                    val pending = prefs.pendingDismissals()
+                    for ((group, newest) in pending) {
+                        if (source.dismissNotifications(group, newest).isSuccess)
+                            prefs.acknowledge(group, newest)
+                    }
+                }
+            }
+        }
+    }
+
+    fun dismissSecondary(accountId: String, groupId: Int, maxId: Int) {
+        if (accountId == "legacy" || !accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")) ||
+            groupId <= 0 || maxId <= 0) return
+        val registered = secondaries[accountId]
+        val scopedPrefs = registered?.preferences ?: NotificationPreferencesStore(context, accountId)
+        scopedPrefs.dismiss(groupId, maxId)
+        registered?.renderer?.cancelGroup(groupId)
+        invalidations.update { it + 1 }
+        val source = registered?.source ?: return
+        scope.launch {
+            if (source.authState.value == AuthState.Ready &&
+                source.dismissNotifications(groupId, maxId).isSuccess) {
+                scopedPrefs.acknowledge(groupId, maxId)
+            }
+        }
+    }
     private val flushing = ConcurrentHashMap.newKeySet<Int>()
     private val dismissRetryRounds = ConcurrentHashMap<Int, Int>()
     private val dismissNotBefore = ConcurrentHashMap<Int, Long>()
