@@ -20,7 +20,7 @@ class TdAccountUpdateRoutingTest {
         } finally { dir.deleteRecursively() }
     }
 
-    @Test fun busySecondAccountCannotBlockUnrelatedNativeSessionUpdates() = withRegistry { registry ->
+    @Test fun appRouterLockDoesNotBlockConcurrentSyntheticAccountCallbacks() = withRegistry { registry ->
         val first = registry.prepareSecondaryAccount().second
         val second = registry.prepareSecondaryAccount().second
         val router = TdAccountUpdateRouter(registry)
