@@ -41,11 +41,11 @@ class NotificationRuntime private constructor(private val context: Context) {
     val secondaryPending = _secondaryPending.asStateFlow()
     private val _secondaryConnected = MutableStateFlow(false)
     val secondaryConnected = _secondaryConnected.asStateFlow()
-    private fun setSecondaryPending(accountId: String, active: Boolean) {
+    @Synchronized private fun setSecondaryPending(accountId: String, active: Boolean) {
         if (active) secondaryPendingAccounts.add(accountId) else secondaryPendingAccounts.remove(accountId)
         _secondaryPending.value = secondaryPendingAccounts.isNotEmpty()
     }
-    private fun setSecondaryConnected(accountId: String, active: Boolean) {
+    @Synchronized private fun setSecondaryConnected(accountId: String, active: Boolean) {
         if (active) secondaryConnectedAccounts.add(accountId) else secondaryConnectedAccounts.remove(accountId)
         _secondaryConnected.value = secondaryConnectedAccounts.isNotEmpty()
     }
