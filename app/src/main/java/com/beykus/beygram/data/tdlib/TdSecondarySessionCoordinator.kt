@@ -22,9 +22,10 @@ internal interface TdSecondaryAuthSession {
     suspend fun submitPassword(password: String)
     suspend fun resendCode()
     fun close()
-    val sharedMihomo: Boolean get() = false
-    suspend fun pauseSharedNetwork() {}
-    suspend fun resumeSharedNetwork(verified: Boolean) {}
+    val plannedRoute: TdSecondaryRouteDecision get() = TdSecondaryRouteDecision.Direct
+    val networkSuspended: Boolean get() = false
+    suspend fun pauseNetwork() {}
+    suspend fun resumeNetwork(verified: Boolean) {}
 }
 
 internal class TdNativeSecondaryAuthSession(
@@ -36,15 +37,17 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun submitPassword(password: String) = login.submitPassword(password)
     override suspend fun resendCode() = login.resendCode()
     override fun close() = login.close()
-    override val sharedMihomo: Boolean get() = login.plannedRoute == TdSecondaryRouteDecision.SharedMihomo
-    override suspend fun pauseSharedNetwork() = login.pauseSharedNetwork()
-    override suspend fun resumeSharedNetwork(verified: Boolean) = login.resumeSharedNetwork(verified)
+    override val plannedRoute: TdSecondaryRouteDecision get() = login.plannedRoute
+    override val networkSuspended: Boolean get() = login.routePaused.value
+    override suspend fun pauseNetwork() = login.pauseNetwork()
+    override suspend fun resumeNetwork(verified: Boolean) = login.resumeNetwork(verified)
 }
 
 internal data class TdSecondaryAccountRow(
     val accountId: String,
     val phase: TdAccountAuthPhase?,
-    val connectedInThisProcess: Boolean
+    val connectedInThisProcess: Boolean,
+    val networkSuspended: Boolean = false
 )
 
 internal data class TdSecondaryAccountsSnapshot(
@@ -134,28 +137,33 @@ internal class TdSecondarySessionCoordinator(
     }
 
     /**
-     * Reconciles all shared Mihomo sessions whenever the process listener
-     * changes state (or on an explicit foreground refresh). The caller must
-     * provide a fresh cryptographic SOCKS ownership/preference check; never
-     * substitute a bare open TCP port or a RUNNING flag for verification.
+     * Reconcile EVERY secondary session against the route chosen at startup,
+     * not just shared-Mihomo sessions. A FOLLOW_PRIMARY session originally
+     * started DIRECT must be taken offline if the primary later enables Mihomo.
+     *
+     * A mismatched route is never silently adopted. The user must explicitly
+     * disconnect/reconnect to choose a different route configuration.
      */
-    suspend fun reconcileShared(networkAllowed: suspend (TdSecondaryRoutePreference) -> Boolean) {
-        val active = mutex.withLock { running.values.filter { it.handle.sharedMihomo }.toList() }
+    suspend fun reconcileRoutes(decide: suspend (TdSecondaryRoutePreference) -> TdSecondaryRouteDecision) {
+        val active = mutex.withLock { running.values.toList() }
         for (entry in active) {
             if (entry.handle.authPhase.value == TdAccountAuthPhase.CLOSED) continue
-            val allowed = try { networkAllowed(entry.preference) }
+            val decision = try { decide(entry.preference) }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { false }
+            catch (_: Exception) {
+                TdSecondaryRouteDecision.Blocked(TdSecondaryRouteBlock.PRIMARY_ROUTE_UNKNOWN)
+            }
             try {
-                if (allowed) entry.handle.resumeSharedNetwork(true)
-                else entry.handle.pauseSharedNetwork()
+                if (decision == entry.handle.plannedRoute) entry.handle.resumeNetwork(true)
+                else entry.handle.pauseNetwork()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                // Never try direct on proxy failure. Next listener transition or
-                // screen resume will retry; keep the session's TDLib route intact.
+                // Keep the pre-existing TDLib proxy policy. Never enable direct
+                // as a fallback for a secondary account with a mismatched route.
             }
         }
+        mutex.withLock { publish() }
     }
 
     /** Do not return a handle for an account which has never been opened. */
@@ -170,7 +178,8 @@ internal class TdSecondarySessionCoordinator(
             accounts = ids.map { id ->
                 val phase = running[id]?.handle?.authPhase?.value
                 TdSecondaryAccountRow(id, phase, running[id] != null &&
-                    phase != TdAccountAuthPhase.CLOSED)
+                    phase != TdAccountAuthPhase.CLOSED,
+                    networkSuspended = running[id]?.handle?.networkSuspended == true)
             },
             busy = false
         )
