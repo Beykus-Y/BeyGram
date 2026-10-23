@@ -166,8 +166,8 @@ internal fun AccountSwitcherSheet(
 
     fun startAdd() {
         if (addBusy || busyAccountId != null) return
+        addBusy = true
         scope.launch {
-            addBusy = true
             listError = null
             authError = null
             try {
@@ -197,6 +197,7 @@ internal fun AccountSwitcherSheet(
     }
 
     fun openSignIn(accountId: String, isNew: Boolean) {
+        if (busyAccountId != null || addBusy || preparingAccountId != null || authActionBusy) return
         authAccountId = accountId
         addMode = isNew
         authError = null
@@ -204,8 +205,8 @@ internal fun AccountSwitcherSheet(
         clearAccountError(accountId)
         if (snapshot.accounts.firstOrNull { it.accountId == accountId }
                 ?.connectedInThisProcess != true) {
+            preparingAccountId = accountId
             scope.launch {
-                preparingAccountId = accountId
                 try {
                     withContext(Dispatchers.IO) { controller.connectForSignIn(accountId) }
                 } catch (cancelled: CancellationException) {
@@ -222,8 +223,8 @@ internal fun AccountSwitcherSheet(
 
     fun submitAuth(action: suspend () -> Unit) {
         if (authActionBusy) return
+        authActionBusy = true
         scope.launch {
-            authActionBusy = true
             authError = null
             try {
                 withContext(Dispatchers.IO) { action() }
@@ -239,8 +240,8 @@ internal fun AccountSwitcherSheet(
 
     fun switchTo(accountId: String) {
         if (busyAccountId != null || addBusy) return
+        busyAccountId = accountId
         scope.launch {
-            busyAccountId = accountId
             clearAccountError(accountId)
             listError = null
             try {
@@ -260,8 +261,8 @@ internal fun AccountSwitcherSheet(
 
     fun logout(accountId: String) {
         if (busyAccountId != null || addBusy) return
+        busyAccountId = accountId
         scope.launch {
-            busyAccountId = accountId
             clearAccountError(accountId)
             try {
                 withContext(Dispatchers.IO) {
@@ -284,8 +285,8 @@ internal fun AccountSwitcherSheet(
 
     fun discard(accountId: String) {
         if (busyAccountId != null || addBusy) return
+        busyAccountId = accountId
         scope.launch {
-            busyAccountId = accountId
             clearAccountError(accountId)
             try {
                 withContext(Dispatchers.IO) { controller.discardIncompleteAccount(accountId) }
@@ -304,8 +305,8 @@ internal fun AccountSwitcherSheet(
 
     fun disconnect(accountId: String) {
         if (busyAccountId != null || addBusy) return
+        busyAccountId = accountId
         scope.launch {
-            busyAccountId = accountId
             clearAccountError(accountId)
             try {
                 withContext(Dispatchers.IO) { controller.coordinator.disconnect(accountId) }
@@ -534,18 +535,32 @@ internal fun AccountSwitcherSheet(
             busy = busyAccountId == accountId,
             onDismiss = { routeAccountId = null },
             onApply = { preference ->
-                scope.launch {
+                if (busyAccountId == null) {
                     busyAccountId = accountId
-                    clearAccountError(accountId)
-                    try {
-                        withContext(Dispatchers.IO) { controller.useRoute(accountId, preference) }
-                        routeAccountId = null
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Throwable) {
-                        setAccountError(accountId, accountSwitcherErrorReason(failure))
-                    } finally {
-                        busyAccountId = null
+                    scope.launch {
+                        clearAccountError(accountId)
+                        try {
+                            withContext(Dispatchers.IO) { controller.useRoute(accountId, preference) }
+                            // An unfinished slot only remembers the route. If
+                            // its sign-in screen is already open, resume the
+                            // connection immediately with the corrected route.
+                            if (authAccountId == accountId &&
+                                snapshot.accounts.firstOrNull { it.accountId == accountId }
+                                    ?.connectedInThisProcess != true
+                            ) {
+                                controller.connectForSignIn(accountId, preference)
+                            }
+                            routeAccountId = null
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Throwable) {
+                            setAccountError(accountId, accountSwitcherErrorReason(failure))
+                            // The list row owns the retry/configure actions; a
+                            // dialog would hide the reason it just reported.
+                            routeAccountId = null
+                        } finally {
+                            busyAccountId = null
+                        }
                     }
                 }
             }
@@ -909,6 +924,12 @@ private fun AccountAuthContent(
                     fontSize = 14.sp,
                     modifier = Modifier.padding(top = 12.dp)
                 )
+                if (!busy && errorText != null) {
+                    Button(
+                        onClick = onRetryConnect,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                    ) { Text(stringResource(R.string.account_switcher_auth_retry_connect)) }
+                }
             }
             AccountAuthStep.PHONE -> {
                 Text(
