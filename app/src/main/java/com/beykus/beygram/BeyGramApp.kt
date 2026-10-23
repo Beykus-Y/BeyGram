@@ -1181,6 +1181,7 @@ private fun BeyGramAppContent(
                 AppRoute.Notifications -> NotificationSettingsScreen(
                     runtime = notificationRuntime,
                     accountPreferences = notificationRuntime.preferencesForAccount(selectedAccountId),
+                    accountId = selectedAccountId,
                     connectionState = connectionState,
                     onBack = { routeName = notificationsReturnRouteName },
                     onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name }
