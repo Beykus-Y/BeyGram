@@ -42,6 +42,7 @@ import com.beykus.beygram.domain.model.ArchiveSettings
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
+import com.beykus.beygram.navigation.appRouteFromStored
 import com.beykus.beygram.navigation.secondaryAccountMayOpen
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
@@ -520,7 +521,7 @@ private fun BeyGramAppContent(
     // Это гарантирует, что переход происходит ПОСЛЕ того, как TDLib подтвердил
     // успешную смену состояния, а не при нажатии кнопки.
     LaunchedEffect(authState) {
-        val currentRoute = AppRoute.valueOf(routeName)
+        val currentRoute = appRouteFromStored(routeName)
         when (authState) {
             is AuthState.WaitingForPhone -> {
                 // Попадаем сюда только если были на начальном экране или пришли из ошибки
@@ -543,7 +544,11 @@ private fun BeyGramAppContent(
     }
 
     // ---- Маршрутизация -------------------------------------------------------
-    val route = AppRoute.valueOf(routeName)
+    val route = appRouteFromStored(routeName)
+    // Normalise a route saved by an older build (notably the removed ThemeEditor) before the next save.
+    LaunchedEffect(routeName) {
+        if (routeName != route.name) routeName = route.name
+    }
     // When a secondary is selected, no primary-only screen may accidentally
     // display legacy profiles, messages, files, or notifications under its label.
     LaunchedEffect(selectedAccountId, routeName) {

@@ -49,7 +49,7 @@ class AppearanceDraftLogicTest {
         assertTrue(appearanceApplyState(changedAppearance(), saved, blockedByContrast = true).blockedByContrast)
     }
 
-    @Test fun messagesResetKeepsPaletteWallpaperAndAnimations() {
+    @Test fun messagesResetKeepsPaletteWallpaperAnimationsAndCustomColours() {
         val changed = changedAppearance()
         val reset = changed.resetMessages()
         assertEquals(ThemePreset.Graphite, reset.preset)
@@ -62,8 +62,8 @@ class AppearanceDraftLogicTest {
         assertEquals(16, reset.messageTextSizeSp)
         assertNull(reset.bubbleCornerRadiusDp)
         assertEquals(MessageLineSpacing.Normal, reset.messageLineSpacing)
-        assertNull(reset.messageTextColor)
-        assertNull(reset.messageTimeColor)
+        assertEquals(changed.messageTextColor, reset.messageTextColor)
+        assertEquals(changed.messageTimeColor, reset.messageTimeColor)
     }
 
     @Test fun customColoursResetDoesNotTouchGeometryOrAnimations() {
@@ -89,6 +89,47 @@ class AppearanceDraftLogicTest {
 
     @Test fun resetAllReturnsTheShippedDefaults() {
         assertEquals(AppearanceConfig(), changedAppearance().resetAllAppearance())
+    }
+
+    @Test fun undoCoalescesOnlyContinuousSliderUpdates() {
+        val base = changedAppearance()
+        assertTrue(isContinuousAppearanceChange(base, base.copy(messageTextSizeSp = 20)))
+        assertTrue(isContinuousAppearanceChange(base, base.copy(bubbleCornerRadiusDp = 12)))
+        assertTrue(
+            isContinuousAppearanceChange(
+                base,
+                base.copy(
+                    messageAnimations = base.messageAnimations.copy(
+                        shared = base.messageAnimations.shared.copy(
+                            tuning = base.messageAnimations.shared.tuning.copy(speed = 1.5f)
+                        )
+                    )
+                )
+            )
+        )
+        assertTrue(isContinuousAppearanceChange(base, base.copy(wallpaper = ChatWallpaper.Preset("mint-air", 40))))
+        val photo = base.copy(wallpaper = ChatWallpaper.Photo("trial.jpg", 20, blurred = true))
+        assertTrue(isContinuousAppearanceChange(photo, photo.copy(wallpaper = ChatWallpaper.Photo("trial.jpg", 35, blurred = true))))
+
+        assertFalse(isContinuousAppearanceChange(base, base.copy(bubbleStyle = BubbleStyle.Soft)))
+        assertFalse(isContinuousAppearanceChange(base, base.copy(density = ListDensity.Compact)))
+        assertFalse(isContinuousAppearanceChange(base, base.copy(preset = ThemePreset.Graphite)))
+        assertFalse(isContinuousAppearanceChange(base, base.copy(accentColor = 0xFFD6336C.toInt())))
+        assertFalse(isContinuousAppearanceChange(base, base.copy(messageAnimations = base.messageAnimations.copy(enabled = false))))
+        assertFalse(
+            isContinuousAppearanceChange(
+                base,
+                base.copy(
+                    messageAnimations = base.messageAnimations.copy(
+                        shared = base.messageAnimations.shared.copy(
+                            tuning = base.messageAnimations.shared.tuning.copy(easing = MessageAnimationEasing.Expressive)
+                        )
+                    )
+                )
+            )
+        )
+        assertFalse(isContinuousAppearanceChange(base, base.copy(wallpaper = ChatWallpaper.Preset("arctic-blue", 35))))
+        assertFalse(isContinuousAppearanceChange(photo, photo.copy(wallpaper = ChatWallpaper.Photo("trial.jpg", 20, blurred = false))))
     }
 
     @Test fun backFromSubpageReturnsToOverviewAndPreviewReturnsToItsOrigin() {

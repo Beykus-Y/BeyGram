@@ -37,7 +37,10 @@ Appearance is now one entry point with a small page stack and one shared draft:
 The Apply bar stays visible on every editing page. The draft is shared by every subsection, survives navigation and
 Activity recreation, and is shown in the previews before it is applied. The system Back button returns from a
 subsection to Overview first; leaving a dirty Overview asks before discarding. A single Undo action tracks the
-shared draft (slider bursts are coalesced into one step).
+shared draft: slider bursts are coalesced, while every discrete selection or toggle keeps its own step. Trial
+wallpaper photos stay on disk while editing so Undo can restore them; unreferenced copies are removed on Apply and
+when the session ends. A task restored from an older build that still names the removed `ThemeEditor` route opens
+the new Appearance section.
 
 ## Preview and Composer Launch
 

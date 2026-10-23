@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -48,6 +49,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.theme.contrastIssues
 import com.beykus.beygram.ui.theme.resolveTokens
+import kotlinx.coroutines.launch
 
 internal enum class AppearancePage {
     Overview,
@@ -94,28 +96,62 @@ fun ThemeSettingsScreen(
         draft.messageTimeColor
     )
     val applyState = appearanceApplyState(draft, saved, issues.blocking && draft != saved)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // Photos that were applied during this visit stay on disk until the next visit, because DataStore may still be
+    // catching up. Trial photos that were never applied can be removed as soon as Apply or the session ends.
+    val retainedAppliedPhotos = remember { mutableSetOf<String>() }
+    var finishing by remember { mutableStateOf(false) }
     val history = remember { DraftHistory<AppearanceConfig>() }
-    var lastCheckpointAt by remember { mutableLongStateOf(0L) }
+    var continuousBurstAt by remember { mutableLongStateOf(0L) }
     val currentDraft by rememberUpdatedState(draft)
     val currentSaved by rememberUpdatedState(saved)
     val currentOnBack by rememberUpdatedState(onBack)
 
-    // A slider emits many values in a row; one checkpoint per short burst keeps Undo meaningful without recording
-    // every pixel. Discrete edits are separated by more than the window and keep their own step.
+    // Slider values arrive in bursts; only those continuous updates are coalesced. Every discrete style, density,
+    // palette, toggle or preset edit gets its own Undo step even when it happens milliseconds after the previous one.
     fun changeDraft(next: AppearanceConfig) {
         if (next == draft) return
         val now = SystemClock.uptimeMillis()
-        if (!history.canUndo || now - lastCheckpointAt > 450L) {
+        if (isContinuousAppearanceChange(draft, next)) {
+            if (continuousBurstAt == 0L || now - continuousBurstAt > 600L) {
+                history.checkpoint(draft)
+            }
+            continuousBurstAt = now
+        } else {
             history.checkpoint(draft)
+            continuousBurstAt = 0L
         }
-        lastCheckpointAt = now
         onDraftChange(next)
     }
 
     fun undoDraft() {
         val previous = history.undo() ?: return
-        lastCheckpointAt = 0L
+        continuousBurstAt = 0L
         onDraftChange(previous)
+    }
+
+    fun photoKeepSet(includeDraft: Boolean): Set<String> {
+        val keep = mutableSetOf<String>()
+        (saved.wallpaper as? ChatWallpaper.Photo)?.fileName?.let(keep::add)
+        if (includeDraft) (draft.wallpaper as? ChatWallpaper.Photo)?.fileName?.let(keep::add)
+        keep += retainedAppliedPhotos
+        return keep
+    }
+
+    fun cleanupPhotos(includeDraft: Boolean) {
+        val keep = photoKeepSet(includeDraft)
+        scope.launch { runCatching { WallpaperFiles.deleteAllExcept(context, keep) } }
+    }
+
+    fun finishAppearance() {
+        if (finishing) return
+        finishing = true
+        val keep = photoKeepSet(includeDraft = false)
+        scope.launch {
+            runCatching { WallpaperFiles.deleteAllExcept(context, keep) }
+            currentOnBack()
+        }
     }
 
     fun openPage(target: AppearancePage) {
@@ -127,7 +163,7 @@ fun ThemeSettingsScreen(
     }
 
     fun leaveAppearance() {
-        if (currentDraft != currentSaved) confirmDiscard = true else currentOnBack()
+        if (currentDraft != currentSaved) confirmDiscard = true else finishAppearance()
     }
 
     fun navigateBack() {
@@ -142,7 +178,7 @@ fun ThemeSettingsScreen(
         val currentReturn = AppearancePage.entries.firstOrNull { it.name == previewReturnName } ?: AppearancePage.Overview
         val target = appearanceBackTarget(currentPage, currentReturn)
         if (target == null) {
-            if (currentDraft != currentSaved) confirmDiscard = true else currentOnBack()
+            if (currentDraft != currentSaved) confirmDiscard = true else finishAppearance()
         } else {
             pageName = target.name
         }
@@ -150,7 +186,6 @@ fun ThemeSettingsScreen(
 
     // Clean up pictures left by an earlier visit once, but keep the restored draft's photo. Deleting on every
     // draft change would break Undo when it points back to a photo the user only tried.
-    val context = LocalContext.current
     LaunchedEffect(Unit) {
         WallpaperFiles.deleteAllExcept(
             context,
@@ -261,9 +296,11 @@ fun ThemeSettingsScreen(
                 canApply = applyState.canApply,
                 blockedByContrast = applyState.blockedByContrast,
                 onApply = {
+                    (draft.wallpaper as? ChatWallpaper.Photo)?.fileName?.let(retainedAppliedPhotos::add)
+                    cleanupPhotos(includeDraft = true)
                     onSave(draft)
                     history.clear()
-                    lastCheckpointAt = 0L
+                    continuousBurstAt = 0L
                 }
             )
         }
@@ -271,7 +308,7 @@ fun ThemeSettingsScreen(
 
     if (confirmDiscard) ThemeDiscardDialog(
         onKeepEditing = { confirmDiscard = false },
-        onDiscard = { confirmDiscard = false; onBack() }
+        onDiscard = { confirmDiscard = false; finishAppearance() }
     )
     if (confirmResetAll) AppearanceResetDialog(
         title = stringResource(R.string.appearance_reset_all_title),
