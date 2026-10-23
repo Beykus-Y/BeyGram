@@ -59,6 +59,7 @@ import com.beykus.beygram.domain.model.validTextEntities
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -372,6 +373,7 @@ private fun SharedVoiceRow(
     downloadFile: (Int) -> Unit, onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val label = stringResource(R.string.media_kind_voice)
     SharedRow(
@@ -385,7 +387,7 @@ private fun SharedVoiceRow(
                     // Голосовое отмечаем прослушанным, когда плеер сообщит о старте, как в пузыре чата. Пауза не отмечает.
                     val pausing = state.item?.key == media.playbackKey() && state.playing
                     val onStarted = if (pausing) null else ({ onContentOpened(message.id) })
-                    PlaybackEngine.toggle(context, media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id)), onStarted)
+                    PlaybackEngine.toggle(context, media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id, LocalPlaybackAccountId.current)), onStarted)
                 }
             }
         },
@@ -403,6 +405,7 @@ internal fun SharedMusicRow(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit
 ) {
     val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val label = stringResource(R.string.media_kind_audio)
     val you = stringResource(R.string.search_you)
@@ -417,8 +420,8 @@ internal fun SharedMusicRow(
                 SharedRowAction.Download -> downloadFile(media.fileId)
                 is SharedRowAction.Open -> {
                     // Текущий трек берём с путём из нажатия: его файл мог только что скачаться, а состояние ещё не дошло.
-                    val current = media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id))
-                    val queue = tracks.map { track -> if (track.id == message.id) current else musicTrack(track, chatId, observeFile, label) }.filterNotNull()
+                    val current = media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id, LocalPlaybackAccountId.current))
+                    val queue = tracks.map { track -> if (track.id == message.id) current else musicTrack(track, chatId, observeFile, label, accountId) }.filterNotNull()
                     PlaybackEngine.playQueue(context, queue, queue.indexOfFirst { it.origin?.messageId == message.id })
                 }
             }
@@ -428,10 +431,10 @@ internal fun SharedMusicRow(
 }
 
 /** Трек очереди, если файл уже скачан. Путь берём из состояния файла, которое TDLib обновляет сам. */
-private fun musicTrack(message: ChatMessage, chatId: Long, observeFile: (Int) -> StateFlow<MediaFileState>, label: String): PlaybackItem? {
+private fun musicTrack(message: ChatMessage, chatId: Long, observeFile: (Int) -> StateFlow<MediaFileState>, label: String, accountId: String): PlaybackItem? {
     val media = message.media?.takeUnless { it.isSecret } ?: return null
     val path = observeFile(media.fileId).value.localPath ?: return null
-    return media.playbackItem(path, label, PlaybackOrigin(chatId, message.id))
+    return media.playbackItem(path, label, PlaybackOrigin(chatId, message.id, accountId))
 }
 
 /** Ссылка открывается с той же проверкой адреса, что и в тексте сообщения. */
