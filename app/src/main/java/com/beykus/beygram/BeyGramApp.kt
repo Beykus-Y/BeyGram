@@ -832,9 +832,10 @@ private fun BeyGramAppContent(
                     onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(selectedChatId, topic.id, pinned) } },
                     onDelete = { topic -> forumAction { repository.deleteForumTopic(selectedChatId, topic.id) } }
                 )
-                else -> key(selectedChatId, activeTopicId) {
+                else -> key(selectedAccountId, selectedChatId, activeTopicId) {
                     ChatScreen(
                         chat = chat,
+                        accountId = selectedAccountId,
                         info = chatInfo.info,
                         lastSeenStyle = lastSeenStyle,
                         history = history,
