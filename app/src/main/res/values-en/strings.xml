@@ -310,6 +310,8 @@
     <string name="multi_proxy_confirm_title">Reconnect this Telegram account?</string>
     <string name="multi_proxy_confirm_note">Ongoing uploads may be interrupted. Connections for other accounts will stay unchanged.</string>
     <string name="multi_proxy_reconnect">Reconnect</string>
+    <string name="multi_share_unavailable_title">Account unavailable</string>
+    <string name="multi_share_unavailable_note">This direct-share recipient belongs to the first account, which is currently unavailable. Choose another account or try again later.</string>
     <string name="multi_share_pick_title">Choose a Telegram account</string>
     <string name="multi_share_pick_note">Select an account to open its recipients. Nothing will be sent until you confirm.</string>
     <string name="multi_share_switch_title">Switch Telegram account</string>
