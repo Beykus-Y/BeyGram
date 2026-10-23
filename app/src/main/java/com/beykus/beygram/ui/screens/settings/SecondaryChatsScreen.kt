@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.tdlib.TdAccountAuthPhase
 import com.beykus.beygram.data.tdlib.TdAccountChatKey
 import com.beykus.beygram.data.tdlib.TdSecondaryAuthSession
 import com.beykus.beygram.data.tdlib.TdSecondarySessionCoordinator
@@ -62,7 +64,12 @@ internal fun SecondaryChatsScreen(
 
     // Closing the client or a route mismatch may occur while this screen is open.
     val account = accounts.accounts.firstOrNull { it.accountId == accountId }
-    val available = account?.connectedInThisProcess == true && account.networkSuspended == false
+    val available = account?.connectedInThisProcess == true &&
+        account.phase == TdAccountAuthPhase.READY && !account.networkSuspended
+
+    // Hardware Back inside a secondary conversation returns to its own list.
+    // The legacy Chats tab and chat IDs must never be involved.
+    BackHandler(enabled = selectedChat != null) { selectedChat = null }
 
     LaunchedEffect(accountId, available) {
         if (!available) {
