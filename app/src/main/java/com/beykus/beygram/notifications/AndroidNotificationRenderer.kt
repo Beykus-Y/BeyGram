@@ -125,6 +125,13 @@ internal class AndroidNotificationRenderer(
         }
     }
     fun cancelGroup(id: Int) { manager.cancel(tag(id), 0); failedReplies.remove(id) }
+    fun cancelAllOwned() {
+        manager.activeNotifications.filter { it.tag?.startsWith(ownTagPrefix) == true &&
+            (accountId != "legacy" || it.tag?.removePrefix(ownTagPrefix)?.toIntOrNull() != null)
+        }.forEach { manager.cancel(it.tag, it.id) }
+        postedTags.clear()
+        failedReplies.clear()
+    }
     fun markReplyFailed(id: Int, maxId: Int) { failedReplies[id] = maxId }
     private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, localizedContext.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId, topicId))
         .addRemoteInput(RemoteInput.Builder(NotificationIntents.REPLY_TEXT).setLabel(localizedContext.getString(R.string.notif_reply_hint)).build())
