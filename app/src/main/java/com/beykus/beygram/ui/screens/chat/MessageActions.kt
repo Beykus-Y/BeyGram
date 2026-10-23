@@ -64,7 +64,7 @@ internal fun MessageActionsBar(
     onTogglePin: () -> Unit
 ) {
     val palette = beyGramPalette()
-    var pinMenu by remember { mutableStateOf(false) }
+    var pinMenu by remember(capabilities, canPin) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textPrimary) }

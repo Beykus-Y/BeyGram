@@ -444,6 +444,7 @@ fun ChatScreen(
     fun setPinned(message: ChatMessage, pinned: Boolean) {
         pinConfirm = false
         closeActions()
+        error = null
         scope.launch {
             conversation.setMessagePinned(message.chatId, message.id, pinned)
                 .onFailure { error = it.userMessage(context, R.string.err_chat_pin_failed) }
