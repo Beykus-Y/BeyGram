@@ -78,6 +78,7 @@ internal data class TdSecondaryAccountsSnapshot(
 internal class TdSecondarySessionCoordinator(
     private val registry: TdAccountRegistry,
     private val scope: CoroutineScope,
+    private val onAuthorized: (String, TdSecondaryRoutePreference) -> Unit = { _, _ -> },
     private val openNative: suspend (String, TdSecondaryRoutePreference) -> TdSecondaryAuthSession
 ) {
     private data class Active(
@@ -107,17 +108,23 @@ internal class TdSecondarySessionCoordinator(
             running.remove(accountId)?.subscription?.cancel()
         }
         check(accountId !in running) { "Secondary account is already active" }
-        // Beta resource budget: legacy TDLib + at most ONE secondary native client.
-        // More account slots can be reserved, but do not start uncontrolled
-        // background clients before RAM/battery and notification ownership QA.
-        check(running.values.none { it.handle.authPhase.value != TdAccountAuthPhase.CLOSED }) {
-            "Only one secondary TDLib session can run during beta"
+        // Bounded resource budget: at most TWO secondary clients alongside
+        // legacy. Never start all ten reserved slots on a low-memory device.
+        check(running.values.count { it.handle.authPhase.value != TdAccountAuthPhase.CLOSED } < 2) {
+            "Maximum two additional TDLib sessions on this device"
         }
         _snapshot.value = _snapshot.value.copy(busy = true)
         try {
             val handle = openNative(accountId, preference)
             val job = scope.launch {
-                handle.authPhase.collect { mutex.withLock { publish() } }
+                handle.authPhase.collect { phase ->
+                    if (phase == TdAccountAuthPhase.READY) {
+                        // Persist eligibility only after native TDLib said READY.
+                        // A failed preference write must not kill the TDLib owner.
+                        runCatching { onAuthorized(accountId, preference) }
+                    }
+                    mutex.withLock { publish() }
+                }
             }
             running[accountId] = Active(handle, preference, job)
         } finally {
