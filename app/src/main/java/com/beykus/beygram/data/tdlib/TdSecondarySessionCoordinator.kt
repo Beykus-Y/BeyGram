@@ -28,6 +28,12 @@ internal interface TdSecondaryAuthSession {
     suspend fun loadChats() { error("Secondary chat store unavailable") }
     suspend fun loadHistory(key: TdAccountChatKey) { error("Secondary chat store unavailable") }
     suspend fun closeHistory(key: TdAccountChatKey) { error("Secondary chat store unavailable") }
+    suspend fun sendText(key: TdAccountChatKey, text: String) {
+        error("Secondary chat messaging unavailable")
+    }
+    suspend fun markRead(key: TdAccountChatKey, lastMessageId: Long) {
+        error("Secondary chat read unavailable")
+    }
 
     val plannedRoute: TdSecondaryRouteDecision get() = TdSecondaryRouteDecision.Direct
     val networkSuspended: Boolean get() = false
@@ -48,6 +54,10 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun loadChats() = login.loadSecondaryChats()
     override suspend fun loadHistory(key: TdAccountChatKey) = login.openSecondaryHistory(key)
     override suspend fun closeHistory(key: TdAccountChatKey) = login.closeSecondaryHistory(key)
+    override suspend fun sendText(key: TdAccountChatKey, text: String) =
+        login.sendSecondaryText(key, text)
+    override suspend fun markRead(key: TdAccountChatKey, lastMessageId: Long) =
+        login.readSecondaryChat(key, lastMessageId)
     override val plannedRoute: TdSecondaryRouteDecision get() = login.plannedRoute
     override val networkSuspended: Boolean get() = login.routePaused.value
     override suspend fun pauseNetwork() = login.pauseNetwork()
@@ -110,7 +120,7 @@ internal class TdSecondarySessionCoordinator(
         }
         check(accountId !in running) { "Secondary account is already active" }
         // Bounded resource budget: at most TWO secondary clients alongside
-        // legacy. Never start all ten reserved slots on a low-memory device.
+        // legacy. Never start all reserved slots on a low-memory device.
         check(running.values.count { it.handle.authPhase.value != TdAccountAuthPhase.CLOSED } < 2) {
             "Maximum two additional TDLib sessions on this device"
         }
@@ -120,8 +130,8 @@ internal class TdSecondarySessionCoordinator(
             val job = scope.launch {
                 handle.authPhase.collect { phase ->
                     if (phase == TdAccountAuthPhase.READY) {
-                        // Persist eligibility only after native TDLib said READY.
-                        // A failed preference write must not kill the TDLib owner.
+                        // Persist eligibility only after the native client is READY.
+                        // Failure to write restore metadata never kills the client.
                         runCatching { onAuthorized(accountId, preference) }
                     }
                     mutex.withLock { publish() }
@@ -159,8 +169,7 @@ internal class TdSecondarySessionCoordinator(
     /** Leaves TDLib authorization and the files on disk unchanged. */
     suspend fun disconnect(accountId: String) = mutex.withLock {
         val active = running[accountId] ?: return@withLock
-        // Persist the user's intent BEFORE dispatching asynchronous TDLib
-        // Close. A service listener transition must not reopen it.
+        // Record user intent BEFORE asynchronous native Close.
         onManualStop(accountId)
         active.handle.close()
         // Keep strong ownership and the native database lease until CLOSED.
