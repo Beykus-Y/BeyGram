@@ -72,7 +72,7 @@ internal class TdSecondaryNativeLoginLauncher(
         val phases = MutableStateFlow(TdAccountAuthPhase.STARTING)
         val chatStore = TdSecondaryChatStore(accountId)
         val fullRepositoryObservers = CopyOnWriteArrayList<(TdApi.Object) -> Unit>()
-        val startupSnapshots = LinkedHashMap<String, TdApi.Object>()
+        val startupReplay = TdSecondaryStartupReplay()
         val waitParameters = CompletableDeferred<Unit>()
         val bound = owner.create(accountId,
             onUpdate = { event ->
@@ -82,9 +82,7 @@ internal class TdSecondaryNativeLoginLauncher(
                 // The same native client can feed the full TelegramRepository;
                 // never create a second Client for these database directories.
                 synchronized(fullRepositoryObservers) {
-                    TdSecondaryStartupState.key(event.update)?.let { key ->
-                        startupSnapshots[key] = event.update
-                    }
+                    startupReplay.record(event.update, fullRepositoryObservers.isNotEmpty())
                     fullRepositoryObservers.forEach { observer ->
                         runCatching { observer(event.update) }
                     }
@@ -105,7 +103,7 @@ internal class TdSecondaryNativeLoginLauncher(
                             chatStore.clear()
                             synchronized(fullRepositoryObservers) {
                                 fullRepositoryObservers.clear()
-                                startupSnapshots.clear()
+                                startupReplay.clear()
                             }
                             waitParameters.cancel()
                         }
@@ -116,7 +114,7 @@ internal class TdSecondaryNativeLoginLauncher(
             clientFactory = { config, handler ->
                 val client = createNativeClient(handler)
                 TdSecondaryNativeLogin(accountId, config, client, phases, planned, chatStore,
-                    fullRepositoryObservers, startupSnapshots)
+                    fullRepositoryObservers, startupReplay)
             }
         )
         try {
@@ -148,7 +146,7 @@ internal class TdSecondaryNativeLogin internal constructor(
     internal val plannedRoute: TdSecondaryRouteDecision,
     val chatStore: TdSecondaryChatStore,
     private val fullRepositoryObservers: CopyOnWriteArrayList<(TdApi.Object) -> Unit>,
-    private val startupSnapshots: LinkedHashMap<String, TdApi.Object>
+    private val startupReplay: TdSecondaryStartupReplay
 ) {
     private val fullRepositoryLock = Any()
     private var fullRepository: TdLibTelegramRepository? = null
@@ -166,7 +164,7 @@ internal class TdSecondaryNativeLogin internal constructor(
         synchronized(fullRepositoryObservers) {
             check(authPhase.value != TdAccountAuthPhase.CLOSED)
             // Replay before subscribing to live events under the same dispatch lock.
-            startupSnapshots.values.forEach { observer(it) }
+            startupReplay.replay(observer)
             fullRepositoryObservers.add(observer)
         }
     }
@@ -371,5 +369,40 @@ internal object TdSecondaryStartupState {
         is TdApi.UpdateActiveNotifications -> "active_notifications"
         is TdApi.UpdateOption -> "option:${update.name}"
         else -> null
+    }
+}
+
+/**
+ * A short-lived replay between native READY and the shared repository observer.
+ * All methods run under the native fullRepositoryObservers monitor.
+ * Replaying the snapshot alone loses notification deltas emitted in that gap.
+ */
+internal class TdSecondaryStartupReplay {
+    private val snapshots = LinkedHashMap<String, TdApi.Object>()
+    private val notificationDeltas = ArrayList<TdApi.Object>()
+
+    fun record(update: TdApi.Object, hasObservers: Boolean) {
+        TdSecondaryStartupState.key(update)?.let { snapshots[it] = update }
+        if (update is TdApi.UpdateActiveNotifications) {
+            // The new authoritative snapshot already includes all preceding changes.
+            notificationDeltas.clear()
+        } else if (!hasObservers && update is TdApi.UpdateNotificationGroup ||
+            !hasObservers && update is TdApi.UpdateNotification ||
+            !hasObservers && update is TdApi.UpdateHavePendingNotifications) {
+            // The native owner is not allowed to reinterpret notification group IDs.
+            // Preserve TDLib order until the account-bound TdNotifications sees them.
+            notificationDeltas.add(update)
+        }
+    }
+
+    fun replay(observer: (TdApi.Object) -> Unit) {
+        snapshots.values.forEach(observer)
+        notificationDeltas.forEach(observer)
+        notificationDeltas.clear()
+    }
+
+    fun clear() {
+        snapshots.clear()
+        notificationDeltas.clear()
     }
 }
