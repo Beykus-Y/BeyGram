@@ -131,6 +131,40 @@ class TdAccountRegistryTest {
         } finally { outside.deleteRecursively() }
     }
 
+    @Test fun danglingPendingSymlinkCannotCreateFilesOutsidePrivateStorage() = withAppFiles { app ->
+        val outside = Files.createTempDirectory("beygram-registry-dangling-").toFile()
+        try {
+            val registry = TdAccountRegistry(app)
+            registry.loadOrCreate()
+            val outsideFile = outside.resolve("created-by-symlink")
+            val pending = app.resolve("tdlib-accounts/.registry-v1.pending")
+            Files.createSymbolicLink(pending.toPath(), outsideFile.toPath())
+            try {
+                registry.prepareSecondaryAccount()
+                fail("Dangling symlink must not be followed")
+            } catch (_: IllegalArgumentException) { }
+            assertFalse(outsideFile.exists())
+            // Clear the hostile file after the failure, then read the original registry.
+            pending.delete()
+            assertEquals(listOf("legacy"), registry.loadOrCreate().accountIds)
+        } finally { outside.deleteRecursively() }
+    }
+
+    @Test fun committedRegistrySymlinkIsRejectedWithoutOverwritingItsTarget() = withAppFiles { app ->
+        val outside = Files.createTempDirectory("beygram-registry-committed-").toFile()
+        try {
+            val external = outside.resolve("registry")
+            external.writeText("private-external-data")
+            val root = app.resolve("tdlib-accounts").apply { mkdirs() }
+            Files.createSymbolicLink(root.resolve(".registry-v1").toPath(), external.toPath())
+            try {
+                TdAccountRegistry(app).loadOrCreate()
+                fail("Committed registry may not be a symlink")
+            } catch (_: IllegalArgumentException) { }
+            assertEquals("private-external-data", external.readText())
+        } finally { outside.deleteRecursively() }
+    }
+
     @Test fun concurrentRegistrationsDoNotLoseUpdates() = withAppFiles { app ->
         val pool = Executors.newFixedThreadPool(4)
         val go = CountDownLatch(1)
