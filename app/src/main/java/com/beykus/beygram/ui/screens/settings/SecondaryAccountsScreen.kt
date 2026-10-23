@@ -276,14 +276,14 @@ internal fun SecondaryAccountsScreen(
                 onClick = { confirmLogoutAccountId = selected.accountId },
                 enabled = !working,
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Удалить авторизацию и данные аккаунта") }
+            ) { Text(stringResource(R.string.multi_account_logout_action)) }
         }
         val deleting = confirmLogoutAccountId
         if (deleting != null) {
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { if (!working) confirmLogoutAccountId = null },
-                title = { Text("Выйти из аккаунта Telegram?") },
-                text = { Text("Авторизация этого аккаунта будет завершена. Его локальная база, файлы и уведомления будут удалены. Другие аккаунты останутся без изменений.") },
+                title = { Text(stringResource(R.string.multi_account_logout_title)) },
+                text = { Text(stringResource(R.string.multi_account_logout_message)) },
                 confirmButton = {
                     TextButton(
                         enabled = !working,
@@ -297,10 +297,10 @@ internal fun SecondaryAccountsScreen(
                                 }
                             }
                         }
-                    ) { Text("Выйти и удалить") }
+                    ) { Text(stringResource(R.string.multi_account_logout_confirm)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { confirmLogoutAccountId = null }, enabled = !working) { Text("Отмена") }
+                    TextButton(onClick = { confirmLogoutAccountId = null }, enabled = !working) { Text(stringResource(R.string.multi_account_cancel)) }
                 }
             )
         }
