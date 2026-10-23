@@ -320,10 +320,9 @@ private fun PreviewMessagesContent(
             Modifier.fillMaxWidth().alpha(if (showOutgoing) 1f else 0f)
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                ComposerLaunchBubble(
-                    outgoingMessage,
-                    Modifier.onGloballyPositioned { onTargetPositioned(it.boundsInWindow()) }
-                )
+                Box(Modifier.onGloballyPositioned { onTargetPositioned(it.boundsInWindow()) }) {
+                    ComposerLaunchBubble(outgoingMessage)
+                }
             }
         }
     } else {
