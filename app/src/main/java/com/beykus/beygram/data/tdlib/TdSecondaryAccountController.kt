@@ -123,6 +123,28 @@ internal class TdSecondaryAccountController private constructor(
             }
         }
         app.applicationScope.launch {
+            // Overflow or failed full-repository attachment closes native TDLib
+            // WITHOUT Telegram logout. Retry only a bounded number of times.
+            // User stop writes manual_stop; logout writes a deletion tombstone.
+            val attempts = mutableMapOf<String, Int>()
+            coordinator.snapshot.map { state ->
+                state.accounts.filter { it.phase == TdAccountAuthPhase.CLOSED }
+                    .map { it.accountId }.toSet()
+            }.distinctUntilChanged().collectLatest { closed ->
+                val candidates = closed.filter { id ->
+                    restoreStore.confirmedRoute(id) != null &&
+                        !restoreStore.deletionPending(id) &&
+                        (!backgroundRestoreOnly || allowBackgroundRestore(id)) &&
+                        (attempts[id] ?: 0) < 2
+                }
+                if (candidates.isNotEmpty()) {
+                    candidates.forEach { id -> attempts[id] = (attempts[id] ?: 0) + 1 }
+                    delay(1_500)
+                    restoreRemembered()
+                }
+            }
+        }
+        app.applicationScope.launch {
             // React immediately to every listener status transition, including
             // STARTING/STOPPED. Initial DIRECT and shared SOCKS both need to be
             // checked against the current primary account route.
