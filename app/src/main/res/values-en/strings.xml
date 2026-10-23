@@ -292,6 +292,7 @@
     <string name="multi_account_cancel">Cancel</string>
     <string name="multi_proxy_title">Account connection</string>
     <string name="multi_background_route_warning">This account needs a reachable connection route for background notifications. When the first account is inactive, only explicitly selected direct connections can start automatically. Change the route or enable background delivery for the first account.</string>
+    <string name="multi_notification_account">Account: %1$s</string>
     <string name="multi_proxy_route">Connection route</string>
     <string name="multi_proxy_direct">Direct connection</string>
     <string name="multi_proxy_mihomo">Use app proxy</string>
