@@ -22,7 +22,7 @@
     <string name="secondary_accounts_route_paused">The account route changed or became unavailable. Network is paused; stop this session and reconnect with the intended route.</string>
     <string name="secondary_accounts_action_error">Operation failed. Check the connection and proxy route; the primary session was not affected.</string>
     <string name="secondary_chats_title">Secondary account chats</string>
-    <string name="secondary_chats_readonly">Read-only preview · isolated TDLib client</string>
+    <string name="secondary_chats_readonly">Separate TDLib session · text messages</string>
     <string name="secondary_chats_unavailable">This session is closed, offline or its network route is paused. Return to Accounts.</string>
     <string name="secondary_chats_go_back">Back to accounts</string>
     <string name="secondary_chats_load_error">Unable to load this account’s data.</string>
@@ -33,4 +33,6 @@
     <string name="secondary_chats_open">Preview chats (read only)</string>
     <string name="secondary_chats_media_message">Media</string>
     <string name="secondary_chats_empty_message">Message</string>
+    <string name="secondary_chats_message_hint">Message</string>
+    <string name="secondary_chats_send">Send</string>
 </resources>
