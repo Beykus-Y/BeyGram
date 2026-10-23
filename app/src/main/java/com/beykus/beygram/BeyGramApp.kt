@@ -692,7 +692,7 @@ private fun BeyGramAppContent(
         val shareArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
         val shareCaptionLimit = repository.messageLimits.collectAsStateWithLifecycle().value.caption
         // Отправка идёт в этой сессии. Пока она не закончилась, диалог не закрывается: иначе результат и частичная отправка пропадают вместе с ним.
-        val shareSession = remember(incomingShare.requestId) { ShareSessions.of(context, incomingShare.requestId, incomingShare.uris, incomingShare.text) }
+        val shareSession = remember(incomingShare.requestId, selectedAccountId) { ShareSessions.of(context, incomingShare.requestId, incomingShare.uris, incomingShare.text, selectedAccountId) }
         val shareSending = shareSession.sending
         Dialog(
             onDismissRequest = { if (!shareSending) onIncomingShareHandled(incomingShare.requestId) },
