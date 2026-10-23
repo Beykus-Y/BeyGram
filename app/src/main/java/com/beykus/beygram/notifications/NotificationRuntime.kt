@@ -118,6 +118,17 @@ class NotificationRuntime private constructor(private val context: Context) {
         secondaries[accountId] = SecondarySubscription(source, scopedRenderer, prefs, job)
     }
 
+    /** Logout destroys ONLY this account's rendered alerts and authorization tokens. */
+    @Synchronized fun detachSecondary(accountId: String) {
+        val previous = secondaries.remove(accountId)
+        previous?.job?.cancel()
+        setSecondaryPending(accountId, false)
+        setSecondaryConnected(accountId, false)
+        previous?.renderer?.cancelAllOwned()
+        preferencesForAccount(accountId).authorized = false
+        invalidations.update { it + 1 }
+    }
+
     fun dismissSecondary(accountId: String, groupId: Int, maxId: Int) {
         if (accountId == "legacy" || !accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")) ||
             groupId <= 0 || maxId <= 0) return
