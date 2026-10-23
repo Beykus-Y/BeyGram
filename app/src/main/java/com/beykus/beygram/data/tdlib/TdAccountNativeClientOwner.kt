@@ -70,7 +70,7 @@ internal class TdAccountNativeClientOwner(
             try {
                 clientFactory(config, registration.updateHandler)
             } catch (failure: Throwable) {
-                registration.onNativeClosed()
+                registration.onNativeClosed(notifyOwner = false)
                 throw failure // lifecycle.open() releases the lease
             }
         }
