@@ -21,6 +21,21 @@ class AccountUploadOwnershipTest {
         assertFalse(uploadFolderBelongsToAccount(legacy, "a-secondary"))
     }
 
+    @Test fun unsentSecondaryStagingIsNotChargedToLegacyAndIsRecoverableOnDelete() {
+        val staging = folder.newFolder("unsent-secondary")
+        markUploadDirectoryOwner(staging, "a-second")
+        File(staging, "large-video.mp4").writeText("payload")
+        assertTrue(uploadFolderBelongsToAccount(staging, "a-second"))
+        assertFalse(uploadFolderBelongsToAccount(staging, "legacy"))
+        assertFalse(uploadFolderBelongsToAccount(staging, "a-other"))
+        markSentUpload(staging, 19, "a-second")
+        assertTrue(uploadFolderBelongsToAccount(staging, "a-second"))
+        try {
+            markUploadDirectoryOwner(staging, "a-other")
+            org.junit.Assert.fail("Cross-account staging ownership was overwritten")
+        } catch (_: IllegalStateException) { }
+    }
+
     @Test fun secondaryOwnerTaggedUploadsNeverCountAgainstSibling() {
         val first = folder.newFolder("secondary-a")
         markSentUpload(first, 72, "a-first")
