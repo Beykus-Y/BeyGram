@@ -3,12 +3,15 @@ package com.beykus.beygram.data.tdlib
 import android.content.Context
 import com.beykus.beygram.BeyGramApplication
 import com.beykus.beygram.data.vpn.MihomoProxyService
-import com.beykus.beygram.data.vpn.ProxyRuntimeStatus
 import com.beykus.beygram.domain.model.TelegramRoute
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Process-owned and intentionally lazy. Opening Settings does NOT open a
@@ -32,24 +35,38 @@ internal class TdSecondaryAccountController private constructor(
         }
     )
 
+    private val reconcileMutex = Mutex()
+
     init {
         app.applicationScope.launch {
-            // Telegram connectivity metrics update this StateFlow frequently.
-            // Only listener status transitions require a SOCKS ownership probe;
-            // a manual visit to the account screen also forces revalidation.
-            MihomoProxyService.runtimeState.map { it.status }.distinctUntilChanged().collect { status ->
-                coordinator.reconcileShared { preference ->
-                    status == ProxyRuntimeStatus.RUNNING &&
-                        preflight.decide(primaryRoute(), preference) == TdSecondaryRouteDecision.SharedMihomo
-                }
+            // React immediately to every listener status transition, including
+            // STARTING/STOPPED. Initial DIRECT and shared SOCKS both need to be
+            // checked against the current primary account route.
+            MihomoProxyService.runtimeState.map { it.status }.distinctUntilChanged().collect {
+                checkRoutesNow()
             }
+        }
+        app.applicationScope.launch {
+            // The legacy TDLib repository doesn't currently expose a StateFlow
+            // for manual proxy changes. Poll ONLY while a secondary is active:
+            // a FOLLOW_PRIMARY client originally DIRECT must not keep sending
+            // direct traffic indefinitely after the primary route changes.
+            coordinator.snapshot
+                .map { state -> state.accounts.any { it.connectedInThisProcess } }
+                .distinctUntilChanged()
+                .collectLatest { active ->
+                    while (active) {
+                        delay(15_000)
+                        checkRoutesNow()
+                    }
+                }
         }
     }
 
-    /** Also called on entry to the screen, to reconcile after a route policy change. */
-    suspend fun checkSharedRoute() {
-        coordinator.reconcileShared { preference ->
-            preflight.decide(primaryRoute(), preference) == TdSecondaryRouteDecision.SharedMihomo
+    /** Also called when entering the account screen; serializes all route probes. */
+    suspend fun checkRoutesNow() = reconcileMutex.withLock {
+        coordinator.reconcileRoutes { preference ->
+            preflight.decide(primaryRoute(), preference)
         }
     }
 
