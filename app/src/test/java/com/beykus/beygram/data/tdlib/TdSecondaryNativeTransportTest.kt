@@ -21,7 +21,7 @@ class TdSecondaryNativeTransportTest {
         await: () -> Unit = {},
         revalidate: suspend () -> TdSecondaryRouteDecision,
         responder: (TdApi.Function<*>) -> TdApi.Object = {
-            if (it is TdApi.AddProxy) TdApi.AddedProxy(42, it.proxy, true, "BeyGram Mihomo")
+            if (it is TdApi.AddProxy) TdApi.AddedProxy(42, 0, true, "BeyGram Mihomo", it.proxy)
             else TdApi.Ok()
         }
     ) = TdSecondaryNativeTransport(
@@ -97,7 +97,7 @@ class TdSecondaryNativeTransportTest {
         val transport = fake(commands,
             revalidate = { TdSecondaryRouteDecision.SharedMihomo },
             responder = { if (it is TdApi.EnableProxy) TdApi.Error(500, "reject") else
-                if (it is TdApi.AddProxy) TdApi.AddedProxy(42, it.proxy, true, "BeyGram Mihomo")
+                if (it is TdApi.AddProxy) TdApi.AddedProxy(42, 0, true, "BeyGram Mihomo", it.proxy)
                 else TdApi.Ok()
             }
         )
