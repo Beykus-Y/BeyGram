@@ -105,8 +105,8 @@ internal fun ShareTargetScreen(
     val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
     val importer = remember(context, session.accountId) { OutgoingMediaImporter(context, session.accountId) }
 
-    var targetId by rememberSaveable(requestId) { mutableStateOf(0L) }
-    var shortcutApplied by rememberSaveable(requestId) { mutableStateOf(false) }
+    var targetId by rememberSaveable(requestId, session.accountId) { mutableStateOf(0L) }
+    var shortcutApplied by rememberSaveable(requestId, session.accountId) { mutableStateOf(false) }
     // TDLib chat list arrives asynchronously on a cold start: apply the Direct Share
     // target only when it becomes an actual writable chat. Never override user choice.
     LaunchedEffect(initialChatId, chats) {
@@ -118,11 +118,11 @@ internal fun ShareTargetScreen(
     }
     var query by rememberSaveable { mutableStateOf("") }
     // Тема группы с темами; 0 — чат без тем, тема не нужна.
-    var topicId by rememberSaveable(requestId) { mutableStateOf(0L) }
-    var topics by remember(requestId) { mutableStateOf<List<ForumTopic>?>(null) }
-    var topicsReady by remember(requestId) { mutableStateOf(false) }
-    var topicsError by remember(requestId) { mutableStateOf<UiText?>(null) }
-    var topicsAttempt by remember(requestId) { mutableIntStateOf(0) }
+    var topicId by rememberSaveable(requestId, session.accountId) { mutableStateOf(0L) }
+    var topics by remember(requestId, session.accountId) { mutableStateOf<List<ForumTopic>?>(null) }
+    var topicsReady by remember(requestId, session.accountId) { mutableStateOf(false) }
+    var topicsError by remember(requestId, session.accountId) { mutableStateOf<UiText?>(null) }
+    var topicsAttempt by remember(requestId, session.accountId) { mutableIntStateOf(0) }
     val target = chats.firstOrNull { it.id == targetId }
     val hasFiles = uris.isNotEmpty()
     // С файлами подпись идёт в её лимите; без файлов — лимит текста сообщения.
