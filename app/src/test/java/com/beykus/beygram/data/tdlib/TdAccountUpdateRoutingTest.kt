@@ -41,8 +41,8 @@ class TdAccountUpdateRoutingTest {
         val router = TdAccountUpdateRouter(registry)
         val legacy = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
         val secondary = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
-        val original = router.register("legacy", legacy::add)
-        val other = router.register(secondaryId, secondary::add)
+        val original = router.register("legacy") { legacy.add(it) }
+        val other = router.register(secondaryId) { secondary.add(it) }
         registry.selectAccount(secondaryId) // UI switches while the original client is alive
         original.updateHandler.onResult(TdApi.Ok())
         other.updateHandler.onResult(TdApi.Ok())
@@ -57,14 +57,14 @@ class TdAccountUpdateRoutingTest {
     @Test fun closedGenerationCannotDeliverIntoReplacementClient() = withRegistry { registry ->
         val router = TdAccountUpdateRouter(registry)
         val firstEvents = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
-        val first = router.register("legacy", firstEvents::add)
+        val first = router.register("legacy") { firstEvents.add(it) }
         first.updateHandler.onResult(TdApi.Ok())
         first.updateHandler.onResult(TdApi.UpdateAuthorizationState(TdApi.AuthorizationStateClosed()))
         assertEquals(2, firstEvents.size)
         assertFalse("legacy" in router.registeredSessions())
 
         val nextEvents = mutableListOf<TdAccountUpdateRouter.TdAccountRoutedUpdate>()
-        val next = router.register("legacy", nextEvents::add)
+        val next = router.register("legacy") { nextEvents.add(it) }
         first.updateHandler.onResult(TdApi.Ok())
         first.onNativeClosed() // late duplicate close must not detach a replacement
         next.updateHandler.onResult(TdApi.Ok())
