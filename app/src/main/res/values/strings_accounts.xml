@@ -33,4 +33,7 @@
     <string name="secondary_chats_open">Просмотреть чаты (только чтение)</string>
     <string name="secondary_chats_media_message">Медиафайл</string>
     <string name="secondary_chats_empty_message">Сообщение</string>
+    <string name="secondary_accounts_switch">Переключить аккаунт</string>
+    <string name="secondary_accounts_switch_offline">Сессия отключена — откройте управление аккаунтами</string>
+    <string name="secondary_accounts_switch_note">Чаты и сообщения второго аккаунта открываются в отдельном интерфейсе. Остальные разделы основного аккаунта не смешиваются.</string>
 </resources>
