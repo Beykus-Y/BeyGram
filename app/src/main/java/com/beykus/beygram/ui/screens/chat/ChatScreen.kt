@@ -139,8 +139,6 @@ fun ChatScreen(
     var highlighted by remember { mutableStateOf<Long?>(null) }
     // A message outside the loaded history is scrolled to once the window around it reaches the list.
     var pendingJumpId by remember(chat.id) { mutableStateOf<Long?>(null) }
-    // Explicit "jump to first unread" waits for the window around the read boundary if that page is not loaded.
-    var pendingUnreadJump by remember(chat.id) { mutableStateOf(false) }
     var searching by rememberSaveable(chat.id) { mutableStateOf(false) }
     var searchQuery by rememberSaveable(chat.id) { mutableStateOf("") }
     var searchResults by remember(chat.id) { mutableStateOf<List<ChatMessage>>(emptyList()) }
@@ -669,25 +667,23 @@ fun ChatScreen(
             return
         }
         // Request the boundary page. This also covers a window that is entirely older than the boundary: readLoaded is
-        // true there, but there is no unread row to scroll to. Arm completion only after an applied response, because
-        // loading a window does not set history.isLoading and the caller still sees old rows until recomposition.
+        // true there, but there is no unread row to scroll to. Resolve the target from the applied window itself, then
+        // let the existing pendingJumpId effect wait until that row is in the list.
         scope.launch {
             (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, boundary)
             else conversation.loadMessagesAround(chat.id, boundary))
-                .onSuccess { applied -> if (applied) pendingUnreadJump = true }
+                .onSuccess { applied ->
+                    if (!applied) return@onSuccess
+                    val loaded = if (forumTopicId > 0L) conversation.observeForumTopicHistory(chat.id, forumTopicId).value.messages
+                    else conversation.observeChatHistory(chat.id).value.messages
+                    val items = groupTelegramMediaAlbums(loaded)
+                    val index = firstUnreadItemIndex(items, boundary)
+                    if (index >= 0) {
+                        pendingJumpId = items[index].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
+                    }
+                }
                 .onFailure { error = it.userMessage(context, R.string.err_chat_history_load_failed) }
         }
-    }
-    LaunchedEffect(pendingUnreadJump, rawMessageItems, history.isLoading) {
-        if (!pendingUnreadJump || history.isLoading) return@LaunchedEffect
-        val boundary = history.lastReadInboxMessageId
-        val firstUnread = firstUnreadItemIndex(rawMessageItems, boundary)
-        if (firstUnread >= 0) {
-            val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
-            listState.animateScrollToItem(firstUnread)
-            highlighted = target
-        }
-        pendingUnreadJump = false
     }
     // Переход из профиля к вложению: чат открывается у сообщения один раз, после этого запрос сбрасывается.
     LaunchedEffect(focusMessageId) {

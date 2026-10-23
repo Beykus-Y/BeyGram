@@ -182,7 +182,7 @@ fun ChatsScreen(
             val matchesQuery = query.isBlank() || chat.title.contains(query, true) || (chat.lastMessage as? UiText.Raw)?.text?.contains(query, true) == true
             val matchesFilter = when (selectedFilter) {
                 ChatFilter.All -> true
-                ChatFilter.Unread -> chat.unreadCount > 0
+                ChatFilter.Unread -> showsUnreadIndicator(chat)
                 ChatFilter.People -> !chat.isGroup
                 ChatFilter.Groups -> chat.isGroup
             }
