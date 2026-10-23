@@ -92,6 +92,17 @@ class TdSecondaryChatStoreTest {
         assertEquals(listOf(9L, 5L, 2L), own.chats.value.map { it.key.chatId })
     }
 
+    @Test fun leavingOneChatEvictsOnlyItsCachedHistory() {
+        val own = TdSecondaryChatStore("account-a")
+        val first = TdAccountChatKey("account-a", 1L)
+        val second = TdAccountChatKey("account-a", 2L)
+        own.replaceHistory(first, listOf(msg("account-a", 1L, 101L, 1)))
+        own.replaceHistory(second, listOf(msg("account-a", 2L, 102L, 2)))
+        own.discardHistory(first)
+        assertFalse(first in own.history.value)
+        assertEquals(102L, own.history.value.getValue(second).single().key.messageId)
+    }
+
     @Test fun mediaPlaceholderIsAContentFlagNotRussianText() {
         val media = TdSecondaryTextMessage(
             TdAccountMessageKey("account-a", 1L, 5L), "", false, 100, isMedia = true
