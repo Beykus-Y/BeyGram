@@ -103,7 +103,7 @@ internal fun ShareTargetScreen(
     val context = LocalContext.current
     val palette = beyGramPalette()
     val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
-    val importer = remember(context) { OutgoingMediaImporter(context) }
+    val importer = remember(context, session.accountId) { OutgoingMediaImporter(context, session.accountId) }
 
     var targetId by rememberSaveable(requestId) { mutableStateOf(0L) }
     var shortcutApplied by rememberSaveable(requestId) { mutableStateOf(false) }
