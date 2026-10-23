@@ -17,7 +17,8 @@ internal class TdSecondaryRestoreStore(context: Context) {
     fun confirmedRoute(accountId: String): TdSecondaryRoutePreference? {
         if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) return null
         return tdParseAuthorizedSecondaryRoute(
-            authorized = preferences.getBoolean("authorized:$accountId", false),
+            authorized = preferences.getBoolean("authorized:$accountId", false) &&
+                !preferences.getBoolean("manual_stop:$accountId", false),
             stored = preferences.getString("route:$accountId", null)
         )
     }
@@ -27,13 +28,22 @@ internal class TdSecondaryRestoreStore(context: Context) {
         check(preferences.edit()
             .putString("route:$accountId", choice.name)
             .putBoolean("authorized:$accountId", true)
+            .putBoolean("manual_stop:$accountId", false)
             .commit()) { "Unable to persist secondary login restore policy" }
+    }
+
+    fun pauseAfterUserStop(accountId: String) {
+        require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+        check(preferences.edit().putBoolean("manual_stop:$accountId", true).commit()) {
+            "Unable to persist manual secondary session stop"
+        }
     }
 
     fun forget(accountId: String) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
         check(preferences.edit()
             .remove("authorized:$accountId")
+            .remove("manual_stop:$accountId")
             .remove("route:$accountId")
             .commit()) { "Unable to remove secondary restore policy" }
     }
