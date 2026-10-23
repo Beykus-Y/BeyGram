@@ -27,23 +27,51 @@ internal class TdSecondaryAccountController private constructor(
     private val app = context.applicationContext as BeyGramApplication
     private val preflight = TdSecondaryAccountRoutePreflight.forApplication(app)
     private val launcher = TdSecondaryNativeLoginLauncher.forApplication(app, primaryRoute)
+    private val registry = TdAccountRegistry(app.filesDir)
+    private val restoreStore = TdSecondaryRestoreStore(app)
     val coordinator = TdSecondarySessionCoordinator(
-        registry = TdAccountRegistry(app.filesDir),
+        registry = registry,
         scope = app.applicationScope,
+        onAuthorized = { id, preference -> restoreStore.recordNativeReady(id, preference) },
+        onManualStop = restoreStore::pauseAfterUserStop,
         openNative = { accountId, preference ->
             TdNativeSecondaryAuthSession(launcher.openRegisteredSecondary(accountId, preference))
         }
     )
 
     private val reconcileMutex = Mutex()
+    private val restoreMutex = Mutex()
+
+    /**
+     * Can run after process restart: only accounts for which native TDLib
+     * previously confirmed READY are eligible. No phone/OTP is replayed.
+     * Proxy failure blocks startup; a later listener change can retry.
+     */
+    suspend fun restoreRemembered() = restoreMutex.withLock {
+        coordinator.refresh()
+        val registered = registry.loadOrCreate()
+        for ((accountId, preference) in restoreStore.candidates(registered)) {
+            val row = coordinator.snapshot.value.accounts.firstOrNull { it.accountId == accountId }
+            if (row?.connectedInThisProcess == true) continue
+            // If the last generation is still closing, connect refuses to
+            // reopen its database. Never force-unlock TDLib in that case.
+            runCatching { coordinator.connect(accountId, preference) }
+        }
+    }
 
     init {
+        app.applicationScope.launch {
+            // Attempt once when the process is first brought up. The route
+            // policy may still block until legacy/Mihomo are ready.
+            restoreRemembered()
+        }
         app.applicationScope.launch {
             // React immediately to every listener status transition, including
             // STARTING/STOPPED. Initial DIRECT and shared SOCKS both need to be
             // checked against the current primary account route.
             MihomoProxyService.runtimeState.map { it.status }.distinctUntilChanged().collect {
                 checkRoutesNow()
+                restoreRemembered()
             }
         }
         app.applicationScope.launch {
