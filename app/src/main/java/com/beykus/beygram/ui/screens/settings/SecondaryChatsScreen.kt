@@ -57,7 +57,8 @@ internal fun SecondaryChatsScreen(
     accountId: String,
     coordinator: TdSecondarySessionCoordinator,
     onBack: () -> Unit,
-    onSwitchAccount: () -> Unit = {}
+    onSwitchAccount: () -> Unit = {},
+    initialChatId: Long? = null
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -71,6 +72,14 @@ internal fun SecondaryChatsScreen(
     val account = accounts.accounts.firstOrNull { it.accountId == accountId }
     val available = account?.connectedInThisProcess == true &&
         account.phase == TdAccountAuthPhase.READY && !account.networkSuspended
+
+    LaunchedEffect(accountId, initialChatId, available) {
+        if (available && initialChatId != null && initialChatId != 0L) {
+            // A notification references the SOURCE session, even if the chat
+            // isn't present in the secondary Main list (e.g. archived chat).
+            selectedChat = TdAccountChatKey(accountId, initialChatId)
+        }
+    }
 
     // Hardware Back inside a secondary conversation returns to its own list.
     // The legacy Chats tab and chat IDs must never be involved.
