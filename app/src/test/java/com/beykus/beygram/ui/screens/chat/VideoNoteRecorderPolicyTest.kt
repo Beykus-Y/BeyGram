@@ -28,6 +28,13 @@ class VideoNoteRecorderPolicyTest {
         assertFalse(videoNotePreferFourThreeCapture(VideoNoteSourceQuality.HD, null))
     }
 
+    @Test fun aspectFallbackOnlyOnExpectedUnsupportedConfigurationFailure() {
+        assertTrue(videoNoteShouldRetryDefaultAspect(true, IllegalArgumentException("unsupported 4:3")))
+        assertFalse(videoNoteShouldRetryDefaultAspect(false, IllegalArgumentException("default failed")))
+        assertFalse(videoNoteShouldRetryDefaultAspect(true, SecurityException("camera denied")))
+        assertFalse(videoNoteShouldRetryDefaultAspect(true, IllegalStateException("camera busy")))
+    }
+
     @Test fun missingZoomStateStillSendsNative1xRequest() {
         assertEquals(1f, videoNoteZoomTarget(1f, null, null), 0f)
         assertEquals(2f, videoNoteZoomTarget(2f, null, null), 0f)
