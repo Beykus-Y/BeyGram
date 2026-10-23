@@ -98,9 +98,19 @@ fun NotificationSettingsScreen(
             Text(stringResource(R.string.notif_no_google_title), color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(stringResource(R.string.notif_no_google_body), color = palette.textSecondary)
             Text(stringResource(R.string.settings_autosave_note), color = palette.textSecondary, fontSize = 13.sp)
-            SettingToggle(stringResource(R.string.notif_toggle_messages), stringResource(R.string.notif_toggle_messages_hint), config.enabled) { accountPreferences.update(config.copy(enabled = it)); runtime.refresh() }
-            SettingToggle(stringResource(R.string.notif_toggle_background), stringResource(R.string.notif_toggle_background_hint), config.background, config.enabled) { accountPreferences.update(config.copy(background = it)) }
-            SettingToggle(stringResource(R.string.notif_toggle_previews), stringResource(R.string.notif_toggle_previews_hint), config.previews, config.enabled) { accountPreferences.update(config.copy(previews = it)) }
+            SettingToggle(stringResource(R.string.notif_toggle_messages), stringResource(R.string.notif_toggle_messages_hint), config.enabled) {
+                accountPreferences.update(config.copy(enabled = it))
+                runtime.refresh()
+                TelegramNotificationService.reconcileFromAllowedContext(context, "ui")
+            }
+            SettingToggle(stringResource(R.string.notif_toggle_background), stringResource(R.string.notif_toggle_background_hint), config.background, config.enabled) {
+                accountPreferences.update(config.copy(background = it))
+                TelegramNotificationService.reconcileFromAllowedContext(context, "ui")
+            }
+            SettingToggle(stringResource(R.string.notif_toggle_previews), stringResource(R.string.notif_toggle_previews_hint), config.previews, config.enabled) {
+                accountPreferences.update(config.copy(previews = it))
+                runtime.refresh()
+            }
             HorizontalDivider(color = palette.divider)
             Text(if (allowed) stringResource(R.string.notif_permission_granted) else stringResource(R.string.notif_permission_denied), color = if (allowed) palette.textPrimary else palette.warningText)
             Text(if (running) stringResource(R.string.notif_background_running) else stringResource(R.string.notif_background_stopped), color = palette.textSecondary)
