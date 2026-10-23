@@ -3,7 +3,9 @@ package com.beykus.beygram.data.tdlib
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.channels.FileChannel
 import java.nio.file.Files
+import java.nio.file.StandardOpenOption
 import java.nio.file.StandardCopyOption
 
 /**
@@ -83,6 +85,11 @@ internal class TdAccountRegistry(private val privateFilesDir: File) {
             pending.canonicalFile == expected.resolve("$REGISTRY_NAME.pending")) {
             "Registry file redirects outside app storage"
         }
+        // Check the link itself, including a dangling symlink whose canonicalFile
+        // otherwise looks like an ordinary path. All paths belong to app-private storage.
+        require(!Files.isSymbolicLink(root.toPath()) &&
+            !Files.isSymbolicLink(registry.toPath()) &&
+            !Files.isSymbolicLink(pending.toPath())) { "Symlinked TDLib account registry path" }
         if (!root.exists() && !root.mkdirs()) throw IOException("Cannot prepare TDLib account metadata")
         if (!root.isDirectory) throw IOException("TDLib account metadata root is not a directory")
     }
@@ -123,6 +130,12 @@ internal class TdAccountRegistry(private val privateFilesDir: File) {
             // if unsupported rather than writing partial metadata over the live file.
             Files.move(pending.toPath(), registry.toPath(),
                 StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            // FileDescriptor.sync() above only protects the pending file contents.
+            // The directory entry installed by rename must also be durable before
+            // considering this account list/selection committed.
+            FileChannel.open(root.toPath(), StandardOpenOption.READ).use { directory ->
+                directory.force(true)
+            }
         } finally {
             // A crash may also leave this temp file behind. It is NEVER authoritative.
             pending.delete()
