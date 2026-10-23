@@ -6,6 +6,8 @@ import com.beykus.beygram.data.vpn.MihomoProxyService
 import com.beykus.beygram.data.vpn.ProxyRuntimeStatus
 import com.beykus.beygram.domain.model.TelegramRoute
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -32,9 +34,12 @@ internal class TdSecondaryAccountController private constructor(
 
     init {
         app.applicationScope.launch {
-            MihomoProxyService.runtimeState.collect { runtime ->
+            // Telegram connectivity metrics update this StateFlow frequently.
+            // Only listener status transitions require a SOCKS ownership probe;
+            // a manual visit to the account screen also forces revalidation.
+            MihomoProxyService.runtimeState.map { it.status }.distinctUntilChanged().collect { status ->
                 coordinator.reconcileShared { preference ->
-                    runtime.status == ProxyRuntimeStatus.RUNNING &&
+                    status == ProxyRuntimeStatus.RUNNING &&
                         preflight.decide(primaryRoute(), preference) == TdSecondaryRouteDecision.SharedMihomo
                 }
             }
