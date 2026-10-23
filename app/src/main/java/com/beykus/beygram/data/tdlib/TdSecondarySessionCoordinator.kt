@@ -23,6 +23,12 @@ internal interface TdSecondaryAuthSession {
     suspend fun resendCode()
     fun close()
 
+    /**
+     * Only the native session that owns the database lease may provide its
+     * full TelegramRepository. Test fakes can deliberately return null.
+     */
+    fun fullRepository(context: android.content.Context): com.beykus.beygram.domain.repository.TelegramRepository? = null
+
     /** Read-only secondary chats. Null for a test/fake auth session. */
     val chatStore: TdSecondaryChatStore? get() = null
     suspend fun loadChats() { error("Secondary chat store unavailable") }
@@ -50,6 +56,8 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun submitPassword(password: String) = login.submitPassword(password)
     override suspend fun resendCode() = login.resendCode()
     override fun close() = login.close()
+    override fun fullRepository(context: android.content.Context): com.beykus.beygram.domain.repository.TelegramRepository =
+        login.unifiedRepository(context)
     override val chatStore: TdSecondaryChatStore get() = login.chatStore
     override suspend fun loadChats() = login.loadSecondaryChats()
     override suspend fun loadHistory(key: TdAccountChatKey) = login.openSecondaryHistory(key)
@@ -154,6 +162,20 @@ internal class TdSecondarySessionCoordinator(
 
     suspend fun resendCode(accountId: String) =
         session(accountId).resendCode()
+
+    /**
+     * The standard UI receives the SAME complete TelegramRepository contract
+     * regardless of which native session owns the selected account.
+     * The original legacy singleton is never touched by this lookup.
+     */
+    suspend fun fullRepository(
+        accountId: String,
+        context: android.content.Context
+    ): com.beykus.beygram.domain.repository.TelegramRepository {
+        val session = chatSession(accountId)
+        return session.fullRepository(context)
+            ?: error("Native account cannot provide the complete Telegram repository")
+    }
 
     /** Return the exact account-bound session, never an active-UI-account proxy. */
     suspend fun chatSession(accountId: String): TdSecondaryAuthSession = mutex.withLock {
