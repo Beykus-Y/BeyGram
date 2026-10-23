@@ -119,6 +119,7 @@ import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
@@ -590,6 +591,8 @@ private fun BeyGramAppContent(
                 notificationSecondaryTopicId = request.topicId
                 selectedAccountId = target
                 routeName = AppRoute.Chats.name
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (failure: Exception) {
                 noticeError = UiText.Raw(
                     context.getString(

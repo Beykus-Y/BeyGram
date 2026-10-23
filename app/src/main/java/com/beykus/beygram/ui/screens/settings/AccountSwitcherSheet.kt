@@ -383,8 +383,14 @@ internal fun AccountSwitcherSheet(
 
     ModalBottomSheet(
         onDismissRequest = {
-            if (busyAccountId == null && !addBusy) {
-                if (authAccountId != null) closeAuth() else dismissSheet()
+            if (busyAccountId == null && !addBusy && !switchInProgress &&
+                preparingAccountId == null && !authActionBusy
+            ) {
+                dismissSheet()
+            } else {
+                // The modal is already hidden when this callback runs. Keep the
+                // operation alive and reopen the same sheet instead of losing it.
+                scope.launch { sheetState.show() }
             }
         },
         sheetState = sheetState,

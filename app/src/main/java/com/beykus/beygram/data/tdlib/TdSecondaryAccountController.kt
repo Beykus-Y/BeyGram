@@ -177,6 +177,15 @@ internal class TdSecondaryAccountController private constructor(
         try {
             coordinator.discardIncompleteAccount(accountId)
         } catch (cancelled: CancellationException) {
+            // Cancellation before durable unregister must not leave a restart
+            // tombstone on a still-registered account.
+            kotlinx.coroutines.withContext(
+                kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO
+            ) {
+                if (accountId in registry.loadOrCreate().accountIds) {
+                    restoreStore.clearDeletionPending(accountId)
+                }
+            }
             throw cancelled
         } catch (failure: Throwable) {
             if (accountId in registry.loadOrCreate().accountIds) {
