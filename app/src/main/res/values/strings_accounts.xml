@@ -19,5 +19,6 @@
     <string name="secondary_accounts_other_auth">Telegram запросил дополнительный способ авторизации, ещё не поддерживаемый этой бета-версией.</string>
     <string name="secondary_accounts_connecting">Подключаемся к Telegram…</string>
     <string name="secondary_accounts_disconnect">Остановить эту сессию (без выхода из Telegram)</string>
+    <string name="secondary_accounts_route_paused">Маршрут аккаунта изменился или недоступен: соединение приостановлено. Остановите сессию и подключите её заново с нужным маршрутом.</string>
     <string name="secondary_accounts_action_error">Операция не выполнена. Проверьте подключение и маршрут прокси; основная сессия не затронута.</string>
 </resources>
