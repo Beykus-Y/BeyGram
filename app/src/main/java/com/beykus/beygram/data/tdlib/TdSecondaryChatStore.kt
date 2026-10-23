@@ -140,7 +140,7 @@ internal class TdSecondaryChatStore(val accountId: String) {
         )
     }
 
-    fun convertHistory(chat: TdAccountChatKey, messages: Array<TdApi.Message>): List<TdSecondaryTextMessage> {
+    fun convertHistory(chat: TdAccountChatKey, messages: Array<out TdApi.Message>): List<TdSecondaryTextMessage> {
         requireOwn(chat)
         require(messages.all { it.chatId == chat.chatId }) { "TDLib returned a different chat" }
         return messages.map(::textMessage)
