@@ -528,10 +528,18 @@ internal fun AccountSwitcherSheet(
     }
 
     confirmDisconnectId?.let { accountId ->
+        val signedIn = rows.firstOrNull { it.accountId == accountId }?.canLogout == true
         AlertDialog(
             onDismissRequest = { if (busyAccountId == null) confirmDisconnectId = null },
             title = { Text(stringResource(R.string.account_switcher_disconnect_title)) },
-            text = { Text(stringResource(R.string.account_switcher_disconnect_message)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (signedIn) R.string.account_switcher_disconnect_message
+                        else R.string.account_switcher_disconnect_unsigned_message
+                    )
+                )
+            },
             confirmButton = {
                 TextButton(
                     enabled = busyAccountId == null,

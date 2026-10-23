@@ -35,6 +35,7 @@
     <string name="account_switcher_disconnect">Stop session</string>
     <string name="account_switcher_disconnect_title">Stop this session?</string>
     <string name="account_switcher_disconnect_message">The account stays in BeyGram and its Telegram sign-in is kept. You can connect it again at any time.</string>
+    <string name="account_switcher_disconnect_unsigned_message">The unfinished sign-in will be stopped. The slot stays in the list so you can continue later.</string>
     <string name="account_switcher_disconnect_confirm">Stop</string>
     <string name="account_switcher_logout">Sign out and delete data</string>
     <string name="account_switcher_delete_incomplete">Delete unfinished sign-in</string>

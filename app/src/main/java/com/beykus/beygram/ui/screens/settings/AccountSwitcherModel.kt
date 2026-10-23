@@ -238,7 +238,8 @@ internal fun accountSwitcherRows(input: AccountSwitcherInput): List<AccountSwitc
             },
             canDelete = !busy && !account.authorized,
             canDisconnect = !busy && account.connectedInThisProcess &&
-                account.phase == TdAccountAuthPhase.READY && !account.networkSuspended,
+                account.phase != TdAccountAuthPhase.CLOSED &&
+                account.phase != TdAccountAuthPhase.LOGGING_OUT,
             canLogout = !busy && account.authorized,
             canConfigureRoute = !busy && when (status) {
                 AccountSwitcherStatus.CONNECTING,

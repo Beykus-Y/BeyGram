@@ -35,6 +35,7 @@
     <string name="account_switcher_disconnect">Остановить сессию</string>
     <string name="account_switcher_disconnect_title">Остановить сессию?</string>
     <string name="account_switcher_disconnect_message">Аккаунт останется в BeyGram, вход в Telegram сохранится. Сессию можно подключить снова в любой момент.</string>
+    <string name="account_switcher_disconnect_unsigned_message">Незавершённый вход будет остановлен. Слот останется в списке — вход можно продолжить позже.</string>
     <string name="account_switcher_disconnect_confirm">Остановить</string>
     <string name="account_switcher_logout">Выйти и удалить данные</string>
     <string name="account_switcher_delete_incomplete">Удалить незавершённый вход</string>

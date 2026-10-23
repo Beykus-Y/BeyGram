@@ -445,7 +445,7 @@ internal class TdSecondaryAccountController private constructor(
         preference: TdSecondaryRoutePreference
     ) {
         try {
-            withTimeout(75_000) {
+            withTimeout(120_000) {
                 coordinator.reconnectWithRoute(accountId, preference) { route ->
                     val decision = preflight.decide(primaryRoute(), route)
                     if (decision is TdSecondaryRouteDecision.Blocked) {

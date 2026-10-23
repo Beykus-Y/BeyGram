@@ -104,6 +104,7 @@ class AccountSwitcherModelTest {
             )[1]
             assertEquals(expected, account.status)
             assertTrue(account.canSignIn)
+            assertTrue(account.canDisconnect)
             assertFalse(account.isCurrent)
             assertFalse(account.canSelect)
         }
@@ -116,6 +117,7 @@ class AccountSwitcherModelTest {
         assertEquals(AccountSwitcherStatus.ROUTE_PAUSED, account.status)
         assertFalse(account.canSelect)
         assertTrue(account.canConfigureRoute)
+        assertTrue(account.canDisconnect)
     }
 
     @Test fun networkLossIsDistinctFromDisconnectedSession() {
