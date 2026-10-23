@@ -245,6 +245,11 @@ internal fun markSentUpload(
     fileId: Int,
     accountId: String = TdAccountStorageLayout.LEGACY_ACCOUNT_ID
 ) = synchronized(SENT_UPLOAD_MARKER_LOCK) {
+    // A SendMessage in account B must never claim media staged under account A.
+    // This check also protects media prepared before an account switch.
+    check(uploadFolderBelongsToAccount(folder, accountId)) {
+        "Cannot mark sent media owned by another Telegram account"
+    }
     val marker = File(folder, SENT_UPLOAD_MARKER)
     val contents = if (marker.isFile) marker.readLines() else emptyList()
     val existingOwner = when {
