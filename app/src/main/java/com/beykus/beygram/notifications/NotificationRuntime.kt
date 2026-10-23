@@ -143,6 +143,7 @@ class NotificationRuntime private constructor(private val context: Context) {
         setSecondaryConnected(accountId, false)
         previous?.renderer?.cancelAllOwned()
         preferencesForAccount(accountId).authorized = false
+        secondaryPreferences.remove(accountId)
         secondaryReplyOutboxes.remove(accountId)?.clear()
         invalidations.update { it + 1 }
     }
