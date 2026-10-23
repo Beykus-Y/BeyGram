@@ -63,6 +63,11 @@ internal class TdSecondaryChatStore(val accountId: String) {
         }
     }
 
+    fun discardHistory(chat: TdAccountChatKey) {
+        requireOwn(chat)
+        synchronized(lock) { _history.value = _history.value - chat }
+    }
+
     private fun publish() {
         _chats.value = byId.values.filter { it.order > 0L }
             .sortedWith(compareByDescending<TdSecondaryChatSummary> { it.order }.thenByDescending { it.key.chatId })
