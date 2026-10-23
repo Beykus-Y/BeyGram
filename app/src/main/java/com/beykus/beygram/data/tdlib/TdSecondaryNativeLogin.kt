@@ -73,7 +73,6 @@ internal class TdSecondaryNativeLoginLauncher(
         }
 
         val phases = MutableStateFlow(TdAccountAuthPhase.STARTING)
-        val chatStore = TdSecondaryChatStore(accountId)
         val fullRepositoryObservers = CopyOnWriteArrayList<(TdApi.Object) -> Unit>()
         val startupReplay = TdSecondaryStartupReplay()
         val overflowCloseRequested = java.util.concurrent.atomic.AtomicBoolean()
@@ -85,10 +84,6 @@ internal class TdSecondaryNativeLoginLauncher(
             onUpdate = { event ->
                 // Never dispatch secondary updates through the legacy chat
                 // repository, global notification feed or shared media cache.
-                // Legacy secondary-preview cache is needed only until the
-                // full account repository attaches. After that, double-writing
-                // every chat and message would waste RAM (especially on M21).
-                if (fullRepositoryObservers.isEmpty()) chatStore.receive(event)
                 // The same native client can feed the full TelegramRepository;
                 // never create a second Client for these database directories.
                 synchronized(fullRepositoryObservers) {
@@ -128,7 +123,6 @@ internal class TdSecondaryNativeLoginLauncher(
                         }
                         is TdApi.AuthorizationStateClosed -> {
                             phases.value = TdAccountAuthPhase.CLOSED
-                            chatStore.clear()
                             synchronized(fullRepositoryObservers) {
                                 fullRepositoryObservers.clear()
                                 startupReplay.clear()
@@ -141,7 +135,7 @@ internal class TdSecondaryNativeLoginLauncher(
             },
             clientFactory = { config, handler ->
                 val client = createNativeClient(handler)
-                TdSecondaryNativeLogin(accountId, config, client, phases, planned, chatStore,
+                TdSecondaryNativeLogin(accountId, config, client, phases, planned,
                     fullRepositoryObservers, startupReplay, nativeLeaseClosed)
                     .also { nativeToClose.set(it) }
             }
@@ -173,7 +167,6 @@ internal class TdSecondaryNativeLogin internal constructor(
     internal val client: Client,
     private val mutablePhase: MutableStateFlow<TdAccountAuthPhase>,
     internal val plannedRoute: TdSecondaryRouteDecision,
-    val chatStore: TdSecondaryChatStore,
     private val fullRepositoryObservers: CopyOnWriteArrayList<(TdApi.Object) -> Unit>,
     private val startupReplay: TdSecondaryStartupReplay,
     private val nativeLeaseClosed: CompletableDeferred<Unit>
@@ -210,105 +203,6 @@ internal class TdSecondaryNativeLogin internal constructor(
     }
 
     val authPhase: StateFlow<TdAccountAuthPhase> = mutablePhase.asStateFlow()
-
-    /** No legacy chat/cache reuse. These methods are only for this native client. */
-    suspend fun loadSecondaryChats() {
-        check(authPhase.value == TdAccountAuthPhase.READY) { "Secondary account is not authorized" }
-        val response = request(TdApi.LoadChats(TdApi.ChatListMain(), 100))
-        if (response is TdApi.Error && response.code != 404) {
-            throw IllegalStateException("Unable to load secondary chat list (code ${response.code})")
-        }
-    }
-
-    /**
-     * TDLib requires explicit OpenChat/CloseChat for complete live updates
-     * in channels and supergroups. The UI owns pairing across navigation.
-     */
-    suspend fun openSecondaryHistory(chat: TdAccountChatKey) {
-        require(chat.accountId == accountId && chat.chatId != 0L) { "Foreign or invalid chat key" }
-        check(authPhase.value == TdAccountAuthPhase.READY) { "Secondary account is not authorized" }
-        val opened = request(TdApi.OpenChat(chat.chatId))
-        if (opened is TdApi.Error) throw IllegalStateException(
-            "Unable to open secondary chat (code ${opened.code})"
-        )
-        loadSecondaryHistory(chat)
-    }
-
-    suspend fun closeSecondaryHistory(chat: TdAccountChatKey) {
-        require(chat.accountId == accountId) { "Foreign account chat close blocked" }
-        try {
-            if (authPhase.value == TdAccountAuthPhase.CLOSED) return
-            val result = request(TdApi.CloseChat(chat.chatId))
-            if (result is TdApi.Error) throw IllegalStateException(
-                "Unable to close secondary chat (code ${result.code})"
-            )
-        } finally {
-            chatStore.discardHistory(chat)
-        }
-    }
-
-    suspend fun loadSecondaryHistory(chat: TdAccountChatKey) {
-        require(chat.accountId == accountId) { "Foreign account chat access blocked" }
-        check(authPhase.value == TdAccountAuthPhase.READY) { "Secondary account is not authorized" }
-        val response = request(TdApi.GetChatHistory(chat.chatId, 0L, 0, 50, false))
-        when (response) {
-            is TdApi.Messages -> chatStore.replaceHistory(
-                chat, chatStore.convertHistory(chat, response.messages.orEmpty())
-            )
-            is TdApi.Error -> throw IllegalStateException(
-                "Unable to load secondary history (code ${response.code})"
-            )
-            else -> error("Unexpected secondary history result")
-        }
-    }
-    /**
-     * Account-keyed, real TDLib messaging: no legacy repository or active-UI
-     * numeric chat fallback. A caller must resolve THIS native session first.
-     */
-    suspend fun sendSecondaryText(chat: TdAccountChatKey, text: String) {
-        require(chat.accountId == accountId && chat.chatId != 0L) {
-            "Cannot send Telegram message to another account"
-        }
-        check(authPhase.value == TdAccountAuthPhase.READY && !routePaused.value) {
-            "Secondary account is not connected and ready"
-        }
-        val bounded = text
-        require(bounded.isNotBlank() && bounded.codePointCount(0, bounded.length) <= 4096) {
-            "Invalid Telegram message length"
-        }
-        val content = TdApi.InputMessageText().apply {
-            this.text = TdApi.FormattedText(bounded, emptyArray())
-            clearDraft = true
-        }
-        val sendFunction = TdApi.SendMessage().apply {
-            chatId = chat.chatId
-            inputMessageContent = content
-        }
-        val response = request(sendFunction)
-        when (response) {
-            is TdApi.Message -> {
-                check(response.chatId == chat.chatId) { "TDLib returned a different chat" }
-                chatStore.appendSentMessage(response)
-            }
-            is TdApi.Error -> throw IllegalStateException(
-                "Secondary message rejected by Telegram (code ${response.code})"
-            )
-            else -> error("Unexpected TDLib secondary message response")
-        }
-    }
-
-    suspend fun readSecondaryChat(chat: TdAccountChatKey, messageId: Long) {
-        require(chat.accountId == accountId && chat.chatId != 0L && messageId > 0L) {
-            "Foreign or invalid chat read target"
-        }
-        check(authPhase.value == TdAccountAuthPhase.READY && !routePaused.value)
-        val response = request(TdApi.ViewMessages(
-            chat.chatId, longArrayOf(messageId), TdApi.MessageSourceChatHistory(), true
-        ))
-        if (response is TdApi.Error) throw IllegalStateException(
-            "Unable to mark secondary message as read (code ${response.code})"
-        )
-    }
 
     private val routeMutex = Mutex()
     private val _routePaused = MutableStateFlow(false)

@@ -3,8 +3,8 @@
 ## Why this replaces the interim secondary-chat experience
 
 The secondary TDLib **native session** and its leased database were correct, but
-`SecondaryChatsScreen` and `TdSecondaryChatStore` formed a second, reduced
-messenger implementation. The normal `ChatsScreen`, `ChatScreen`, folders,
+`SecondaryChatsScreen` and `TdSecondaryChatStore` previously formed a second,
+reduced messenger implementation; both are now removed in favor of the full repository. The normal `ChatsScreen`, `ChatScreen`, folders,
 profile, search, calls and media already depend on `TelegramRepository` /
 `ConversationRepository` and must be shared by every account.
 

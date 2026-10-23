@@ -33,18 +33,6 @@ internal interface TdSecondaryAuthSession {
      */
     fun fullRepository(context: android.content.Context): com.beykus.beygram.domain.repository.TelegramRepository? = null
 
-    /** Read-only secondary chats. Null for a test/fake auth session. */
-    val chatStore: TdSecondaryChatStore? get() = null
-    suspend fun loadChats() { error("Secondary chat store unavailable") }
-    suspend fun loadHistory(key: TdAccountChatKey) { error("Secondary chat store unavailable") }
-    suspend fun closeHistory(key: TdAccountChatKey) { error("Secondary chat store unavailable") }
-    suspend fun sendText(key: TdAccountChatKey, text: String) {
-        error("Secondary chat messaging unavailable")
-    }
-    suspend fun markRead(key: TdAccountChatKey, lastMessageId: Long) {
-        error("Secondary chat read unavailable")
-    }
-
     val plannedRoute: TdSecondaryRouteDecision get() = TdSecondaryRouteDecision.Direct
     val networkSuspended: Boolean get() = false
     suspend fun pauseNetwork() {}
@@ -64,14 +52,6 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun awaitClosedLease() = login.awaitNativeClosed()
     override fun fullRepository(context: android.content.Context): com.beykus.beygram.domain.repository.TelegramRepository =
         login.unifiedRepository(context)
-    override val chatStore: TdSecondaryChatStore get() = login.chatStore
-    override suspend fun loadChats() = login.loadSecondaryChats()
-    override suspend fun loadHistory(key: TdAccountChatKey) = login.openSecondaryHistory(key)
-    override suspend fun closeHistory(key: TdAccountChatKey) = login.closeSecondaryHistory(key)
-    override suspend fun sendText(key: TdAccountChatKey, text: String) =
-        login.sendSecondaryText(key, text)
-    override suspend fun markRead(key: TdAccountChatKey, lastMessageId: Long) =
-        login.readSecondaryChat(key, lastMessageId)
     override val plannedRoute: TdSecondaryRouteDecision get() = login.plannedRoute
     override val networkSuspended: Boolean get() = login.routePaused.value
     override suspend fun pauseNetwork() = login.pauseNetwork()
@@ -203,7 +183,6 @@ internal class TdSecondarySessionCoordinator(
             "Secondary Telegram account is not authorized"
         }
         check(!handle.networkSuspended) { "Secondary network route is paused" }
-        check(handle.chatStore?.accountId == accountId) { "Secondary chat store identity mismatch" }
         handle
     }
 

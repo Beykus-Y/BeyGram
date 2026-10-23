@@ -950,20 +950,6 @@ class TdLibTelegramRepository private constructor(
             // The native dispatch/replay monitor makes the handoff atomic for
             // this one account. Events before attachment are buffered.
             secondary.observeFullUpdates(::handleUpdate)
-            if (restoredReady) {
-                // The earlier experimental preview may already have consumed
-                // UpdateNewChat events. Seed the shared full repository from
-                // that SAME native client's known IDs, without reusing any
-                // legacy chat IDs or metadata.
-                val knownChats = secondary.chatStore.chats.value
-                    .map { it.key.chatId }.distinct().take(100)
-                chatListScope.launch {
-                    for (chatId in knownChats) {
-                        if (_authState.value != AuthState.Ready) break
-                        loadChat(chatId)
-                    }
-                }
-            }
             } catch (error: Throwable) {
                 // If startup replay is corrupt/overflowed, this constructor
                 // can throw before an instance is returned to the coordinator.
