@@ -36,6 +36,11 @@ class ArchiveSettingsStore private constructor(context: Context, accountId: Stri
         private const val KEY_ARCHIVE_SOUND = "archive_sound"
         private val instances = mutableMapOf<String, ArchiveSettingsStore>()
 
+        fun releaseAccount(accountId: String) {
+            if (accountId == "legacy") return
+            synchronized(instances) { instances.remove(accountId) }
+        }
+
         fun get(
             context: Context,
             accountId: String = "legacy"
