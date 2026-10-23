@@ -44,7 +44,7 @@ import com.beykus.beygram.domain.model.ArchiveSettings
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
-import com.beykus.beygram.navigation.secondaryAccountMayOpen
+import com.beykus.beygram.navigation.accountRouteCanRender
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
 import com.beykus.beygram.navigation.TabVisibility
@@ -932,7 +932,10 @@ private fun BeyGramAppContent(
                     modifier = Modifier.align(Alignment.Center)
                 )
                 selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-                    repositorySelection == null && route !in setOf(AppRoute.AccountPicker, AppRoute.SecondaryAccounts) ->
+                    !accountRouteCanRender(
+                        route, selectedAccountId,
+                        (repositorySelection as? TdLibTelegramRepository)?.accountId
+                    ) ->
                     AccountPickerScreen(
                         state = accountChoice,
                         selectedId = selectedAccountId,
