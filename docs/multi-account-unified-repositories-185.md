@@ -41,6 +41,22 @@ profile, search, calls and media already depend on `TelegramRepository` /
   Secondary notification IDs remain bound to their source account.
 - Switching stops the old shared player and clears selected chat and forum
   IDs before mounting the new repository.
+- Scroll position and recording recovery view models are keyed by account,
+  chat and topic. Pending video-note exports, previews, retries and failure
+  notices explicitly include the source account so identical chat IDs never
+  make an export eligible for a foreign account.
+- The secondary TDLib full repository replays the native session's most recent
+  startup state (folders, active emoji reactions, connection state and options)
+  before attaching its live observer. Each client also monitors Android network
+  handoffs, but a suspended/proxy-policy-blocked native client stays offline.
+- Upload marker IDs are account-owned; existing numeric legacy markers keep
+  their original meaning. Eviction only examines the owning account's sent
+  uploads and excludes other accounts from the eviction budget.
+- The process-scoped secondary session controller already attaches all READY
+  secondary repositories to the notification runtime on startup/restore.
+  Secondary notification preferences must come from that account's store,
+  not the legacy store. Secondary inline reply intentionally remains disabled
+  until the account-bound reply outbox supports authenticated background replies.
 
 ## Important verification requirements
 
