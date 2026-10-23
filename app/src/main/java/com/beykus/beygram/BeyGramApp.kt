@@ -271,7 +271,7 @@ private fun BeyGramAppContent(
     var recoveryGrace by remember(selectedAccountId) { mutableStateOf(true) }
     LaunchedEffect(selectedAccountId) {
         recoveryGrace = true
-        kotlinx.coroutines.delay(2_500)
+        kotlinx.coroutines.delay(8_000)
         recoveryGrace = false
     }
     // Route carries the source account; never fall back to legacy on missing ID.

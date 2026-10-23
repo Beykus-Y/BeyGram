@@ -1160,7 +1160,6 @@ private fun accountSwitcherStatusText(row: AccountSwitcherRow): String = when (r
     AccountSwitcherStatus.READY -> stringResource(R.string.account_switcher_status_ready)
     AccountSwitcherStatus.SWITCHING -> stringResource(R.string.account_switcher_status_switching)
     AccountSwitcherStatus.CONNECTING -> stringResource(R.string.account_switcher_status_connecting)
-    AccountSwitcherStatus.RESTORING -> stringResource(R.string.account_switcher_status_restoring)
     AccountSwitcherStatus.OFFLINE -> stringResource(R.string.account_switcher_status_offline)
     AccountSwitcherStatus.ROUTE_PAUSED -> stringResource(R.string.account_switcher_status_route_paused)
     AccountSwitcherStatus.AWAITING_PHONE -> stringResource(R.string.account_switcher_status_phone)

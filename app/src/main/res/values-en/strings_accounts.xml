@@ -16,7 +16,6 @@
     <string name="account_switcher_status_ready">Connected</string>
     <string name="account_switcher_status_switching">Working…</string>
     <string name="account_switcher_status_connecting">Connecting…</string>
-    <string name="account_switcher_status_restoring">Restoring session…</string>
     <string name="account_switcher_status_offline">No network</string>
     <string name="account_switcher_status_route_paused">Connection route unavailable</string>
     <string name="account_switcher_status_phone">Waiting for phone number</string>

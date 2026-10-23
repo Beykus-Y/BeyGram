@@ -59,7 +59,7 @@ from the selected row or a checkbox:
 | State | Meaning | Primary action |
 | --- | --- | --- |
 | CURRENT / READY | Authorized and usable | tap row to switch |
-| CONNECTING / RESTORING | Session is starting or being restored | wait, retry on timeout |
+| CONNECTING | Session is starting or attaching | wait, retry on timeout |
 | OFFLINE | authorized, network currently unavailable | switch; offline UI |
 | ROUTE_PAUSED | route policy no longer permits traffic | connection settings |
 | AWAITING_PHONE/CODE/PASSWORD | sign-in in progress | continue sign-in |

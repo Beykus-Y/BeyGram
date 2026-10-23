@@ -40,7 +40,6 @@ internal enum class AccountSwitcherStatus {
     READY,
     SWITCHING,
     CONNECTING,
-    RESTORING,
     OFFLINE,
     ROUTE_PAUSED,
     AWAITING_PHONE,
@@ -223,9 +222,8 @@ internal fun accountSwitcherRows(input: AccountSwitcherInput): List<AccountSwitc
                 AccountSwitcherStatus.CURRENT,
                 AccountSwitcherStatus.READY,
                 AccountSwitcherStatus.OFFLINE,
-                AccountSwitcherStatus.DISCONNECTED,
-                AccountSwitcherStatus.RESTORING -> true
-                AccountSwitcherStatus.ERROR -> account.authorized
+                AccountSwitcherStatus.DISCONNECTED -> true
+                AccountSwitcherStatus.ERROR -> account.authorized && !account.networkSuspended
                 else -> false
             },
             canSignIn = !busy && when (status) {
@@ -282,8 +280,7 @@ private fun secondaryStatus(
         account.connectedInThisProcess && phase == TdAccountAuthPhase.OTHER ->
             AccountSwitcherStatus.UNSUPPORTED
         account.connectedInThisProcess -> AccountSwitcherStatus.CONNECTING
-        account.authorized && account.manualStop -> AccountSwitcherStatus.DISCONNECTED
-        account.authorized -> AccountSwitcherStatus.RESTORING
+        account.authorized -> AccountSwitcherStatus.DISCONNECTED
         else -> AccountSwitcherStatus.UNSIGNED
     }
 }

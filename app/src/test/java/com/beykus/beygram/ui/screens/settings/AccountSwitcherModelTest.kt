@@ -75,9 +75,9 @@ class AccountSwitcherModelTest {
         assertFalse(account.canDelete)
     }
 
-    @Test fun restoreInProgressHasExplicitIntermediateStatus() {
+    @Test fun authorizedButNotRunningIsShownAsAStoppedSession() {
         val account = accountSwitcherRows(input(row(connected = false)))[1]
-        assertEquals(AccountSwitcherStatus.RESTORING, account.status)
+        assertEquals(AccountSwitcherStatus.DISCONNECTED, account.status)
         assertTrue(account.canSelect)
     }
 

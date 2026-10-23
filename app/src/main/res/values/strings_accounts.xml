@@ -16,7 +16,6 @@
     <string name="account_switcher_status_ready">Подключён</string>
     <string name="account_switcher_status_switching">Выполняется…</string>
     <string name="account_switcher_status_connecting">Подключается…</string>
-    <string name="account_switcher_status_restoring">Восстанавливаем сессию…</string>
     <string name="account_switcher_status_offline">Нет сети</string>
     <string name="account_switcher_status_route_paused">Маршрут недоступен</string>
     <string name="account_switcher_status_phone">Ожидает номер телефона</string>
