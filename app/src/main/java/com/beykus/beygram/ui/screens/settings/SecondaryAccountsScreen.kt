@@ -59,7 +59,8 @@ import kotlinx.coroutines.withContext
 internal fun SecondaryAccountsScreen(
     controller: TdSecondaryAccountController,
     onBack: () -> Unit,
-    onOpenChats: (String) -> Unit
+    onOpenChats: (String) -> Unit,
+    onAccountDeleted: (String) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val coordinator = controller.coordinator
@@ -72,6 +73,7 @@ internal fun SecondaryAccountsScreen(
     var password by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf(false) }
+    var confirmLogoutAccountId by remember { mutableStateOf<String?>(null) }
 
     fun runAction(action: suspend () -> Unit) {
         if (working) return
@@ -266,7 +268,46 @@ internal fun SecondaryAccountsScreen(
                     onClick = { runAction { coordinator.disconnect(selected.accountId) } },
                     enabled = !working, modifier = Modifier.fillMaxWidth()
                 ) { Text(stringResource(R.string.secondary_accounts_disconnect)) }
+                androidx.compose.material3.TextButton(
+                    onClick = { confirmLogoutAccountId = selected.accountId },
+                    enabled = !working,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Выйти из Telegram и удалить аккаунт") }
             }
+        }
+        if (selected != null && selected.phase == TdAccountAuthPhase.READY) {
+            // Disconnect is not Logout. Users must confirm authorization removal.
+            androidx.compose.material3.TextButton(
+                onClick = { confirmLogoutAccountId = selected.accountId },
+                enabled = !working,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Удалить авторизацию и данные аккаунта") }
+        }
+        val deleting = confirmLogoutAccountId
+        if (deleting != null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { if (!working) confirmLogoutAccountId = null },
+                title = { Text("Выйти из аккаунта Telegram?") },
+                text = { Text("Авторизация этого аккаунта будет завершена. Его локальная база, файлы и уведомления будут удалены. Другие аккаунты останутся без изменений.") },
+                confirmButton = {
+                    TextButton(
+                        enabled = !working,
+                        onClick = {
+                            confirmLogoutAccountId = null
+                            runAction {
+                                controller.logoutAndDelete(deleting)
+                                withContext(Dispatchers.Main) {
+                                    selectedId = null
+                                    onAccountDeleted(deleting)
+                                }
+                            }
+                        }
+                    ) { Text("Выйти и удалить") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmLogoutAccountId = null }, enabled = !working) { Text("Отмена") }
+                }
+            )
         }
         if (error) Text(stringResource(R.string.secondary_accounts_action_error),
             color = palette.danger, modifier = Modifier.padding(top = 12.dp))
