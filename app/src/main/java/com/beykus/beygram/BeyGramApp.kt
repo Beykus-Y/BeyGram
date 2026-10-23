@@ -100,6 +100,7 @@ import com.beykus.beygram.data.presence.LastSeenSettingsStore
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectTab
 import com.beykus.beygram.ui.screens.proxy.ProxyListScreen
+import com.beykus.beygram.ui.screens.proxy.SecondaryProxySettingsScreen
 import com.beykus.beygram.ui.screens.proxy.ProxyRestoreDialog
 import com.beykus.beygram.ui.screens.notifications.NotificationPermissionCoordinator
 import com.beykus.beygram.share.IncomingShare
@@ -1280,24 +1281,36 @@ private fun BeyGramAppContent(
                     onBack = { routeName = AppRoute.Settings.name }
                 )
                 AppRoute.LastSeenSettings -> LastSeenSettingsScreen(lastSeenStyle, onStyleChange = lastSeenSettings::setStyle, onBack = { routeName = AppRoute.Settings.name })
-                AppRoute.Proxy -> ProxyListScreen(
-                    // Shared Mihomo/VpnBackend controls are process-level and
-                    // wired to legacy. Never mutate only the secondary proxy
-                    // while simultaneously stopping the shared listener.
-                    repository = legacyRepository,
-                    vpnBackend = vpnBackend,
-                    onBack = { routeName = proxyReturnRouteName },
-                    onAddProxy = { openProxyConnect(ProxyConnectTab.MTPROTO) },
-                    onSubscriptionServers = { openProxyConnect(ProxyConnectTab.SUBSCRIPTION) }
+                AppRoute.Proxy -> if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                    ProxyListScreen(
+                        repository = legacyRepository,
+                        vpnBackend = vpnBackend,
+                        onBack = { routeName = proxyReturnRouteName },
+                        onAddProxy = { openProxyConnect(ProxyConnectTab.MTPROTO) },
+                        onSubscriptionServers = { openProxyConnect(ProxyConnectTab.SUBSCRIPTION) }
+                    )
+                else SecondaryProxySettingsScreen(
+                    accountId = selectedAccountId,
+                    repository = repository,
+                    controller = secondaryAccountController,
+                    onManage = {
+                        accountManagerReturnRouteName = AppRoute.Proxy.name
+                        routeName = AppRoute.SecondaryAccounts.name
+                    },
+                    onBack = { routeName = proxyReturnRouteName }
                 )
 
-                AppRoute.ProxyConnect -> ProxyConnectScreen(
-                    repository = legacyRepository,
-                    vpnBackend = vpnBackend,
-                    connectionState = legacyRepository.connectionState.collectAsStateWithLifecycle().value,
-                    initialTab = ProxyConnectTab.valueOf(proxyConnectTabName),
-                    onBack = { routeName = AppRoute.Proxy.name }
-                )
+                AppRoute.ProxyConnect -> if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                    ProxyConnectScreen(
+                        repository = legacyRepository,
+                        vpnBackend = vpnBackend,
+                        connectionState = legacyRepository.connectionState.collectAsStateWithLifecycle().value,
+                        initialTab = ProxyConnectTab.valueOf(proxyConnectTabName),
+                        onBack = { routeName = AppRoute.Proxy.name }
+                    )
+                else LaunchedEffect(selectedAccountId) {
+                    routeName = AppRoute.Proxy.name
+                }
             }
             }
         }
