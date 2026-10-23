@@ -141,6 +141,29 @@ internal class TdSecondaryNativeLogin internal constructor(
         }
     }
 
+    /**
+     * TDLib requires explicit OpenChat/CloseChat for complete live updates
+     * in channels and supergroups. The UI owns pairing across navigation.
+     */
+    suspend fun openSecondaryHistory(chat: TdAccountChatKey) {
+        require(chat.accountId == accountId && chat.chatId != 0L) { "Foreign or invalid chat key" }
+        check(authPhase.value == TdAccountAuthPhase.READY) { "Secondary account is not authorized" }
+        val opened = request(TdApi.OpenChat(chat.chatId))
+        if (opened is TdApi.Error) throw IllegalStateException(
+            "Unable to open secondary chat (code ${opened.code})"
+        )
+        loadSecondaryHistory(chat)
+    }
+
+    suspend fun closeSecondaryHistory(chat: TdAccountChatKey) {
+        require(chat.accountId == accountId) { "Foreign account chat close blocked" }
+        if (authPhase.value == TdAccountAuthPhase.CLOSED) return
+        val result = request(TdApi.CloseChat(chat.chatId))
+        if (result is TdApi.Error) throw IllegalStateException(
+            "Unable to close secondary chat (code ${result.code})"
+        )
+    }
+
     suspend fun loadSecondaryHistory(chat: TdAccountChatKey) {
         require(chat.accountId == accountId) { "Foreign account chat access blocked" }
         check(authPhase.value == TdAccountAuthPhase.READY) { "Secondary account is not authorized" }
