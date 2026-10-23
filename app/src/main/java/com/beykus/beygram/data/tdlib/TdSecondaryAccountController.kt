@@ -135,6 +135,32 @@ internal class TdSecondaryAccountController private constructor(
         }
     }
 
+    /** Run only after explicit user confirmation. TDLib owns deletion of its
+     * authorization; account-root files are removed only after CLOSED and
+     * the registry no longer references this ID. Symlinks are never followed. */
+    suspend fun logoutAndDelete(accountId: String) {
+        coordinator.logoutSecondary(accountId)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val root = java.io.File(app.filesDir, "tdlib-accounts/$accountId")
+            val canonicalBase = java.io.File(app.filesDir.canonicalFile, "tdlib-accounts")
+            require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+                accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")) &&
+                root.canonicalFile.parentFile == canonicalBase &&
+                root.canonicalFile.name == accountId &&
+                !java.nio.file.Files.isSymbolicLink(root.toPath()))
+            if (root.exists()) java.nio.file.Files.walkFileTree(root.toPath(),
+                object : java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+                    override fun visitFile(file: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes) =
+                        java.nio.file.Files.delete(file).let { java.nio.file.FileVisitResult.CONTINUE }
+                    override fun postVisitDirectory(dir: java.nio.file.Path, error: java.io.IOException?): java.nio.file.FileVisitResult {
+                        if (error != null) throw error
+                        java.nio.file.Files.delete(dir)
+                        return java.nio.file.FileVisitResult.CONTINUE
+                    }
+                })
+        }
+    }
+
     /** Also called when entering the account screen; serializes all route probes. */
     suspend fun checkRoutesNow() = reconcileMutex.withLock {
         coordinator.reconcileRoutes { preference ->
