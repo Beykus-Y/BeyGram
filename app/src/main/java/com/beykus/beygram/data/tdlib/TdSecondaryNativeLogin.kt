@@ -69,9 +69,13 @@ internal class TdSecondaryNativeLoginLauncher(
         }
 
         val phases = MutableStateFlow(TdAccountAuthPhase.STARTING)
+        val chatStore = TdSecondaryChatStore(accountId)
         val waitParameters = CompletableDeferred<Unit>()
         val bound = owner.create(accountId,
             onUpdate = { event ->
+                // Never dispatch secondary updates through the legacy chat
+                // repository, global notification feed or shared media cache.
+                chatStore.receive(event)
                 if (event.update is TdApi.UpdateAuthorizationState) {
                     when (event.update.authorizationState) {
                         is TdApi.AuthorizationStateWaitTdlibParameters -> {
@@ -85,6 +89,7 @@ internal class TdSecondaryNativeLoginLauncher(
                         is TdApi.AuthorizationStateLoggingOut -> phases.value = TdAccountAuthPhase.LOGGING_OUT
                         is TdApi.AuthorizationStateClosed -> {
                             phases.value = TdAccountAuthPhase.CLOSED
+                            chatStore.clear()
                             waitParameters.cancel()
                         }
                         else -> phases.value = TdAccountAuthPhase.OTHER
@@ -93,7 +98,7 @@ internal class TdSecondaryNativeLoginLauncher(
             },
             clientFactory = { config, handler ->
                 val client = createNativeClient(handler)
-                TdSecondaryNativeLogin(accountId, config, client, phases, planned)
+                TdSecondaryNativeLogin(accountId, config, client, phases, planned, chatStore)
             }
         )
         try {
@@ -122,9 +127,34 @@ internal class TdSecondaryNativeLogin internal constructor(
     internal val config: TdLibConfig,
     private val client: Client,
     private val mutablePhase: MutableStateFlow<TdAccountAuthPhase>,
-    internal val plannedRoute: TdSecondaryRouteDecision
+    internal val plannedRoute: TdSecondaryRouteDecision,
+    val chatStore: TdSecondaryChatStore
 ) {
     val authPhase: StateFlow<TdAccountAuthPhase> = mutablePhase.asStateFlow()
+
+    /** No legacy chat/cache reuse. These methods are only for this native client. */
+    suspend fun loadSecondaryChats() {
+        check(authPhase.value == TdAccountAuthPhase.READY) { "Secondary account is not authorized" }
+        val response = request(TdApi.LoadChats(TdApi.ChatListMain(), 100))
+        if (response is TdApi.Error && response.code != 404) {
+            throw IllegalStateException("Unable to load secondary chat list (code ${response.code})")
+        }
+    }
+
+    suspend fun loadSecondaryHistory(chat: TdAccountChatKey) {
+        require(chat.accountId == accountId) { "Foreign account chat access blocked" }
+        check(authPhase.value == TdAccountAuthPhase.READY) { "Secondary account is not authorized" }
+        val response = request(TdApi.GetChatHistory(chat.chatId, 0L, 0, 50, false))
+        when (response) {
+            is TdApi.Messages -> chatStore.replaceHistory(
+                chat, chatStore.convertHistory(chat, response.messages.orEmpty())
+            )
+            is TdApi.Error -> throw IllegalStateException(
+                "Unable to load secondary history (code ${response.code})"
+            )
+            else -> error("Unexpected secondary history result")
+        }
+    }
     private val routeMutex = Mutex()
     private val _routePaused = MutableStateFlow(false)
     val routePaused: StateFlow<Boolean> = _routePaused.asStateFlow()
