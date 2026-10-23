@@ -115,7 +115,7 @@ internal fun SecondaryProxySettingsScreen(
                     scope.launch {
                         try {
                             withContext(Dispatchers.IO) {
-                                controller.coordinator.reconnectWithRoute(accountId, preference)
+                                controller.reconnectWithRoute(accountId, preference)
                             }
                         } catch (_: Exception) {
                             changeFailed = true
