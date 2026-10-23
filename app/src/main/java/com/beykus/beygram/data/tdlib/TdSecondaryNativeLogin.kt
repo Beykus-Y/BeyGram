@@ -157,11 +157,15 @@ internal class TdSecondaryNativeLogin internal constructor(
 
     suspend fun closeSecondaryHistory(chat: TdAccountChatKey) {
         require(chat.accountId == accountId) { "Foreign account chat close blocked" }
-        if (authPhase.value == TdAccountAuthPhase.CLOSED) return
-        val result = request(TdApi.CloseChat(chat.chatId))
-        if (result is TdApi.Error) throw IllegalStateException(
-            "Unable to close secondary chat (code ${result.code})"
-        )
+        try {
+            if (authPhase.value == TdAccountAuthPhase.CLOSED) return
+            val result = request(TdApi.CloseChat(chat.chatId))
+            if (result is TdApi.Error) throw IllegalStateException(
+                "Unable to close secondary chat (code ${result.code})"
+            )
+        } finally {
+            chatStore.discardHistory(chat)
+        }
     }
 
     suspend fun loadSecondaryHistory(chat: TdAccountChatKey) {
