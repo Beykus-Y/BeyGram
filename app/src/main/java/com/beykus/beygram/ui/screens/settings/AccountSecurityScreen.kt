@@ -86,6 +86,7 @@ fun AccountSecurityScreen(
     repository: AccountSecurityRepository,
     currentPhone: String,
     isPrimaryAccount: Boolean,
+    deletionRunning: Boolean,
     requestAccountDeletion: (password: String, onResult: (Result<Unit>) -> Unit) -> Unit,
     onBack: () -> Unit
 ) {    val palette = beyGramPalette()
@@ -100,8 +101,11 @@ fun AccountSecurityScreen(
     var dialog by remember(accountId) { mutableStateOf<AccountSecurityDialog?>(null) }
     var refresh by remember(accountId) { mutableIntStateOf(0) }
     var deletedOnServer by remember(accountId) { mutableStateOf(false) }
+    // The app may still be deleting after this Activity is recreated. Never offer a
+    // second destructive request or allow leaving while that process-owned job runs.
+    val effectiveBusy = busy || deletionRunning
 
-    BackHandler { if (!busy) onBack() }
+    BackHandler { if (!effectiveBusy) onBack() }
 
     LaunchedEffect(accountId, repository, refresh) {
         loading = true
@@ -126,7 +130,7 @@ fun AccountSecurityScreen(
     }
 
     fun closeDialog() {
-        if (!busy) {
+        if (!effectiveBusy) {
             dialog = null
             actionError = null
         }
@@ -150,7 +154,7 @@ fun AccountSecurityScreen(
         successText: String?,
         action: suspend () -> Result<CloudPasswordState>
     ) {
-        if (busy) return
+        if (effectiveBusy) return
         busy = true
         actionError = null
         notice = null
@@ -185,7 +189,7 @@ fun AccountSecurityScreen(
     }
 
     fun submitRecoveryEmail(currentPassword: String, email: String, remove: Boolean) {
-        if (busy) return
+        if (effectiveBusy) return
         busy = true
         actionError = null
         notice = null
@@ -250,7 +254,7 @@ fun AccountSecurityScreen(
     }
 
     fun deleteAccount(password: String) {
-        if (busy) return
+        if (effectiveBusy) return
         busy = true
         actionError = null
         notice = null
@@ -278,9 +282,9 @@ fun AccountSecurityScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
     ) {
         ProfileToolbar(stringResource(R.string.account_security_title), onBack = {
-            if (!busy) onBack()
+            if (!effectiveBusy) onBack()
         })
-        if (loading || busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+        if (loading || effectiveBusy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
@@ -338,12 +342,22 @@ fun AccountSecurityScreen(
                         )
                     }
                 }
+            } else if (deletionRunning) {
+                item {
+                    Surface(shape = RoundedCornerShape(16.dp), color = palette.warningSurface) {
+                        Text(
+                            stringResource(R.string.account_security_delete_busy),
+                            color = palette.warningText,
+                            modifier = Modifier.fillMaxWidth().padding(16.dp)
+                        )
+                    }
+                }
             }
             state?.let { passwordState ->
                 item {
                     PasswordCard(
                         state = passwordState,
-                        busy = busy,
+                        busy = effectiveBusy,
                         onSet = { dialog = AccountSecurityDialog.SetPassword; actionError = null },
                         onChange = { dialog = AccountSecurityDialog.ChangePassword; actionError = null },
                         onDisable = { dialog = AccountSecurityDialog.DisablePassword; actionError = null }
@@ -353,7 +367,7 @@ fun AccountSecurityScreen(
                     item {
                         PendingRecoveryEmailCard(
                             pattern = pattern,
-                            busy = busy,
+                            busy = effectiveBusy,
                             onConfirm = { confirmRecoveryEmailCode(it) },
                             onResend = { resendRecoveryEmailCode() },
                             onCancel = { cancelRecoveryEmailChange() }
@@ -363,7 +377,7 @@ fun AccountSecurityScreen(
                 item {
                     RecoveryEmailCard(
                         state = passwordState,
-                        busy = busy,
+                        busy = effectiveBusy,
                         onAdd = { dialog = AccountSecurityDialog.AddRecoveryEmail; actionError = null },
                         onChange = { dialog = AccountSecurityDialog.ChangeRecoveryEmail; actionError = null },
                         onRemove = { dialog = AccountSecurityDialog.RemoveRecoveryEmail; actionError = null }
@@ -375,7 +389,7 @@ fun AccountSecurityScreen(
                 DeleteAccountCard(
                     deletedOnServer = deletedOnServer,
                     isPrimaryAccount = isPrimaryAccount,
-                    busy = busy,
+                    busy = effectiveBusy,
                     onDelete = { dialog = AccountSecurityDialog.DeleteAccount; actionError = null }
                 )
             }
@@ -386,7 +400,7 @@ fun AccountSecurityScreen(
         AccountSecurityDialog.SetPassword -> PasswordDialog(
             hasPassword = false,
             disable = false,
-            busy = busy,
+            busy = effectiveBusy,
             error = actionError,
             onDismiss = { closeDialog() },
             onConfirm = { current, newPassword, hint ->
@@ -396,7 +410,7 @@ fun AccountSecurityScreen(
         AccountSecurityDialog.ChangePassword -> PasswordDialog(
             hasPassword = true,
             disable = false,
-            busy = busy,
+            busy = effectiveBusy,
             error = actionError,
             onDismiss = { closeDialog() },
             onConfirm = { current, newPassword, hint ->
@@ -406,7 +420,7 @@ fun AccountSecurityScreen(
         AccountSecurityDialog.DisablePassword -> PasswordDialog(
             hasPassword = true,
             disable = true,
-            busy = busy,
+            busy = effectiveBusy,
             error = actionError,
             onDismiss = { closeDialog() },
             onConfirm = { current, _, _ ->
@@ -416,7 +430,7 @@ fun AccountSecurityScreen(
         AccountSecurityDialog.AddRecoveryEmail -> RecoveryEmailDialog(
             hasRecoveryEmailAddress = false,
             remove = false,
-            busy = busy,
+            busy = effectiveBusy,
             error = actionError,
             onDismiss = { closeDialog() },
             onConfirm = { password, email -> submitRecoveryEmail(password, email, remove = false) }
@@ -424,7 +438,7 @@ fun AccountSecurityScreen(
         AccountSecurityDialog.ChangeRecoveryEmail -> RecoveryEmailDialog(
             hasRecoveryEmailAddress = true,
             remove = false,
-            busy = busy,
+            busy = effectiveBusy,
             error = actionError,
             onDismiss = { closeDialog() },
             onConfirm = { password, email -> submitRecoveryEmail(password, email, remove = false) }
@@ -432,7 +446,7 @@ fun AccountSecurityScreen(
         AccountSecurityDialog.RemoveRecoveryEmail -> RecoveryEmailDialog(
             hasRecoveryEmailAddress = true,
             remove = true,
-            busy = busy,
+            busy = effectiveBusy,
             error = actionError,
             onDismiss = { closeDialog() },
             onConfirm = { password, _ -> submitRecoveryEmail(password, "", remove = true) }
@@ -440,7 +454,7 @@ fun AccountSecurityScreen(
         AccountSecurityDialog.DeleteAccount -> DeleteAccountDialog(
             hasPassword = state?.hasPassword == true,
             isPrimaryAccount = isPrimaryAccount,
-            busy = busy,
+            busy = effectiveBusy,
             error = actionError,
             onDismiss = { closeDialog() },
             onConfirm = { deleteAccount(it) }
