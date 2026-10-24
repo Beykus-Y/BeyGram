@@ -59,6 +59,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -71,6 +74,7 @@ import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.mergeThreadMessages
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.StateFlow
@@ -118,6 +122,8 @@ internal fun MessageThreadScreen(
     var reactionTarget by remember { mutableStateOf<Pair<Long, ChatMessage>?>(null) }
     var reactionOptions by remember { mutableStateOf<List<ReactionOption>>(emptyList()) }
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
+    var selectedMediaChatId by remember { mutableStateOf(0L) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     BackHandler(onBack = onBack)
 
@@ -166,14 +172,17 @@ internal fun MessageThreadScreen(
                     }
                 }
                 // Read receipts go through the existing privacy-aware gateway and only for genuinely visible rows.
-                snapshotFlow { listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Long } }
-                    .distinctUntilChanged()
-                    .collect { visibleIds ->
-                        val sent = visibleIds.filter { id ->
-                            messages.any { it.id == id && it.sendState == MessageSendState.Sent }
+                // Restarting on RESUMED re-reports the same viewport after the app returns from background.
+                lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    snapshotFlow { listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Long } }
+                        .distinctUntilChanged()
+                        .collect { visibleIds ->
+                            val sent = visibleIds.filter { id ->
+                                messages.any { it.id == id && it.sendState == MessageSendState.Sent }
+                            }
+                            if (sent.isNotEmpty()) conversation.messagesVisible(chatId, sent)
                         }
-                        if (sent.isNotEmpty()) conversation.messagesVisible(chatId, sent)
-                    }
+                }
             }
         } finally {
             conversation.closeChat(chatId)
@@ -310,7 +319,7 @@ internal fun MessageThreadScreen(
                     message = root,
                     observeFile = observeFile,
                     onDownloadFile = downloadFile,
-                    onOpen = { selectedMediaId = root.id },
+                    onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId },
                     onActions = { reactionTarget = channelChatId to root },
                     onReplyClick = ::jump,
                     onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
@@ -349,7 +358,7 @@ internal fun MessageThreadScreen(
                         observeFile = observeFile,
                         onDownloadFile = downloadFile,
                         onOpenProfile = onOpenProfile,
-                        onOpenMedia = { selectedMediaId = message.id },
+                        onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId },
                         onActions = { reactionTarget = message.chatId to message },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {
@@ -406,6 +415,7 @@ internal fun MessageThreadScreen(
             }
         }
         val currentThread = thread
+        NowPlayingBar(bottomInset = currentThread?.canReply != true)
         if (currentThread != null) {
             if (currentThread.canReply) {
                 Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
@@ -465,7 +475,11 @@ internal fun MessageThreadScreen(
         }
     }
 
-    val mediaMessages = (messages + listOfNotNull(post)).filter { it.media != null }
+    // Message ids are chat-scoped: keep the owning chat so a post and a comment with the same id never collide.
+    val mediaMessages = when (selectedMediaChatId) {
+        channelChatId -> listOfNotNull(post)
+        else -> messages.filter { it.chatId == selectedMediaChatId }
+    }.filter { it.media != null }
     val viewed = mediaMessages.firstOrNull { it.id == selectedMediaId }
     var viewerCanSave by remember(selectedMediaId) { mutableStateOf(false) }
     LaunchedEffect(selectedMediaId, viewed?.chatId) {
@@ -481,7 +495,7 @@ internal fun MessageThreadScreen(
             observeFile = observeFile,
             downloadFile = downloadFile,
             onViewed = { id -> conversation.openMessageContent(viewed.chatId, id) },
-            onClose = { selectedMediaId = null },
+            onClose = { selectedMediaId = null; selectedMediaChatId = 0L },
             title = viewed.senderName.ifBlank { channelTitle },
             subtitle = viewed.time,
             canExport = viewerCanSave,
