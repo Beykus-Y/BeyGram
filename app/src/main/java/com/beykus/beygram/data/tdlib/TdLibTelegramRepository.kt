@@ -1690,7 +1690,8 @@ class TdLibTelegramRepository private constructor(
             if (autoDownloads.remove(request.fileId) == null) return@forEach
             cancelledAutoDownloads += request.fileId
             mediaFiles.cancel(request.fileId)
-            client.send(TdApi.CancelDownloadFile(request.fileId, /* onlyIfPending = */ true), Client.ResultHandler { })
+            // The transfer may already be active: onlyIfPending=true would leave it consuming data.
+            client.send(TdApi.CancelDownloadFile(request.fileId, /* onlyIfPending = */ false), Client.ResultHandler { })
         }
     }
 

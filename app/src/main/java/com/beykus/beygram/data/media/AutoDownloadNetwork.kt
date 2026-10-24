@@ -7,6 +7,11 @@ import android.net.NetworkCapabilities
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /** Pure transport classification; Android capabilities are read only by [currentAutoDownloadNetwork]. */
@@ -15,9 +20,11 @@ internal fun classifyAutoDownloadNetwork(
     wifi: Boolean,
     mobile: Boolean,
     vpn: Boolean,
-    roaming: Boolean
+    roaming: Boolean,
+    wifiMetered: Boolean = false
 ): AutoDownloadNetwork = when {
     !hasInternet -> AutoDownloadNetwork.None
+    wifi && wifiMetered -> AutoDownloadNetwork.WifiMetered
     wifi -> AutoDownloadNetwork.Wifi
     mobile && roaming -> AutoDownloadNetwork.Roaming
     mobile -> AutoDownloadNetwork.Mobile
@@ -54,6 +61,7 @@ internal fun currentAutoDownloadNetwork(context: Context): AutoDownloadNetwork {
     }
     val wifi = transport?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
     val mobile = transport?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+    val wifiMetered = wifi && transport?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
     @Suppress("DEPRECATION")
     val roaming = mobile && transport?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING) == false
     return classifyAutoDownloadNetwork(
@@ -61,7 +69,8 @@ internal fun currentAutoDownloadNetwork(context: Context): AutoDownloadNetwork {
         wifi = wifi,
         mobile = mobile,
         vpn = activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
-        roaming = roaming
+        roaming = roaming,
+        wifiMetered = wifiMetered
     )
 }
 
@@ -109,6 +118,24 @@ internal class AutoDownloadNetworkMonitor(
         last = next
         route = next
         scope.launch { onChanged(next) }
+    }
+}
+
+/** Process-wide route signal used by visible media to retry an automatic download after reconnecting. */
+internal object AutoDownloadNetworkStatus {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val _network = MutableStateFlow(AutoDownloadNetwork.None)
+    val network: StateFlow<AutoDownloadNetwork> = _network.asStateFlow()
+    private val lock = Any()
+    private var monitor: AutoDownloadNetworkMonitor? = null
+
+    fun ensureStarted(context: Context) {
+        synchronized(lock) {
+            if (monitor != null) return
+            val created = AutoDownloadNetworkMonitor(context.applicationContext, scope) { _network.value = it }
+            monitor = created
+            created.start()
+        }
     }
 }
 

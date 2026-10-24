@@ -10,6 +10,8 @@ import com.beykus.beygram.domain.model.MediaKind
  */
 enum class AutoDownloadNetwork(val metered: Boolean) {
     Wifi(false),
+    /** Wi-Fi that Android reports as metered (hotspot, tethering); it follows the Wi-Fi rule but data saver applies. */
+    WifiMetered(true),
     Mobile(true),
     Roaming(true),
     Other(true),
@@ -66,7 +68,7 @@ data class AutoDownloadSettings(
     val dataSaver: Boolean = false
 ) {
     fun policyFor(network: AutoDownloadNetwork): AutoDownloadNetworkPolicy = when (network) {
-        AutoDownloadNetwork.Wifi -> wifi
+        AutoDownloadNetwork.Wifi, AutoDownloadNetwork.WifiMetered -> wifi
         AutoDownloadNetwork.Mobile, AutoDownloadNetwork.Other -> mobile
         AutoDownloadNetwork.Roaming -> roaming
         AutoDownloadNetwork.None -> AutoDownloadNetworkPolicy()
@@ -77,7 +79,7 @@ data class AutoDownloadSettings(
         if (dataSaver && network.metered) AutoDownloadNetworkPolicy() else policyFor(network)
 
     fun withPolicy(network: AutoDownloadNetwork, policy: AutoDownloadNetworkPolicy): AutoDownloadSettings = when (network) {
-        AutoDownloadNetwork.Wifi -> copy(wifi = policy)
+        AutoDownloadNetwork.Wifi, AutoDownloadNetwork.WifiMetered -> copy(wifi = policy)
         AutoDownloadNetwork.Mobile -> copy(mobile = policy)
         AutoDownloadNetwork.Roaming -> copy(roaming = policy)
         AutoDownloadNetwork.Other, AutoDownloadNetwork.None -> this

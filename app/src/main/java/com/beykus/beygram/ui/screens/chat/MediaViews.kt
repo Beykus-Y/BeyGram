@@ -98,9 +98,11 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.beykus.beygram.R
 import com.beykus.beygram.BeyGramApplication
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.media.AutoDownloadRuntime
 import com.beykus.beygram.data.media.Mp4StreamingProbe
 import com.beykus.beygram.data.media.Mp4StreamingReason
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -274,6 +276,11 @@ internal fun MediaPreview(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
     val autoDownload: (AutoDownloadRequest) -> Unit = autoDownloadFile ?: remember(context, downloadFile, accountId) {
         { request: AutoDownloadRequest ->
             AutoDownloadRuntime.request(context, request, downloadFile, accountId)
@@ -283,7 +290,7 @@ internal fun MediaPreview(
     val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
     // Секретное вложение в ленте не грузим и не показываем до открытия: превью иначе видно раньше просмотрщика.
     val imageFile = if (media.isSecret) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
-    LaunchedEffect(thumbId, revealed, thumb.size, file.size, media.isSecret, media.isSecretChat, media.hasSpoiler) {
+    LaunchedEffect(thumbId, revealed, thumb.size, file.size, media.isSecret, media.isSecretChat, media.hasSpoiler, policySettings, policyNetwork) {
         if (media.isSecret || media.isSecretChat) return@LaunchedEffect
         fun request(id: Int, kind: MediaKind, size: Long) = autoDownload(
             AutoDownloadRequest(
@@ -661,6 +668,12 @@ private fun MediaViewerPage(
 ) {
     val media = item.media
     val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val tgs = media.mimeType == "application/x-tgsticker"
     val previewId = media.thumbnailFileId
@@ -677,7 +690,7 @@ private fun MediaViewerPage(
     LaunchedEffect(media.fileId, file.localPath, active, spoilerHidden) {
         if (active && !spoilerHidden && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
     }
-    LaunchedEffect(media.fileId, concealed, active, fullFileOnlyWhenActive, thumb.size, file.size, media.isSecret, media.isSecretChat, media.hasSpoiler) {
+    LaunchedEffect(media.fileId, concealed, active, fullFileOnlyWhenActive, thumb.size, file.size, media.isSecret, media.isSecretChat, media.hasSpoiler, policySettings, policyNetwork) {
         if (concealed) return@LaunchedEffect
         fun request(id: Int, kind: MediaKind, size: Long) = autoDownloadFile(
             AutoDownloadRequest(
@@ -700,7 +713,8 @@ private fun MediaViewerPage(
     // position and codecs. If the index is at the end or the container is not proven streamable,
     // we keep the complete-file fallback and show the thumbnail/progress instead.
     val partialPath = file.downloadPath
-    var progressiveUnlocked by remember(media.fileId, partialPath) { mutableStateOf(false) }
+    var progressiveUnlocked by remember(media.fileId) { mutableStateOf(false) }
+    var progressivePath by remember(media.fileId) { mutableStateOf<String?>(null) }
     var progressiveRejected by remember(media.fileId, partialPath) { mutableStateOf(false) }
     LaunchedEffect(media.fileId, partialPath, file.downloadedPrefixBytes, file.localPath, progressiveRejected) {
         if (progressiveUnlocked || progressiveRejected) return@LaunchedEffect
@@ -710,7 +724,10 @@ private fun MediaViewerPage(
         }
         val reason = info?.reason
         when {
-            info?.streamable == true -> progressiveUnlocked = true
+            info?.streamable == true -> {
+                progressivePath = partialPath
+                progressiveUnlocked = true
+            }
             reason != null && reason in setOf(
                 Mp4StreamingReason.NotMp4,
                 Mp4StreamingReason.MoovAfterMediaData,
@@ -720,10 +737,11 @@ private fun MediaViewerPage(
             ) -> progressiveRejected = true
         }
     }
-    val progressive = if (progressiveUnlocked && file.localPath == null && partialPath != null) {
+    val unlockedPath = progressivePath
+    val progressive = if (progressiveUnlocked && unlockedPath != null) {
         ProgressiveVideoSource(
             fileId = media.fileId,
-            path = partialPath,
+            path = unlockedPath,
             totalSize = file.size,
             completed = { observeFile(media.fileId).value.localPath != null },
             onNeedMore = {
@@ -768,7 +786,7 @@ private fun MediaViewerPage(
                     if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
                 }
             }
-            path == null && videoLike && progressive != null -> LocalVideo(
+            videoLike && progressive != null -> LocalVideo(
                 progressive.path, loop = false, active = active,
                 onStarted = { currentOnViewed(item.messageId) }, progressive = progressive
             )
@@ -938,7 +956,9 @@ private class ProgressiveFileDataSource(
         file = opened
         position = dataSpec.position
         uri = dataSpec.uri
-        val remaining = (totalSize - position).coerceAtLeast(0L)
+        // After completion the file is authoritative; before completion TDLib's declared size is.
+        val length = if (isComplete()) opened.length() else totalSize
+        val remaining = (length - position).coerceAtLeast(0L)
         return if (dataSpec.length == C.LENGTH_UNSET.toLong()) remaining
         else minOf(remaining, dataSpec.length)
     }

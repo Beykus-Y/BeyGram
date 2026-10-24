@@ -65,6 +65,10 @@ class AutoDownloadPolicyTest {
             reason(decide(MediaKind.Photo, 100_000, AutoDownloadNetwork.Mobile, saver))
         )
         assertEquals(AutoDownloadDecision.Allowed, decide(MediaKind.Photo, 100_000, AutoDownloadNetwork.Wifi, saver))
+        assertEquals(
+            AutoDownloadDenial.DataSaver,
+            reason(decide(MediaKind.Photo, 100_000, AutoDownloadNetwork.WifiMetered, saver))
+        )
     }
 
     @Test fun secretAndSpoilerContentNeverAutoDownloads() {
