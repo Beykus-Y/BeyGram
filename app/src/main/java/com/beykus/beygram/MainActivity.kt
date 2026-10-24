@@ -192,7 +192,7 @@ class MainActivity : FragmentActivity() {
                                         notificationRequest = if (gateLocked) null else notificationRequest,
                                         onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
                                         incomingShare = if (gateLocked) null else incomingShare,
-                                        onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null; ShareSessions.release(this, it) },
+                                        onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null; ShareSessions.release(this@MainActivity, it) },
                                         pendingDeepLink = if (gateLocked) null else pendingDeepLink,
                                         onDeepLinkBound = { token, accountId ->
                                             pendingDeepLink = deepLinkInbox.bind(token, accountId) ?: pendingDeepLink
