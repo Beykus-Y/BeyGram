@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -95,7 +96,7 @@ private fun LinkPreviewPhoto(
     }
     Box(modifier.clip(RoundedCornerShape(6.dp)).background(palette.surface2), contentAlignment = Alignment.Center) {
         val path = file.localPath
-        if (path != null) LocalMediaImage(path, Modifier.fillMaxSize())
+        if (path != null) LocalMediaImage(path, Modifier.fillMaxSize(), contentDescriptionText = stringResource(R.string.media_image_description))
         else if (file.isDownloading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
     }
 }

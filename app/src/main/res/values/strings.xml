@@ -1334,4 +1334,19 @@
     <string name="multi_share_switch_action">Переключиться</string>
     <string name="multi_share_choose_other">Выбрать другой</string>
     <plurals name="multi_account_unread"><item quantity="one">%d непрочитанное сообщение</item><item quantity="few">%d непрочитанных сообщения</item><item quantity="many">%d непрочитанных сообщений</item><item quantity="other">%d непрочитанных сообщений</item></plurals>
+    <string name="a11y_chat_unread_count">Непрочитанных сообщений: %1$d</string>
+    <string name="a11y_chat_unread_marked">Отмечен непрочитанным</string>
+    <string name="a11y_chat_muted">Без уведомлений</string>
+    <string name="a11y_chat_info">Информация о чате</string>
+    <string name="a11y_profile_photo_open">Открыть фотографию профиля</string>
+    <string name="a11y_media_open">Открыть: %1$s</string>
+    <string name="a11y_media_download">Скачать: %1$s</string>
+    <string name="a11y_voice_message">Голосовое сообщение, %1$s</string>
+    <string name="a11y_video_note_message">Видеосообщение, %1$s</string>
+    <string name="a11y_video_note_preview">Предпросмотр видеосообщения</string>
+    <string name="a11y_state_playing">Воспроизводится</string>
+    <string name="a11y_state_paused">Пауза</string>
+    <string name="a11y_state_loading">Загрузка</string>
+    <string name="a11y_message_actions">Действия с сообщением</string>
+    <string name="a11y_open_attachment">Открыть вложение</string>
 </resources>

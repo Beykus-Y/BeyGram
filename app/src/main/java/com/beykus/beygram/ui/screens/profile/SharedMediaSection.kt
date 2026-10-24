@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -38,6 +39,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +64,7 @@ import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
@@ -220,7 +223,7 @@ private fun SharedMediaTabBar(titles: List<String>, counts: List<String?>, selec
             Column(
                 Modifier.widthIn(min = 84.dp).height(52.dp).clip(RoundedCornerShape(16.dp))
                     .background(if (isSelected) palette.accentSoft else palette.surface2)
-                    .clickable { onSelect(index) }.padding(horizontal = 12.dp),
+                    .selectable(selected = isSelected, role = Role.Tab) { onSelect(index) }.padding(horizontal = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -253,7 +256,7 @@ internal fun SharedMediaStatus(kind: SharedMediaKind, tab: SharedMediaWindow, on
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         when {
             error != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(error, color = palette.danger, fontSize = 14.sp, textAlign = TextAlign.Center)
+                Text(error, color = palette.danger, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.errorAnnouncement())
                 TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
             }
             // Пусто только тогда, когда дальше грузить нечего: страница без нужных вложений ещё не значит пустую вкладку.
@@ -270,7 +273,7 @@ internal fun SharedMediaFooter(tab: SharedMediaWindow, onRetry: () -> Unit) {
     if (!tab.loading && error == null) return
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         if (error != null) {
-            Text(error, color = palette.danger, fontSize = 14.sp, textAlign = TextAlign.Center)
+            Text(error, color = palette.danger, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.errorAnnouncement())
             TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
         } else CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent, strokeWidth = 2.dp)
     }
@@ -464,11 +467,11 @@ private fun SharedLinkRow(message: ChatMessage, meta: String, onOpenMessage: (Lo
 @Composable
 private fun SharedRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, onShowInChat: () -> Unit, onTitleClick: (() -> Unit)? = null) {
     val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(11.dp))
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
             // Заголовок со спойлером раскрывается нажатием на сам заголовок, остальная строка по-прежнему ведёт в чат.
-            val titleModifier = if (onTitleClick != null) Modifier.clickable(onClick = onTitleClick) else Modifier
+            val titleModifier = if (onTitleClick != null) Modifier.clickable(role = Role.Button, onClick = onTitleClick) else Modifier
             Text(title, modifier = titleModifier, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle.isNotBlank()) Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }

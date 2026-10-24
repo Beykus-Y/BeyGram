@@ -27,6 +27,12 @@ class MessageAnimationPlanTest {
         assertNotNull(messageAnimationPlan(config, animate = true, outgoing = true))
     }
 
+    @Test fun removedSystemAnimationsSkipTheEntrancePlan() {
+        val config = MessageAnimationConfig(sent = direction(MessageAnimationPreset.Slide))
+        assertNull(messageAnimationPlan(config, animate = true, outgoing = true, motionEnabled = false))
+        assertNotNull(messageAnimationPlan(config, animate = true, outgoing = true, motionEnabled = true))
+    }
+
     @Test fun fadeStartsTransparentAndSlightlySmaller() {
         val plan = messageAnimationPlan(
             direction(MessageAnimationPreset.Fade, MessageAnimationTuning(intensity = 0.5f, scale = 0.9f)),

@@ -22,6 +22,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -32,6 +35,7 @@ import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.PlaybackSpeedMenu
 
@@ -100,12 +104,17 @@ internal fun VoiceBubble(
             pendingPlaybackRow.value = null
             startVoice(path)
         }
-    }
-    // Ошибка загрузки снимает ожидание: пузырь предлагает повтор, а не крутит спиннер. Повторное нажатие начинает загрузку заново.
+    }    // Ошибка загрузки снимает ожидание: пузырь предлагает повтор, а не крутит спиннер. Повторное нажатие начинает загрузку заново.
     LaunchedEffect(file.error) { pendingPlaybackRow.value = voicePendingAfterError(pendingPlaybackRow.value, row, file.error != null) }
     DisposableEffect(row) {
         onDispose { if (pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
     }
+    val playbackStateLabel = when {
+        loading -> stringResource(R.string.a11y_state_loading)
+        playing -> stringResource(R.string.a11y_state_playing)
+        else -> stringResource(R.string.a11y_state_paused)
+    }
+    val voiceDescription = stringResource(R.string.a11y_voice_message, duration(shownSeconds))
     // Промежутки между кнопкой и волной тоже запускают воспроизведение, а не открывают просмотрщик вложения.
     Column(Modifier.width(244.dp)) {
         Row(
@@ -113,33 +122,36 @@ internal fun VoiceBubble(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                Modifier.size(44.dp).clip(CircleShape).background(palette.accentSoft)
-                    .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress),
+                Modifier.size(48.dp).clip(CircleShape).background(palette.accentSoft)
+                    .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress)
+                    .semantics { contentDescription = voiceDescription; stateDescription = playbackStateLabel },
                 contentAlignment = Alignment.Center
             ) {
                 if (loading) CircularProgressIndicator(modifier = Modifier.size(22.dp), color = palette.accentInk, strokeWidth = 2.dp)
-                else Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = if (playing) stringResource(R.string.common_pause) else stringResource(R.string.common_play), tint = palette.accentInk, modifier = Modifier.size(24.dp))
+                else Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(24.dp))
             }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Canvas(
-                    Modifier.fillMaxWidth().height(28.dp).pointerInput(media.fileId, path) {
-                        detectTapGestures(
-                            onTap = { offset -> if (path == null) togglePlay() else seekVoice(path, (offset.x / size.width).coerceIn(0f, 1f)) },
-                            onLongPress = { onLongPress?.invoke() }
-                        )
-                    }
-                ) {
-                    val step = size.width / bars.size
-                    val barWidth = step * 0.55f
-                    bars.forEachIndexed { index, sample ->
-                        val height = (sample / 31f).coerceIn(0.15f, 1f) * size.height
-                        drawRoundRect(
-                            color = if ((index + 0.5f) / bars.size <= fraction) palette.accent else palette.textSecondary.copy(alpha = 0.4f),
-                            topLeft = Offset(index * step + (step - barWidth) / 2f, (size.height - height) / 2f),
-                            size = Size(barWidth, height),
-                            cornerRadius = CornerRadius(barWidth / 2f)
-                        )
+                Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) {
+                    Canvas(
+                        Modifier.fillMaxWidth().height(28.dp).pointerInput(media.fileId, path) {
+                            detectTapGestures(
+                                onTap = { offset -> if (path == null) togglePlay() else seekVoice(path, (offset.x / size.width).coerceIn(0f, 1f)) },
+                                onLongPress = { onLongPress?.invoke() }
+                            )
+                        }
+                    ) {
+                        val step = size.width / bars.size
+                        val barWidth = step * 0.55f
+                        bars.forEachIndexed { index, sample ->
+                            val height = (sample / 31f).coerceIn(0.15f, 1f) * size.height
+                            drawRoundRect(
+                                color = if ((index + 0.5f) / bars.size <= fraction) palette.accent else palette.textSecondary.copy(alpha = 0.4f),
+                                topLeft = Offset(index * step + (step - barWidth) / 2f, (size.height - height) / 2f),
+                                size = Size(barWidth, height),
+                                cornerRadius = CornerRadius(barWidth / 2f)
+                            )
+                        }
                     }
                 }
                 val failed = voiceDownloadFailed(path, file.error != null, waitingForVoice)
@@ -147,7 +159,7 @@ internal fun VoiceBubble(
                     Text(
                         if (failed) stringResource(R.string.voice_download_failed) else duration(shownSeconds),
                         color = if (failed) palette.danger else palette.textSecondary, fontSize = 12.sp,
-                        modifier = Modifier.weight(1f).combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress)
+                        modifier = Modifier.weight(1f).then(if (failed) Modifier.errorAnnouncement() else Modifier)
                     )
                     PlaybackSpeedMenu(Modifier.padding(start = 4.dp))
                 }

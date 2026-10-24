@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -35,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.beyGramPalette
 import java.text.DateFormat
@@ -67,7 +70,7 @@ internal fun ChatSearchResults(
             busy && results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = palette.accent)
             }
-            results.isEmpty() -> if (error != null) SearchNote(error, palette.danger) else SearchNote(stringResource(R.string.search_nothing_found), palette.textSecondary)
+            results.isEmpty() -> if (error != null) SearchNote(error, palette.danger, announce = true) else SearchNote(stringResource(R.string.search_nothing_found), palette.textSecondary)
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
                 items(results, key = { it.id }) { message -> SearchResultRow(message, needle) { onOpen(message) } }
                 if (hasMore) item(key = "search_more") {
@@ -76,7 +79,7 @@ internal fun ChatSearchResults(
                     }
                 }
                 error?.let { message ->
-                    item(key = "search_error") { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+                    item(key = "search_error") { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement()) }
                 }
             }
         }
@@ -86,7 +89,7 @@ internal fun ChatSearchResults(
 @Composable
 private fun SearchResultRow(message: ChatMessage, query: String, onClick: () -> Unit) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp)) {
+    Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (message.isOutgoing) stringResource(R.string.search_you) else message.senderName, color = palette.accentInk, fontSize = 13.sp,
@@ -102,9 +105,9 @@ private fun SearchResultRow(message: ChatMessage, query: String, onClick: () -> 
 }
 
 @Composable
-private fun SearchNote(text: String, color: Color) {
+private fun SearchNote(text: String, color: Color, announce: Boolean = false) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = color, textAlign = TextAlign.Center)
+        Text(text, color = color, textAlign = TextAlign.Center, modifier = if (announce) Modifier.errorAnnouncement() else Modifier)
     }
 }
 

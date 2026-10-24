@@ -35,6 +35,7 @@ import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.navigation.MainTab
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.*
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.MediaViewer
@@ -47,6 +48,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import com.beykus.beygram.R
 import java.time.LocalDate
 import java.time.MonthDay
@@ -112,10 +118,17 @@ fun ProfileScreen(
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 28.dp)) {
             state.info?.let { info ->
                 Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
-                        Modifier.clickable(enabled = info.photo != null) { showPhoto = true })
+                    Box(
+                        Modifier.clickable(enabled = info.photo != null, role = Role.Button) { showPhoto = true }
+                            .semantics { contentDescription = context.getString(R.string.a11y_profile_photo_open) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
+                            Modifier.clearAndSetSemantics {})
+                    }
                     Spacer(Modifier.height(16.dp))
-                    Text(info.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text(info.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                        modifier = Modifier.semantics { heading() })
                     Spacer(Modifier.height(4.dp))
                     ProfileSubtitle(info, lastSeenStyle)
                     ProfileBadges(info)
@@ -146,7 +159,7 @@ fun ProfileScreen(
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
             }
             if (state.info == null && !state.isLoading && state.error == null) Text(stringResource(R.string.profile_info_not_loaded), color = palette.textSecondary, modifier = Modifier.padding(24.dp))
-            photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp)) }
+            photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp).errorAnnouncement()) }
         }
     }
     val photo = state.info?.photo
@@ -169,7 +182,7 @@ fun ProfileScreen(
                 Text(stringResource(R.string.profile_photo_preview_hint), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(top = 16.dp))
                 TextButton(enabled = !saving, onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text(stringResource(R.string.profile_photo_pick_other), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                 if (saving) CircularProgressIndicator(Modifier.padding(top = 8.dp).size(24.dp), color = palette.accent)
-                photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(top = 12.dp)) }
+                photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(top = 12.dp).errorAnnouncement()) }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilledTonalButton(onClick = ::discard, enabled = !saving, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f).height(50.dp),
@@ -196,7 +209,7 @@ fun ProfileScreen(
 internal fun ProfileLoadError(message: String, loading: Boolean, onRetry: () -> Unit) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -289,7 +302,7 @@ internal fun ProfileBadges(info: ProfileInfo) {
 @Composable
 internal fun InfoRow(label: String, value: String) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).semantics(mergeDescendants = true) {}) {
         Text(label, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(2.dp))
         SelectionContainer { Text(value, color = palette.textPrimary, fontSize = 16.sp, lineHeight = 22.sp) }
@@ -300,7 +313,7 @@ internal fun InfoRow(label: String, value: String) {
 internal fun AdministratorsSection(administrators: List<ProfileAdmin>, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_admins_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
     Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
         administrators.forEachIndexed { index, admin ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
@@ -315,7 +328,7 @@ internal fun AdministratorsSection(administrators: List<ProfileAdmin>, onOpenUse
 private fun MembersSection(info: ProfileInfo, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onMembers: () -> Unit, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_members_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
     Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
         info.memberPreview.forEachIndexed { index, member ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 82.dp))
@@ -338,11 +351,11 @@ private fun MembersSection(info: ProfileInfo, observeFile: (Int) -> StateFlow<Me
 private fun HiddenTabsSection(hiddenTabs: List<MainTab>, onOpenTab: (MainTab) -> Unit) {
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_hidden_tabs_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
     Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
         hiddenTabs.forEachIndexed { index, tab ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
-            Row(Modifier.fillMaxWidth().clickable { onOpenTab(tab) }.padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { onOpenTab(tab) }.padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(tab.icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
                 Column(Modifier.weight(1f).padding(start = 14.dp)) {
                     Text(tab.title, color = palette.textPrimary, fontSize = 16.sp)
@@ -359,7 +372,7 @@ internal fun ProfileToolbar(title: String, onBack: () -> Unit, actions: @Composa
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
-        Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
         actions()
     }
 }
@@ -393,7 +406,7 @@ fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save
             } }) { Text(if (saving) "…" else stringResource(R.string.common_save)) }
         }
         if (saving) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
-        if (discard) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(palette.warningSurface).padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (discard) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(palette.warningSurface).errorAnnouncement().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.profile_unsaved_changes), color = palette.warningText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             TextButton(onClick = onBack) { Text(stringResource(R.string.profile_discard_changes), color = palette.warningText, fontWeight = FontWeight.SemiBold) }
         }
@@ -403,7 +416,7 @@ fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save
             OutlinedTextField(username, { username = it.removePrefix("@").take(32) }, label = { Text(stringResource(R.string.profile_username)) }, prefix = { Text("@") }, supportingText = { Text(stringResource(R.string.profile_username_hint)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
             OutlinedTextField(bio, { bio = it }, label = { Text(stringResource(R.string.profile_about_me)) }, supportingText = { Text(stringResource(R.string.profile_bio_counter, bioCount, bioLimit)) }, isError = bioCount > bioLimit, minLines = 3, maxLines = 6, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
             Text(stringResource(R.string.profile_save_hint), color = palette.textSecondary, fontSize = 13.sp)
-            error?.let { Text(it, color = palette.danger) }
+            error?.let { Text(it, color = palette.danger, modifier = Modifier.errorAnnouncement()) }
         }
     }
 }

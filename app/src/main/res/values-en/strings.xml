@@ -329,4 +329,19 @@
     <string name="multi_share_switch_action">Switch account</string>
     <string name="multi_share_choose_other">Choose another</string>
     <plurals name="multi_account_unread"><item quantity="one">%d unread message</item><item quantity="other">%d unread messages</item></plurals>
+    <string name="a11y_chat_unread_count">Unread messages: %1$d</string>
+    <string name="a11y_chat_unread_marked">Marked as unread</string>
+    <string name="a11y_chat_muted">Muted</string>
+    <string name="a11y_chat_info">Chat info</string>
+    <string name="a11y_profile_photo_open">Open profile photo</string>
+    <string name="a11y_media_open">Open: %1$s</string>
+    <string name="a11y_media_download">Download: %1$s</string>
+    <string name="a11y_voice_message">Voice message, %1$s</string>
+    <string name="a11y_video_note_message">Video message, %1$s</string>
+    <string name="a11y_video_note_preview">Video message preview</string>
+    <string name="a11y_state_playing">Playing</string>
+    <string name="a11y_state_paused">Paused</string>
+    <string name="a11y_state_loading">Loading</string>
+    <string name="a11y_message_actions">Message actions</string>
+    <string name="a11y_open_attachment">Open attachment</string>
 </resources>

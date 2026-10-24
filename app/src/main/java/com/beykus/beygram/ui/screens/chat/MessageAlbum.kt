@@ -34,7 +34,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -166,6 +169,11 @@ private fun AlbumMediaTile(
     modifier: Modifier = Modifier
 ) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
+    val mediaLabel = media.kind.label(context)
+    val spoilerLabel = stringResource(R.string.media_spoiler_hint)
+    val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
+    val longPressLabel = stringResource(R.string.a11y_message_actions)
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
@@ -176,7 +184,13 @@ private fun AlbumMediaTile(
     LaunchedEffect(thumbId, revealed) { if (!media.isSecret && revealed && visual) onDownloadFile(thumbId) }
 
     Box(modifier.aspectRatio(1f).padding(1.dp).clip(RoundedCornerShape(5.dp)).background(palette.disabled)
-        .combinedClickable(onClick = { if (!revealed) revealed = true else onOpen() }, onLongClick = onLongPress),
+        .combinedClickable(
+            onClickLabel = if (revealed) openLabel else spoilerLabel,
+            onLongClickLabel = longPressLabel,
+            onClick = { if (!revealed) revealed = true else onOpen() },
+            onLongClick = onLongPress
+        )
+        .semantics { if (revealed) contentDescription = mediaLabel },
         contentAlignment = Alignment.Center) {
         if (revealed && imagePath != null) LocalMediaImage(imagePath, Modifier.fillMaxSize())
         when {
