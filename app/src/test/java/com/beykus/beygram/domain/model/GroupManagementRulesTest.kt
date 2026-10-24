@@ -198,6 +198,29 @@ class GroupManagementRulesTest {
         assertFalse(channel.canRestrictMembers)
     }
 
+    @Test fun actingAdministratorCannotGrantMoreThanTheyHave() {
+        val ownRights = GroupAdministratorRights(
+            canManageChat = false,
+            canDeleteMessages = true,
+            canInviteUsers = true,
+            canPromoteMembers = true
+        )
+        val acting = groupAdminRights(ManagedChatKind.Channel, GroupMemberStatus.Administrator, ownRights)
+        val constrained = constrainAdministratorRights(defaultAdministratorRights(ManagedChatKind.Channel), acting, ownRights)
+        assertFalse(constrained.canManageChat)
+        assertFalse(constrained.canEditMessages)
+        assertFalse(constrained.canPostMessages)
+        assertFalse(constrained.canPinMessages)
+        assertTrue(constrained.canDeleteMessages)
+        assertTrue(constrained.canInviteUsers)
+        // Владелец может выдать всё, что позволяет тип чата.
+        val owner = groupAdminRights(ManagedChatKind.Channel, GroupMemberStatus.Owner)
+        assertEquals(
+            defaultAdministratorRights(ManagedChatKind.Channel),
+            constrainAdministratorRights(defaultAdministratorRights(ManagedChatKind.Channel), owner, null)
+        )
+    }
+
     @Test fun inviteLinkEditingFollowsTheCreatorAndThePrimaryRule() {
         val admin = groupAdminRights(
             ManagedChatKind.Supergroup,

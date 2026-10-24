@@ -83,7 +83,8 @@ internal fun GroupJoinRequestsScreen(
         }
     }
 
-    BackHandler(enabled = busyUserId == null) { onBack() }
+    // Пока заявка обрабатывается, Back не должен закрывать всё приложение.
+    BackHandler { if (busyUserId == null) onBack() }
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.group_requests_title), { if (busyUserId == null) onBack() }) {
             IconButton(onClick = { reloadToken++ }, enabled = !loading) {

@@ -222,7 +222,8 @@ internal fun GroupMembersScreen(
         return
     }
 
-    BackHandler(enabled = !busy) { onBack() }
+    // Обработчик остаётся зарегистрированным и во время запроса, иначе системный Back уйдёт из приложения.
+    BackHandler { if (!busy) onBack() }
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.group_members_title), { if (!busy) onBack() }) {
@@ -371,6 +372,8 @@ internal fun GroupMembersScreen(
         PromoteMemberDialog(
             member = member,
             kind = info.kind,
+            viewer = rights,
+            viewerRights = info.viewerRights,
             busy = busy,
             error = actionError,
             onDismiss = { if (!busy) { promoting = null; actionError = null } },
@@ -384,13 +387,25 @@ internal fun GroupMembersScreen(
 private fun PromoteMemberDialog(
     member: GroupMemberEntry,
     kind: ManagedChatKind,
+    viewer: GroupAdminRights,
+    viewerRights: GroupAdministratorRights?,
     busy: Boolean,
     error: String?,
     onDismiss: () -> Unit,
     onSave: (GroupAdministratorRights) -> Unit
 ) {
     val palette = beyGramPalette()
-    var rights by remember(member.userId) { mutableStateOf(member.rights ?: defaultAdministratorRights(kind)) }
+    var rights by remember(member.userId) {
+        mutableStateOf(
+            constrainAdministratorRights(
+                member.rights ?: defaultAdministratorRights(kind),
+                viewer,
+                viewerRights
+            )
+        )
+    }
+    fun canGrant(selector: (GroupAdministratorRights) -> Boolean): Boolean =
+        viewer.isOwner || viewerRights?.let(selector) == true
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(stringResource(R.string.group_members_promote_title)) },
@@ -404,17 +419,27 @@ private fun PromoteMemberDialog(
                     )
                 } else {
                     val toggles = buildList {
-                        add(Triple(R.string.group_members_right_delete, rights.canDeleteMessages) { value: Boolean -> rights = rights.copy(canDeleteMessages = value) })
-                        if (kind == ManagedChatKind.Supergroup) {
+                        if (canGrant { it.canDeleteMessages }) {
+                            add(Triple(R.string.group_members_right_delete, rights.canDeleteMessages) { value: Boolean -> rights = rights.copy(canDeleteMessages = value) })
+                        }
+                        if (kind == ManagedChatKind.Supergroup && canGrant { it.canRestrictMembers }) {
                             add(Triple(R.string.group_members_right_ban, rights.canRestrictMembers) { value: Boolean -> rights = rights.copy(canRestrictMembers = value) })
                         }
-                        add(Triple(R.string.group_members_right_invite, rights.canInviteUsers) { value: Boolean -> rights = rights.copy(canInviteUsers = value) })
-                        add(Triple(R.string.group_members_right_pin, rights.canPinMessages) { value: Boolean -> rights = rights.copy(canPinMessages = value) })
-                        add(Triple(R.string.group_members_right_change_info, rights.canChangeInfo) { value: Boolean -> rights = rights.copy(canChangeInfo = value) })
-                        if (kind == ManagedChatKind.Channel) {
+                        if (canGrant { it.canInviteUsers }) {
+                            add(Triple(R.string.group_members_right_invite, rights.canInviteUsers) { value: Boolean -> rights = rights.copy(canInviteUsers = value) })
+                        }
+                        if (canGrant { it.canPinMessages }) {
+                            add(Triple(R.string.group_members_right_pin, rights.canPinMessages) { value: Boolean -> rights = rights.copy(canPinMessages = value) })
+                        }
+                        if (canGrant { it.canChangeInfo }) {
+                            add(Triple(R.string.group_members_right_change_info, rights.canChangeInfo) { value: Boolean -> rights = rights.copy(canChangeInfo = value) })
+                        }
+                        if (kind == ManagedChatKind.Channel && canGrant { it.canPostMessages }) {
                             add(Triple(R.string.group_members_right_post, rights.canPostMessages) { value: Boolean -> rights = rights.copy(canPostMessages = value) })
                         }
-                        add(Triple(R.string.group_members_right_video, rights.canManageVideoChats) { value: Boolean -> rights = rights.copy(canManageVideoChats = value) })
+                        if (canGrant { it.canManageVideoChats }) {
+                            add(Triple(R.string.group_members_right_video, rights.canManageVideoChats) { value: Boolean -> rights = rights.copy(canManageVideoChats = value) })
+                        }
                         add(Triple(R.string.group_members_right_anonymous, rights.isAnonymous) { value: Boolean -> rights = rights.copy(isAnonymous = value) })
                     }
                     toggles.forEach { (label, checked, onChange) ->
@@ -472,7 +497,7 @@ private fun GroupAddMembersScreen(
             .onFailure { error = it.userMessage(context, R.string.contacts_load_failed) }
         loading = false
     }
-    BackHandler(enabled = !busy, onBack = onBack)
+    BackHandler { if (!busy) onBack() }
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
         ProfileToolbar(stringResource(R.string.group_members_add_title), { if (!busy) onBack() }) {
             TextButton(

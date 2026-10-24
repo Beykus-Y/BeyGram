@@ -89,9 +89,9 @@ internal fun GroupInvitesScreen(
         } else links
     }
 
-    BackHandler(enabled = !dialogBusy && !revokeBusy) { onBack() }
+    BackHandler { if (!dialogBusy && !revokeBusy) onBack() }
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.group_invites_title), { if (!dialogBusy) onBack() }) {
+        ProfileToolbar(stringResource(R.string.group_invites_title), { if (!dialogBusy && !revokeBusy) onBack() }) {
             IconButton(onClick = ::reload, enabled = !loading) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.group_manage_refresh), tint = palette.textPrimary)
             }

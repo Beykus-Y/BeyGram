@@ -39,7 +39,8 @@ internal class TdGroupAdministration(
             memberCount = group.memberCount,
             pendingJoinRequestCount = chat.pendingJoinRequests?.totalCount ?: 0,
             primaryInviteLink = full.inviteLink?.inviteLink.orEmpty(),
-            rights = group.status.toGroupAdminRights(ManagedChatKind.BasicGroup)
+            rights = group.status.toGroupAdminRights(ManagedChatKind.BasicGroup),
+            viewerRights = group.status.administratorRights()
         )
     }
 
@@ -60,7 +61,8 @@ internal class TdGroupAdministration(
             memberCount = full.memberCount.takeIf { it > 0 } ?: group.memberCount,
             pendingJoinRequestCount = chat.pendingJoinRequests?.totalCount ?: 0,
             primaryInviteLink = full.inviteLink?.inviteLink.orEmpty(),
-            rights = group.status.toGroupAdminRights(kind)
+            rights = group.status.toGroupAdminRights(kind),
+            viewerRights = group.status.administratorRights()
         )
     }
 
@@ -131,9 +133,13 @@ internal class TdGroupAdministration(
                 if (failures.isEmpty()) added += id else failed += failures
             }
         } else {
-            val result = requests(TdApi.AddChatMembers(chatId, ids.toLongArray()))
-            failed += result.failedToAddMembers.orEmpty().filterNotNull()
-            added += ids.filterNot { id -> failed.any { it.userId == id } }
+            // TDLib ограничивает пакетное добавление 20 пользователями для супергрупп и каналов.
+            for (batch in ids.chunked(ADD_MEMBERS_BATCH_SIZE)) {
+                val result = requests(TdApi.AddChatMembers(chatId, batch.toLongArray()))
+                val failures = result.failedToAddMembers.orEmpty().filterNotNull()
+                failed += failures
+                added += batch.filterNot { id -> failures.any { it.userId == id } }
+            }
         }
         val failedIds = failed.map { it.userId }
         return GroupMemberAddition(
@@ -351,6 +357,7 @@ internal class TdGroupAdministration(
 private const val PAGE_SIZE = 100
 private const val MAX_INVITE_PAGES = 5
 private const val MAX_JOIN_REQUEST_PAGES = 2
+private const val ADD_MEMBERS_BATCH_SIZE = 20
 private const val PHOTO_UPLOAD_TIMEOUT_MS = 60_000L
 
 private fun TdApi.ChatMember.userId(): Long? = (memberId as? TdApi.MessageSenderUser)?.userId

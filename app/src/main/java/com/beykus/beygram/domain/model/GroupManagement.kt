@@ -109,7 +109,9 @@ data class GroupManagementInfo(
     val memberCount: Int? = null,
     val pendingJoinRequestCount: Int = 0,
     val primaryInviteLink: String = "",
-    val rights: GroupAdminRights = GroupAdminRights(kind)
+    val rights: GroupAdminRights = GroupAdminRights(kind),
+    /** Права текущего администратора, которые он может передать другому; null — владелец или не администратор. */
+    val viewerRights: GroupAdministratorRights? = null
 ) {
     val initials: String get() = initialsOf(title)
 }
@@ -318,6 +320,37 @@ fun defaultAdministratorRights(
         canPinMessages = true,
         canManageVideoChats = true,
         isAnonymous = isAnonymous
+    )
+}
+
+/**
+ * TDLib разрешает администратору выдавать только те права, которые есть у него самого.
+ * Владелец не ограничен. Возвращает пересечение запрошенных прав с правами действующего админа.
+ */
+fun constrainAdministratorRights(
+    requested: GroupAdministratorRights,
+    viewer: GroupAdminRights,
+    viewerRights: GroupAdministratorRights?
+): GroupAdministratorRights {
+    if (viewer.isOwner || viewerRights == null) return requested
+    return requested.copy(
+        canManageChat = requested.canManageChat && viewerRights.canManageChat,
+        canChangeInfo = requested.canChangeInfo && viewerRights.canChangeInfo,
+        canPostMessages = requested.canPostMessages && viewerRights.canPostMessages,
+        canEditMessages = requested.canEditMessages && viewerRights.canEditMessages,
+        canDeleteMessages = requested.canDeleteMessages && viewerRights.canDeleteMessages,
+        canInviteUsers = requested.canInviteUsers && viewerRights.canInviteUsers,
+        canRestrictMembers = requested.canRestrictMembers && viewerRights.canRestrictMembers,
+        canPinMessages = requested.canPinMessages && viewerRights.canPinMessages,
+        canManageTopics = requested.canManageTopics && viewerRights.canManageTopics,
+        canPromoteMembers = requested.canPromoteMembers && viewerRights.canPromoteMembers,
+        canManageVideoChats = requested.canManageVideoChats && viewerRights.canManageVideoChats,
+        canPostStories = requested.canPostStories && viewerRights.canPostStories,
+        canEditStories = requested.canEditStories && viewerRights.canEditStories,
+        canDeleteStories = requested.canDeleteStories && viewerRights.canDeleteStories,
+        canManageDirectMessages = requested.canManageDirectMessages && viewerRights.canManageDirectMessages,
+        canManageTags = requested.canManageTags && viewerRights.canManageTags,
+        isAnonymous = requested.isAnonymous
     )
 }
 
