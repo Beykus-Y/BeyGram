@@ -63,6 +63,9 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
+import com.beykus.beygram.data.settings.AppLocale
+import com.beykus.beygram.data.settings.TranslationSettingsStore
+import com.beykus.beygram.data.settings.translationTargetLanguage
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.LocalPlaybackAccountId
@@ -99,7 +102,7 @@ fun ChatScreen(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
-    recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
+    recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
     onServiceUser: (Long) -> Unit = {},
     messageAnimations: MessageAnimationConfig = MessageAnimationConfig(),
@@ -124,6 +127,15 @@ fun ChatScreen(
     // The message of the latest swipe; a slower capability check for an older swipe is ignored.
     var swipedReplyId by remember(chat.id) { mutableLongStateOf(0L) }
     var actionsId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    // Translation is manual and cached for this chat visit, per message and target language.
+    var translationPickerId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    var translationLanguages by remember(chat.id) { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    var translationStates by remember(chat.id) { mutableStateOf<Map<Pair<Long, String>, TranslationUiState>>(emptyMap()) }
+    val translationJobs = remember(chat.id) { mutableMapOf<Long, Job>() }
+    // Local request state covers the gap before TDLib sends UpdateMessageContent with the recognition result.
+    var transcribingIds by remember(chat.id) { mutableStateOf<Set<Long>>(emptySet()) }
+    var transcriptionErrors by remember(chat.id) { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    var ratedTranscriptions by remember(chat.id) { mutableStateOf<Set<Long>>(emptySet()) }
     var editId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var editText by rememberSaveable(chat.id) { mutableStateOf("") }
     var editBusy by remember { mutableStateOf(false) }
@@ -183,6 +195,7 @@ fun ChatScreen(
     val context = LocalContext.current
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
     val recordingMode by recordingSettings.recordingMode.collectAsStateWithLifecycle()
+    val translationPreferences by translationSettings.state.collectAsStateWithLifecycle()
     val recordingRecovery: ChatRecordingRecoveryViewModel = viewModel(key = "chat-recording-$accountId-${chat.id}")
     val recordingPreview by recordingRecovery.preview.collectAsStateWithLifecycle()
     val recordingPreviewIndex by recordingRecovery.selectedIndex.collectAsStateWithLifecycle()
@@ -441,6 +454,71 @@ fun ChatScreen(
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
     fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
+    // The picker remembers the last choice; a blank stored value follows the app language, then the device language.
+    fun translationDefaultLanguage() = translationTargetLanguage(translationPreferences.targetLanguageCode,
+        AppLocale.selected(context).ifBlank { java.util.Locale.getDefault().language })
+    fun startTranslation(message: ChatMessage, language: String) {
+        if (!TranslationPolicy.canTranslate(chat.isSecret, message.text.isNotBlank())) {
+            translationStates = translationStates + ((message.id to language) to TranslationUiState.Failed(context.getString(R.string.err_translation_secret_chat)))
+            return
+        }
+        val key = message.id to language
+        val previousLanguage = translationLanguages[message.id]
+        if (previousLanguage != null && previousLanguage != language) {
+            // Switching target abandons the old request and its spinner, but keeps completed translations cached.
+            translationJobs.remove(message.id)?.cancel()
+            translationStates = translationStates.filterKeys { (id, lang) ->
+                id != message.id || translationStates[id to lang] !is TranslationUiState.Loading
+            }
+        }
+        translationLanguages = translationLanguages + (message.id to language)
+        if (translationStates[key] is TranslationUiState.Ready) return
+        translationJobs.remove(message.id)?.cancel()
+        translationStates = translationStates.filterKeys { it != key } + (key to TranslationUiState.Loading)
+        translationJobs[message.id] = scope.launch {
+            val result = conversation.translateMessage(message.chatId, message.id, language)
+            // A newer target or a cancel may have replaced this request while it was in flight.
+            if (translationLanguages[message.id] != language) return@launch
+            translationStates = translationStates + (key to result.fold(
+                onSuccess = { TranslationUiState.Ready(it) },
+                onFailure = { TranslationUiState.Failed(it.userMessage(context, R.string.err_translation_failed)) }
+            ))
+            translationJobs.remove(message.id)
+        }
+    }
+    fun chooseTranslationLanguage(message: ChatMessage, language: String) {
+        translationPickerId = null
+        translationSettings.setTargetLanguage(language)
+        startTranslation(message, language)
+    }
+    fun cancelTranslation(messageId: Long) {
+        translationJobs.remove(messageId)?.cancel()
+        val language = translationLanguages[messageId]
+        if (language != null) translationStates = translationStates.filterKeys { it != (messageId to language) }
+        translationLanguages = translationLanguages - messageId
+    }
+    fun retryTranslation(message: ChatMessage) {
+        val language = translationLanguages[message.id] ?: return
+        translationStates = translationStates.filterKeys { it != (message.id to language) }
+        startTranslation(message, language)
+    }
+    fun transcribe(message: ChatMessage) {
+        val media = message.media ?: return
+        if (!TranslationPolicy.canTranscribe(chat.isSecret, media)) return
+        transcriptionErrors = transcriptionErrors - message.id
+        transcribingIds = transcribingIds + message.id
+        scope.launch {
+            val result = conversation.recognizeSpeech(message.chatId, message.id)
+            transcribingIds = transcribingIds - message.id
+            result.onFailure {
+                transcriptionErrors = transcriptionErrors + (message.id to it.userMessage(context, R.string.err_transcription_failed))
+            }
+        }
+    }
+    fun rateTranscription(message: ChatMessage, isGood: Boolean) {
+        ratedTranscriptions = ratedTranscriptions + message.id
+        scope.launch { conversation.rateSpeechRecognition(message.chatId, message.id, isGood) }
+    }
     fun closeEdit() { editId = null; editText = ""; editError = null }
     LaunchedEffect(actionMessage) {
         if (actionMessage == null) { deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
@@ -796,7 +874,11 @@ fun ChatScreen(
                     closeActions()
                 }
             },
-            onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() }
+            onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() },
+            onTranslate = if (actionMessage.mediaAlbumId == 0L && actionMessage.sendState == MessageSendState.Sent &&
+                TranslationPolicy.canTranslate(chat.isSecret, actionMessage.text.isNotBlank())) {
+                { translationPickerId = actionMessage.id; closeActions() }
+            } else null
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
         else ChatTopBar(
             chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true },
@@ -811,6 +893,15 @@ fun ChatScreen(
             },
             onJumpUnread = ::jumpToFirstUnread
         )
+        // The target picker lives above the message list so the action bar can close before selection.
+        val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
+        if (translationTargetMessage != null && TranslationPolicy.canTranslate(chat.isSecret, translationTargetMessage.text.isNotBlank())) {
+            TranslationTargetDialog(
+                currentLanguageCode = translationDefaultLanguage(),
+                onSelect = { chooseTranslationLanguage(translationTargetMessage, it) },
+                onDismiss = { translationPickerId = null }
+            )
+        }
         reactionOwner?.takeIf { !deleting }?.let { owner ->
             MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
                 setReaction(owner.id, option, addToRecent = true)
@@ -871,13 +962,31 @@ fun ChatScreen(
                         }
                     }
                     MessageAnimationFrame(animate = animateArrival && launch == null, outgoing = message.isOutgoing, config = messageAnimations, modifier = launchModifier) {
+                        val translationLanguage = translationLanguages[message.id]
+                        val translationState = translationLanguage?.let { translationStates[message.id to it] }
+                        val media = message.media
                         if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
                         else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                         else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                             highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                             onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                             onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
-                            onBubblePositioned = bubblePosition)
+                            onBubblePositioned = bubblePosition,
+                            translation = translationState,
+                            onTranslationRetry = { retryTranslation(message) },
+                            onTranslationCancel = { cancelTranslation(message.id) },
+                            onTranslationDismiss = { translationLanguages = translationLanguages - message.id },
+                            transcriptionRequestPending = message.id in transcribingIds,
+                            transcriptionRequestError = transcriptionErrors[message.id],
+                            transcriptionRated = message.id in ratedTranscriptions,
+                            onTranscribe = if (message.sendState == MessageSendState.Sent && TranslationPolicy.canTranscribe(chat.isSecret, media)) {
+                                { transcribe(message) }
+                            } else null,
+                            onRateTranscription = if (chat.isSecret) {
+                                null
+                            } else {
+                                { isGood -> rateTranscription(message, isGood) }
+                            })
                     }
                 }
             }
@@ -1236,7 +1345,16 @@ private fun ChatTopBar(
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {},
-    onBubblePositioned: ((Rect) -> Unit)? = null) {
+    onBubblePositioned: ((Rect) -> Unit)? = null,
+    translation: TranslationUiState? = null,
+    onTranslationRetry: (() -> Unit)? = null,
+    onTranslationCancel: (() -> Unit)? = null,
+    onTranslationDismiss: (() -> Unit)? = null,
+    transcriptionRequestPending: Boolean = false,
+    transcriptionRequestError: String? = null,
+    transcriptionRated: Boolean = false,
+    onTranscribe: (() -> Unit)? = null,
+    onRateTranscription: ((Boolean) -> Unit)? = null) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
     val shape = bubbleShape(message.isOutgoing, metrics)
@@ -1282,8 +1400,18 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     message.sendState == MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
                                     isRead -> stringResource(R.string.chat_read_description)
                                     else -> stringResource(R.string.chat_sent_description)
-                                }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted, origin = playbackOrigin)
-                            else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed, origin = playbackOrigin)
+                                }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted, origin = playbackOrigin,
+                                transcriptionRequestPending = transcriptionRequestPending,
+                                transcriptionRequestError = transcriptionRequestError,
+                                transcriptionRated = transcriptionRated,
+                                onTranscribe = onTranscribe,
+                                onRateTranscription = onRateTranscription)
+                            else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed, origin = playbackOrigin,
+                                transcriptionRequestPending = transcriptionRequestPending,
+                                transcriptionRequestError = transcriptionRequestError,
+                                transcriptionRated = transcriptionRated,
+                                onTranscribe = onTranscribe,
+                                onRateTranscription = onRateTranscription)
                         }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
@@ -1297,6 +1425,15 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             }
                             if (hasText) FormattedMessageText(message)
                             message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile) }
+                            translation?.let { state ->
+                                TranslationBlock(
+                                    state = state,
+                                    onRetry = { onTranslationRetry?.invoke() },
+                                    onCancel = { onTranslationCancel?.invoke() },
+                                    onDismiss = { onTranslationDismiss?.invoke() },
+                                    messageId = message.id
+                                )
+                            }
                         }
                     }
                 },

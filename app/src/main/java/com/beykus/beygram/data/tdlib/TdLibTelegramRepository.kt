@@ -19,6 +19,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.MessageDraft
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
@@ -763,6 +764,29 @@ class TdLibTelegramRepository private constructor(
     override fun cancelBotWait() = reportBotChannel.cancelBotWait()
     override val messageLimits get() = conversationActions.limits
     override suspend fun messageCapabilities(chatId: Long, messageId: Long) = conversationActions.capabilities(chatId, messageId)
+    override suspend fun translateMessage(chatId: Long, messageId: Long, toLanguageCode: String): Result<MessageTranslation> =
+        translationResult {
+            require(toLanguageCode.isNotBlank()) { "Target language must not be blank" }
+            if (isSecretChat(chatId)) throw UserMessageException(UiText.Res(R.string.err_translation_secret_chat))
+            // TDLib's "tone" argument is optional; the empty string asks for the default neutral translation.
+            val translated = tdRequests(TdApi.TranslateMessageText(chatId, messageId, toLanguageCode, ""))
+            if (translated.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_translation_failed))
+            translated.toMessageTranslation(toLanguageCode)
+        }
+    override suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit> = speechRecognitionResult {
+        if (isSecretChat(chatId)) throw UserMessageException(UiText.Res(R.string.err_transcription_secret_chat))
+        tdRequests(TdApi.RecognizeSpeech(chatId, messageId))
+        Unit
+    }
+    override suspend fun rateSpeechRecognition(chatId: Long, messageId: Long, isGood: Boolean): Result<Unit> =
+        speechRecognitionResult {
+            tdRequests(TdApi.RateSpeechRecognition(chatId, messageId, isGood))
+            Unit
+        }
+
+    /** The open chat is normally cached; fetch the type if a caller got here before the chat list was populated. */
+    private suspend fun isSecretChat(chatId: Long): Boolean =
+        chatCache[chatId]?.isSecret ?: (tdRequests(TdApi.GetChat(chatId)).type is TdApi.ChatTypeSecret)
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind) = conversationActions.mediaPosition(chatId, messageId, kind)
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>) = conversationActions.edit(chatId, messageId, text, entities)
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) =
@@ -1312,9 +1336,9 @@ class TdLibTelegramRepository private constructor(
                     val rendered = (update.newContent as? TdApi.MessageCall)?.let {
                         serviceMessages.callText(it, message.isOutgoing)
                     } ?: service
-                    message.copy(text = rendered ?: contentText(update.newContent, attachment != null),
-                        serviceText = rendered, isCallEvent = update.newContent is TdApi.MessageCall,
-                        entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment,
+                    message.withUpdatedContent(update.newContent, attachment,
+                        contentText(update.newContent, attachment != null),
+                        messageFormattedText(update.newContent)?.domainEntities().orEmpty(), rendered,
                         linkPreview = mediaMapper.linkPreview(update.newContent, isSecretChat(update.chatId)))
                 }
                 messageHistory.update(update.chatId, update.messageId, transform)
@@ -1904,9 +1928,9 @@ class TdLibTelegramRepository private constructor(
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,
+            isSecret = type.isSecretChatType(),
             isSavedMessages = saved,
             isMarkedAsUnread = isMarkedAsUnread,
-            isSecret = type is TdApi.ChatTypeSecret,
             isPinned = mainPosition?.isPinned == true,
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,

@@ -100,6 +100,16 @@ data class LiveMessageArrival(val sequence: Long, val messageId: Long)
 /** A server confirmation moved a visible temporary message to [newId]. */
 data class MessageIdReplacement(val oldId: Long, val newId: Long)
 
+/**
+ * A TDLib translation of a message's text. [languageCode] is the requested target language, not a guess based on the
+ * translated content. Formatting stays in domain entities so the renderer can keep links, quotes and styles.
+ */
+data class MessageTranslation(
+    val text: String,
+    val languageCode: String,
+    val entities: List<MessageTextEntity> = emptyList()
+)
+
 data class MessageReply(val chatId: Long, val messageId: Long, val text: UiText, val senderName: String = "", val isUnavailable: Boolean = false)
 data class MessageCapabilities(
     val canReply: Boolean = false,

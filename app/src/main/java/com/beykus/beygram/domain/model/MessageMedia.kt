@@ -27,8 +27,20 @@ data class MessageMedia(
     val minithumbnail: ByteArray? = null,
     /** Название и исполнитель из тегов аудиофайла; пусто, если тегов нет или это не музыка. */
     val title: String = "",
-    val performer: String = ""
-)
+    val performer: String = "",
+    /** Server speech recognition result. Empty while TDLib has not produced any text. */
+    val transcriptionText: String = "",
+    /** Non-null while recognition is running; may hold the partial text TDLib has already produced. */
+    val transcriptionPending: String? = null,
+    /** Friendly failure for the last recognition attempt; null when no error is known. */
+    val transcriptionError: UiText? = null
+) {
+    /** True while TDLib is still recognizing this voice/video note. */
+    val isTranscribing: Boolean get() = transcriptionPending != null
+
+    /** True once recognition produced text that can be shown under the bubble. */
+    val hasTranscription: Boolean get() = transcriptionText.isNotBlank()
+}
 
 data class MediaFileState(
     val id: Int,

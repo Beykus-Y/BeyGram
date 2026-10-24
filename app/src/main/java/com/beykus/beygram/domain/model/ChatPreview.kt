@@ -13,10 +13,10 @@ data class ChatPreview(
     val isGroup: Boolean = false,
     /** Broadcast channels are supergroups in TDLib but need a distinct search label. */
     val isChannel: Boolean = false,
+    /** TDLib ChatTypeSecret: message text must never leave the device for translation or link preview. */
+    val isSecret: Boolean = false,
     /** Чат «Избранное»: личный чат аккаунта с самим собой. Его название и значок задаёт интерфейс. */
     val isSavedMessages: Boolean = false,
-    /** Secret chats never receive server link-preview metadata, and the UI must not try to load it. */
-    val isSecret: Boolean = false,
     val isPinned: Boolean = false,
     val isMuted: Boolean = false,
     /** The user explicitly marked a read chat as unread; it shows a dot even when Telegram's unread count is zero. */

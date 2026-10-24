@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -63,10 +64,12 @@ internal fun MessageActionsBar(
     onDelete: () -> Unit,
     onTogglePin: () -> Unit,
     onCopyLink: () -> Unit = {},
-    onForwardCopy: () -> Unit = {}
+    onForwardCopy: () -> Unit = {},
+    onTranslate: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
+    val translate = onTranslate
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textPrimary) }
@@ -77,7 +80,7 @@ internal fun MessageActionsBar(
                     if (capabilities.canCopy && hasText) ActionIcon(Icons.Rounded.ContentCopy, stringResource(R.string.message_action_copy_text), palette.accent, onCopy)
                     if (capabilities.canEdit) ActionIcon(Icons.Rounded.Edit, if (isMedia) stringResource(R.string.message_action_edit_caption) else stringResource(R.string.message_action_edit), palette.accent, onEdit)
                     if (capabilities.canDeleteForSelf || capabilities.canDeleteForAll) ActionIcon(Icons.Rounded.Delete, stringResource(R.string.common_delete), palette.danger, onDelete)
-                    if (canPin || capabilities.canGetLink || capabilities.canForward) Box {
+                    if (canPin || capabilities.canGetLink || capabilities.canForward || translate != null) Box {
                         IconButton(onClick = { moreOpen = true }) {
                             Icon(Icons.Rounded.MoreVert, stringResource(R.string.message_action_more), tint = palette.accent)
                         }
@@ -93,6 +96,11 @@ internal fun MessageActionsBar(
                             if (capabilities.canForward) DropdownMenuItem(
                                 text = { Text(stringResource(R.string.message_action_forward_copy)) },
                                 onClick = { moreOpen = false; onForwardCopy() }
+                            )
+                            if (translate != null) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.message_action_translate), color = palette.textPrimary) },
+                                leadingIcon = { Icon(Icons.Rounded.Translate, null, tint = palette.accent) },
+                                onClick = { moreOpen = false; translate() }
                             )
                         }
                     }

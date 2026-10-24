@@ -48,6 +48,28 @@ internal suspend fun <T> conversationResult(timeoutMessage: UiText = MESSAGE_TIM
 /** Контакты, звонки и чаты: сообщений здесь нет, поэтому 404 не значит удалённое сообщение. */
 internal suspend fun <T> requestResult(block: suspend () -> T): Result<T> = telegramResult(REQUEST_TIMEOUT, block, ::requestErrorText)
 
+/** Translation and recognition have their own friendly errors; a secret-chat refusal is never a generic failure. */
+internal suspend fun <T> translationResult(block: suspend () -> T): Result<T> =
+    telegramResult(UiText.Res(R.string.err_translation_failed), block) { error ->
+        when {
+            error.isSecretChatError() -> UiText.Res(R.string.err_translation_secret_chat)
+            error.isFloodWait() -> UiText.Res(R.string.err_tdlib_flood_wait)
+            else -> UiText.Res(R.string.err_translation_failed)
+        }
+    }
+
+internal suspend fun <T> speechRecognitionResult(block: suspend () -> T): Result<T> =
+    telegramResult(UiText.Res(R.string.err_transcription_failed), block) { error ->
+        when {
+            error.isSecretChatError() -> UiText.Res(R.string.err_transcription_secret_chat)
+            error.isFloodWait() -> UiText.Res(R.string.err_tdlib_flood_wait)
+            else -> UiText.Res(R.string.err_transcription_failed)
+        }
+    }
+
+private fun Exception.isSecretChatError(): Boolean =
+    message?.contains("SECRET", ignoreCase = true) == true || message?.contains("CHAT_TYPE_INVALID") == true
+
 /** Локальные операции с файлами: таймаут значит медленный диск, а не сеть, поэтому в диагностику соединения он не попадает. */
 internal suspend fun <T> storageResult(block: suspend () -> T): Result<T> = try { Result.success(block()) }
 catch (timeout: TimeoutCancellationException) { Result.failure(timeout) }
