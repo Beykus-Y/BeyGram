@@ -52,6 +52,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -294,7 +295,15 @@ internal fun MessageThreadScreen(
     }
 
     val commentsCount = thread?.replyCount?.takeIf { it > 0 } ?: post?.replyCount ?: 0
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Box(
+        Modifier.fillMaxSize().background(palette.screen).pointerInput(Unit) {
+            // The channel remains composed underneath for scroll restoration; consume what the thread does not handle.
+            awaitPointerEventScope {
+                while (true) awaitPointerEvent().changes.forEach { it.consume() }
+            }
+        }
+    ) {
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(
             Modifier.fillMaxWidth().background(palette.surface).padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -375,6 +384,12 @@ internal fun MessageThreadScreen(
                         onOpenProfile = onOpenProfile,
                         onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId },
                         onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
+                        onRetry = {
+                            scope.launch {
+                                conversation.retryMessages(message.chatId, listOf(message.id))
+                                    .onFailure { sendError = it.userMessage(context, R.string.chat_retry_send_failed) }
+                            }
+                        },
                         onActions = { reactionTarget = message.chatId to message },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {
@@ -490,6 +505,7 @@ internal fun MessageThreadScreen(
             }
         }
     }
+    }
 
     // Message ids are chat-scoped: keep the owning chat so a post and a comment with the same id never collide.
     val mediaMessages = when (selectedMediaChatId) {
@@ -530,6 +546,7 @@ private fun ThreadCommentRow(
     onOpenProfile: (Long) -> Unit,
     onOpenMedia: () -> Unit,
     onPlayed: () -> Unit,
+    onRetry: () -> Unit,
     onActions: () -> Unit,
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)?,
@@ -569,7 +586,7 @@ private fun ThreadCommentRow(
                 onReply = onReply,
                 onReaction = { _, option -> onReaction(option) },
                 observeCustomEmoji = observeCustomEmoji,
-                onRetry = {},
+                onRetry = onRetry,
                 onSenderClick = openSender
             )
         }
