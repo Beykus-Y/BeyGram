@@ -51,9 +51,13 @@ import com.beykus.beygram.domain.model.QR_LOGIN_REFRESH_TIMEOUT_MS
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChannelAdminEvent
 import com.beykus.beygram.domain.model.ChannelAdminEventPage
+import com.beykus.beygram.domain.model.ChannelChartId
+import com.beykus.beygram.domain.model.ChannelChartKind
 import com.beykus.beygram.domain.model.ChannelEventFilter
+import com.beykus.beygram.domain.model.ChannelStatisticsChart
 import com.beykus.beygram.domain.model.ChannelStatisticsPerson
 import com.beykus.beygram.domain.model.ChannelStatisticsSummary
+import com.beykus.beygram.domain.model.ChannelTopPost
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
@@ -1016,30 +1020,173 @@ class TdLibTelegramRepository private constructor(
     }
     override suspend fun channelStatistics(chatId: Long): Result<ChannelStatisticsSummary> = requestResult {
         when (val statistics = tdRequests(TdApi.GetChatStatistics(chatId, false))) {
-            is TdApi.ChatStatisticsChannel -> ChannelStatisticsSummary(
-                periodStart = statistics.period.startDate,
-                periodEnd = statistics.period.endDate,
-                memberCount = statistics.memberCount.value.toInt(),
-                memberGrowthPercent = statistics.memberCount.growthRatePercentage,
-                meanViewCount = statistics.meanMessageViewCount.value.toInt(),
-                meanShareCount = statistics.meanMessageShareCount.value.toInt(),
-                meanReactionCount = statistics.meanMessageReactionCount.value.toInt(),
-                notificationsPercent = statistics.enabledNotificationsPercentage.toInt()
-            )
-            is TdApi.ChatStatisticsSupergroup -> ChannelStatisticsSummary(
-                periodStart = statistics.period.startDate,
-                periodEnd = statistics.period.endDate,
-                memberCount = statistics.memberCount.value.toInt(),
-                memberGrowthPercent = statistics.memberCount.growthRatePercentage,
-                meanViewCount = statistics.viewerCount.value.toInt(),
-                meanShareCount = statistics.messageCount.value.toInt(),
-                meanReactionCount = statistics.senderCount.value.toInt(),
-                topSenders = statistics.topSenders.orEmpty().take(5).map {
-                    ChannelStatisticsPerson(it.userId, profiles.senderName(TdApi.MessageSenderUser(it.userId)), it.sentMessageCount)
-                }
-            )
+            is TdApi.ChatStatisticsChannel -> channelStatisticsSummary(chatId, statistics)
+            is TdApi.ChatStatisticsSupergroup -> supergroupStatisticsSummary(chatId, statistics)
             else -> throw UserMessageException(UiText.Res(R.string.err_statistics_unavailable))
         }
+    }
+
+    private suspend fun channelStatisticsSummary(
+        chatId: Long,
+        statistics: TdApi.ChatStatisticsChannel
+    ): ChannelStatisticsSummary = coroutineScope {
+        val charts = async { loadStatisticsCharts(chatId, channelGraphSpecs(statistics)) }
+        val topPosts = async { channelTopPosts(chatId, statistics.recentInteractions.orEmpty()) }
+        ChannelStatisticsSummary(
+            periodStart = statistics.period.startDate,
+            periodEnd = statistics.period.endDate,
+            isChannel = true,
+            memberCount = statistics.memberCount.value.toInt(),
+            memberGrowthPercent = statistics.memberCount.growthRatePercentage,
+            meanViewCount = statistics.meanMessageViewCount.value.toInt(),
+            meanShareCount = statistics.meanMessageShareCount.value.toInt(),
+            meanReactionCount = statistics.meanMessageReactionCount.value.toInt(),
+            notificationsPercent = statistics.enabledNotificationsPercentage.toInt(),
+            charts = charts.await(),
+            topPosts = topPosts.await()
+        )
+    }
+
+    private suspend fun supergroupStatisticsSummary(
+        chatId: Long,
+        statistics: TdApi.ChatStatisticsSupergroup
+    ): ChannelStatisticsSummary {
+        val charts = loadStatisticsCharts(chatId, supergroupGraphSpecs(statistics))
+        return ChannelStatisticsSummary(
+            periodStart = statistics.period.startDate,
+            periodEnd = statistics.period.endDate,
+            isChannel = false,
+            memberCount = statistics.memberCount.value.toInt(),
+            memberGrowthPercent = statistics.memberCount.growthRatePercentage,
+            messageCount = statistics.messageCount.value.toInt(),
+            viewerCount = statistics.viewerCount.value.toInt(),
+            senderCount = statistics.senderCount.value.toInt(),
+            topSenders = statistics.topSenders.orEmpty().take(5).map {
+                ChannelStatisticsPerson(it.userId, profiles.senderName(TdApi.MessageSenderUser(it.userId)), it.sentMessageCount)
+            },
+            charts = charts
+        )
+    }
+
+    private data class StatisticsGraphSpec(
+        val id: ChannelChartId,
+        val fallbackKind: ChannelChartKind,
+        val graph: TdApi.StatisticalGraph?
+    )
+
+    private fun channelGraphSpecs(statistics: TdApi.ChatStatisticsChannel) = listOf(
+        StatisticsGraphSpec(ChannelChartId.Members, ChannelChartKind.Line, statistics.memberCountGraph),
+        StatisticsGraphSpec(ChannelChartId.Joins, ChannelChartKind.Line, statistics.joinGraph),
+        StatisticsGraphSpec(ChannelChartId.Mutes, ChannelChartKind.Line, statistics.muteGraph),
+        StatisticsGraphSpec(ChannelChartId.ViewsByHour, ChannelChartKind.Bar, statistics.viewCountByHourGraph),
+        StatisticsGraphSpec(ChannelChartId.ViewsBySource, ChannelChartKind.Bar, statistics.viewCountBySourceGraph),
+        StatisticsGraphSpec(ChannelChartId.JoinsBySource, ChannelChartKind.Bar, statistics.joinBySourceGraph),
+        StatisticsGraphSpec(ChannelChartId.Languages, ChannelChartKind.Area, statistics.languageGraph),
+        StatisticsGraphSpec(ChannelChartId.MessageInteractions, ChannelChartKind.Line, statistics.messageInteractionGraph),
+        StatisticsGraphSpec(ChannelChartId.MessageReactions, ChannelChartKind.Line, statistics.messageReactionGraph)
+    )
+
+    private fun supergroupGraphSpecs(statistics: TdApi.ChatStatisticsSupergroup) = listOf(
+        StatisticsGraphSpec(ChannelChartId.Members, ChannelChartKind.Line, statistics.memberCountGraph),
+        StatisticsGraphSpec(ChannelChartId.Joins, ChannelChartKind.Line, statistics.joinGraph),
+        StatisticsGraphSpec(ChannelChartId.ViewsByHour, ChannelChartKind.Bar, statistics.dayGraph),
+        StatisticsGraphSpec(ChannelChartId.JoinsBySource, ChannelChartKind.Bar, statistics.joinBySourceGraph),
+        StatisticsGraphSpec(ChannelChartId.Languages, ChannelChartKind.Area, statistics.languageGraph),
+        StatisticsGraphSpec(ChannelChartId.MessageContent, ChannelChartKind.Bar, statistics.messageContentGraph),
+        StatisticsGraphSpec(ChannelChartId.Actions, ChannelChartKind.Line, statistics.actionGraph),
+        StatisticsGraphSpec(ChannelChartId.ViewsByWeekday, ChannelChartKind.Bar, statistics.weekGraph)
+    )
+
+    /**
+     * TDLib returns some graphs either inline or as tokens that need a second request. A failed
+     * secondary graph is skipped: one missing chart must not hide the rest of the statistics.
+     */
+    private suspend fun loadStatisticsCharts(
+        chatId: Long,
+        specs: List<StatisticsGraphSpec>
+    ): List<ChannelStatisticsChart> = coroutineScope {
+        val gate = Semaphore(4)
+        specs.filter { it.graph != null }.map { spec ->
+            async {
+                gate.withPermit {
+                    try {
+                        val graph = spec.graph ?: return@withPermit null
+                        val data = loadStatisticsGraph(chatId, graph)
+                        data?.let { parseChannelChart(spec.id, it.jsonData, spec.fallbackKind) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // An unknown graph format is not fatal: show the charts that did parse.
+                        null
+                    }
+                }
+            }
+        }.awaitAll().filterNotNull()
+    }
+
+    private suspend fun loadStatisticsGraph(
+        chatId: Long,
+        graph: TdApi.StatisticalGraph
+    ): TdApi.StatisticalGraphData? = when (graph) {
+        is TdApi.StatisticalGraphData -> graph
+        is TdApi.StatisticalGraphAsync -> {
+            val loaded = try {
+                tdRequests(TdApi.GetStatisticalGraph(chatId, graph.token, 0L))
+            } catch (timeout: TimeoutCancellationException) {
+                null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            loaded as? TdApi.StatisticalGraphData
+        }
+        else -> null
+    }
+
+    /**
+     * TDLib lists only recent interactions, so "top posts" cannot cover the whole period. The
+     * metrics come with the statistics; message text and date need one best-effort lookup.
+     */
+    private suspend fun channelTopPosts(
+        chatId: Long,
+        interactions: Array<out TdApi.ChatStatisticsInteractionInfo>
+    ): List<ChannelTopPost> {
+        val ranked = rankTopPosts(
+            interactions.mapNotNull { info ->
+                val messageId = (info.objectType as? TdApi.ChatStatisticsObjectTypeMessage)?.messageId
+                    ?: return@mapNotNull null
+                ChannelTopPost(
+                    messageId = messageId,
+                    viewCount = info.viewCount,
+                    forwardCount = info.forwardCount,
+                    reactionCount = info.reactionCount
+                )
+            }
+        )
+        if (ranked.isEmpty()) return emptyList()
+        val messages: Array<out TdApi.Message> = try {
+            tdRequests(TdApi.GetMessages(chatId, ranked.map { it.messageId }.toLongArray())).messages.orEmpty()
+        } catch (timeout: TimeoutCancellationException) {
+            emptyArray<TdApi.Message>()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyArray<TdApi.Message>()
+        }
+        val byId = messages.associateBy { it.id }
+        return ranked.map { post ->
+            val message = byId[post.messageId]
+            post.copy(
+                preview = message?.topPostPreview() ?: UiText.Raw(""),
+                date = message?.date ?: 0
+            )
+        }
+    }
+
+    private fun TdApi.Message.topPostPreview(): UiText = when (val text = previewText(content)) {
+        is UiText.Raw -> UiText.Raw(text.text.trim().take(TOP_POST_PREVIEW_LENGTH))
+        else -> text
     }
 
     override suspend fun channelAdminEvents(chatId: Long, fromEventId: Long, filter: ChannelEventFilter): Result<ChannelAdminEventPage> = requestResult {
@@ -2732,6 +2879,7 @@ private fun publicChatJoinError(error: Exception): UiText {
 }
 
 private const val ADMIN_LOG_PAGE_SIZE = 50
+private const val TOP_POST_PREVIEW_LENGTH = 200
 
 /** Maps one UI filter to the TDLib switches; unselected groups stay false so no unrelated events are fetched. */
 internal fun adminLogFilters(filter: ChannelEventFilter): TdApi.ChatEventLogFilters =
