@@ -46,9 +46,6 @@ import com.beykus.beygram.domain.model.ChannelStatisticsSummary
 import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
-import java.text.DateFormat
-import java.text.NumberFormat
-import java.util.Date
 import kotlinx.coroutines.launch
 
 @Composable
@@ -56,6 +53,7 @@ fun ChannelStatisticsScreen(
     title: String,
     loadStatistics: suspend () -> Result<ChannelStatisticsSummary>,
     loadEvents: suspend (Long, ChannelEventFilter) -> Result<ChannelAdminEventPage>,
+    onOpenPost: (Long) -> Unit,
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -166,6 +164,10 @@ fun ChannelStatisticsScreen(
                                 fontSize = 12.sp
                             )
                             StatCard(value, palette, Modifier.padding(top = 8.dp))
+                            StatisticsChartsSection(value.charts, palette)
+                            if (value.isChannel) {
+                                TopPostsSection(value.topPosts, palette, onOpenPost)
+                            }
                             if (value.topSenders.isNotEmpty()) {
                                 Text(
                                     stringResource(R.string.channel_statistics_top_senders),
@@ -262,7 +264,7 @@ fun ChannelStatisticsScreen(
 
 @Composable
 private fun StatCard(value: ChannelStatisticsSummary, palette: BeyGramPalette, modifier: Modifier = Modifier) {
-    val rows = listOf(
+    val rows = if (value.isChannel) listOf(
         R.string.channel_statistics_members to formatCount(value.memberCount),
         R.string.channel_statistics_growth to "${formatDecimal(value.memberGrowthPercent)}%",
         R.string.channel_statistics_views to formatCount(value.meanViewCount),
@@ -272,6 +274,12 @@ private fun StatCard(value: ChannelStatisticsSummary, palette: BeyGramPalette, m
             R.string.channel_statistics_percent,
             value.notificationsPercent
         )
+    ) else listOf(
+        R.string.channel_statistics_members to formatCount(value.memberCount),
+        R.string.channel_statistics_growth to "${formatDecimal(value.memberGrowthPercent)}%",
+        R.string.channel_statistics_messages to formatCount(value.messageCount),
+        R.string.channel_statistics_viewers to formatCount(value.viewerCount),
+        R.string.channel_statistics_senders to formatCount(value.senderCount)
     )
     Column(
         modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(16.dp)).padding(14.dp),
@@ -285,13 +293,6 @@ private fun StatCard(value: ChannelStatisticsSummary, palette: BeyGramPalette, m
         }
     }
 }
-
-private fun formatCount(value: Int): String = NumberFormat.getIntegerInstance().format(value)
-private fun formatDecimal(value: Double): String = String.format(java.util.Locale.getDefault(), "%.1f", value)
-private fun formatDate(seconds: Int): String =
-    DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(seconds.coerceAtLeast(0).toLong() * 1000L))
-private fun formatDateTime(seconds: Int): String =
-    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(seconds.toLong() * 1000L))
 
 private fun filterLabel(filter: ChannelEventFilter): Int = when (filter) {
     ChannelEventFilter.All -> R.string.channel_admin_log_all

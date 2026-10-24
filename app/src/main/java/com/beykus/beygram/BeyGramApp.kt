@@ -347,6 +347,8 @@ private fun BeyGramAppContent(
     var memberReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.ChatInfo.name) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    // Открытый из статистики пост возвращает в статистику, а сама статистика — в исходный чат.
+    var statisticsChatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     // Account badges are expensive: subscribe only while the shared account
     // switcher, a system share chooser or the recovery screen is visible.
     val accountMetadataVisible = accountSwitcherVisible || incomingShare != null ||
@@ -1398,7 +1400,12 @@ private fun BeyGramAppContent(
                         },
                         onChatInfo = { routeName = AppRoute.ChatInfo.name },
                         onStatistics = if (chat.isChannel && (chat.isChannelAdmin || chat.canPost)) {
-                            { routeName = AppRoute.ChannelStatistics.name }
+                            {
+                                if (chatBackRouteName != AppRoute.ChannelStatistics.name) {
+                                    statisticsChatBackRouteName = chatBackRouteName
+                                }
+                                routeName = AppRoute.ChannelStatistics.name
+                            }
                         } else null,
                         connectionState = connectionState,
                         recordingSettings = recordingSettings,
@@ -1658,7 +1665,15 @@ private fun BeyGramAppContent(
                         title = statsChat.firstOrNull { it.id == selectedChatId }?.title.orEmpty(),
                         loadStatistics = { repository.channelStatistics(selectedChatId) },
                         loadEvents = { from, filter -> repository.channelAdminEvents(selectedChatId, from, filter) },
-                        onBack = { routeName = AppRoute.Chat.name }
+                        onOpenPost = { messageId ->
+                            chatFocusMessageId = messageId
+                            chatBackRouteName = AppRoute.ChannelStatistics.name
+                            routeName = AppRoute.Chat.name
+                        },
+                        onBack = {
+                            chatBackRouteName = statisticsChatBackRouteName
+                            routeName = AppRoute.Chat.name
+                        }
                     )
                 }
                 AppRoute.ChatMembers -> chatMembersRoute()
