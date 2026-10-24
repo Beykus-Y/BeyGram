@@ -1979,7 +1979,8 @@ class TdLibTelegramRepository private constructor(
                 if (content is TdApi.MessageVideoNote) {
                     // A session folder can hold segments that still wait to be sent, so only this segment's files and an emptied folder go.
                     file.delete()
-                    file.parentFile?.takeIf { it.listFiles().isNullOrEmpty() }?.delete()
+                    // The owner mark stays in the session folder until its last segment is sent, so an emptied folder holds only that mark.
+                    file.parentFile?.takeIf { it.parentFile == uploads }?.let { removeUploadFolderIfOnlyOwnerMarker(it) }
                 } else {
                     // A voice note has a folder of its own. Removing it also removes files TDLib does not report.
                     generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }.deleteRecursively()

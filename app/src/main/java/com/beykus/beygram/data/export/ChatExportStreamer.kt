@@ -8,6 +8,7 @@ import com.beykus.beygram.domain.model.ChatExportSummary
 import com.beykus.beygram.domain.model.ChatExportTarget
 import java.io.BufferedOutputStream
 import java.io.BufferedWriter
+import java.io.ByteArrayOutputStream
 import java.io.FilterOutputStream
 import java.io.InputStream
 import java.io.OutputStream
@@ -32,14 +33,22 @@ internal const val CHAT_EXPORT_MAX_SINGLE_DOWNLOAD_BYTES = 25L * 1024 * 1024
 internal const val CHAT_EXPORT_MAX_TOTAL_DOWNLOAD_BYTES = 100L * 1024 * 1024
 
 /**
- * Streams one format directly into [target]. Nothing is buffered in the app cache: when media is requested
- * the target is a ZIP containing the message document and a `media/` folder. A failed or cancelled export
- * closes the stream and calls [ChatExportTarget.discard], so an incomplete file is removed or truncated.
+ * A media export walks the history once and holds its document in memory while the document stays under this size.
+ * A larger document is rendered again after the media entries, which fetches the history a second time.
+ */
+internal const val CHAT_EXPORT_DOCUMENT_BUFFER_BYTES = 16 * 1024 * 1024
+
+/**
+ * Streams one format directly into [target]. Nothing is written to the app cache: when media is requested
+ * the target is a ZIP containing the message document and a `media/` folder, and the document is held in memory
+ * only up to [documentBufferBytes]. A failed or cancelled export closes the stream and calls
+ * [ChatExportTarget.discard], so an incomplete file is removed or truncated.
  */
 internal class ChatExportStreamer(
     private val target: ChatExportTarget,
     private val source: ChatExportPageSource,
-    private val mediaProvider: ChatExportMediaProvider
+    private val mediaProvider: ChatExportMediaProvider,
+    private val documentBufferBytes: Int = CHAT_EXPORT_DOCUMENT_BUFFER_BYTES
 ) {
     suspend fun export(
         chat: ChatExportChat,
@@ -57,15 +66,11 @@ internal class ChatExportStreamer(
             onProgress(ChatExportProgress(phase = ChatExportPhase.Preparing, totalMessages = totalMessages))
 
             val linkedMedia = HashMap<Long, CopiedMedia>()
-            val mediaStats: MediaStats
-            val documentStats: DocumentStats
-            if (request.includeMedia) {
-                val zipResult = writeZip(counting, chat, request, linkedMedia, onProgress, totalMessages)
-                mediaStats = zipResult.media
-                documentStats = zipResult.document
+            val mediaStats = MediaStats(0, 0)
+            val documentStats: DocumentStats = if (request.includeMedia) {
+                writeZip(counting, chat, request, linkedMedia, mediaStats, onProgress, totalMessages)
             } else {
-                mediaStats = MediaStats(0, 0)
-                documentStats = writePlain(counting, chat, request, linkedMedia, mediaStats, onProgress, totalMessages)
+                writePlain(counting, chat, request, linkedMedia, mediaStats, onProgress, totalMessages)
             }
 
             onProgress(
@@ -107,7 +112,7 @@ internal class ChatExportStreamer(
         try {
             val stats = writeDocument(
                 writer, chat, request, linkedMedia, mediaStats, counting, onProgress, totalMessages
-            )
+            ) { }
             writer.flush()
             writer.close()
             closed = true
@@ -122,100 +127,95 @@ internal class ChatExportStreamer(
         chat: ChatExportChat,
         request: ChatExportRequest,
         linkedMedia: MutableMap<Long, CopiedMedia>,
+        mediaStats: MediaStats,
         onProgress: (ChatExportProgress) -> Unit,
         totalMessages: Int?
-    ): ZipResult {
+    ): DocumentStats {
         val zip = ZipOutputStream(BufferedOutputStream(counting, 64 * 1024), Charsets.UTF_8)
         var closed = false
         try {
             onProgress(
                 ChatExportProgress(phase = ChatExportPhase.Media, bytesWritten = counting.bytesWritten, totalMessages = totalMessages)
             )
-            val mediaStats = copyMedia(zip, request, linkedMedia, counting, onProgress, totalMessages)
-            onProgress(
-                ChatExportProgress(
-                    phase = ChatExportPhase.Messages,
-                    mediaCopied = mediaStats.copied,
-                    bytesWritten = counting.bytesWritten,
-                    totalMessages = totalMessages
-                )
-            )
-            val entryName = "messages.${request.format.extension}"
-            zip.putNextEntry(ZipEntry(entryName))
-            val writer = BufferedWriter(OutputStreamWriter(zip, Charsets.UTF_8))
-            val documentStats = writeDocument(
-                writer, chat, request, linkedMedia, mediaStats, counting, onProgress, totalMessages
-            )
-            writer.flush()
+            // One walk of the history copies each media file when its message is reached and renders the document
+            // alongside. The document entry still follows the media entries, as before.
+            val rendered = DocumentBuffer(documentBufferBytes)
+            val renderWriter = BufferedWriter(OutputStreamWriter(rendered, Charsets.UTF_8))
+            val renderedStats = writeDocument(
+                renderWriter, chat, request, linkedMedia, mediaStats, counting, onProgress, totalMessages
+            ) { message ->
+                copyMedia(zip, message, linkedMedia, mediaStats, counting, onProgress, totalMessages)
+            }
+            renderWriter.flush()
+            zip.putNextEntry(ZipEntry("messages.${request.format.extension}"))
+            val documentStats = if (rendered.overflowed) {
+                // Too large to keep in memory: render it again into the entry. The media is already archived, so nothing is copied twice.
+                val entryWriter = BufferedWriter(OutputStreamWriter(zip, Charsets.UTF_8))
+                val stats = writeDocument(
+                    entryWriter, chat, request, linkedMedia, mediaStats, counting, onProgress, totalMessages
+                ) { }
+                entryWriter.flush()
+                stats
+            } else {
+                rendered.writeTo(zip)
+                renderedStats
+            }
             zip.closeEntry()
             zip.finish()
             zip.close()
             closed = true
-            return ZipResult(documentStats, mediaStats)
+            return documentStats
         } finally {
             if (!closed) runCatching { zip.close() }
         }
     }
 
+    /** Copies the media of one exportable message into the archive while the copy budget lasts; unavailable media is only counted. */
     private suspend fun copyMedia(
         zip: ZipOutputStream,
-        request: ChatExportRequest,
+        message: ChatExportMessage,
         linkedMedia: MutableMap<Long, CopiedMedia>,
+        mediaStats: MediaStats,
         counting: CountingOutputStream,
         onProgress: (ChatExportProgress) -> Unit,
         totalMessages: Int?
-    ): MediaStats {
-        var copied = 0
-        var skipped = 0
-        walkExportable(
-            request = request,
-            onPage = {
-                onProgress(
-                    ChatExportProgress(
-                        phase = ChatExportPhase.Media,
-                        messagesWritten = 0,
-                        mediaCopied = copied,
-                        bytesWritten = counting.bytesWritten,
-                        totalMessages = totalMessages
-                    )
-                )
-            }
-        ) { message ->
-            val media = message.media ?: return@walkExportable
-            if (copied >= CHAT_EXPORT_MAX_MEDIA_FILES) {
-                skipped++
-                return@walkExportable
-            }
-            val stream = try {
-                mediaProvider.open(media)
-            } catch (timeout: TimeoutCancellationException) {
-                // A single slow TDLib file request skips this attachment; export cancellation still propagates.
-                null
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                null
-            }
-            if (stream == null) {
-                skipped++
-                return@walkExportable
-            }
-            val entry = mediaEntryName(message.id, media)
-            zip.putNextEntry(ZipEntry(entry))
-            stream.use { copyToZip(it, zip) }
-            zip.closeEntry()
-            linkedMedia[message.id] = CopiedMedia(media.fileId, entry)
-            copied++
-            onProgress(
-                ChatExportProgress(
-                    phase = ChatExportPhase.Media,
-                    mediaCopied = copied,
-                    bytesWritten = counting.bytesWritten,
-                    totalMessages = totalMessages
-                )
-            )
+    ) {
+        val media = message.media ?: return
+        if (mediaStats.copied >= CHAT_EXPORT_MAX_MEDIA_FILES) {
+            mediaStats.skipped++
+            return
         }
-        return MediaStats(copied, skipped)
+        val stream = try {
+            mediaProvider.open(media)
+        } catch (timeout: TimeoutCancellationException) {
+            // A single slow TDLib file request skips this attachment; export cancellation still propagates.
+            null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        if (stream == null) {
+            mediaStats.skipped++
+            return
+        }
+        val entry = mediaEntryName(message.id, media)
+        zip.putNextEntry(ZipEntry(entry))
+        stream.use { copyToZip(it, zip) }
+        zip.closeEntry()
+        linkedMedia[message.id] = CopiedMedia(media.fileId, entry)
+        mediaStats.copied++
+        // The media events belong to the message walk, so they carry its count. A Media phase here would switch the dialog
+        // between its determinate and indeterminate bars for every file, and a zero count would reset the message line.
+        onProgress(
+            ChatExportProgress(
+                phase = ChatExportPhase.Messages,
+                messagesWritten = mediaStats.messagesWritten,
+                mediaCopied = mediaStats.copied,
+                bytesWritten = counting.bytesWritten,
+                totalMessages = totalMessages
+            )
+        )
     }
 
     private suspend fun writeDocument(
@@ -226,13 +226,14 @@ internal class ChatExportStreamer(
         mediaStats: MediaStats,
         counting: CountingOutputStream,
         onProgress: (ChatExportProgress) -> Unit,
-        totalMessages: Int?
+        totalMessages: Int?,
+        beforeMessage: suspend (ChatExportMessage) -> Unit
     ): DocumentStats = when (request.format) {
         ChatExportFormat.Json -> writeJson(
-            writer, chat, request, linkedMedia, mediaStats, counting, onProgress, totalMessages
+            writer, chat, request, linkedMedia, mediaStats, counting, onProgress, totalMessages, beforeMessage
         )
         ChatExportFormat.Html -> writeHtml(
-            writer, chat, request, linkedMedia, mediaStats, counting, onProgress, totalMessages
+            writer, chat, request, linkedMedia, mediaStats, counting, onProgress, totalMessages, beforeMessage
         )
     }
 
@@ -244,7 +245,8 @@ internal class ChatExportStreamer(
         mediaStats: MediaStats,
         counting: CountingOutputStream,
         onProgress: (ChatExportProgress) -> Unit,
-        totalMessages: Int?
+        totalMessages: Int?,
+        beforeMessage: suspend (ChatExportMessage) -> Unit
     ): DocumentStats {
         writer.write("{\n")
         writer.write("\"format\":")
@@ -281,6 +283,7 @@ internal class ChatExportStreamer(
                 )
             }
         ) { message ->
+            beforeMessage(message)
             if (!first) writer.write(",")
             writer.write("\n")
             writeJsonMessage(
@@ -289,6 +292,7 @@ internal class ChatExportStreamer(
                 linkedMedia[message.id]?.takeIf { it.fileId == message.media?.fileId }?.entry
             )
             first = false
+            mediaStats.messagesWritten++
         }
         writer.write("\n],\n\"summary\":{\"messages\":")
         writer.write(stats.messages.toString())
@@ -357,7 +361,8 @@ internal class ChatExportStreamer(
         mediaStats: MediaStats,
         counting: CountingOutputStream,
         onProgress: (ChatExportProgress) -> Unit,
-        totalMessages: Int?
+        totalMessages: Int?,
+        beforeMessage: suspend (ChatExportMessage) -> Unit
     ): DocumentStats {
         writer.write("<!doctype html>\n<html lang=\"und\">\n<head>\n<meta charset=\"utf-8\">\n")
         writer.write("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"generator\" content=\"BeyGram\">\n<title>")
@@ -387,11 +392,13 @@ internal class ChatExportStreamer(
                 )
             }
         ) { message ->
+            beforeMessage(message)
             writeHtmlMessage(
                 writer,
                 message,
                 linkedMedia[message.id]?.takeIf { it.fileId == message.media?.fileId }?.entry
             )
+            mediaStats.messagesWritten++
         }
         writer.write("</section>\n<footer class=\"chat-footer\">\n<p>")
         appendHtmlEscaped(
@@ -458,9 +465,10 @@ internal class ChatExportStreamer(
     }
 
     /**
-     * Walks every page once, newest to oldest, in a bounded window. Messages above [ChatExportRequest.toDateSeconds]
-     * are skipped; the walk stops as soon as it passes below the inclusive from-bound. Save-restricted messages are
-     * counted and never passed to [onMessage].
+     * Walks every page once, newest to oldest, in a bounded window. A date bound starts the walk at the newest message
+     * sent before it when the source can resolve that, so newer history is never requested. Messages at or after
+     * [ChatExportRequest.toDateSeconds] are skipped; the walk stops as soon as it passes below the inclusive from-bound.
+     * Save-restricted messages are counted and never passed to [onMessage].
      */
     private suspend fun walkExportable(
         request: ChatExportRequest,
@@ -468,12 +476,17 @@ internal class ChatExportStreamer(
         onMessage: suspend (ChatExportMessage) -> Unit
     ): DocumentStats {
         var cursor = 0L
+        // The resolved message is a page of its own. Pages requested after it hold only messages older than it.
+        var anchorPage: ChatExportPage? = request.toDateSeconds
+            ?.let { source.newestMessageAtOrBefore(it) }
+            ?.let { ChatExportPage(listOf(it), nextBeforeMessageId = it.id, hasMore = true) }
         var lastId = Long.MAX_VALUE
         var written = 0
         var skipped = 0
         while (true) {
             currentCoroutineContext().ensureActive()
-            val page = source.page(cursor, CHAT_EXPORT_PAGE_SIZE)
+            val page = anchorPage ?: source.page(cursor, CHAT_EXPORT_PAGE_SIZE)
+            anchorPage = null
             var reachedFromBoundary = false
             for (message in page.messages.sortedByDescending { it.id }) {
                 if (message.id >= lastId) continue
@@ -518,9 +531,12 @@ internal class ChatExportStreamer(
     }
 
     private data class DocumentStats(val messages: Int, val skippedSaveRestricted: Int)
-    private data class MediaStats(val copied: Int, val skipped: Int)
+    /**
+     * Counted while the history is walked, so the final counts are known once the walk ends. [messagesWritten] lets
+     * media progress report the message count the walk has reached, so the message line does not drop back to zero.
+     */
+    private data class MediaStats(var copied: Int, var skipped: Int, var messagesWritten: Int = 0)
     private data class CopiedMedia(val fileId: Int, val entry: String)
-    private data class ZipResult(val document: DocumentStats, val media: MediaStats)
 
     private companion object {
         val HTML_STYLE = """
@@ -576,4 +592,33 @@ internal class CountingOutputStream(output: OutputStream) : FilterOutputStream(o
     override fun flush() = out.flush()
 
     override fun close() = out.close()
+}
+
+/**
+ * Keeps the rendered document in memory while it stays within [limit] bytes. Past the limit the bytes are dropped and
+ * [overflowed] is set, so the caller renders the document again instead of holding all of it.
+ */
+private class DocumentBuffer(private val limit: Int) : OutputStream() {
+    private var bytes: ByteArrayOutputStream? = ByteArrayOutputStream()
+    var overflowed = false
+        private set
+
+    override fun write(b: Int) {
+        write(byteArrayOf(b.toByte()), 0, 1)
+    }
+
+    override fun write(b: ByteArray, off: Int, len: Int) {
+        val current = bytes ?: return
+        if (current.size() + len > limit) {
+            overflowed = true
+            bytes = null
+            return
+        }
+        current.write(b, off, len)
+    }
+
+    /** Writes the document kept so far. Nothing is written after an overflow. */
+    fun writeTo(output: OutputStream) {
+        bytes?.writeTo(output)
+    }
 }
