@@ -148,6 +148,12 @@ class GroupManagementRulesTest {
         assertEquals("name", GroupInviteLinkDraft(name = " name ").normalized().name)
     }
 
+    @Test fun inviteDraftKeepsAbsoluteExpirationWhenNormalized() {
+        val draft = GroupInviteLinkDraft(name = " x ", expiresAtSeconds = 123_456, memberLimit = 10)
+        assertEquals(123_456, draft.normalized().expiresAtSeconds)
+        assertEquals("x", draft.normalized().name)
+    }
+
     @Test fun settingsValidationCoversTitleDescriptionAndUsername() {
         assertNull(groupSettingsProblem(GroupSettingsEdit(title = "Group", description = "About", username = "my_group")))
         assertEquals(

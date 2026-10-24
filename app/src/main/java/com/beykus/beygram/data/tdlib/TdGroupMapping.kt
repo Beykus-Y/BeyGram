@@ -30,6 +30,10 @@ internal fun TdApi.ChatAdministratorRights.toGroupAdministratorRights(): GroupAd
     canManageTopics = canManageTopics,
     canPromoteMembers = canPromoteMembers,
     canManageVideoChats = canManageVideoChats,
+    canPostStories = canPostStories,
+    canEditStories = canEditStories,
+    canDeleteStories = canDeleteStories,
+    canManageDirectMessages = canManageDirectMessages,
     canManageTags = canManageTags,
     isAnonymous = isAnonymous
 )
@@ -46,10 +50,10 @@ internal fun GroupAdministratorRights.toTdAdministratorRights(): TdApi.ChatAdmin
     canManageTopics,
     canPromoteMembers,
     canManageVideoChats,
-    false,
-    false,
-    false,
-    false,
+    canPostStories,
+    canEditStories,
+    canDeleteStories,
+    canManageDirectMessages,
     canManageTags,
     isAnonymous
 )

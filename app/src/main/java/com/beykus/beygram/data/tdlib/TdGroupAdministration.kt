@@ -168,12 +168,15 @@ internal class TdGroupAdministration(
     }
 
     suspend fun inviteLinks(chatId: Long): List<GroupInviteLink> {
+        // TDLib разрешает смотреть ссылки других администраторов только владельцу. Не-владельцу
+        // нужно передать собственный id, иначе запрос отклоняется проверкой прав.
+        val creatorUserId = if (isOwner(chatId)) 0L else profiles.myUserId()
         val links = mutableListOf<TdApi.ChatInviteLink>()
         var offsetDate = 0
         var offsetLink = ""
         var pages = 0
         while (pages++ < MAX_INVITE_PAGES) {
-            val page = requests(TdApi.GetChatInviteLinks(chatId, 0L, false, offsetDate, offsetLink, PAGE_SIZE))
+            val page = requests(TdApi.GetChatInviteLinks(chatId, creatorUserId, false, offsetDate, offsetLink, PAGE_SIZE))
             val batch = page.inviteLinks.orEmpty().filterNotNull()
             links += batch
             if (batch.size < PAGE_SIZE || links.size >= page.totalCount) break
@@ -190,13 +193,13 @@ internal class TdGroupAdministration(
             .sortedWith(compareByDescending<GroupInviteLink> { it.isPrimary }.thenByDescending { it.createdSeconds })
     }
 
-    suspend fun createInviteLink(chatId: Long, draft: GroupInviteLinkDraft, nowSeconds: Long = System.currentTimeMillis() / 1000): GroupInviteLink {
+    suspend fun createInviteLink(chatId: Long, draft: GroupInviteLinkDraft): GroupInviteLink {
         val normalized = requireValidInviteDraft(draft)
         val link = requests(
             TdApi.CreateChatInviteLink(
                 chatId,
                 normalized.name,
-                inviteExpirationDate(nowSeconds, normalized.ttlSeconds),
+                normalized.expiresAtSeconds,
                 normalized.memberLimit,
                 normalized.requiresApproval
             )
@@ -204,14 +207,14 @@ internal class TdGroupAdministration(
         return link.toGroupInviteLink()
     }
 
-    suspend fun editInviteLink(chatId: Long, link: String, draft: GroupInviteLinkDraft, nowSeconds: Long = System.currentTimeMillis() / 1000): GroupInviteLink {
+    suspend fun editInviteLink(chatId: Long, link: String, draft: GroupInviteLinkDraft): GroupInviteLink {
         val normalized = requireValidInviteDraft(draft)
         val updated = requests(
             TdApi.EditChatInviteLink(
                 chatId,
                 link,
                 normalized.name,
-                inviteExpirationDate(nowSeconds, normalized.ttlSeconds),
+                normalized.expiresAtSeconds,
                 normalized.memberLimit,
                 normalized.requiresApproval
             )
@@ -292,6 +295,13 @@ internal class TdGroupAdministration(
         val type = requests(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup
             ?: throw UserMessageException(UiText.Res(R.string.err_group_not_manageable))
         return type.supergroupId
+    }
+
+    /** Владелец может запросить ссылки всех администраторов; остальным TDLib отдаёт только свои. */
+    private suspend fun isOwner(chatId: Long): Boolean = when (val type = requests(TdApi.GetChat(chatId)).type) {
+        is TdApi.ChatTypeBasicGroup -> requests(TdApi.GetBasicGroup(type.basicGroupId)).status is TdApi.ChatMemberStatusCreator
+        is TdApi.ChatTypeSupergroup -> requests(TdApi.GetSupergroup(type.supergroupId)).status is TdApi.ChatMemberStatusCreator
+        else -> false
     }
 
     private fun requireValidInviteDraft(draft: GroupInviteLinkDraft): GroupInviteLinkDraft {

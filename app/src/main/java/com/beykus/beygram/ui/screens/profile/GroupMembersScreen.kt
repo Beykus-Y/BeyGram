@@ -42,6 +42,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chats.filterNewChatContacts
 import com.beykus.beygram.ui.screens.chats.toggledGroupMembers
 import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
@@ -88,6 +89,8 @@ internal fun GroupMembersScreen(
     var pending by remember(chatId) { mutableStateOf<PendingMemberAction?>(null) }
     var promoting by remember(chatId) { mutableStateOf<GroupMemberEntry?>(null) }
     var busy by remember(chatId) { mutableStateOf(false) }
+    var pageGeneration by remember(chatId) { mutableIntStateOf(0) }
+    var loadMoreJob by remember(chatId) { mutableStateOf<Job?>(null) }
     val listState = rememberLazyListState()
 
     val filters = buildList {
@@ -104,33 +107,45 @@ internal fun GroupMembersScreen(
     fun reload() { reloadToken++ }
 
     LaunchedEffect(chatId, filter, query, reloadToken) {
+        // Смена фильтра или поиска делает старую страницу недействительной: отменяем догрузку,
+        // иначе её ответ допишется в новый список и сдвинет offset.
+        loadMoreJob?.cancel()
+        loadMoreJob = null
+        pageGeneration++
+        val generation = pageGeneration
+        loadingMore = false
         loading = true
         error = null
         if (query.isNotBlank()) delay(250)
         repository.loadGroupMembers(chatId, filter, query, 0, MEMBERS_PAGE)
             .onSuccess { page ->
+                if (generation != pageGeneration) return@onSuccess
                 members = page.members
                 nextOffset = page.fetched
                 total = page.total
             }
-            .onFailure { error = it.userMessage(context, R.string.group_members_load_failed) }
-        loading = false
+            .onFailure {
+                if (generation == pageGeneration) error = it.userMessage(context, R.string.group_members_load_failed)
+            }
+        if (generation == pageGeneration) loading = false
     }
 
     fun loadMore() {
         if (loading || loadingMore || query.isNotBlank()) return
         val knownTotal = total ?: return
         if (nextOffset >= knownTotal) return
+        val generation = pageGeneration
         loadingMore = true
-        scope.launch {
-            repository.loadGroupMembers(chatId, filter, query, nextOffset, MEMBERS_PAGE)
-                .onSuccess { page ->
-                    members = members + page.members
-                    nextOffset += page.fetched
-                    // Пустая страница означает конец списка, даже если TDLib назвал больше.
-                    if (page.fetched == 0) total = nextOffset
-                }
-                .onFailure { error = it.userMessage(context, R.string.group_members_load_failed) }
+        loadMoreJob = scope.launch {
+            val result = repository.loadGroupMembers(chatId, filter, query, nextOffset, MEMBERS_PAGE)
+            // Пока страница грузилась, фильтр мог смениться: такой ответ уже не принадлежит списку.
+            if (generation != pageGeneration) return@launch
+            result.onSuccess { page ->
+                members = members + page.members
+                nextOffset += page.fetched
+                // Пустая страница означает конец списка, даже если TDLib назвал больше.
+                if (page.fetched == 0) total = nextOffset
+            }.onFailure { error = it.userMessage(context, R.string.group_members_load_failed) }
             loadingMore = false
         }
     }

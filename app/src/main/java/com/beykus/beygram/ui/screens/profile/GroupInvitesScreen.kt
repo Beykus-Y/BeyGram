@@ -40,7 +40,6 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 /** Ссылка, которую нельзя редактировать через TDLib; отозвать её можно. */
 private data class InviteEditor(val link: GroupInviteLink?)
@@ -284,15 +283,25 @@ private fun GroupInviteLinkDialog(
 ) {
     val palette = beyGramPalette()
     var name by rememberSaveable(existing?.link) { mutableStateOf(existing?.name.orEmpty()) }
-    var term by rememberSaveable(existing?.link) { mutableIntStateOf(initialInviteTerm(existing)) }
+    // -1 — сохранить исходный абсолютный срок, 0 — бессрочно, >0 — новый срок в секундах.
+    var termChoice by rememberSaveable(existing?.link) {
+        mutableIntStateOf(if (existing != null && existing.expiresAtSeconds > 0) -1 else 0)
+    }
     var limit by rememberSaveable(existing?.link) {
         mutableStateOf(existing?.memberLimit?.takeIf { it > 0 }?.toString().orEmpty())
     }
     var approval by rememberSaveable(existing?.link) { mutableStateOf(existing?.requiresApproval == true) }
     val parsedLimit = limit.toIntOrNull() ?: if (limit.isBlank()) 0 else Int.MAX_VALUE
+    val keepExistingExpiry = existing != null && existing.expiresAtSeconds > 0
+    val nowSeconds = System.currentTimeMillis() / 1000
+    val expiresAtSeconds = when {
+        termChoice < 0 -> existing?.expiresAtSeconds ?: 0
+        termChoice == 0 -> 0
+        else -> inviteExpirationDate(nowSeconds, termChoice)
+    }
     val draft = GroupInviteLinkDraft(
         name = name,
-        ttlSeconds = term.takeIf { it > 0 },
+        expiresAtSeconds = expiresAtSeconds,
         memberLimit = if (approval) 0 else parsedLimit,
         requiresApproval = approval
     )
@@ -325,10 +334,17 @@ private fun GroupInviteLinkDialog(
                     modifier = Modifier.padding(top = 8.dp)
                 )
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (keepExistingExpiry) FilterChip(
+                        selected = termChoice < 0,
+                        onClick = { termChoice = -1 },
+                        enabled = !busy,
+                        label = { Text(stringResource(R.string.group_invites_term_keep), fontSize = 13.sp) },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    )
                     GROUP_INVITE_TERM_VALUES.forEach { value ->
                         FilterChip(
-                            selected = term == value,
-                            onClick = { term = value },
+                            selected = termChoice == value,
+                            onClick = { termChoice = value },
                             enabled = !busy,
                             label = { Text(stringResource(value.inviteTermLabel()), fontSize = 13.sp) },
                             modifier = Modifier.heightIn(min = 48.dp)
@@ -376,14 +392,8 @@ private fun GroupInviteLinkDialog(
     )
 }
 
-private fun initialInviteTerm(link: GroupInviteLink?): Int {
-    if (link == null || link.expiresAtSeconds <= 0) return 0
-    val now = System.currentTimeMillis() / 1000
-    val remaining = inviteRemainingSeconds(link.expiresAtSeconds, now)
-    return GROUP_INVITE_TERM_VALUES.filter { it > 0 }.minByOrNull { abs(it - remaining) } ?: 0
-}
-
 private fun Int.inviteTermLabel(): Int = when (this) {
+    -1 -> R.string.group_invites_term_keep
     86_400 -> R.string.group_invites_term_day
     7 * 86_400 -> R.string.group_invites_term_week
     30 * 86_400 -> R.string.group_invites_term_month

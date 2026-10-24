@@ -113,6 +113,7 @@
     <string name="group_invites_name_hint">Необязательно, до 32 символов</string>
     <string name="group_invites_expiry_label">Срок действия</string>
     <string name="group_invites_term_never">Никогда</string>
+    <string name="group_invites_term_keep">Не менять</string>
     <string name="group_invites_term_day">1 день</string>
     <string name="group_invites_term_week">7 дней</string>
     <string name="group_invites_term_month">30 дней</string>

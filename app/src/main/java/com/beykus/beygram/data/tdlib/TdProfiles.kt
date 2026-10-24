@@ -61,6 +61,17 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         files.register(small.toMediaFileState()); files.register(big.toMediaFileState())
         return AvatarPhoto(small.id, big.id)
     }
+    /** Идентификатор подписанного аккаунта; первый запрос при необходимости загружает GetMe. */
+    internal suspend fun myUserId(): Long {
+        synchronized(lock) { myId }.takeIf { it > 0L }?.let { return it }
+        val me = request(TdApi.GetMe())
+        synchronized(lock) {
+            myId = me.id
+            users[me.id] = me
+            publish()
+        }
+        return me.id
+    }
     /** Догружает отсутствующих пользователей параллельно: страница участников не должна ждать их по одному. */
     internal suspend fun resolveUsers(ids: Collection<Long>): Map<Long, TdApi.User> {
         val unique = ids.distinct().filter { it > 0L }

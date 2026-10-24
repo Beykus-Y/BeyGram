@@ -22,6 +22,10 @@ data class GroupAdministratorRights(
     val canManageTopics: Boolean = false,
     val canPromoteMembers: Boolean = false,
     val canManageVideoChats: Boolean = false,
+    val canPostStories: Boolean = false,
+    val canEditStories: Boolean = false,
+    val canDeleteStories: Boolean = false,
+    val canManageDirectMessages: Boolean = false,
     val canManageTags: Boolean = false,
     val isAnonymous: Boolean = false
 )
@@ -138,10 +142,10 @@ data class GroupInviteLink(
     val creatorIsCurrentUser: Boolean = false
 )
 
-/** Параметры создания или изменения ссылки. [ttlSeconds] == null — ссылка бессрочная. */
+/** Параметры создания или изменения ссылки. [expiresAtSeconds] — абсолютная точка Unix; 0 — бессрочно. */
 data class GroupInviteLinkDraft(
     val name: String = "",
-    val ttlSeconds: Int? = null,
+    val expiresAtSeconds: Int = 0,
     val memberLimit: Int = 0,
     val requiresApproval: Boolean = false
 )

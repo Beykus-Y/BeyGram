@@ -113,6 +113,7 @@
     <string name="group_invites_name_hint">Optional, up to 32 characters</string>
     <string name="group_invites_expiry_label">Expiration</string>
     <string name="group_invites_term_never">Never</string>
+    <string name="group_invites_term_keep">Keep current</string>
     <string name="group_invites_term_day">1 day</string>
     <string name="group_invites_term_week">7 days</string>
     <string name="group_invites_term_month">30 days</string>
