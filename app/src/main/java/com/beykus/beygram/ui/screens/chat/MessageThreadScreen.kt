@@ -310,7 +310,7 @@ internal fun MessageThreadScreen(
                     message = root,
                     observeFile = observeFile,
                     onDownloadFile = downloadFile,
-                    onOpen = { selectedMediaId = it },
+                    onOpen = { selectedMediaId = root.id },
                     onActions = { reactionTarget = channelChatId to root },
                     onReplyClick = ::jump,
                     onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
