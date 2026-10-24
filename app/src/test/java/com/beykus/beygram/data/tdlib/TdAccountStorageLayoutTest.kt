@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.tdlib
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -97,5 +98,16 @@ class TdAccountStorageLayoutTest {
             } catch (_: IllegalStateException) { }
         } finally { first.releaseAfterClientClosed(); first.releaseAfterClientClosed() }
         leases.acquire(db).releaseAfterClientClosed()
+    }
+
+    @Test fun sharedAccountIdRuleAcceptsSafeIdsUpToSixtyFourCharacters() {
+        assertTrue(TdAccountStorageLayout.isValidAccountId("legacy"))
+        assertTrue(TdAccountStorageLayout.isValidAccountId("a_B-9"))
+        assertTrue(TdAccountStorageLayout.isValidAccountId("a-" + "x".repeat(62)))
+        assertFalse(TdAccountStorageLayout.isValidAccountId("a-" + "x".repeat(63)))
+        assertFalse(TdAccountStorageLayout.isValidAccountId(""))
+        assertFalse(TdAccountStorageLayout.isValidAccountId("../tdlib"))
+        assertFalse(TdAccountStorageLayout.isValidAccountId("two/parts"))
+        assertFalse(TdAccountStorageLayout.isValidAccountId("a b"))
     }
 }

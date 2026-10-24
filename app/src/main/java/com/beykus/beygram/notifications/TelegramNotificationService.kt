@@ -23,6 +23,7 @@ import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 
 /**
@@ -136,9 +137,13 @@ class TelegramNotificationService : Service() {
         // Account authorization, manual stop and route eligibility may change
         // outside the legacy repository collector. A secondary-only foreground
         // service must terminate rather than advertise perpetual "Connecting…".
+        // The timer is only a safety net: legacy preference and session changes re-check at once.
+        val recheck = Channel<Unit>(Channel.CONFLATED)
+        scope.launch { runtime.preferences.state.drop(1).collect { recheck.trySend(Unit) } }
+        scope.launch { runtime.authorized.drop(1).collect { recheck.trySend(Unit) } }
         scope.launch {
             while (isActive) {
-                delay(15_000L)
+                withTimeoutOrNull(SAFETY_CHECK_INTERVAL_MILLIS) { recheck.receive() }
                 val permitted = withContext(Dispatchers.IO) {
                     shouldRun(this@TelegramNotificationService)
                 }
@@ -214,6 +219,8 @@ class TelegramNotificationService : Service() {
         private const val EXTRA_SOURCE = "source"
         private const val STARTUP_WAKE_LOCK_MILLIS = 15_000L
         private const val DELIVERY_WAKE_LOCK_MILLIS = 60_000L
+        // Periodic re-check for changes this service cannot observe: secondary accounts, route and Mihomo state.
+        private const val SAFETY_CHECK_INTERVAL_MILLIS = 5 * 60_000L
         // Set when reconciliation stops a running service, so its onDestroy records that cause instead of a platform stop.
         @Volatile private var externalStopReason: String? = null
         private fun registeredSecondaryAccounts(context: Context): List<String> =

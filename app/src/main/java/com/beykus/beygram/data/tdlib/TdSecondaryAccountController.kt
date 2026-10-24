@@ -10,6 +10,8 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.notifications.NotificationPreferencesStore
 import com.beykus.beygram.notifications.notificationPreferencesName
 import com.beykus.beygram.data.archive.archivePreferencesName
+import com.beykus.beygram.data.settings.chatOverridePreferencesName
+import com.beykus.beygram.data.settings.translationPreferencesName
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -497,7 +499,7 @@ internal class TdSecondaryAccountController private constructor(
      * the registry no longer references this ID. Symlinks are never followed. */
     suspend fun logoutAndDelete(accountId: String) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-            accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+            TdAccountStorageLayout.isValidAccountId(accountId))
         val operation = MultiAccountDiagnostics.begin("logout_delete", accountId)
         restoreStore.markDeletionPending(accountId)
         // A native logout failure must not unregister or delete an active DB.
@@ -559,6 +561,8 @@ internal class TdSecondaryAccountController private constructor(
             tdDraftPreferencesName(accountId),
             archivePreferencesName(accountId),
             notificationPreferencesName(accountId),
+            translationPreferencesName(accountId),
+            chatOverridePreferencesName(accountId),
             "pending_group_creation_$accountId",
             "mihomo_tdlib_proxy_$accountId"
         ).forEach { prefName -> app.deleteSharedPreferences(prefName) }

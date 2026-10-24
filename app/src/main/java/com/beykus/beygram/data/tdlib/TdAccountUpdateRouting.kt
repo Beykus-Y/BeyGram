@@ -2,9 +2,9 @@ package com.beykus.beygram.data.tdlib
 
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
-import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.logging.Level
@@ -33,19 +33,15 @@ internal class TdAccountUpdateRouter(private val registry: TdAccountRegistry) {
         val generation: Long,
         val onUpdate: (TdAccountRoutedUpdate) -> Unit
     ) {
-        // Keep expensive repository callbacks off TDLib's ResponseReceiver thread.
-        // The bounded, single-worker queue preserves per-client delivery order.
+        // Keep expensive repository callbacks off TDLib's ResponseReceiver thread. One worker preserves
+        // per-client delivery order. The queue is unbounded on purpose: that receiver thread is shared by every
+        // account, so an offer must never block on one slow account while dispatchLock is held.
         val dispatchLock = Any()
         var accepting = true // guarded by dispatchLock
         val dispatcher = ThreadPoolExecutor(
             1, 1, 0L, TimeUnit.MILLISECONDS,
-            ArrayBlockingQueue(4096),
-            { runnable -> Thread(runnable, "beygram-tdlib-$generation").apply { isDaemon = true } },
-            { runnable, executor ->
-                // Never drop a state update: apply backpressure in extreme bursts.
-                if (executor.isShutdown) throw RejectedExecutionException("TDLib dispatcher closed")
-                executor.queue.put(runnable)
-            }
+            LinkedBlockingQueue<Runnable>(),
+            ThreadFactory { runnable -> Thread(runnable, "beygram-tdlib-$generation").apply { isDaemon = true } }
         )
     }
     private val logger = Logger.getLogger(TdAccountUpdateRouter::class.java.name)

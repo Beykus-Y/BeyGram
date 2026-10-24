@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.settings
 
 import android.content.Context
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.domain.model.TranslationPolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -57,7 +58,7 @@ private class SharedPreferencesTranslationStorage(context: Context, accountId: S
 
 /** The original account keeps the historical un-suffixed name; every secondary account is isolated. */
 internal fun translationPreferencesName(accountId: String): String {
-    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}"))) { "Invalid account id for translation settings" }
+    require(TdAccountStorageLayout.isValidAccountId(accountId)) { "Invalid account id for translation settings" }
     return if (accountId == "legacy") "translation-settings" else "translation-settings_$accountId"
 }
 

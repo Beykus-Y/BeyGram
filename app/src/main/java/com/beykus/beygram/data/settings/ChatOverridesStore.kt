@@ -4,6 +4,7 @@ import android.content.Context
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.chatWallpaperFromStored
 import com.beykus.beygram.data.appearance.encode
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,7 +32,7 @@ private class SharedPreferencesChatOverrideStorage(context: Context, accountId: 
 
 /** Names are account-scoped; the original account keeps the historical un-suffixed name. */
 internal fun chatOverridePreferencesName(accountId: String): String {
-    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}"))) { "Invalid account id for chat overrides" }
+    require(TdAccountStorageLayout.isValidAccountId(accountId)) { "Invalid account id for chat overrides" }
     return if (accountId == "legacy") "chat-overrides" else "chat-overrides_$accountId"
 }
 

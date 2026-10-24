@@ -3,6 +3,7 @@ package com.beykus.beygram.data.media
 import android.content.Context
 import androidx.annotation.StringRes
 import com.beykus.beygram.R
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.repository.TelegramRepository
 import java.io.File
@@ -117,7 +118,7 @@ internal class VideoNoteLossDiagnostics(
         }
 
         @Synchronized fun getInstance(context: Context, repository: TelegramRepository, accountId: String = "legacy"): VideoNoteLossDiagnostics {
-            require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+            require(TdAccountStorageLayout.isValidAccountId(accountId))
             val existing = instances[repository]
             if (existing != null) {
                 check(existing.accountId == accountId) { "Mismatched diagnostic account owner" }

@@ -2,6 +2,7 @@ package com.beykus.beygram.notifications
 
 import android.content.Context
 import com.beykus.beygram.R
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.vpn.VpnBackend
@@ -53,7 +54,7 @@ class NotificationRuntime private constructor(private val context: Context) {
     private val secondaryReplyOutboxes = ConcurrentHashMap<String, ReplyOutbox>()
     private val secondaryRepliesInFlight = ConcurrentHashMap.newKeySet<String>()
     private fun secondaryReplyOutbox(accountId: String): ReplyOutbox {
-        require(accountId != "legacy" && accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        require(accountId != "legacy" && TdAccountStorageLayout.isValidAccountId(accountId))
         return secondaryReplyOutboxes.computeIfAbsent(accountId) {
             ReplyOutbox(File(context.noBackupFilesDir, "reply-outbox-secondary/$it"))
         }
@@ -71,7 +72,7 @@ class NotificationRuntime private constructor(private val context: Context) {
      * independently authenticated per-account persistent outboxes.
      */
     @Synchronized fun attachSecondary(accountId: String, source: TelegramRepository) {
-        require(accountId != "legacy" && accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        require(accountId != "legacy" && TdAccountStorageLayout.isValidAccountId(accountId))
         check((source as? TdLibTelegramRepository)?.accountId == accountId) {
             "Notification source must match the native secondary TDLib account"
         }
@@ -168,7 +169,7 @@ class NotificationRuntime private constructor(private val context: Context) {
             try {
                 if (chatId == 0L || groupId <= 0 || maxId <= 0 ||
                     accountId == "legacy" ||
-                    !accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}"))) return@launch
+                    !TdAccountStorageLayout.isValidAccountId(accountId)) return@launch
                 val prefs = preferencesForAccount(accountId)
                 if (!prefs.authorized || prefs.replyToken() != session || text.isBlank()) return@launch
                 val entry = try {
@@ -268,7 +269,7 @@ class NotificationRuntime private constructor(private val context: Context) {
     }
 
     fun dismissSecondary(accountId: String, groupId: Int, maxId: Int) {
-        if (accountId == "legacy" || !accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")) ||
+        if (accountId == "legacy" || !TdAccountStorageLayout.isValidAccountId(accountId) ||
             groupId <= 0 || maxId <= 0) return
         val registered = secondaries[accountId]
         val scopedPrefs = registered?.preferences ?: preferencesForAccount(accountId)

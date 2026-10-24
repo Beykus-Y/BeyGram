@@ -204,7 +204,7 @@ private const val STAGED_UPLOAD_OWNER_MARKER = ".owner"
 
 /** Owner must be persisted BEFORE an upload/camera export writes media bytes. */
 internal fun markUploadDirectoryOwner(folder: File, accountId: String) {
-    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+    require(TdAccountStorageLayout.isValidAccountId(accountId))
     require(folder.isDirectory && !java.nio.file.Files.isSymbolicLink(folder.toPath()))
     val marker = File(folder, STAGED_UPLOAD_OWNER_MARKER)
     if (marker.exists()) {

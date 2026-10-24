@@ -75,7 +75,9 @@ class MainActivity : ComponentActivity() {
         lastDeepLinkIntentData = savedInstanceState?.getString("deeplink_intent_data") ?: lastDeepLinkIntentData
         val incomingLinkData = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString
         val savedLinkData = savedInstanceState?.getString("deeplink_intent_data")
-        if (savedInstanceState == null || (incomingLinkData != null && incomingLinkData != savedLinkData)) {
+        // A task relaunched from Recents re-delivers its original VIEW intent with this flag. That link was already handled.
+        val launchedFromHistory = ((intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        if (!launchedFromHistory && (savedInstanceState == null || (incomingLinkData != null && incomingLinkData != savedLinkData))) {
             acceptDeepLinkIntent(intent)
         }
         // The link is persisted before login, so it is also restored after process death or Activity recreation.

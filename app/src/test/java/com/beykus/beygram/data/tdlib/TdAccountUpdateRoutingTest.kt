@@ -213,4 +213,33 @@ class TdAccountUpdateRoutingTest {
         assertTrue(router.registeredSessions().isEmpty())
     }
 
+    @Test fun saturatedAccountQueueNeverBlocksSharedNativeCallbackThread() = withRegistry { registry ->
+        val slowId = registry.prepareSecondaryAccount().second
+        val router = TdAccountUpdateRouter(registry)
+        val started = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val slow = router.register(slowId) {
+            started.countDown()
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+        }
+        val pumped = java.util.concurrent.CountDownLatch(1)
+        // Thousands of queued updates for a stalled account must return on the shared native thread at once.
+        val nativeThread = Thread {
+            slow.updateHandler.onResult(TdApi.Ok())
+            repeat(5_000) { slow.updateHandler.onResult(TdApi.Ok()) }
+            pumped.countDown()
+        }
+        try {
+            nativeThread.start()
+            assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue("Native callbacks must not wait for a stalled account",
+                pumped.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        } finally {
+            release.countDown()
+            nativeThread.join(3_000)
+            slow.onNativeClosed()
+            awaitCondition("Stalled account worker retired") { router.registeredSessions().isEmpty() }
+        }
+    }
+
 }

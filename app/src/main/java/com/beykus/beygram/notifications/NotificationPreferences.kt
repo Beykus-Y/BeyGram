@@ -1,13 +1,14 @@
 package com.beykus.beygram.notifications
 
 import android.content.Context
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 data class NotificationPreferences(val enabled: Boolean = true, val background: Boolean = true, val previews: Boolean = true)
 
 internal fun notificationPreferencesName(accountId: String): String {
-    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+    require(TdAccountStorageLayout.isValidAccountId(accountId))
     return if (accountId == "legacy") "notifications" else "notifications_$accountId"
 }
 

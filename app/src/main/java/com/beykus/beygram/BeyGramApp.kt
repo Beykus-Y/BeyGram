@@ -237,25 +237,41 @@ private fun BeyGramAppContent(
     val accountChoice = secondaryAccountController.coordinator.snapshot.collectAsStateWithLifecycle().value
 
     val accountRow = accountChoice.accounts.firstOrNull { it.accountId == selectedAccountId }
-    val repositorySelection by produceState<TelegramRepository?>(
-        initialValue = if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
-            legacyRepository else null,
+    // produceState keeps its previous value until the producer reassigns it. The account ID travels with the
+    // repository, so a switch never exposes the previous account's repository in the frame that selects the new one.
+    val producedRepository by produceState<Pair<String, TelegramRepository?>>(
+        initialValue = selectedAccountId to
+            (if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) legacyRepository else null),
         selectedAccountId, accountRow?.phase, accountRow?.networkSuspended
     ) {
-        value = when {
-            selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> legacyRepository
-            accountRow?.connectedInThisProcess != true ||
-                accountRow.phase != com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY ||
-                accountRow.networkSuspended -> null
-            else -> runCatching {
+        // Read the key once: a producer must never label its result with a selection made after it started.
+        val accountId = selectedAccountId
+        val row = accountRow
+        val target: TelegramRepository? = when {
+            accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> legacyRepository
+            row?.connectedInThisProcess != true ||
+                row.phase != com.beykus.beygram.data.tdlib.TdAccountAuthPhase.READY ||
+                row.networkSuspended -> null
+            else -> try {
                 withContext(Dispatchers.IO) {
                     secondaryAccountController.coordinator.fullRepository(
-                        selectedAccountId, context.applicationContext
+                        accountId, context.applicationContext
                     )
                 }
-            }.getOrNull()
+            } catch (cancelled: CancellationException) {
+                // A cancelled producer must not publish its stale result over the new selection.
+                throw cancelled
+            } catch (_: Throwable) {
+                // Any other failure leaves the selected account without a repository, as runCatching did before.
+                null
+            }
         }
+        value = accountId to target
     }
+    // The legacy repository needs no async work. A secondary repository is null until it is produced for this selection.
+    val repositorySelection: TelegramRepository? =
+        if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) legacyRepository
+        else producedRepository.takeIf { it.first == selectedAccountId }?.second
     // The unavailable repository is intentionally EMPTY, not legacy data.
     // No caller of a secondary route may fall back to the first account.
     val unavailableAccountRepository = remember { UnavailableTelegramRepository() }
