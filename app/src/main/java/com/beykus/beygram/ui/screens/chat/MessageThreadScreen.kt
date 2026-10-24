@@ -42,11 +42,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +64,7 @@ import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageReply
+import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.ReactionOption
@@ -69,7 +72,9 @@ import com.beykus.beygram.domain.model.mergeThreadMessages
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -85,6 +90,9 @@ internal fun MessageThreadScreen(
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
+    initialDraftText: String = "",
+    initialReplyToId: Long = 0L,
+    onDraftChange: (String, Long) -> Unit = { _, _ -> },
     onBack: () -> Unit,
     onOpenProfile: (Long) -> Unit
 ) {
@@ -100,14 +108,16 @@ internal fun MessageThreadScreen(
     var pagingError by remember(channelChatId, postId) { mutableStateOf<String?>(null) }
     var loadingOlder by remember(channelChatId, postId) { mutableStateOf(false) }
     var hasOlder by remember(channelChatId, postId) { mutableStateOf(false) }
-    var text by rememberSaveable(channelChatId, postId) { mutableStateOf("") }
+    var text by rememberSaveable(channelChatId, postId) { mutableStateOf(initialDraftText) }
     var entities by remember(channelChatId, postId) { mutableStateOf<List<MessageTextEntity>>(emptyList()) }
     var replyTarget by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
+    var replyTargetId by rememberSaveable(channelChatId, postId) { mutableLongStateOf(initialReplyToId) }
     var focusRequest by remember(channelChatId, postId) { mutableIntStateOf(0) }
     var sending by remember { mutableStateOf(false) }
     var sendError by remember { mutableStateOf<String?>(null) }
     var reactionTarget by remember { mutableStateOf<Pair<Long, ChatMessage>?>(null) }
     var reactionOptions by remember { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    var selectedMediaId by remember { mutableStateOf<Long?>(null) }
 
     BackHandler(onBack = onBack)
 
@@ -135,6 +145,45 @@ internal fun MessageThreadScreen(
                 loading = false
                 errorText = failure.userMessage(context, R.string.thread_comments_unavailable)
             }
+    }
+    // The discussion supergroup is a real chat: opening it lets TDLib route new comments, delivery updates and
+    // deletions through the shared history store. Only messages from this thread are merged into the local snapshot.
+    LaunchedEffect(thread?.discussionChatId, thread?.threadId, conversation) {
+        val chatId = thread?.discussionChatId ?: 0L
+        val currentThreadId = thread?.threadId ?: 0L
+        if (chatId == 0L || currentThreadId == 0L) return@LaunchedEffect
+        conversation.openChat(chatId)
+        try {
+            coroutineScope {
+                launch {
+                    conversation.observeChatHistory(chatId).collect { history ->
+                        val fresh = history.messages.filter {
+                            it.messageThreadId == currentThreadId && !it.isChannelPost
+                        }
+                        if (fresh.isNotEmpty()) {
+                            messages = mergeThreadMessages(messages, fresh)
+                        }
+                    }
+                }
+                // Read receipts go through the existing privacy-aware gateway and only for genuinely visible rows.
+                snapshotFlow { listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Long } }
+                    .distinctUntilChanged()
+                    .collect { visibleIds ->
+                        val sent = visibleIds.filter { id ->
+                            messages.any { it.id == id && it.sendState == MessageSendState.Sent }
+                        }
+                        if (sent.isNotEmpty()) conversation.messagesVisible(chatId, sent)
+                    }
+            }
+        } finally {
+            conversation.closeChat(chatId)
+        }
+    }
+    // A restored draft can name a reply target before that page has loaded; attach it as soon as it appears.
+    LaunchedEffect(replyTargetId, messages) {
+        if (replyTargetId > 0L && replyTarget == null) {
+            replyTarget = messages.firstOrNull { it.id == replyTargetId }
+        }
     }
     LaunchedEffect(reactionTarget) {
         val target = reactionTarget ?: return@LaunchedEffect
@@ -198,7 +247,7 @@ internal fun MessageThreadScreen(
         if (!current.canReply || sending || text.isBlank()) return
         val outgoingText = text
         val outgoingEntities = entities
-        val replyTo = replyTarget?.id
+        val replyTo = replyTarget?.id ?: replyTargetId.takeIf { it > 0L }
         sending = true
         sendError = null
         scope.launch {
@@ -210,6 +259,8 @@ internal fun MessageThreadScreen(
                         text = ""
                         entities = emptyList()
                         replyTarget = null
+                        replyTargetId = 0L
+                        onDraftChange("", 0L)
                         scope.launch { listState.animateScrollToItem(0) }
                     }
                     .onFailure { sendError = it.userMessage(context, R.string.thread_comments_send_failed) }
@@ -259,7 +310,7 @@ internal fun MessageThreadScreen(
                     message = root,
                     observeFile = observeFile,
                     onDownloadFile = downloadFile,
-                    onOpen = {},
+                    onOpen = { selectedMediaId = it },
                     onActions = { reactionTarget = channelChatId to root },
                     onReplyClick = ::jump,
                     onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
@@ -298,11 +349,14 @@ internal fun MessageThreadScreen(
                         observeFile = observeFile,
                         onDownloadFile = downloadFile,
                         onOpenProfile = onOpenProfile,
+                        onOpenMedia = { selectedMediaId = message.id },
                         onActions = { reactionTarget = message.chatId to message },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {
                             { target: Long ->
                                 replyTarget = messages.firstOrNull { it.id == target }
+                                replyTargetId = target
+                                onDraftChange(text, target)
                                 focusRequest++
                             }
                         } else null,
@@ -371,7 +425,7 @@ internal fun MessageThreadScreen(
                                 )
                                 Text(target.summary(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            IconButton(onClick = { replyTarget = null }) {
+                            IconButton(onClick = { replyTarget = null; replyTargetId = 0L; onDraftChange(text, 0L) }) {
                                 Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary)
                             }
                         }
@@ -380,7 +434,7 @@ internal fun MessageThreadScreen(
                         FormattingTextField(
                             value = text,
                             entities = entities,
-                            onChange = { text = it },
+                            onChange = { text = it; onDraftChange(it, replyTarget?.id ?: replyTargetId) },
                             onEntitiesChange = { entities = it },
                             placeholder = stringResource(R.string.thread_reply_placeholder),
                             locked = sending,
@@ -410,6 +464,22 @@ internal fun MessageThreadScreen(
             }
         }
     }
+
+    val mediaMessages = (messages + listOfNotNull(post)).filter { it.media != null }
+    val viewed = mediaMessages.firstOrNull { it.id == selectedMediaId }
+    if (viewed?.media != null) {
+        MediaViewer(
+            pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it) } },
+            selectedId = viewed.id,
+            onSelect = { selectedMediaId = it },
+            observeFile = observeFile,
+            downloadFile = downloadFile,
+            onViewed = { id -> conversation.openMessageContent(viewed.chatId, id) },
+            onClose = { selectedMediaId = null },
+            title = viewed.senderName.ifBlank { channelTitle },
+            subtitle = viewed.time
+        )
+    }
 }
 
 @Composable
@@ -418,6 +488,7 @@ private fun ThreadCommentRow(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
     onOpenProfile: (Long) -> Unit,
+    onOpenMedia: () -> Unit,
     onActions: () -> Unit,
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)?,
@@ -450,7 +521,7 @@ private fun ThreadCommentRow(
                 message = message,
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
-                onOpen = {},
+                onOpen = { onOpenMedia() },
                 onActions = onActions,
                 onReplyClick = onReplyClick,
                 onReply = onReply,

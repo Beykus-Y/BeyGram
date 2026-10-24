@@ -311,6 +311,9 @@ private fun BeyGramAppContent(
     // A channel post's discussion thread is an overlay over the same chat visit; only ids survive recreation.
     var threadChannelChatId by rememberSaveable { mutableStateOf(0L) }
     var threadPostId by rememberSaveable { mutableStateOf(0L) }
+    // Inspecting a commenter temporarily leaves the thread overlay; keep the composer outside it.
+    var threadDraftText by rememberSaveable { mutableStateOf("") }
+    var threadDraftReplyId by rememberSaveable { mutableStateOf(0L) }
     // The selected forum topic follows its parent chat. Other chats must never inherit the previous topic.
     var selectedTopicChatId by rememberSaveable { mutableStateOf(0L) }
     var selectedForumTopicId by rememberSaveable { mutableStateOf(0L) }
@@ -1380,6 +1383,8 @@ private fun BeyGramAppContent(
                         onOpenComments = { post ->
                             threadChannelChatId = selectedChatId
                             threadPostId = post.id
+                            threadDraftText = ""
+                            threadDraftReplyId = 0L
                             routeName = AppRoute.MessageThread.name
                         },
                         threadOpen = commentsOpen,
@@ -1399,6 +1404,12 @@ private fun BeyGramAppContent(
                             conversation = repository,
                             observeFile = repository::observeFile,
                             downloadFile = repository::downloadFile,
+                            initialDraftText = threadDraftText,
+                            initialReplyToId = threadDraftReplyId,
+                            onDraftChange = { text, replyId ->
+                                threadDraftText = text
+                                threadDraftReplyId = replyId
+                            },
                             onBack = { routeName = AppRoute.Chat.name },
                             onOpenProfile = { userId -> openUserProfile(userId, AppRoute.MessageThread) }
                         )

@@ -2297,6 +2297,7 @@ class TdLibTelegramRepository private constructor(
         isCallEvent = content is TdApi.MessageCall,
         serviceUserId = event?.userId ?: 0L,
         forumTopicId = forumId(this),
+        messageThreadId = (topicId as? TdApi.MessageTopicThread)?.threadId ?: 0L,
         isPinned = isPinned,
         isChannelPost = isChannelPost,
         replyCount = interactionInfo?.replyInfo?.replyCount ?: 0,
