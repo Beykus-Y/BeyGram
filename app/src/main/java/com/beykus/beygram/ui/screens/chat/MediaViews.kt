@@ -789,8 +789,9 @@ private fun MediaViewerPage(
                 }
             }
             streamSource != null -> LocalVideo(
-                streamSource.path, loop = false, active = active,
-                onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource
+                streamSource.path, loop = media.kind == MediaKind.Animation, active = active,
+                onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
+                onManualDownload = { downloadFile(media.fileId) }
             )
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
             path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
@@ -1013,7 +1014,14 @@ private class ProgressiveFileDataSource(
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: () -> Unit, progressive: ProgressiveVideoSource? = null) {
+private fun LocalVideo(
+    path: String,
+    loop: Boolean,
+    active: Boolean,
+    onStarted: () -> Unit,
+    progressive: ProgressiveVideoSource? = null,
+    onManualDownload: (() -> Unit)? = null
+) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentOnStarted by rememberUpdatedState(onStarted)
@@ -1105,7 +1113,21 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
             if (video.playing) delay(VIDEO_PROGRESS_INTERVAL_MS)
         } while (video.playing)
     }
-    if (video.failed) Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray, modifier = Modifier.padding(24.dp))
+    if (video.failed) Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(24.dp)
+    ) {
+        Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray)
+        if (progressive != null && onManualDownload != null) {
+            TextButton(onClick = {
+                onManualDownload()
+                video = VideoPlayerState()
+                startRequested = true
+                player.prepare()
+                player.play()
+            }) { Text(stringResource(R.string.common_retry)) }
+        }
+    }
     else Box(Modifier.fillMaxSize()) {
         AndroidView(
             factory = { viewContext ->
