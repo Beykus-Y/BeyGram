@@ -101,6 +101,8 @@
     <string name="group_invites_primary">Основная ссылка</string>
     <string name="group_invites_default_name">Дополнительная ссылка</string>
     <string name="group_invites_approval">С одобрением заявок</string>
+    <string name="group_invites_subscription">Платная подписка · %1$d звёзд</string>
+    <string name="group_invites_subscription_hint">Параметры платной подписки меняются в официальном клиенте; здесь ссылку можно отозвать.</string>
     <string name="group_invites_expires">Действует до %1$s</string>
     <string name="group_invites_never_expires">Без срока действия</string>
     <string name="group_invites_limit">Лимит: %1$d</string>
@@ -182,6 +184,7 @@
     <string name="err_group_member_not_found">Пользователь не найден в чате</string>
     <string name="err_group_add_privacy">Пользователь запретил добавлять его в группы</string>
     <string name="err_group_invite_invalid">Ссылка недействительна или уже отозвана</string>
+    <string name="err_group_invite_subscription">Параметры платной подписки нельзя изменить здесь</string>
     <string name="err_group_title_required">Название не может быть пустым</string>
     <string name="err_group_title_too_long">Название слишком длинное</string>
     <string name="err_group_description_too_long">Описание слишком длинное</string>

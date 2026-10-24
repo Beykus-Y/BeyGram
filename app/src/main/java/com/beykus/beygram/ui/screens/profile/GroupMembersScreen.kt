@@ -118,6 +118,10 @@ internal fun GroupMembersScreen(
         loadingMore = false
         loading = true
         error = null
+        // Старые строки и offset не должны пережить неудачную загрузку нового фильтра.
+        members = emptyList()
+        nextOffset = 0
+        total = null
         if (query.isNotBlank()) delay(250)
         repository.loadGroupMembers(chatId, filter, query, 0, MEMBERS_PAGE)
             .onSuccess { page ->

@@ -140,9 +140,14 @@ data class GroupInviteLink(
     val requiresApproval: Boolean = false,
     val isPrimary: Boolean = false,
     val isRevoked: Boolean = false,
+    /** Платная подписка: срок/лимит/заявки для неё TDLib не разрешает. */
+    val subscriptionPeriodSeconds: Int = 0,
+    val subscriptionStarCount: Long = 0L,
     /** Ссылку своего аккаунта администратор может менять и отзывать; чужие — только владелец. */
     val creatorIsCurrentUser: Boolean = false
-)
+) {
+    val isSubscription: Boolean get() = subscriptionStarCount > 0L
+}
 
 /** Параметры создания или изменения ссылки. [expiresAtSeconds] — абсолютная точка Unix; 0 — бессрочно. */
 data class GroupInviteLinkDraft(
@@ -165,7 +170,7 @@ fun groupInviteLinkPermissions(rights: GroupAdminRights, link: GroupInviteLink):
     if (!rights.canManageInviteLinks) return GroupInviteLinkPermissions()
     val ownOrOwner = rights.isOwner || link.creatorIsCurrentUser
     return GroupInviteLinkPermissions(
-        canEdit = !link.isPrimary && ownOrOwner,
+        canEdit = !link.isPrimary && !link.isSubscription && ownOrOwner,
         canRevoke = link.isPrimary || ownOrOwner
     )
 }

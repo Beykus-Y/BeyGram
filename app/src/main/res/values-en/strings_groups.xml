@@ -101,6 +101,8 @@
     <string name="group_invites_primary">Primary link</string>
     <string name="group_invites_default_name">Additional link</string>
     <string name="group_invites_approval">Join requests required</string>
+    <string name="group_invites_subscription">Paid subscription · %1$d stars</string>
+    <string name="group_invites_subscription_hint">Paid subscription settings are changed in the official client; the link can only be revoked here.</string>
     <string name="group_invites_expires">Expires on %1$s</string>
     <string name="group_invites_never_expires">No expiration</string>
     <string name="group_invites_limit">Limit: %1$d</string>
@@ -182,6 +184,7 @@
     <string name="err_group_member_not_found">The user was not found in this chat</string>
     <string name="err_group_add_privacy">The user does not allow being added to groups</string>
     <string name="err_group_invite_invalid">The link is invalid or has been revoked</string>
+    <string name="err_group_invite_subscription">Paid subscription settings cannot be changed here</string>
     <string name="err_group_title_required">The title cannot be empty</string>
     <string name="err_group_title_too_long">The title is too long</string>
     <string name="err_group_description_too_long">The description is too long</string>

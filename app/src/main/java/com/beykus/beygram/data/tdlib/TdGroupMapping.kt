@@ -76,5 +76,7 @@ internal fun TdApi.ChatInviteLink.toGroupInviteLink(): GroupInviteLink = GroupIn
     pendingJoinRequestCount = pendingJoinRequestCount,
     requiresApproval = createsJoinRequest,
     isPrimary = isPrimary,
-    isRevoked = isRevoked
+    isRevoked = isRevoked,
+    subscriptionPeriodSeconds = subscriptionPricing?.period ?: 0,
+    subscriptionStarCount = subscriptionPricing?.starCount ?: 0L
 )

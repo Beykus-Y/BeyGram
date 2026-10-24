@@ -234,6 +234,10 @@ private fun GroupInviteLinkCard(
                     stringResource(R.string.group_invites_approval),
                     color = palette.accentInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
                 )
+                if (link.isSubscription) Text(
+                    stringResource(R.string.group_invites_subscription, link.subscriptionStarCount),
+                    color = palette.accentInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+                )
             }
             IconButton(onClick = onCopy) { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.group_invites_copy), tint = palette.textSecondary) }
             IconButton(onClick = onShare) { Icon(Icons.Rounded.Share, stringResource(R.string.group_invites_share), tint = palette.textSecondary) }
@@ -264,6 +268,13 @@ private fun GroupInviteLinkCard(
         if (link.isPrimary) {
             Text(
                 stringResource(R.string.group_invites_primary_hint),
+                color = palette.textSecondary, fontSize = 12.sp,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+        }
+        if (link.isSubscription) {
+            Text(
+                stringResource(R.string.group_invites_subscription_hint),
                 color = palette.textSecondary, fontSize = 12.sp,
                 modifier = Modifier.padding(top = 6.dp)
             )

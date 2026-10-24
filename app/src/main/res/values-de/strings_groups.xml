@@ -101,6 +101,8 @@
     <string name="group_invites_primary">Hauptlink</string>
     <string name="group_invites_default_name">Zusätzlicher Link</string>
     <string name="group_invites_approval">Beitrittsanfragen erforderlich</string>
+    <string name="group_invites_subscription">Kostenpflichtiges Abo · %1$d Sterne</string>
+    <string name="group_invites_subscription_hint">Einstellungen für das kostenpflichtige Abo werden im offiziellen Client geändert; der Link kann hier nur widerrufen werden.</string>
     <string name="group_invites_expires">Gültig bis %1$s</string>
     <string name="group_invites_never_expires">Kein Ablaufdatum</string>
     <string name="group_invites_limit">Limit: %1$d</string>
@@ -182,6 +184,7 @@
     <string name="err_group_member_not_found">Der Benutzer wurde in diesem Chat nicht gefunden</string>
     <string name="err_group_add_privacy">Der Benutzer erlaubt es nicht, zu Gruppen hinzugefügt zu werden</string>
     <string name="err_group_invite_invalid">Der Link ist ungültig oder wurde widerrufen</string>
+    <string name="err_group_invite_subscription">Einstellungen für das kostenpflichtige Abo können hier nicht geändert werden</string>
     <string name="err_group_title_required">Der Name darf nicht leer sein</string>
     <string name="err_group_title_too_long">Der Name ist zu lang</string>
     <string name="err_group_description_too_long">Die Beschreibung ist zu lang</string>

@@ -248,6 +248,10 @@ internal class TdGroupAdministration(
     }
 
     suspend fun editInviteLink(chatId: Long, link: String, draft: GroupInviteLinkDraft): GroupInviteLink {
+        // Платная подписка меняется отдельным TDLib-запросом и не принимает срок/лимит/заявки.
+        if (requests(TdApi.GetChatInviteLink(chatId, link)).subscriptionPricing != null) {
+            throw UserMessageException(UiText.Res(R.string.err_group_invite_subscription))
+        }
         val normalized = requireValidInviteDraft(draft)
         val updated = requests(
             TdApi.EditChatInviteLink(

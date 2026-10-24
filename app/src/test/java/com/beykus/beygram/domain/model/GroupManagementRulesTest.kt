@@ -211,6 +211,14 @@ class GroupManagementRulesTest {
         assertEquals(GroupInviteLinkPermissions(canEdit = true, canRevoke = true), groupInviteLinkPermissions(admin, own))
         assertEquals(GroupInviteLinkPermissions(), groupInviteLinkPermissions(admin, foreign))
         assertEquals(GroupInviteLinkPermissions(canEdit = false, canRevoke = true), groupInviteLinkPermissions(admin, primary))
+        val subscription = GroupInviteLink(
+            link = "https://t.me/+subscription",
+            creatorUserId = 1L,
+            creatorIsCurrentUser = true,
+            subscriptionStarCount = 100
+        )
+        assertTrue(subscription.isSubscription)
+        assertEquals(GroupInviteLinkPermissions(canEdit = false, canRevoke = true), groupInviteLinkPermissions(admin, subscription))
 
         val owner = groupAdminRights(ManagedChatKind.Supergroup, GroupMemberStatus.Owner)
         assertEquals(GroupInviteLinkPermissions(canEdit = true, canRevoke = true), groupInviteLinkPermissions(owner, foreign))
