@@ -12,4 +12,11 @@ class MessageUrlTest {
     @Test fun `bot links cannot execute script file or intent schemes`() {
         listOf("javascript:alert(1)", "file:///data/data/private", "intent://foo#Intent;end", "https://").forEach { assertNull(safeMessageUrl(it)) }
     }
+    @Test fun `link cards open only web urls and fall back to their host`() {
+        assertEquals("https://example.com/story", safeLinkPreviewUrl("example.com/story"))
+        assertEquals("https://example.com/original", safeLinkPreviewUrl("https://example.com/original"))
+        listOf("tg://user?id=1", "mailto:a@example.com", "tel:+123", "javascript:alert(1)").forEach { assertNull(safeLinkPreviewUrl(it)) }
+        assertEquals("example.com", linkPreviewHost("https://www.example.com/story"))
+        assertEquals("", linkPreviewHost(""))
+    }
 }

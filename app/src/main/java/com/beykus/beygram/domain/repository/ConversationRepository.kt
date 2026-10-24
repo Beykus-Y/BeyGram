@@ -53,8 +53,13 @@ interface ConversationRepository {
     suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit>
     /** Marks a chat unread without changing its read watermark; the chat list shows an unread marker. */
     suspend fun markChatUnread(chatId: Long): Result<Unit>
-    /** Regular forward (the original sender stays visible). TDLib refuses it when the message can't be forwarded. */
-    suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit>
+    /**
+     * Forwards a message. With [asCopy] the original sender is hidden, like Telegram's "Forward without author";
+     * TDLib refuses either form when the message can't be forwarded.
+     */
+    suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean = false): Result<Unit>
+    /** A t.me link to [messageId], or a Telegram error when the message has no shareable link. */
+    suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean = false): Result<String>
     /**
      * Reactions the current user can add to the message, in Telegram's order. Empty where reactions are not allowed. Custom
      * emoji are listed only for users with Telegram Premium.

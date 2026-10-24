@@ -14,11 +14,33 @@ internal class TdSecondaryRestoreStore(context: Context) {
         "beygram_secondary_resume_v1", Context.MODE_PRIVATE
     )
 
+    fun isAuthorized(accountId: String): Boolean {
+        if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) return false
+        return preferences.getBoolean("authorized:$accountId", false)
+    }
+
+    fun isManuallyStopped(accountId: String): Boolean {
+        if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) return false
+        return preferences.getBoolean("manual_stop:$accountId", false)
+    }
+
+    /** The last explicit choice, even before the account has completed sign-in. */
+    fun storedRoute(accountId: String): TdSecondaryRoutePreference? {
+        if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) return null
+        return tdParseSecondaryRoute(preferences.getString("route:$accountId", null))
+    }
+
+    fun setStoredRoute(accountId: String, choice: TdSecondaryRoutePreference) {
+        require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+        check(preferences.edit().putString("route:$accountId", choice.name).commit()) {
+            "Unable to persist secondary connection route"
+        }
+    }
+
     fun confirmedRoute(accountId: String): TdSecondaryRoutePreference? {
         if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) return null
         return tdParseAuthorizedSecondaryRoute(
-            authorized = preferences.getBoolean("authorized:$accountId", false) &&
-                !preferences.getBoolean("manual_stop:$accountId", false),
+            authorized = isAuthorized(accountId) && !isManuallyStopped(accountId),
             stored = preferences.getString("route:$accountId", null)
         )
     }
@@ -78,5 +100,10 @@ internal fun tdParseAuthorizedSecondaryRoute(
     stored: String?
 ): TdSecondaryRoutePreference? {
     if (!authorized || stored == null) return null
+    return tdParseSecondaryRoute(stored)
+}
+
+internal fun tdParseSecondaryRoute(stored: String?): TdSecondaryRoutePreference? {
+    if (stored == null) return null
     return TdSecondaryRoutePreference.entries.firstOrNull { it.name == stored }
 }

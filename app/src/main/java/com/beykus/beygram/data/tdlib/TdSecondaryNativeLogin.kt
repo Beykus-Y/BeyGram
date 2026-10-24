@@ -68,8 +68,8 @@ internal class TdSecondaryNativeLoginLauncher(
             "The legacy account is already owned by TdLibTelegramRepository"
         }
         val planned = preflight.decide(primaryRoute(), preference)
-        check(planned !is TdSecondaryRouteDecision.Blocked) {
-            "Secondary account route is unavailable: ${(planned as TdSecondaryRouteDecision.Blocked).reason}"
+        if (planned is TdSecondaryRouteDecision.Blocked) {
+            throw TdSecondaryRouteUnavailableException(planned.reason)
         }
 
         val phases = MutableStateFlow(TdAccountAuthPhase.STARTING)
@@ -299,9 +299,7 @@ internal class TdSecondaryNativeLogin internal constructor(
     private suspend fun expectOk(function: TdApi.Function<*>) {
         when (val response = request(function)) {
             is TdApi.Ok -> Unit
-            is TdApi.Error -> throw IllegalStateException(
-                "TDLib account authorization failed (code ${response.code})"
-            )
+            is TdApi.Error -> throw TdSecondaryAuthException(response.code, response.message)
             else -> error("Unexpected TDLib authorization response")
         }
     }

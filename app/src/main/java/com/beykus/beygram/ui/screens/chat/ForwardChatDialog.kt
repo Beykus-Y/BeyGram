@@ -24,13 +24,14 @@ import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Выбор чата для пересылки. Во время отправки список не нажимается и диалог не закрывается. */
 @Composable
-internal fun ForwardChatDialog(chats: List<ChatPreview>, busy: Boolean, error: String?, onPick: (ChatPreview) -> Unit, onClose: () -> Unit) {
+internal fun ForwardChatDialog(chats: List<ChatPreview>, busy: Boolean, error: String?, asCopy: Boolean = false, onPick: (ChatPreview) -> Unit, onClose: () -> Unit) {
     val palette = beyGramPalette()
     AlertDialog(
         onDismissRequest = { if (!busy) onClose() },
-        title = { Text(stringResource(R.string.forward_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold) },
+        title = { Text(stringResource(if (asCopy) R.string.forward_title_copy else R.string.forward_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold) },
         text = {
             Column {
+                if (asCopy) Text(stringResource(R.string.forward_copy_note), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
                 error?.let { Text(it, color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
                 LazyColumn(Modifier.heightIn(max = 420.dp)) {
                     items(chats, key = { it.id }) { chat ->

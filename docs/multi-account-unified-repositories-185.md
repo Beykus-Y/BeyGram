@@ -105,7 +105,9 @@ profile, search, calls and media already depend on `TelegramRepository` /
   specified secure native route policy.
 - **Account switcher** reads profile names, avatars and unread badges from
   each account's own repository; unavailable accounts never leak a legacy
-  profile or file ID.
+  profile or file ID. One compact bottom-sheet switcher is shared by the chat
+  header, Settings and the recovery screen; see
+  [multi-account-account-switcher.md](multi-account-account-switcher.md).
 
 ## Post-review hardening (Claude + Codex)
 
