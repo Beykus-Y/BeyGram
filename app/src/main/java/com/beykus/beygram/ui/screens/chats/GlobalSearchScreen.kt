@@ -5,8 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,43 +14,50 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.GlobalChatType
-import com.beykus.beygram.domain.model.GlobalSearchFilter
+import com.beykus.beygram.domain.model.GlobalSearchPage
 import com.beykus.beygram.domain.model.GlobalSearchPeriod
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.repository.ConversationRepository
+import com.beykus.beygram.domain.search.GlobalSearchRequest
 import com.beykus.beygram.domain.search.appendDistinctBy
+import com.beykus.beygram.domain.search.isStaleGlobalSearchRequest
+import com.beykus.beygram.domain.search.mergeGlobalChatResults
+import com.beykus.beygram.domain.search.mergeGlobalContactResults
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
+import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
@@ -60,67 +67,9 @@ import java.util.Date
 private const val SEARCH_DEBOUNCE_MILLIS = 400L
 
 /**
- * Hoisted across GlobalSearch → Chat → Back, so paging and filters are not
- * recreated whenever the navigation branch leaves composition.
- */
-class GlobalSearchSession(initialQuery: String) {
-    val query = mutableStateOf(initialQuery)
-    val filter = mutableStateOf(GlobalSearchFilter())
-    val hits = mutableStateOf<List<ChatMessage>>(emptyList())
-    val chatContexts = mutableStateOf<Map<Long, ChatPreview>>(emptyMap())
-    val nextOffset = mutableStateOf("")
-    val loadingMore = mutableStateOf(false)
-    val moreFailed = mutableStateOf(false)
-    val pagingJob = mutableStateOf<Job?>(null)
-    val searching = mutableStateOf(false)
-    val failed = mutableStateOf(false)
-    val retryVersion = mutableStateOf(0)
-    var completedRequest: Pair<String, GlobalSearchFilter>? = null
-
-    companion object {
-        // Only primitive enum identifiers enter Android saved state. Search pages are
-        // deliberately reloaded after process recreation; filters are not lost.
-        val stateSaver = androidx.compose.runtime.saveable.listSaver<GlobalSearchSession, String>(
-            save = { state ->
-                listOf(
-                    state.query.value,
-                    state.filter.value.kind?.name.orEmpty(),
-                    state.filter.value.chatType?.name.orEmpty(),
-                    state.filter.value.period.name
-                )
-            },
-            restore = { saved ->
-                GlobalSearchSession(saved.getOrElse(0) { "" }).also { state ->
-                    state.filter.value = GlobalSearchFilter(
-                        kind = SharedMediaKind.entries.firstOrNull { it.name == saved.getOrNull(1) },
-                        chatType = GlobalChatType.entries.firstOrNull { it.name == saved.getOrNull(2) },
-                        period = GlobalSearchPeriod.entries.firstOrNull { it.name == saved.getOrNull(3) }
-                            ?: GlobalSearchPeriod.Any
-                    )
-                }
-            }
-        )
-    }
-
-    fun reset(newQuery: String) {
-        pagingJob.value?.cancel()
-        query.value = newQuery
-        filter.value = GlobalSearchFilter()
-        hits.value = emptyList()
-        chatContexts.value = emptyMap()
-        nextOffset.value = ""
-        loadingMore.value = false
-        moreFailed.value = false
-        searching.value = false
-        failed.value = false
-        completedRequest = null
-        retryVersion.value++
-    }
-}
-
-/**
- * Поиск сообщений по всем чатам аккаунта. Каждое изменение текста перезапускает LaunchedEffect,
- * поэтому запрос устаревшего текста отменяется и его результат не попадает в выдачу.
+ * Unified global search: local/server chats and contacts, public chats, then message hits.
+ * Each source owns its loading/error/paging state and every request is guarded by the query and
+ * session generation, so a late answer from an old query/account never reaches the screen.
  */
 @Composable
 fun GlobalSearchScreen(
@@ -128,6 +77,9 @@ fun GlobalSearchScreen(
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
+    onOpenChat: (ChatPreview) -> Unit,
+    onOpenProfile: (Long) -> Unit,
+    onOpenPublicChat: (ChatPreview) -> Unit,
     onOpenMessage: (chatId: Long, forumTopicId: Long, messageId: Long) -> Unit,
     onBack: () -> Unit,
     session: GlobalSearchSession = remember { GlobalSearchSession(initialQuery) }
@@ -148,35 +100,142 @@ fun GlobalSearchScreen(
     var searching by session.searching
     var failed by session.failed
     var retryVersion by session.retryVersion
+    val generation = session.generation.value
+    // A completed source is only rendered for the query/generation that produced it. This prevents
+    // a single frame with old rows after the query changes and before the debounced source clears.
+    val chatItems = session.chats.items.value
+        .takeIf { session.chats.completedQuery == query && session.chats.completedGeneration == generation }
+        .orEmpty()
+    val contactItems = session.contacts.items.value
+        .takeIf { session.contacts.completedQuery == query && session.contacts.completedGeneration == generation }
+        .orEmpty()
+    val publicChatItems = session.publicChats.items.value
+        .takeIf { session.publicChats.completedQuery == query && session.publicChats.completedGeneration == generation }
+        .orEmpty()
+    val visibleHits = hits.takeIf {
+        session.completedRequest == (query to filter) && session.completedGeneration == generation
+    }.orEmpty()
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(query, filter, retryVersion) {
+    // Message filters and offset paging are unchanged; only the request guard was extended to the
+    // session generation so account switches cannot publish an old page.
+    LaunchedEffect(query, filter, retryVersion, generation) {
         pagingJob?.cancel()
         pagingJob = null
         loadingMore = false
         moreFailed = false
-        val request = query to filter
-        if (request == session.completedRequest && !failed) return@LaunchedEffect
-        if (session.completedRequest != request) {
+        val requestedQuery = query
+        val requestedFilter = filter
+        val requestedGeneration = generation
+        val request = requestedQuery to requestedFilter
+        val completed = session.completedRequest == request && session.completedGeneration == requestedGeneration
+        if (completed && !failed) return@LaunchedEffect
+        if (!completed) {
             hits = emptyList()
             chatContexts = emptyMap()
             nextOffset = ""
         }
         failed = false
-        if (query.isBlank()) { searching = false; return@LaunchedEffect }
+        if (requestedQuery.isBlank()) {
+            searching = false
+            return@LaunchedEffect
+        }
+        val isCurrent = {
+            !isStaleGlobalSearchRequest(
+                GlobalSearchRequest(requestedQuery, requestedGeneration),
+                query,
+                session.generation.value
+            ) && filter == requestedFilter
+        }
         searching = true
         try {
             delay(SEARCH_DEBOUNCE_MILLIS)
-            conversation.searchGlobalMessages(query, "", filter)
+            if (!isCurrent()) return@LaunchedEffect
+            conversation.searchGlobalMessages(requestedQuery, "", requestedFilter)
                 .onSuccess { page ->
-                    hits = page.messages
-                    chatContexts = page.chats
-                    nextOffset = page.nextOffset
+                    if (isCurrent()) {
+                        hits = page.messages
+                        chatContexts = page.chats
+                        nextOffset = page.nextOffset
+                    }
                 }
-                .onFailure { failed = true }
-            session.completedRequest = request
+                .onFailure { if (isCurrent()) failed = true }
+            if (isCurrent()) {
+                session.completedRequest = request
+                session.completedGeneration = requestedGeneration
+            }
         } finally {
-            searching = false
+            if (isCurrent()) searching = false
+        }
+    }
+
+    LaunchedEffect(query, generation, session.chats.retryVersion.value) {
+        searchGlobalSource(
+            query = query,
+            generation = generation,
+            source = session.chats,
+            currentQuery = { query },
+            currentGeneration = { session.generation.value },
+            merge = ::mergeGlobalChatResults,
+            search = { text, limit -> conversation.searchGlobalChats(text, limit) }
+        )
+    }
+    LaunchedEffect(query, generation, session.contacts.retryVersion.value) {
+        searchGlobalSource(
+            query = query,
+            generation = generation,
+            source = session.contacts,
+            currentQuery = { query },
+            currentGeneration = { session.generation.value },
+            merge = ::mergeGlobalContactResults,
+            search = { text, limit -> conversation.searchGlobalContacts(text, limit) }
+        )
+    }
+    LaunchedEffect(query, generation, session.publicChats.retryVersion.value) {
+        searchGlobalSource(
+            query = query,
+            generation = generation,
+            source = session.publicChats,
+            currentQuery = { query },
+            currentGeneration = { session.generation.value },
+            merge = ::mergeGlobalChatResults,
+            search = { text, _ -> conversation.searchGlobalPublicChats(text) }
+        )
+    }
+
+    fun <T> loadMore(
+        source: GlobalSearchSource<T>,
+        search: suspend (String, Int) -> Result<GlobalSearchPage<T>>,
+        merge: (List<T>, List<T>) -> List<T>
+    ) {
+        if (!source.canLoadMore()) return
+        val requestedQuery = query
+        val requestedGeneration = session.generation.value
+        val requestedLimit = source.nextLimit()
+        val isCurrent = {
+            !isStaleGlobalSearchRequest(
+                GlobalSearchRequest(requestedQuery, requestedGeneration),
+                query,
+                session.generation.value
+            )
+        }
+        source.loadingMore.value = true
+        source.moreFailed.value = false
+        source.moreJob?.cancel()
+        source.moreJob = scope.launch {
+            try {
+                search(requestedQuery, requestedLimit)
+                    .onSuccess { page ->
+                        if (isCurrent()) {
+                            source.items.value = merge(source.items.value, page.items)
+                            source.limit.value = requestedLimit
+                            source.hasMore.value = maxOf(page.totalCount, source.items.value.size) > requestedLimit
+                        }
+                    }
+                    .onFailure { if (isCurrent()) source.moreFailed.value = true }
+            } finally {
+                if (isCurrent()) source.loadingMore.value = false
+            }
         }
     }
 
@@ -186,116 +245,455 @@ fun GlobalSearchScreen(
     ) {
         ProfileToolbar(stringResource(R.string.global_search_title), onBack)
         SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
-        SearchChips(
-            options = SharedMediaKind.entries.map { it to stringResource(kindLabel(it)) },
-            selected = filter.kind,
-            all = stringResource(R.string.global_search_filter_all_types),
-            onSelect = { filter = filter.copy(kind = it) }
-        )
-        SearchChips(
-            options = GlobalChatType.entries.map { it to stringResource(chatTypeLabel(it)) },
-            selected = filter.chatType,
-            all = stringResource(R.string.global_search_filter_all_chats),
-            onSelect = { filter = filter.copy(chatType = it) }
-        )
-        SearchChips(
-            options = GlobalSearchPeriod.entries.filter { it != GlobalSearchPeriod.Any }
-                .map { it to stringResource(periodLabel(it)) },
-            selected = filter.period.takeIf { it != GlobalSearchPeriod.Any },
-            all = stringResource(R.string.global_search_filter_any_period),
-            onSelect = { filter = filter.copy(period = it ?: GlobalSearchPeriod.Any) }
-        )
-        val empty = when {
-            query.isBlank() -> stringResource(R.string.global_search_idle)
-            searching -> stringResource(R.string.global_search_loading)
-            failed -> stringResource(R.string.global_search_failed)
-            hits.isEmpty() -> stringResource(R.string.global_search_empty)
-            else -> null
-        }
-        if (empty != null) {
-            Text(empty, color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(20.dp))
-        }
-        if (failed && query.isNotBlank()) {
-            TextButton(onClick = { retryVersion++ }, enabled = !searching) {
-                Text(stringResource(R.string.common_retry))
-            }
-        }
-        LazyColumn(Modifier.fillMaxWidth()) {
-            items(hits, key = { "${it.chatId}:${it.id}" }) { message ->
-                val chat = chatContexts[message.chatId]
-                Row(
-                    Modifier.fillMaxWidth()
-                        .clickable { onOpenMessage(message.chatId, message.forumTopicId, message.id) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    if (chat != null) {
-                        ChatAvatar(chat, 42.dp, observeFile, downloadFile)
-                    } else {
-                        Avatar("?", palette.accent, 42.dp)
+        if (query.isBlank()) {
+            Text(
+                stringResource(R.string.global_search_idle),
+                color = palette.textSecondary,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(20.dp)
+            )
+        } else {
+            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+                item("chats-header") {
+                    SearchSectionHeader(
+                        title = stringResource(R.string.global_search_section_chats),
+                        count = chatItems.size,
+                        loading = session.chats.searching.value,
+                        failed = session.chats.failed.value,
+                        onRetry = { session.chats.retryVersion.value++ }
+                    )
+                }
+                if (chatItems.isEmpty()) {
+                    item("chats-state") {
+                        SearchSourceState(
+                            loading = session.chats.searching.value,
+                            failed = session.chats.failed.value,
+                            emptyText = stringResource(R.string.global_search_section_empty_chats),
+                            failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_chats))
+                        )
                     }
-                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                chat?.title ?: stringResource(R.string.global_search_chat_unknown),
-                                color = palette.textPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                modifier = Modifier.weight(1f)
+                } else {
+                    items(chatItems, key = { "chat:${it.id}" }) { chat ->
+                        GlobalChatRow(chat, observeFile, downloadFile) { onOpenChat(chat) }
+                    }
+                    if (session.chats.hasMore.value && session.chats.supportsMore) {
+                        item("chats-more") {
+                            SearchMoreRow(
+                                loading = session.chats.loadingMore.value,
+                                failed = session.chats.moreFailed.value,
+                                onClick = { loadMore(session.chats, conversation::searchGlobalChats, ::mergeGlobalChatResults) }
                             )
-                            if (chat != null) {
-                                val typeLabel = when {
-                                    chat.isChannel -> R.string.global_search_chat_channel
-                                    chat.isGroup -> R.string.global_search_chat_group
-                                    else -> R.string.global_search_chat_private
-                                }
-                                Text(stringResource(typeLabel), color = palette.textSecondary, fontSize = 11.sp)
-                            }
                         }
-                        if (message.senderName.isNotBlank()) {
-                            Text(message.senderName, color = palette.accentInk, fontSize = 12.sp, maxLines = 1)
-                        }
-                        val preview = message.text.ifBlank {
-                            if (message.media != null) stringResource(R.string.global_search_attachment) else ""
-                        }
-                        Text(preview, color = palette.textPrimary, fontSize = 14.sp, maxLines = 2)
-                        val date = if (message.dateSeconds > 0) dateFormat.format(Date(message.dateSeconds * 1000L)) else ""
-                        val timestamp = listOf(date, message.time).filter { it.isNotBlank() }.joinToString(" · ")
-                        Text(timestamp, color = palette.textSecondary, fontSize = 12.sp)
                     }
                 }
-            }
-            if (nextOffset.isNotEmpty() && hits.isNotEmpty()) {
-                item {
-                    TextButton(
-                        onClick = {
-                            if (loadingMore) return@TextButton
-                            loadingMore = true
-                            moreFailed = false
-                            val requestedQuery = query
-                            val requestedFilter = filter
-                            pagingJob = scope.launch {
-                                conversation.searchGlobalMessages(requestedQuery, nextOffset, requestedFilter)
-                                    .onSuccess { page ->
-                                        hits = appendDistinctBy(hits, page.messages) { it.chatId to it.id }
-                                        chatContexts = chatContexts + page.chats
-                                        nextOffset = page.nextOffset
-                                    }
-                                    .onFailure { moreFailed = true }
-                                loadingMore = false
+
+                item("contacts-header") {
+                    SearchSectionHeader(
+                        title = stringResource(R.string.global_search_section_contacts),
+                        count = contactItems.size,
+                        loading = session.contacts.searching.value,
+                        failed = session.contacts.failed.value,
+                        onRetry = { session.contacts.retryVersion.value++ }
+                    )
+                }
+                if (contactItems.isEmpty()) {
+                    item("contacts-state") {
+                        SearchSourceState(
+                            loading = session.contacts.searching.value,
+                            failed = session.contacts.failed.value,
+                            emptyText = stringResource(R.string.global_search_section_empty_contacts),
+                            failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_contacts))
+                        )
+                    }
+                } else {
+                    items(contactItems, key = { "contact:${it.userId}" }) { contact ->
+                        GlobalContactRow(contact, observeFile, downloadFile) { onOpenProfile(contact.userId) }
+                    }
+                    if (session.contacts.hasMore.value) {
+                        item("contacts-more") {
+                            SearchMoreRow(
+                                loading = session.contacts.loadingMore.value,
+                                failed = session.contacts.moreFailed.value,
+                                onClick = { loadMore(session.contacts, conversation::searchGlobalContacts, ::mergeGlobalContactResults) }
+                            )
+                        }
+                    }
+                }
+
+                item("public-header") {
+                    SearchSectionHeader(
+                        title = stringResource(R.string.global_search_section_public),
+                        count = publicChatItems.size,
+                        loading = session.publicChats.searching.value,
+                        failed = session.publicChats.failed.value,
+                        onRetry = { session.publicChats.retryVersion.value++ }
+                    )
+                }
+                if (publicChatItems.isEmpty()) {
+                    item("public-state") {
+                        SearchSourceState(
+                            loading = session.publicChats.searching.value,
+                            failed = session.publicChats.failed.value,
+                            emptyText = stringResource(R.string.global_search_section_empty_public),
+                            failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_public))
+                        )
+                    }
+                } else {
+                    items(publicChatItems, key = { "public:${it.id}" }) { chat ->
+                        GlobalChatRow(chat, observeFile, downloadFile) { onOpenPublicChat(chat) }
+                    }
+                }
+
+                item("messages-header") {
+                    SearchSectionHeader(
+                        title = stringResource(R.string.global_search_section_messages),
+                        count = visibleHits.size,
+                        loading = searching,
+                        failed = failed,
+                        onRetry = { retryVersion++ }
+                    )
+                }
+                item("messages-filters") {
+                    Column(Modifier.padding(top = 2.dp, bottom = 4.dp)) {
+                        SearchChips(
+                            options = SharedMediaKind.entries.map { it to stringResource(kindLabel(it)) },
+                            selected = filter.kind,
+                            all = stringResource(R.string.global_search_filter_all_types),
+                            onSelect = { filter = filter.copy(kind = it) }
+                        )
+                        SearchChips(
+                            options = GlobalChatType.entries.map { it to stringResource(chatTypeLabel(it)) },
+                            selected = filter.chatType,
+                            all = stringResource(R.string.global_search_filter_all_chats),
+                            onSelect = { filter = filter.copy(chatType = it) }
+                        )
+                        SearchChips(
+                            options = GlobalSearchPeriod.entries.filter { it != GlobalSearchPeriod.Any }
+                                .map { it to stringResource(periodLabel(it)) },
+                            selected = filter.period.takeIf { it != GlobalSearchPeriod.Any },
+                            all = stringResource(R.string.global_search_filter_any_period),
+                            onSelect = { filter = filter.copy(period = it ?: GlobalSearchPeriod.Any) }
+                        )
+                    }
+                }
+                if (visibleHits.isEmpty()) {
+                    item("messages-state") {
+                        SearchSourceState(
+                            loading = searching,
+                            failed = failed,
+                            emptyText = stringResource(R.string.global_search_empty),
+                            failedText = stringResource(R.string.global_search_failed)
+                        )
+                    }
+                } else {
+                    items(visibleHits, key = { "message:${it.chatId}:${it.id}" }) { message ->
+                        GlobalMessageRow(
+                            message = message,
+                            chat = chatContexts[message.chatId],
+                            dateFormat = dateFormat,
+                            observeFile = observeFile,
+                            downloadFile = downloadFile,
+                            onClick = { onOpenMessage(message.chatId, message.forumTopicId, message.id) }
+                        )
+                    }
+                    if (nextOffset.isNotEmpty()) {
+                        item("messages-more") {
+                            Column(Modifier.fillMaxWidth()) {
+                                TextButton(
+                                    enabled = !loadingMore,
+                                    onClick = {
+                                        if (loadingMore) return@TextButton
+                                        loadingMore = true
+                                        moreFailed = false
+                                        val requestedQuery = query
+                                        val requestedFilter = filter
+                                        val requestedGeneration = session.generation.value
+                                        val requestedOffset = nextOffset
+                                        val isCurrent = {
+                                            query == requestedQuery &&
+                                                filter == requestedFilter &&
+                                                session.generation.value == requestedGeneration
+                                        }
+                                        pagingJob?.cancel()
+                                        pagingJob = scope.launch {
+                                            try {
+                                                conversation.searchGlobalMessages(requestedQuery, requestedOffset, requestedFilter)
+                                                    .onSuccess { page ->
+                                                        if (isCurrent()) {
+                                                            hits = appendDistinctBy(hits, page.messages) { it.chatId to it.id }
+                                                            chatContexts = chatContexts + page.chats
+                                                            nextOffset = page.nextOffset
+                                                        }
+                                                    }
+                                                    .onFailure { if (isCurrent()) moreFailed = true }
+                                            } finally {
+                                                if (isCurrent()) loadingMore = false
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                ) { Text(stringResource(R.string.global_search_more)) }
+                                if (moreFailed) {
+                                    Text(
+                                        stringResource(R.string.global_search_more_failed),
+                                        color = palette.textSecondary,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.padding(horizontal = 20.dp)
+                                    )
+                                }
                             }
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    ) { Text(stringResource(R.string.global_search_more)) }
-                    if (moreFailed) {
-                        Text(stringResource(R.string.global_search_more_failed), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp))
+                        }
                     }
                 }
             }
         }
     }
+}
 
+/**
+ * Runs one independent source. A source keeps its result through Chat → Back; the query/generation
+ * pair is the stale-request guard and also invalidates a late answer after an account switch.
+ */
+private suspend fun <T> searchGlobalSource(
+    query: String,
+    generation: Long,
+    source: GlobalSearchSource<T>,
+    currentQuery: () -> String,
+    currentGeneration: () -> Long,
+    merge: (List<T>, List<T>) -> List<T>,
+    search: suspend (String, Int) -> Result<GlobalSearchPage<T>>
+) {
+    val isCurrent = {
+        !isStaleGlobalSearchRequest(
+            GlobalSearchRequest(query, generation),
+            currentQuery(),
+            currentGeneration()
+        )
+    }
+    if (source.completedQuery == query && source.completedGeneration == generation && !source.failed.value) return
+    if (source.completedQuery != query || source.completedGeneration != generation) source.clearForNewQuery()
+    source.moreJob?.cancel()
+    source.moreJob = null
+    source.loadingMore.value = false
+    source.failed.value = false
+    if (query.isBlank()) {
+        source.searching.value = false
+        return
+    }
+    source.searching.value = true
+    try {
+        delay(SEARCH_DEBOUNCE_MILLIS)
+        if (!isCurrent()) return
+        search(query, source.limit.value)
+            .onSuccess { page ->
+                if (isCurrent()) {
+                    source.items.value = merge(source.items.value, page.items)
+                    source.hasMore.value = maxOf(page.totalCount, source.items.value.size) > source.limit.value
+                }
+            }
+            .onFailure { if (isCurrent()) source.failed.value = true }
+        if (isCurrent()) {
+            source.completedQuery = query
+            source.completedGeneration = generation
+        }
+    } finally {
+        if (isCurrent()) source.searching.value = false
+    }
+}
+
+@Composable
+private fun SearchSectionHeader(
+    title: String,
+    count: Int,
+    loading: Boolean,
+    failed: Boolean,
+    onRetry: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(R.string.global_search_section_count, title, count),
+            color = palette.textPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f)
+        )
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                color = palette.accent,
+                strokeWidth = 1.5.dp
+            )
+        }
+        if (failed) {
+            TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text(stringResource(R.string.common_retry), fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchSourceState(
+    loading: Boolean,
+    failed: Boolean,
+    emptyText: String,
+    failedText: String
+) {
+    val palette = beyGramPalette()
+    Text(
+        when {
+            loading -> stringResource(R.string.global_search_loading)
+            failed -> failedText
+            else -> emptyText
+        },
+        color = palette.textSecondary,
+        fontSize = 13.sp,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+    )
+}
+
+@Composable
+private fun SearchMoreRow(loading: Boolean, failed: Boolean, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    Column(Modifier.fillMaxWidth()) {
+        TextButton(
+            enabled = !loading,
+            onClick = onClick,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        ) { Text(stringResource(R.string.global_search_more)) }
+        if (failed) {
+            Text(
+                stringResource(R.string.global_search_more_failed),
+                color = palette.textSecondary,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun GlobalChatRow(
+    chat: ChatPreview,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    onClick: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ChatAvatar(chat, 42.dp, observeFile, downloadFile)
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(
+                chat.title,
+                color = palette.textPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                stringResource(chatTypeLabel(chat)),
+                color = palette.textSecondary,
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun GlobalContactRow(
+    contact: ContactPreview,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    onClick: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TelegramAvatar(
+            contact.initials,
+            Color(contact.avatarColorArgb),
+            42.dp,
+            contact.photo,
+            observeFile,
+            downloadFile
+        )
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(
+                contact.title.ifBlank { stringResource(R.string.user_name_unknown) },
+                color = palette.textPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (contact.subtitle.isNotBlank()) {
+                Text(
+                    contact.subtitle,
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlobalMessageRow(
+    message: ChatMessage,
+    chat: ChatPreview?,
+    dateFormat: DateFormat,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    onClick: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        if (chat != null) {
+            ChatAvatar(chat, 42.dp, observeFile, downloadFile)
+        } else {
+            Avatar("?", palette.accent, 42.dp)
+        }
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    chat?.title ?: stringResource(R.string.global_search_chat_unknown),
+                    color = palette.textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
+                if (chat != null) {
+                    Text(stringResource(chatTypeLabel(chat)), color = palette.textSecondary, fontSize = 11.sp)
+                }
+            }
+            if (message.senderName.isNotBlank()) {
+                Text(message.senderName, color = palette.accentInk, fontSize = 12.sp, maxLines = 1)
+            }
+            val preview = message.text.ifBlank {
+                if (message.media != null) stringResource(R.string.global_search_attachment) else ""
+            }
+            Text(preview, color = palette.textPrimary, fontSize = 14.sp, maxLines = 2)
+            val date = if (message.dateSeconds > 0) dateFormat.format(Date(message.dateSeconds * 1000L)) else ""
+            val timestamp = listOf(date, message.time).filter { it.isNotBlank() }.joinToString(" · ")
+            Text(timestamp, color = palette.textSecondary, fontSize = 12.sp)
+        }
+    }
 }
 
 @Composable
@@ -310,6 +708,12 @@ private fun <T> SearchChips(options: List<Pair<T, String>>, selected: T?, all: S
             FilterChip(title = label, selected = selected == option, count = null, onClick = { onSelect(option) })
         }
     }
+}
+
+private fun chatTypeLabel(chat: ChatPreview): Int = when {
+    chat.isChannel -> R.string.global_search_chat_channel
+    chat.isGroup -> R.string.global_search_chat_group
+    else -> R.string.global_search_chat_private
 }
 
 private fun kindLabel(kind: SharedMediaKind): Int = when (kind) {

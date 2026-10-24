@@ -4,6 +4,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.GlobalSearchPage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -26,6 +27,21 @@ internal class TdContacts(private val client: () -> Client, private val profiles
             .filterNotNull()
             .map { it.toContact() }
             .sortedBy { it.title.lowercase() }
+    }
+
+    /**
+     * Global contact search for the unified search screen. TDLib returns user ids plus a total count;
+     * the total is not an offset, so a later page asks for a larger limit and the UI merges by user id.
+     * Unlike [load], this keeps the relevance order returned by TDLib.
+     */
+    suspend fun search(query: String, limit: Int): GlobalSearchPage<ContactPreview> = coroutineScope {
+        val found = requests(TdApi.SearchContacts(query, limit.coerceAtLeast(1)))
+        val contacts = found.userIds.toList().distinct()
+            .map { id -> async { userOrNull(id) } }
+            .awaitAll()
+            .filterNotNull()
+            .map { it.toContact() }
+        GlobalSearchPage(contacts, found.totalCount)
     }
 
     /** Если номера нет в Telegram, TDLib возвращает идентификатор 0 вместо пользователя. */
