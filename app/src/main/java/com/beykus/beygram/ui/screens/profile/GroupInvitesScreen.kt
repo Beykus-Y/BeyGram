@@ -102,7 +102,11 @@ internal fun GroupInvitesScreen(
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         GroupManagementMessage(error, error = true)
         GroupManagementMessage(notice)
-        if (shown.isEmpty() && !loading) {
+        if (error != null && links.isEmpty() && !loading) TextButton(
+            onClick = ::reload,
+            modifier = Modifier.padding(horizontal = 12.dp)
+        ) { Text(stringResource(R.string.common_retry)) }
+        if (shown.isEmpty() && !loading && error == null) {
             Text(
                 stringResource(R.string.group_invites_empty),
                 color = palette.textSecondary,

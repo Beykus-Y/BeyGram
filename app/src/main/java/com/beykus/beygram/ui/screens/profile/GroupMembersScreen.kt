@@ -96,10 +96,12 @@ internal fun GroupMembersScreen(
     val filters = buildList {
         add(GroupMemberFilter.Recent)
         add(GroupMemberFilter.Administrators)
-        if (info.kind == ManagedChatKind.Supergroup) {
+        // Списки ограниченных и забаненных TDLib отдаёт только роли, которая может их снимать.
+        val canViewModeration = rights.isOwner || rights.canRemoveMembers || rights.canRestrictMembers
+        if (canViewModeration && info.kind == ManagedChatKind.Supergroup) {
             add(GroupMemberFilter.Restricted)
             add(GroupMemberFilter.Banned)
-        } else if (info.kind == ManagedChatKind.Channel) {
+        } else if (canViewModeration && info.kind == ManagedChatKind.Channel) {
             add(GroupMemberFilter.Banned)
         }
     }
@@ -253,6 +255,10 @@ internal fun GroupMembersScreen(
         GroupManagementMessage(notice)
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when {
+                members.isEmpty() && !loading && (error != null || actionError != null) -> TextButton(
+                    onClick = { reload() },
+                    modifier = Modifier.align(Alignment.Center)
+                ) { Text(stringResource(R.string.common_retry)) }
                 members.isEmpty() && !loading -> Text(
                     stringResource(if (query.isNotBlank()) R.string.group_members_empty_search else R.string.group_members_empty),
                     color = palette.textSecondary,
@@ -295,8 +301,9 @@ internal fun GroupMembersScreen(
                         color = palette.textSecondary, fontSize = 13.sp
                     )
                     if (member.status == GroupMemberStatus.Administrator) member.rights?.let { adminRights ->
-                        Text(
-                            adminRightsSummary(adminRights),
+                        val summary = adminRightsSummary(adminRights)
+                        if (summary.isNotBlank()) Text(
+                            summary,
                             color = palette.textSecondary, fontSize = 12.sp,
                             modifier = Modifier.padding(top = 2.dp)
                         )

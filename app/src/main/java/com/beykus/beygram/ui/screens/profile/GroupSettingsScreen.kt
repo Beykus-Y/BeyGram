@@ -334,7 +334,10 @@ internal fun GroupSettingsScreen(
                                 removingPhoto = false
                                 onChanged()
                             }
-                            .onFailure { photoError = it.userMessage(context, R.string.group_settings_photo_failed) }
+                            .onFailure {
+                                photoError = it.userMessage(context, R.string.group_settings_photo_failed)
+                                removingPhoto = false
+                            }
                         photoBusy = false
                     }
                 }

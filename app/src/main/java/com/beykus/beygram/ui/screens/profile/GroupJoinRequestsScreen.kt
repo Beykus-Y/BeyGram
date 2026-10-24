@@ -98,8 +98,12 @@ internal fun GroupJoinRequestsScreen(
             color = palette.textSecondary, fontSize = 13.sp,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
         )
+        if (error != null && requests.isEmpty() && !loading) TextButton(
+            onClick = { reloadToken++ },
+            modifier = Modifier.padding(horizontal = 12.dp)
+        ) { Text(stringResource(R.string.common_retry)) }
         when {
-            requests.isEmpty() && !loading -> Text(
+            requests.isEmpty() && !loading && error == null -> Text(
                 stringResource(R.string.group_requests_empty),
                 color = palette.textSecondary,
                 modifier = Modifier.fillMaxWidth().padding(24.dp)
