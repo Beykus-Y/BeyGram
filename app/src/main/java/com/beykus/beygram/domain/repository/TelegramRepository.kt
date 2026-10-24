@@ -67,6 +67,8 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     val activeStories: StateFlow<List<ChatStories>>
     /** Asks TDLib for the main story list again; updates then arrive through [activeStories]. */
     fun refreshActiveStories()
+    /** Loads the next page when the story bar reaches its end. */
+    fun loadMoreActiveStories()
     /** Terminal results of PostStory, including the later upload success/failure update. */
     val storyPostEvents: SharedFlow<StoryPostEvent>
     /** Full story content is requested only when the viewer opens it. */

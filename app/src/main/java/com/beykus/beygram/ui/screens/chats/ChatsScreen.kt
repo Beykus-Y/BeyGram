@@ -144,6 +144,7 @@ fun ChatsScreen(
     stories: List<ChatStories> = emptyList(),
     onOpenStories: (ChatStories) -> Unit = {},
     onAddStory: () -> Unit = {},
+    onLoadMoreStories: () -> Unit = {},
     myProfile: ProfileInfo?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
@@ -359,7 +360,8 @@ fun ChatsScreen(
                         observeFile = observeFile,
                         downloadFile = downloadFile,
                         onOpenStories = onOpenStories,
-                        onAddStory = onAddStory
+                        onAddStory = onAddStory,
+                        onLoadMore = onLoadMoreStories
                     )
                 }
             }

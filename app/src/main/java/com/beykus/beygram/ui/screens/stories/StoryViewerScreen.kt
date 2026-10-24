@@ -155,8 +155,8 @@ fun StoryViewerScreen(
     LaunchedEffect(posterChatId, current?.storyId, detail != null) {
         val storyId = current?.storyId ?: return@LaunchedEffect
         if (detail == null) return@LaunchedEffect
-        repository.openStory(posterChatId, storyId)
         try {
+            repository.openStory(posterChatId, storyId)
             awaitCancellation()
         } finally {
             withContext(NonCancellable) { repository.closeStory(posterChatId, storyId) }
@@ -338,6 +338,12 @@ fun StoryViewerScreen(
                 playing = storyActive,
                 onReady = { videoReady = true },
                 onPlayingChanged = { videoPlaying = it },
+                onEnded = {
+                    val ended = current?.storyId
+                    if (ended != null && stories.getOrNull(index)?.storyId == ended) {
+                        if (index < storyCount - 1) index++ else closeLatest()
+                    }
+                },
                 onRetry = { retry++ },
                 onFailure = {
                     videoReady = false
@@ -542,6 +548,7 @@ private fun StoryContent(
     playing: Boolean,
     onReady: () -> Unit,
     onPlayingChanged: (Boolean) -> Unit,
+    onEnded: () -> Unit,
     onRetry: () -> Unit,
     onFailure: () -> Unit
 ) {
@@ -573,7 +580,7 @@ private fun StoryContent(
         else -> {
             val path = fullFile.localPath
             if (path == null) StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
-            else StoryVideo(path, playing, onFailure, onReady, onPlayingChanged)
+            else StoryVideo(path, playing, onFailure, onReady, onPlayingChanged, onEnded)
         }
     }
 }

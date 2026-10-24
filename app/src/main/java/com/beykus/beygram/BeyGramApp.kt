@@ -1207,6 +1207,7 @@ private fun BeyGramAppContent(
                     storyReturnRouteName = AppRoute.Chats.name
                     routeName = AppRoute.StoryPublisher.name
                 },
+                onLoadMoreStories = repository::loadMoreActiveStories,
                 myProfile = myProfile.info,
                 observeFile = repository::observeFile,
                 downloadFile = repository::downloadFile,

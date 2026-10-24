@@ -35,7 +35,6 @@
     <string name="stories_publish">Опубликовать</string>
     <string name="stories_publishing">Публикация…</string>
     <string name="stories_publish_failed">Не удалось опубликовать историю</string>
-    <string name="stories_publish_pending">История всё ещё публикуется. Проверьте профиль позже.</string>
     <string name="stories_publish_need_media">Сначала выберите фото или видео</string>
     <string name="stories_pick_media">Выбрать фото или видео</string>
     <string name="stories_choose_media_description">Выбрать фото или видео для истории</string>
@@ -43,6 +42,8 @@
     <string name="stories_preparing">Подготовка…</string>
     <string name="stories_media_invalid">Для истории подойдёт фото или видео</string>
     <string name="stories_media_prepare_failed">Не удалось подготовить файл</string>
+    <string name="stories_video_prepare_failed">Не удалось перекодировать видео для истории. Нужен кодировщик H.265.</string>
+    <string name="stories_video_trimmed">Видео будет обрезано до 60 секунд.</string>
     <string name="stories_caption">Подпись</string>
     <string name="stories_caption_placeholder">Добавьте подпись</string>
     <string name="stories_caption_counter">%1$d / %2$d</string>

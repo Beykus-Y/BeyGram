@@ -35,7 +35,6 @@
     <string name="stories_publish">Veröffentlichen</string>
     <string name="stories_publishing">Wird veröffentlicht…</string>
     <string name="stories_publish_failed">Story konnte nicht veröffentlicht werden</string>
-    <string name="stories_publish_pending">Die Story wird noch veröffentlicht. Prüfe später dein Profil.</string>
     <string name="stories_publish_need_media">Wähle zuerst ein Foto oder Video aus</string>
     <string name="stories_pick_media">Foto oder Video auswählen</string>
     <string name="stories_choose_media_description">Foto oder Video für die Story auswählen</string>
@@ -43,6 +42,8 @@
     <string name="stories_preparing">Wird vorbereitet…</string>
     <string name="stories_media_invalid">Für eine Story wird ein Foto oder Video benötigt</string>
     <string name="stories_media_prepare_failed">Datei konnte nicht vorbereitet werden</string>
+    <string name="stories_video_prepare_failed">Das Video konnte nicht für eine Story neu kodiert werden. Ein H.265-Encoder ist erforderlich.</string>
+    <string name="stories_video_trimmed">Das Video wird auf 60 Sekunden gekürzt.</string>
     <string name="stories_caption">Beschriftung</string>
     <string name="stories_caption_placeholder">Beschriftung hinzufügen</string>
     <string name="stories_caption_counter">%1$d / %2$d</string>

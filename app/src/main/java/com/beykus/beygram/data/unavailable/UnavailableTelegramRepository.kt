@@ -105,6 +105,7 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override val activeStories: StateFlow<List<ChatStories>> = noStories
     override fun refreshActiveStories() {}
+    override fun loadMoreActiveStories() {}
     override val storyPostEvents: SharedFlow<StoryPostEvent> = noStoryPosts
     override suspend fun loadStory(posterChatId: Long, storyId: Int): Result<StoryDetail> = unavailable()
     override suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()

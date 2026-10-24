@@ -35,7 +35,6 @@
     <string name="stories_publish">Publish</string>
     <string name="stories_publishing">Publishing…</string>
     <string name="stories_publish_failed">Could not publish the story</string>
-    <string name="stories_publish_pending">The story is still publishing. Check your profile later.</string>
     <string name="stories_publish_need_media">Choose a photo or video first</string>
     <string name="stories_pick_media">Choose photo or video</string>
     <string name="stories_choose_media_description">Choose a photo or video for the story</string>
@@ -43,6 +42,8 @@
     <string name="stories_preparing">Preparing…</string>
     <string name="stories_media_invalid">A story needs a photo or video</string>
     <string name="stories_media_prepare_failed">Could not prepare the file</string>
+    <string name="stories_video_prepare_failed">Could not re-encode the video for a story. An H.265 encoder is required.</string>
+    <string name="stories_video_trimmed">The video will be trimmed to 60 seconds.</string>
     <string name="stories_caption">Caption</string>
     <string name="stories_caption_placeholder">Add a caption</string>
     <string name="stories_caption_counter">%1$d / %2$d</string>

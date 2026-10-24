@@ -61,6 +61,8 @@ internal class TdStories(
     private var selfChatId = 0L
     private var generation = 0
     private var profileJob: Job? = null
+    private var activeLoadInFlight = false
+    private var activeStoriesExhausted = false
 
     private val _items = MutableStateFlow<List<ChatStories>>(emptyList())
     val items: StateFlow<List<ChatStories>> = _items.asStateFlow()
@@ -71,6 +73,8 @@ internal class TdStories(
     fun authorized() {
         val token = synchronized(lock) {
             generation += 1
+            activeLoadInFlight = false
+            activeStoriesExhausted = false
             generation
         }
         profileJob?.cancel()
@@ -91,6 +95,8 @@ internal class TdStories(
             unblockedChats.clear()
             selfId = 0L
             selfChatId = 0L
+            activeLoadInFlight = false
+            activeStoriesExhausted = false
         }
         profileJob?.cancel()
         profileJob = null
@@ -99,8 +105,52 @@ internal class TdStories(
 
     /** Re-requests the main story list when the chats screen becomes visible or the connection returns. */
     fun refreshActive() {
-        scope.launch {
-            runCatching { requests(TdApi.LoadActiveStories(TdApi.StoryListMain())) }
+        synchronized(lock) { activeStoriesExhausted = false }
+        scope.launch { loadActivePages(MAX_ACTIVE_STORY_PAGES) }
+    }
+
+    /** Loads the next page when the story bar reaches its end. */
+    fun loadMoreActive() {
+        scope.launch { loadActivePages(1) }
+    }
+
+    /**
+     * TDLib's LoadActiveStories returns one page through updates and 404 once the list is complete.
+     * A page can be added by another active story, so an explicit refresh starts from the current
+     * position again; concurrent calls share one loader.
+     */
+    private suspend fun loadActivePages(maxPages: Int, token: Int? = null) {
+        synchronized(lock) {
+            if (token != null && token != generation) return
+            if (activeLoadInFlight || activeStoriesExhausted) return
+            activeLoadInFlight = true
+        }
+        try {
+            var pages = 0
+            while (pages < maxPages) {
+                if (token != null && synchronized(lock) { token != generation }) return
+                val loaded = try {
+                    requests(TdApi.LoadActiveStories(TdApi.StoryListMain()))
+                    true
+                } catch (timeout: TimeoutCancellationException) {
+                    break
+                } catch (error: TdRequestError) {
+                    if (error.code == 404) {
+                        synchronized(lock) { activeStoriesExhausted = true }
+                        false
+                    } else {
+                        throw error
+                    }
+                }
+                if (!loaded) break
+                pages++
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // A transient request error is retried by refreshActive() when chats are shown again.
+        } finally {
+            synchronized(lock) { activeLoadInFlight = false }
         }
     }
 
@@ -108,16 +158,21 @@ internal class TdStories(
         when (update) {
             is TdApi.UpdateChatActiveStories -> applyActive(update.activeStories)
             is TdApi.UpdateChatBlockList -> {
+                var changed = false
                 synchronized(lock) {
-                    if (update.blockList is TdApi.BlockListMain) {
-                        blockedChats += update.chatId
-                        unblockedChats -= update.chatId
-                    } else {
-                        blockedChats -= update.chatId
-                        unblockedChats += update.chatId
+                    when {
+                        update.blockList is TdApi.BlockListMain -> {
+                            changed = blockedChats.add(update.chatId) or unblockedChats.remove(update.chatId)
+                        }
+                        update.blockList == null -> {
+                            changed = blockedChats.remove(update.chatId) or unblockedChats.add(update.chatId)
+                        }
+                        // The stories block list only hides my stories from this chat; it does not
+                        // change whether the chat's own stories may be shown to me.
+                        else -> Unit
                     }
                 }
-                publish()
+                if (changed) publish()
             }
             is TdApi.UpdateChatPhoto, is TdApi.UpdateChatTitle -> publish()
             is TdApi.UpdateStoryDeleted -> {
@@ -153,7 +208,7 @@ internal class TdStories(
             if (token != generation) return
             selfId = me?.id ?: 0L
         }
-        runCatching { requests(TdApi.LoadActiveStories(TdApi.StoryListMain())) }
+        loadActivePages(MAX_ACTIVE_STORY_PAGES, token)
         if (me != null) {
             val self = runCatching { requests(TdApi.CreatePrivateChat(me.id, false)) }.getOrNull()
             if (self != null) {
@@ -327,6 +382,15 @@ internal class TdStories(
     ): Result<StoryPostTicket> = storyRequest(POST_TIMEOUT_MS) {
         if (media.kind != MediaKind.Photo && media.kind != MediaKind.Video) {
             throw UserMessageException(UiText.Res(R.string.stories_media_invalid))
+        }
+        if (media.kind == MediaKind.Photo && (media.width != 1_080 || media.height != 1_920)) {
+            throw UserMessageException(UiText.Res(R.string.stories_media_prepare_failed))
+        }
+        if (media.kind == MediaKind.Video && (media.width != 720 || media.height != 1_280)) {
+            throw UserMessageException(UiText.Res(R.string.stories_video_prepare_failed))
+        }
+        if (media.kind == MediaKind.Video && media.durationSeconds !in 1..60) {
+            throw UserMessageException(UiText.Res(R.string.stories_video_prepare_failed))
         }
         if (activePeriodSeconds !in STORY_ACTIVE_PERIODS) {
             throw UserMessageException(UiText.Res(R.string.stories_period_invalid))
@@ -503,6 +567,7 @@ internal class TdStories(
         const val DEFAULT_TIMEOUT_MS = 30_000L
         const val POST_TIMEOUT_MS = 60_000L
         const val ARCHIVE_PAGE_SIZE = 100
+        const val MAX_ACTIVE_STORY_PAGES = 5
         const val PREVIEW_MIN_SIDE = 320
         const val DEFAULT_CAPTION_LENGTH = 1_024
         const val MAX_CAPTION_LENGTH = 4_096

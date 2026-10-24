@@ -103,6 +103,7 @@ internal fun StoryVideo(
     onFailure: () -> Unit,
     onReady: () -> Unit = {},
     onPlayingChanged: (Boolean) -> Unit = {},
+    onEnded: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -111,6 +112,7 @@ internal fun StoryVideo(
     val currentOnFailure by rememberUpdatedState(onFailure)
     val currentOnReady by rememberUpdatedState(onReady)
     val currentOnPlayingChanged by rememberUpdatedState(onPlayingChanged)
+    val currentOnEnded by rememberUpdatedState(onEnded)
     val player = remember(path) {
         ExoPlayer.Builder(context.applicationContext)
             .setAudioAttributes(
@@ -129,6 +131,7 @@ internal fun StoryVideo(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 buffering = playbackState == Player.STATE_BUFFERING
                 if (playbackState == Player.STATE_READY) currentOnReady()
+                if (playbackState == Player.STATE_ENDED) currentOnEnded()
                 currentOnPlayingChanged(player.isPlaying && playbackState != Player.STATE_BUFFERING)
             }
 

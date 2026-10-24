@@ -1,12 +1,14 @@
 package com.beykus.beygram.ui.screens.stories
 
 import com.beykus.beygram.domain.model.ChatStories
+import com.beykus.beygram.domain.model.StoryCropRect
 import com.beykus.beygram.domain.model.StoryDetail
 import com.beykus.beygram.domain.model.StoryMedia
 import com.beykus.beygram.domain.model.StoryMediaKind
 import com.beykus.beygram.domain.model.StoryPreview
 import com.beykus.beygram.domain.model.orderedStoryBar
 import com.beykus.beygram.domain.model.storyActivePeriodChoices
+import com.beykus.beygram.domain.model.storyCropRect
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -72,6 +74,20 @@ class StoryRulesTest {
     fun onlyTwentyFourHoursIsFree() {
         assertEquals(listOf(24 * 3600), storyActivePeriodChoices(premium = false))
         assertEquals(listOf(6 * 3600, 12 * 3600, 24 * 3600, 48 * 3600), storyActivePeriodChoices(premium = true))
+    }
+
+    @Test
+    fun storyCropIsNineBySixteen() {
+        assertEquals(StoryCropRect(0, 0, 1080, 1920), storyCropRect(1080, 1920))
+        val landscape = storyCropRect(4000, 3000)
+        assertEquals(1687, landscape.width)
+        assertEquals(3000, landscape.height)
+        assertEquals(1156, landscape.left)
+        val tall = storyCropRect(1000, 2000)
+        assertEquals(1000, tall.width)
+        assertEquals(1777, tall.height)
+        assertEquals(111, tall.top)
+        assertEquals(StoryCropRect(0, 0, 0, 0), storyCropRect(0, 100))
     }
 
     @Test

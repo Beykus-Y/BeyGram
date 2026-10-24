@@ -97,6 +97,22 @@ sealed interface StoryPostEvent {
 fun storyActivePeriodChoices(premium: Boolean): List<Int> =
     if (premium) listOf(6 * 3600, 12 * 3600, 24 * 3600, 48 * 3600) else listOf(24 * 3600)
 
+/** Source rectangle for a 9:16 story crop; the caller scales the result to 1080x1920. */
+data class StoryCropRect(val left: Int, val top: Int, val width: Int, val height: Int)
+
+fun storyCropRect(width: Int, height: Int): StoryCropRect {
+    if (width <= 0 || height <= 0) return StoryCropRect(0, 0, 0, 0)
+    val targetRatio = 1080.0 / 1920.0
+    val sourceRatio = width.toDouble() / height
+    return if (sourceRatio > targetRatio) {
+        val cropWidth = (height * targetRatio).toInt().coerceIn(1, width)
+        StoryCropRect((width - cropWidth) / 2, 0, cropWidth, height)
+    } else {
+        val cropHeight = (width / targetRatio).toInt().coerceIn(1, height)
+        StoryCropRect(0, (height - cropHeight) / 2, width, cropHeight)
+    }
+}
+
 /** Story-bar order from TDLib: own stories first, then descending (order, chat id). */
 fun orderedStoryBar(stories: Collection<ChatStories>): List<ChatStories> =
     stories.sortedWith(

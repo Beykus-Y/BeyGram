@@ -76,6 +76,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
+import com.beykus.beygram.data.media.StoryMediaPreparer
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
@@ -97,11 +98,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import java.text.DateFormat
 import java.util.Date
 
-private const val POST_WAIT_MS = 5 * 60_000L
 
 /**
  * Publishes one photo or video with the privacy, lifetime and protection options TDLib actually exposes.
@@ -122,8 +121,10 @@ fun StoryPublisherScreen(
     val scope = rememberCoroutineScope()
     val cleanupScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
     val importer = remember(context, accountId) { OutgoingMediaImporter(context, accountId) }
+    val storyPreparer = remember(context) { StoryMediaPreparer(context) }
 
     var media by remember { mutableStateOf<OutgoingMedia?>(null) }
+    var videoTrimmed by remember { mutableStateOf(false) }
     var preparing by remember { mutableStateOf(false) }
     var publishing by remember { mutableStateOf(false) }
     var caption by remember { mutableStateOf("") }
@@ -179,12 +180,28 @@ fun StoryPublisherScreen(
         scope.launch {
             try {
                 val prepared = importer.prepare(uri, asDocument = false)
-                if (prepared.kind != MediaKind.Photo && prepared.kind != MediaKind.Video) {
+                // The message importer only keeps H.264 MP4 as a video; every other container is
+                // still a valid story source because it is re-encoded below.
+                val source = if (prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("video/")) {
+                    prepared.copy(kind = MediaKind.Video)
+                } else {
+                    prepared
+                }
+                if (source.kind != MediaKind.Photo && source.kind != MediaKind.Video) {
                     discard(prepared)
                     error = context.getString(R.string.stories_media_invalid)
                 } else {
+                    val ready = try {
+                        storyPreparer.prepare(source)
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        discard(prepared)
+                        throw failure
+                    }
                     val old = media
-                    media = prepared
+                    media = ready.media
+                    videoTrimmed = ready.videoTrimmed
                     discard(old)
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -224,27 +241,24 @@ fun StoryPublisherScreen(
                             onPublished()
                             return@onSuccess
                         }
-                        val result = withTimeoutOrNull(POST_WAIT_MS) {
-                            repository.storyPostEvents.first { event ->
-                                when (event) {
-                                    is StoryPostEvent.Published -> event.posterChatId == ticket.posterChatId &&
-                                        (event.storyId == ticket.storyId || event.oldStoryId == ticket.storyId)
-                                    is StoryPostEvent.Failed -> event.posterChatId == ticket.posterChatId &&
-                                        event.storyId == ticket.storyId
-                                }
+                        val event = repository.storyPostEvents.first { candidate ->
+                            when (candidate) {
+                                is StoryPostEvent.Published -> candidate.posterChatId == ticket.posterChatId &&
+                                    (candidate.storyId == ticket.storyId || candidate.oldStoryId == ticket.storyId)
+                                is StoryPostEvent.Failed -> candidate.posterChatId == ticket.posterChatId &&
+                                    candidate.storyId == ticket.storyId
                             }
                         }
                         publishing = false
-                        when (result) {
+                        when (event) {
                             is StoryPostEvent.Published -> {
                                 discard(item)
                                 media = null
                                 onPublished()
                             }
                             is StoryPostEvent.Failed -> {
-                                error = context.getString(storyPostDenialText(result.reason))
+                                error = context.getString(storyPostDenialText(event.reason))
                             }
-                            null -> error = context.getString(R.string.stories_publish_pending)
                         }
                     }.onFailure {
                         publishing = false
@@ -332,6 +346,14 @@ fun StoryPublisherScreen(
                 }
             }
             Spacer(Modifier.height(16.dp))
+            if (videoTrimmed) {
+                Text(
+                    stringResource(R.string.stories_video_trimmed),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
 
             OutlinedTextField(
                 value = caption,
