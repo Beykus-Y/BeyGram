@@ -73,7 +73,9 @@ import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
 import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
 import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
+import com.beykus.beygram.ui.screens.chat.ChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.ChatScreen
+import com.beykus.beygram.ui.screens.chat.LocalChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
@@ -94,6 +96,7 @@ import com.beykus.beygram.ui.screens.settings.PrivacySettingsScreen
 import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
+import com.beykus.beygram.ui.screens.settings.ChatAnimationsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherSheet
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherMeta
@@ -116,6 +119,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.settings.ChatAnimationSettingsStore
 import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
@@ -587,6 +591,15 @@ private fun BeyGramAppContent(
     }
     val chatOverrides = remember(context, selectedAccountId) {
         ChatOverridesStore(context.applicationContext, selectedAccountId)
+    }
+    // Decorative chat animations are global and account-independent; the flow updates an open chat immediately.
+    val chatAnimationStore = remember(context) { ChatAnimationSettingsStore(context.applicationContext) }
+    val chatAnimationSettings by chatAnimationStore.state.collectAsStateWithLifecycle()
+    val chatAnimationPreferences = remember(chatAnimationSettings) {
+        ChatAnimationPreferences(
+            animatedEmoji = chatAnimationSettings.animatedEmoji,
+            messageEffects = chatAnimationSettings.messageEffects
+        )
     }
     val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
     val archiveSettingsScope = rememberCoroutineScope()
@@ -1151,6 +1164,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.ChatAnimations) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.NewChat) { routeName = AppRoute.Chats.name }
     BackHandler(enabled = route == AppRoute.CreateChannel) { routeName = AppRoute.NewChat.name }
@@ -1518,7 +1532,10 @@ private fun BeyGramAppContent(
             lastSeenStyle = lastSeenStyle)
     }
 
-    CompositionLocalProvider(LocalPlaybackAccountId provides selectedAccountId) {
+    CompositionLocalProvider(
+        LocalPlaybackAccountId provides selectedAccountId,
+        LocalChatAnimationPreferences provides chatAnimationPreferences
+    ) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
@@ -1684,6 +1701,12 @@ private fun BeyGramAppContent(
                     onSave = { config -> appearanceDraft = config; onAppearanceChange(config) },
                     onBack = { appearanceDraft = null; routeName = appearanceReturnRouteName }
                 )
+                AppRoute.ChatAnimations -> ChatAnimationsScreen(
+                    settings = chatAnimationSettings,
+                    onAnimatedEmojiChange = chatAnimationStore::setAnimatedEmoji,
+                    onMessageEffectsChange = chatAnimationStore::setMessageEffects,
+                    onBack = { routeName = AppRoute.Settings.name }
+                )
                 AppRoute.EditProfile -> {
                     myProfile.info?.let { info ->
                         EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)
@@ -1740,7 +1763,8 @@ private fun BeyGramAppContent(
                         onLanguage = { routeName = AppRoute.Language.name },
                         onSessions = { routeName = AppRoute.Sessions.name },
                         onPrivacy = { routeName = AppRoute.PrivacySettings.name },
-                        onSecondaryAccounts = { accountSwitcherVisible = true }
+                        onSecondaryAccounts = { accountSwitcherVisible = true },
+                        onChatAnimations = { routeName = AppRoute.ChatAnimations.name }
                     )
                 }
                 AppRoute.Language -> LanguageScreen(translationSettings, onBack = { routeName = AppRoute.Settings.name })
