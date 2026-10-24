@@ -8,6 +8,8 @@ import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatNotificationPreferences
+import com.beykus.beygram.domain.model.NotificationSoundOption
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
@@ -202,6 +204,9 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = unavailable()
+    override suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences> = unavailable()
+    override suspend fun setChatNotificationPreferences(chatId: Long, preferences: ChatNotificationPreferences): Result<Unit> = unavailable()
+    override suspend fun savedNotificationSounds(): Result<List<NotificationSoundOption>> = unavailable()
     override suspend fun translateMessage(chatId: Long, messageId: Long, toLanguageCode: String): Result<MessageTranslation> = unavailable()
     override suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit> = unavailable()
     override suspend fun rateSpeechRecognition(chatId: Long, messageId: Long, isGood: Boolean): Result<Unit> = unavailable()
