@@ -53,8 +53,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.security.AppLockPinCheck
@@ -94,6 +96,14 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
     // A lock must not leave a PIN setup/confirmation dialog (and its in-memory PIN) open.
     LaunchedEffect(locked) {
         if (locked) {
+            setupForEnable = false
+            setupAfterConfirmation = false
+            confirmDisable = false
+            confirmChangePin = false
+        }
+    }
+    LifecycleResumeEffect(Unit) {
+        onPauseOrDispose {
             setupForEnable = false
             setupAfterConfirmation = false
             confirmDisable = false
@@ -427,11 +437,17 @@ private fun ConfirmIdentityDialog(
     val context = LocalContext.current
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val settings by store.settings.collectAsStateWithLifecycle()
     var pin by remember { mutableStateOf("") }
     var errorText by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
     var lockoutMillis by remember { mutableLongStateOf(store.lockoutRemainingMillis()) }
+
+    fun confirmIfResumed() {
+        // Disabling or replacing the PIN after Home must not act on a stale dialog.
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) onConfirmed()
+    }
 
     LifecycleResumeEffect(Unit) {
         onPauseOrDispose {
@@ -444,7 +460,7 @@ private fun ConfirmIdentityDialog(
         when (result) {
             BiometricResult.Success -> {
                 store.clearFailedAttempts()
-                onConfirmed()
+                confirmIfResumed()
             }
             is BiometricResult.Failure -> when (result.kind) {
                 BiometricFailureKind.Cancelled -> errorText = null
@@ -478,7 +494,7 @@ private fun ConfirmIdentityDialog(
         scope.launch {
             try {
                 when (val result = store.verifyPin(pin)) {
-                    AppLockPinCheck.Success -> onConfirmed()
+                    AppLockPinCheck.Success -> confirmIfResumed()
                     is AppLockPinCheck.Failure -> {
                         pin = ""
                         lockoutMillis = result.lockoutMillis

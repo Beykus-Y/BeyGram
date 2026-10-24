@@ -30,7 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.playback.PlaybackEngine
-import com.beykus.beygram.security.AppLockDialog
+import com.beykus.beygram.security.AppLockActivity
 import com.beykus.beygram.security.AppLockManager
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -179,9 +179,10 @@ class MainActivity : FragmentActivity() {
                         color = MaterialTheme.colorScheme.background
                     ) {
                         Box(Modifier.fillMaxSize()) {
-                            // The content stays composed for the lifetime of the Activity. A
-                            // secure modal dialog covers it; while locked its semantics are
-                            // cleared so TalkBack cannot read chat content behind the gate.
+                            // The content stays composed for the lifetime of the Activity. While
+                            // locked, AppLockActivity is on top; the stopped Activity cannot
+                            // add new dialog windows above it. Semantics are cleared as well so
+                            // TalkBack cannot reach chat content during the hand-over.
                             Box(
                                 Modifier.fillMaxSize().then(
                                     if (gateLocked) Modifier.clearAndSetSemantics {} else Modifier
@@ -214,7 +215,6 @@ class MainActivity : FragmentActivity() {
                                     )
                                 }
                             }
-                            if (gateLocked) AppLockDialog(lockManager)
                         }
                     }
                 }
@@ -224,14 +224,25 @@ class MainActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
-        appLock.onActivityStarted()
+        appLock.onActivityStarted(this)
         if (appLock.locked.value && appLock.store.settings.value.isActive) {
-            // Hide the stale window surface until Compose draws the lock screen. FLAG_SECURE
+            // Hide the stale window surface until AppLockActivity is drawn. FLAG_SECURE
             // protects snapshots; this prevents a one-frame flash of the previous chat.
             window.decorView.visibility = View.INVISIBLE
             windowVisibilityRevision++
+            startLockScreen()
         }
         applyWindowPrivacy()
+    }
+
+    /** The lock Activity covers every child dialog of this Activity while it is stopped. */
+    private fun startLockScreen() {
+        startActivity(
+            Intent(this, AppLockActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        )
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
     override fun onResume() {
@@ -249,7 +260,7 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onStop() {
-        appLock.onActivityStopped(isChangingConfigurations)
+        appLock.onActivityStopped(this, isChangingConfigurations)
         applyWindowPrivacy()
         super.onStop()
     }

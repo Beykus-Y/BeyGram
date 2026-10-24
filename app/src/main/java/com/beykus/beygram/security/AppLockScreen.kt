@@ -52,9 +52,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -65,28 +62,6 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-/**
- * Modal, full-screen window used while the app is locked. A separate window keeps the chat
- * composition (and its in-flight coroutines) alive while taking input focus away from it.
- */
-@Composable
-internal fun AppLockDialog(manager: AppLockManager) {
-    Dialog(
-        onDismissRequest = {},
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            // Enabled with an empty dismiss callback: back is consumed, so it cannot finish
-            // the Activity and cancel in-flight sends while the user is still locked out.
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false,
-            securePolicy = SecureFlagPolicy.SecureOn,
-        ),
-    ) {
-        AppLockScreen(manager)
-    }
-}
 
 /**
  * Full-screen gate shown instead of the chat UI. It deliberately contains no account or chat
@@ -121,7 +96,8 @@ internal fun AppLockScreen(manager: AppLockManager) {
         when (result) {
             BiometricResult.Success -> {
                 store.clearFailedAttempts()
-                manager.unlock()
+                // A completion delivered after Home/onPause must not unlock the next start.
+                if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) manager.unlock()
             }
             is BiometricResult.Failure -> when (result.kind) {
                 BiometricFailureKind.Cancelled -> errorText = null
@@ -181,7 +157,7 @@ internal fun AppLockScreen(manager: AppLockManager) {
                 when (val result = store.verifyPin(pin)) {
                     AppLockPinCheck.Success -> {
                         pin = ""
-                        manager.unlock()
+                        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) manager.unlock()
                     }
                     is AppLockPinCheck.Failure -> {
                         pin = ""
