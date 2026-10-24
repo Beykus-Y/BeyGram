@@ -14,6 +14,8 @@ data class ChatMessage(
     /** Telegram's mediaAlbumId; zero means this message is not part of an album. */
     val mediaAlbumId: Long = 0L,
     val senderName: String = "",
+    /** Telegram user id of the sender when TDLib reports a user; zero for channel posts and system events. */
+    val senderId: Long = 0L,
     val reply: MessageReply? = null,
     val entities: List<MessageTextEntity> = emptyList(),
     val inlineKeyboard: List<List<BotButton>> = emptyList(),
@@ -134,7 +136,14 @@ data class MessageCapabilities(
 fun canTogglePin(canPin: Boolean): Boolean = canPin
 enum class DeleteMessageScope { ForSelf, ForEveryone }
 data class MessageContext(val chatId: Long, val title: String, val targetId: Long, val messages: List<ChatMessage>)
-data class MessageSearchPage(val messages: List<ChatMessage>, val nextFromMessageId: Long)
+/**
+ * One page of search results. [totalCount] is TDLib's count for the server-side text/sender/attachment query;
+ * a client-side date range can hide some of those rows, so callers must not present it as an exact in-range count.
+ * [hasMore] stays true even when every row on this page was hidden by the local date filter.
+ */
+data class MessageSearchPage(val messages: List<ChatMessage>, val nextFromMessageId: Long, val totalCount: Int = 0) {
+    val hasMore: Boolean get() = nextFromMessageId != 0L
+}
 
 /** Страница общего поиска по всем чатам аккаунта. [nextOffset] пустой, когда страницы кончились. */
 data class GlobalMessagePage(
