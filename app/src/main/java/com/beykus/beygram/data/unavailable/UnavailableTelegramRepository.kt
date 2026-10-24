@@ -23,6 +23,7 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.StoryDetail
+import com.beykus.beygram.domain.model.StoryArchivePage
 import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPostPermission
 import com.beykus.beygram.domain.model.StoryPostTicket
@@ -114,7 +115,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?): Result<Unit> = unavailable()
     override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit> = unavailable()
     override suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
-    override suspend fun storyArchive(): Result<List<StoryDetail>> = Result.success(emptyList())
+    override suspend fun storyArchive(fromStoryId: Int): Result<StoryArchivePage> = Result.success(StoryArchivePage())
     override suspend fun storyPostPermission(): Result<StoryPostPermission> = unavailable()
     override suspend fun storyCaptionLimit(): Result<Int> = Result.success(1_024)
     override suspend fun publishStory(

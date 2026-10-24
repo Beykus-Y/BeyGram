@@ -536,7 +536,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String) =
         stories.replyToStory(posterChatId, storyId, text)
     override suspend fun deleteStory(posterChatId: Long, storyId: Int) = stories.deleteStory(posterChatId, storyId)
-    override suspend fun storyArchive() = stories.archive()
+    override suspend fun storyArchive(fromStoryId: Int) = stories.archive(fromStoryId)
     override suspend fun storyPostPermission() = stories.postPermission()
     override suspend fun storyCaptionLimit() = stories.captionLimit()
     override suspend fun publishStory(

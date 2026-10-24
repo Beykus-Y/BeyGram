@@ -64,6 +64,13 @@ data class StoryDetail(
 
 enum class StoryPrivacy { Everyone, Contacts, CloseFriends, SelectedUsers }
 
+/** One page of the signed-in user's expired stories; [nextFromStoryId] is zero when the end is reached. */
+data class StoryArchivePage(
+    val stories: List<StoryDetail> = emptyList(),
+    val totalCount: Int = 0,
+    val nextFromStoryId: Int = 0
+)
+
 sealed interface StoryPostPermission {
     data class Allowed(val postedStoryCount: Int = 0) : StoryPostPermission
 

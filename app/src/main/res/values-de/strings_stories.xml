@@ -75,6 +75,7 @@
     <string name="stories_archive_empty">Im Archiv sind noch keine Stories</string>
     <string name="stories_archive_loading">Archiv wird geladen…</string>
     <string name="stories_archive_load_failed">Archiv konnte nicht geladen werden</string>
+    <string name="stories_archive_load_more">Mehr laden</string>
     <string name="stories_archive_delete_description">Story vom %1$s löschen</string>
     <string name="stories_permission_checking">Veröffentlichung wird geprüft…</string>
     <string name="stories_permission_failed">Verfügbarkeit konnte nicht geprüft werden</string>

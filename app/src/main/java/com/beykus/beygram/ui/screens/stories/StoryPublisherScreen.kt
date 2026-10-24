@@ -52,9 +52,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -102,6 +105,11 @@ import java.text.DateFormat
 import java.util.Date
 
 
+private val SelectedStoryUsersSaver = Saver<Set<Long>, LongArray>(
+    save = { it.toLongArray() },
+    restore = { it.toSet() }
+)
+
 /**
  * Publishes one photo or video with the privacy, lifetime and protection options TDLib actually exposes.
  * PostStory returns a temporary story; the screen waits for UpdateStoryPostSucceeded/Failed and never
@@ -123,17 +131,21 @@ fun StoryPublisherScreen(
     val importer = remember(context, accountId) { OutgoingMediaImporter(context, accountId) }
     val storyPreparer = remember(context) { StoryMediaPreparer(context) }
 
-    var media by remember { mutableStateOf<OutgoingMedia?>(null) }
-    var videoTrimmed by remember { mutableStateOf(false) }
+    var media by rememberSaveable { mutableStateOf<OutgoingMedia?>(null) }
+    var videoTrimmed by rememberSaveable { mutableStateOf(false) }
     var preparing by remember { mutableStateOf(false) }
     var publishing by remember { mutableStateOf(false) }
-    var caption by remember { mutableStateOf("") }
+    var pendingPosterChatId by rememberSaveable { mutableLongStateOf(0L) }
+    var pendingStoryId by rememberSaveable { mutableIntStateOf(0) }
+    var caption by rememberSaveable { mutableStateOf("") }
     var captionLimit by remember { mutableIntStateOf(1_024) }
-    var privacy by remember { mutableStateOf(StoryPrivacy.Everyone) }
-    var selectedUsers by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var activePeriod by remember { mutableIntStateOf(24 * 3600) }
-    var protectContent by remember { mutableStateOf(false) }
-    var keepInProfile by remember { mutableStateOf(false) }
+    var privacy by rememberSaveable { mutableStateOf(StoryPrivacy.Everyone) }
+    var selectedUsers by rememberSaveable(stateSaver = SelectedStoryUsersSaver) {
+        mutableStateOf<Set<Long>>(emptySet())
+    }
+    var activePeriod by rememberSaveable { mutableIntStateOf(24 * 3600) }
+    var protectContent by rememberSaveable { mutableStateOf(false) }
+    var keepInProfile by rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showRecipients by remember { mutableStateOf(false) }
     var showArchive by remember { mutableStateOf(false) }
@@ -145,6 +157,7 @@ fun StoryPublisherScreen(
     val premium = myProfile?.isPremium == true
     val periods = storyActivePeriodChoices(premium)
     val denied = (permission as? StoryPostPermission.Denied)?.reason
+    val busy = publishing || pendingStoryId != 0
 
     LaunchedEffect(repository) {
         captionLimit = repository.storyCaptionLimit().getOrDefault(1_024).coerceAtLeast(1)
@@ -165,7 +178,7 @@ fun StoryPublisherScreen(
         if (item != null) cleanupScope.launch { importer.discard(item) }
     }
     val close: () -> Unit = {
-        if (!publishing) {
+        if (!busy) {
             discard(media)
             media = null
             onBack()
@@ -214,6 +227,35 @@ fun StoryPublisherScreen(
         }
     }
 
+    // The pending ticket is saveable: activity recreation resumes the same terminal update instead
+    // of allowing a second PostStory for the draft that is already uploading.
+    LaunchedEffect(pendingPosterChatId, pendingStoryId) {
+        val posterChatId = pendingPosterChatId
+        val storyId = pendingStoryId
+        if (storyId == 0) return@LaunchedEffect
+        publishing = true
+        val event = repository.storyPostEvents.first { candidate ->
+            when (candidate) {
+                is StoryPostEvent.Published -> candidate.posterChatId == posterChatId &&
+                    (candidate.storyId == storyId || candidate.oldStoryId == storyId)
+                is StoryPostEvent.Failed -> candidate.posterChatId == posterChatId
+            }
+        }
+        publishing = false
+        pendingPosterChatId = 0L
+        pendingStoryId = 0
+        when (event) {
+            is StoryPostEvent.Published -> {
+                discard(media)
+                media = null
+                onPublished()
+            }
+            is StoryPostEvent.Failed -> {
+                error = context.getString(storyPostDenialText(event.reason))
+            }
+        }
+    }
+
     val startPublish: () -> Unit = {
         val item = media
         when {
@@ -241,25 +283,8 @@ fun StoryPublisherScreen(
                             onPublished()
                             return@onSuccess
                         }
-                        val event = repository.storyPostEvents.first { candidate ->
-                            when (candidate) {
-                                is StoryPostEvent.Published -> candidate.posterChatId == ticket.posterChatId &&
-                                    (candidate.storyId == ticket.storyId || candidate.oldStoryId == ticket.storyId)
-                                is StoryPostEvent.Failed -> candidate.posterChatId == ticket.posterChatId &&
-                                    candidate.storyId == ticket.storyId
-                            }
-                        }
-                        publishing = false
-                        when (event) {
-                            is StoryPostEvent.Published -> {
-                                discard(item)
-                                media = null
-                                onPublished()
-                            }
-                            is StoryPostEvent.Failed -> {
-                                error = context.getString(storyPostDenialText(event.reason))
-                            }
-                        }
+                        pendingPosterChatId = ticket.posterChatId
+                        pendingStoryId = ticket.storyId
                     }.onFailure {
                         publishing = false
                         error = it.userMessage(context, R.string.stories_publish_failed)
@@ -277,7 +302,7 @@ fun StoryPublisherScreen(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = close, enabled = !publishing) {
+            IconButton(onClick = close, enabled = !busy) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
             }
             Text(
@@ -287,7 +312,7 @@ fun StoryPublisherScreen(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f).semantics { heading() }
             )
-            IconButton(onClick = { showArchive = true }, enabled = !publishing) {
+            IconButton(onClick = { showArchive = true }, enabled = !busy) {
                 Icon(Icons.Rounded.Archive, stringResource(R.string.stories_archive_open), tint = palette.textSecondary)
             }
         }
@@ -302,7 +327,7 @@ fun StoryPublisherScreen(
             Box(
                 Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(24.dp))
                     .background(palette.surface2)
-                    .clickable(enabled = !preparing && !publishing, role = Role.Button) {
+                    .clickable(enabled = !preparing && !busy, role = Role.Button) {
                         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                     }
                     .semantics { contentDescription = description },
@@ -364,7 +389,7 @@ fun StoryPublisherScreen(
                 placeholder = { Text(stringResource(R.string.stories_caption_placeholder)) },
                 minLines = 2,
                 maxLines = 5,
-                enabled = !publishing,
+                enabled = !busy,
                 modifier = Modifier.fillMaxWidth()
             )
             Text(
@@ -389,7 +414,7 @@ fun StoryPublisherScreen(
                     StoryChoiceChip(
                         label = stringResource(label),
                         selected = privacy == option,
-                        enabled = !publishing,
+                        enabled = !busy,
                         onClick = { privacy = option }
                     )
                 }
@@ -398,7 +423,7 @@ fun StoryPublisherScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     TextButton(
                         onClick = { showRecipients = true },
-                        enabled = !publishing
+                        enabled = !busy
                     ) { Text(stringResource(R.string.stories_choose_recipients)) }
                     Text(
                         stringResource(R.string.stories_selected_count, selectedUsers.size),
@@ -427,7 +452,7 @@ fun StoryPublisherScreen(
                             }
                         ),
                         selected = activePeriod == seconds,
-                        enabled = !publishing,
+                        enabled = !busy,
                         onClick = { activePeriod = seconds }
                     )
                 }
@@ -440,14 +465,14 @@ fun StoryPublisherScreen(
                 title = stringResource(R.string.stories_protect),
                 description = stringResource(R.string.stories_protect_note),
                 checked = protectContent,
-                enabled = !publishing,
+                enabled = !busy,
                 onCheckedChange = { protectContent = it }
             )
             StorySwitchRow(
                 title = stringResource(R.string.stories_keep_profile),
                 description = stringResource(R.string.stories_keep_profile_note),
                 checked = keepInProfile,
-                enabled = !publishing,
+                enabled = !busy,
                 onCheckedChange = { keepInProfile = it }
             )
 
@@ -478,7 +503,7 @@ fun StoryPublisherScreen(
 
             Button(
                 onClick = startPublish,
-                enabled = !preparing && !publishing && !permissionLoading && media != null &&
+                enabled = !preparing && !busy && !permissionLoading && media != null &&
                     permission !is StoryPostPermission.Denied && permissionError == null,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(top = 16.dp)
             ) {
@@ -684,18 +709,44 @@ private fun StoryArchiveDialog(repository: TelegramRepository, onDismiss: () -> 
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var stories by remember { mutableStateOf<List<StoryDetail>?>(null) }
+    var stories by remember { mutableStateOf<List<StoryDetail>>(emptyList()) }
+    var totalCount by remember { mutableIntStateOf(0) }
+    var nextFromStoryId by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(true) }
+    var loadingMore by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var moreError by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<StoryDetail?>(null) }
     var reload by remember { mutableIntStateOf(0) }
     LaunchedEffect(reload) {
         loading = true
         error = null
+        moreError = null
         repository.storyArchive()
-            .onSuccess { stories = it }
+            .onSuccess {
+                stories = it.stories
+                totalCount = maxOf(it.totalCount, it.stories.size)
+                nextFromStoryId = it.nextFromStoryId
+            }
             .onFailure { error = it.userMessage(context, R.string.stories_archive_load_failed) }
         loading = false
+    }
+    val loadMore: () -> Unit = {
+        if (!loadingMore && nextFromStoryId != 0) {
+            loadingMore = true
+            moreError = null
+            scope.launch {
+                repository.storyArchive(nextFromStoryId)
+                    .onSuccess { page ->
+                        val known = stories.map { it.storyId }.toSet()
+                        stories = stories + page.stories.filterNot { it.storyId in known }
+                        totalCount = maxOf(page.totalCount, stories.size)
+                        nextFromStoryId = page.nextFromStoryId
+                    }
+                    .onFailure { moreError = it.userMessage(context, R.string.stories_archive_load_failed) }
+                loadingMore = false
+            }
+        }
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -719,15 +770,35 @@ private fun StoryArchiveDialog(repository: TelegramRepository, onDismiss: () -> 
                     Text(error.orEmpty(), color = palette.danger, modifier = Modifier.padding(top = 16.dp).errorAnnouncement())
                     TextButton(onClick = { reload++ }) { Text(stringResource(R.string.common_retry)) }
                 }
-                stories.orEmpty().isEmpty() -> Text(
+                stories.isEmpty() -> Text(
                     stringResource(R.string.stories_archive_empty),
                     color = palette.textSecondary,
                     modifier = Modifier.padding(vertical = 22.dp)
                 )
                 else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp).padding(top = 8.dp)) {
-                    items(stories.orEmpty(), key = { it.storyId }) { story ->
+                    items(stories, key = { it.storyId }) { story ->
                         StoryArchiveRow(story, repository, onDelete = { deleting = story })
                         HorizontalDivider(color = palette.divider)
+                    }
+                    item(key = "archive_more") {
+                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            if (loadingMore) {
+                                CircularProgressIndicator(color = palette.accent, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                            } else if (nextFromStoryId != 0 && stories.size < totalCount) {
+                                TextButton(onClick = loadMore) {
+                                    Text(stringResource(R.string.stories_archive_load_more))
+                                }
+                            }
+                            if (moreError != null) {
+                                Text(
+                                    moreError.orEmpty(),
+                                    color = palette.danger,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.errorAnnouncement()
+                                )
+                                TextButton(onClick = loadMore) { Text(stringResource(R.string.common_retry)) }
+                            }
+                        }
                     }
                 }
             }
@@ -746,7 +817,10 @@ private fun StoryArchiveDialog(repository: TelegramRepository, onDismiss: () -> 
                     deleting = null
                     scope.launch {
                         repository.deleteStory(story.posterChatId, story.storyId)
-                            .onSuccess { stories = stories.orEmpty().filterNot { it.storyId == story.storyId } }
+                            .onSuccess {
+                                stories = stories.filterNot { it.storyId == story.storyId }
+                                totalCount = (totalCount - 1).coerceAtLeast(stories.size)
+                            }
                             .onFailure { error = it.userMessage(context, R.string.stories_delete_failed) }
                     }
                 }) { Text(stringResource(R.string.common_delete)) }

@@ -7,6 +7,7 @@ import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.StoryDetail
+import com.beykus.beygram.domain.model.StoryArchivePage
 import com.beykus.beygram.domain.model.StoryMedia
 import com.beykus.beygram.domain.model.StoryMediaKind
 import com.beykus.beygram.domain.model.StoryPostDenial
@@ -352,13 +353,19 @@ internal class TdStories(
         publish()
     }
 
-    suspend fun archive(): Result<List<StoryDetail>> = storyRequest {
+    suspend fun archive(fromStoryId: Int = 0): Result<StoryArchivePage> = storyRequest {
         val chatId = ensureSelfChatId()
-        requests(TdApi.GetChatArchivedStories(chatId, 0, ARCHIVE_PAGE_SIZE))
-            .stories.orEmpty()
+        val page = requests(TdApi.GetChatArchivedStories(chatId, fromStoryId.coerceAtLeast(0), ARCHIVE_PAGE_SIZE))
+        val stories = page.stories.orEmpty()
             .filterNot { it.isBeingPosted }
+            .filterNot { fromStoryId > 0 && it.id == fromStoryId }
             .map { it.toDetail() }
             .sortedByDescending { it.dateSeconds }
+        StoryArchivePage(
+            stories = stories,
+            totalCount = page.totalCount.coerceAtLeast(stories.size),
+            nextFromStoryId = stories.lastOrNull()?.storyId ?: 0
+        )
     }
 
     suspend fun captionLimit(): Result<Int> = storyRequest {

@@ -24,6 +24,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.StoryDetail
+import com.beykus.beygram.domain.model.StoryArchivePage
 import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPostPermission
 import com.beykus.beygram.domain.model.StoryPostTicket
@@ -82,8 +83,8 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Sends a normal chat message that quotes the story, as Telegram clients do. */
     suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit>
     suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit>
-    /** Expired stories of the signed-in user, newest first. */
-    suspend fun storyArchive(): Result<List<StoryDetail>>
+    /** Expired stories of the signed-in user, newest first. Pass the last page's nextFromStoryId for more. */
+    suspend fun storyArchive(fromStoryId: Int = 0): Result<StoryArchivePage>
     suspend fun storyPostPermission(): Result<StoryPostPermission>
     suspend fun storyCaptionLimit(): Result<Int>
     suspend fun publishStory(

@@ -75,6 +75,7 @@
     <string name="stories_archive_empty">В архиве пока нет историй</string>
     <string name="stories_archive_loading">Загрузка архива…</string>
     <string name="stories_archive_load_failed">Не удалось загрузить архив</string>
+    <string name="stories_archive_load_more">Загрузить ещё</string>
     <string name="stories_archive_delete_description">Удалить историю от %1$s</string>
     <string name="stories_permission_checking">Проверка возможности публикации…</string>
     <string name="stories_permission_failed">Не удалось проверить возможность публикации</string>
