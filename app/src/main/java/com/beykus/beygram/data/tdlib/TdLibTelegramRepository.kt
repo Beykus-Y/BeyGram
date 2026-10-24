@@ -767,14 +767,14 @@ class TdLibTelegramRepository private constructor(
     override suspend fun translateMessage(chatId: Long, messageId: Long, toLanguageCode: String): Result<MessageTranslation> =
         translationResult {
             require(toLanguageCode.isNotBlank()) { "Target language must not be blank" }
-            if (isSecretChat(chatId)) throw UserMessageException(UiText.Res(R.string.err_translation_secret_chat))
+            if (resolveIsSecretChat(chatId)) throw UserMessageException(UiText.Res(R.string.err_translation_secret_chat))
             // TDLib's "tone" argument is optional; the empty string asks for the default neutral translation.
             val translated = tdRequests(TdApi.TranslateMessageText(chatId, messageId, toLanguageCode, ""))
             if (translated.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_translation_failed))
             translated.toMessageTranslation(toLanguageCode)
         }
     override suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit> = speechRecognitionResult {
-        if (isSecretChat(chatId)) throw UserMessageException(UiText.Res(R.string.err_transcription_secret_chat))
+        if (resolveIsSecretChat(chatId)) throw UserMessageException(UiText.Res(R.string.err_transcription_secret_chat))
         tdRequests(TdApi.RecognizeSpeech(chatId, messageId))
         Unit
     }
@@ -785,7 +785,7 @@ class TdLibTelegramRepository private constructor(
         }
 
     /** The open chat is normally cached; fetch the type if a caller got here before the chat list was populated. */
-    private suspend fun isSecretChat(chatId: Long): Boolean =
+    private suspend fun resolveIsSecretChat(chatId: Long): Boolean =
         chatCache[chatId]?.isSecret ?: (tdRequests(TdApi.GetChat(chatId)).type is TdApi.ChatTypeSecret)
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind) = conversationActions.mediaPosition(chatId, messageId, kind)
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>) = conversationActions.edit(chatId, messageId, text, entities)
