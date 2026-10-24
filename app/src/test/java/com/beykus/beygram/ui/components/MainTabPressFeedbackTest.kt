@@ -33,7 +33,7 @@ class MainTabPressFeedbackTest {
             assertEquals(palette.accent.blue, capsule.blue, 0f)
             assertEquals(TabPressAlpha, capsule.alpha, AlphaDelta)
         }
-        // The three themes really do use different accents, so the capsule follows them.
+        // The light and dark themes really do use different accents; AMOLED keeps the dark accent over black.
         assertNotEquals(light.accent, dark.accent)
         assertEquals(Color(0xFF000000), amoled.screen)
         assertEquals(dark.accent, amoled.accent)

@@ -14,8 +14,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.assertDoesNotHaveClickAction
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.captureToImage
@@ -124,7 +124,7 @@ class MainTabItemTest {
             }
         }
         val preview = composeRule.onNodeWithText(context.getString(R.string.tabs_chats))
-            .assertDoesNotHaveClickAction()
+            .assertHasNoClickAction()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab))
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
 
