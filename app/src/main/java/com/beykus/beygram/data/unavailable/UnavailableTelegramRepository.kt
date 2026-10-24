@@ -47,7 +47,13 @@ import com.beykus.beygram.domain.model.PinnedMessagePage
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
+import com.beykus.beygram.domain.model.AnimationItem
+import com.beykus.beygram.domain.model.AnimationPage
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.StickerItem
+import com.beykus.beygram.domain.model.StickerSearchPage
+import com.beykus.beygram.domain.model.StickerSetContent
+import com.beykus.beygram.domain.model.StickerSetSummary
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.CachePolicy
@@ -235,6 +241,15 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = unavailable()
     override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter): Result<MessageSearchPage> = unavailable()
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
+    override suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
+    override suspend fun recentStickers(): Result<List<StickerItem>> = unavailable()
+    override suspend fun installedStickerSets(): Result<List<StickerSetSummary>> = unavailable()
+    override suspend fun stickerSet(setId: Long): Result<StickerSetContent> = unavailable()
+    override suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = unavailable()
+    override suspend fun savedAnimations(): Result<List<AnimationItem>> = unavailable()
+    override suspend fun recentAnimations(offset: String): Result<AnimationPage> = unavailable()
+    override suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = unavailable()
+    override suspend fun isPremiumAccount(): Result<Boolean> = unavailable()
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = unavailable()
     override suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences> = unavailable()

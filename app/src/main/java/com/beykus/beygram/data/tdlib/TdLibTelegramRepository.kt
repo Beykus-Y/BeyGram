@@ -9,6 +9,8 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.export.ChatExportMessage
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
+import com.beykus.beygram.domain.model.AnimationItem
+import com.beykus.beygram.domain.model.AnimationPage
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatExportProgress
@@ -37,6 +39,10 @@ import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.StickerItem
+import com.beykus.beygram.domain.model.StickerSearchPage
+import com.beykus.beygram.domain.model.StickerSetContent
+import com.beykus.beygram.domain.model.StickerSetSummary
 import com.beykus.beygram.data.media.VideoNoteSendTracking
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.storage.StorageSettingsStore
@@ -362,6 +368,7 @@ class TdLibTelegramRepository private constructor(
     }
     private val mediaFiles = MediaFileStore()
     private val mediaMapper = TdMediaMapper(mediaFiles)
+    private val stickerCatalog = TdStickerCatalog(tdRequests, mediaFiles)
     private val serviceMessages = TdServiceMessageMapper(appContext)
     private val pendingServiceUserRequests = ConcurrentHashMap.newKeySet<Triple<Long, Long, Long>>()
 
@@ -1639,6 +1646,20 @@ class TdLibTelegramRepository private constructor(
         leaveJumpWindow(chatId)
         return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
     }
+
+    override suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendSticker(chatId, sticker, replyToMessageId, forumTopicId, options)
+    }
+
+    override suspend fun recentStickers(): Result<List<StickerItem>> = stickerCatalog.recentStickers()
+    override suspend fun installedStickerSets(): Result<List<StickerSetSummary>> = stickerCatalog.installedStickerSets()
+    override suspend fun stickerSet(setId: Long): Result<StickerSetContent> = stickerCatalog.stickerSet(setId)
+    override suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = stickerCatalog.searchStickers(query, offset)
+    override suspend fun savedAnimations(): Result<List<AnimationItem>> = stickerCatalog.savedAnimations()
+    override suspend fun recentAnimations(offset: String): Result<AnimationPage> = stickerCatalog.recentAnimations(offset)
+    override suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = stickerCatalog.searchAnimations(query, offset)
+    override suspend fun isPremiumAccount(): Result<Boolean> = stickerCatalog.isPremiumAccount()
 
     override suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.scheduledMessages(chatId)
     override suspend fun deleteScheduledMessage(chatId: Long, messageId: Long): Result<Unit> =
