@@ -2,6 +2,9 @@ package com.beykus.beygram.domain.repository
 
 import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.ChannelAdminEventPage
+import com.beykus.beygram.domain.model.ChannelEventFilter
+import com.beykus.beygram.domain.model.ChannelStatisticsSummary
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.ChatMembersPage
@@ -131,6 +134,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Resolve a t.me message link (including /c/ links) and its forum topic without sending any action. */
     suspend fun resolveMessageLink(url: String): Result<MessageLinkTarget>
+
+    /** Channel statistics for an administrator; TDLib rejects the request for ordinary members. */
+    suspend fun channelStatistics(chatId: Long): Result<ChannelStatisticsSummary>
+
+    /** Admin log page, newest first. Pass 0 for the first page, then [ChannelAdminEventPage.nextFromEventId]. */
+    suspend fun channelAdminEvents(chatId: Long, fromEventId: Long, filter: ChannelEventFilter): Result<ChannelAdminEventPage>
 
     /** Страница истории звонков. Первая страница запрашивается с пустым [offset], дальше — с [CallHistoryPage.nextOffset]. */
     suspend fun loadCallHistory(offset: String): Result<CallHistoryPage>

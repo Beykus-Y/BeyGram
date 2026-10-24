@@ -25,6 +25,25 @@ interface ConversationRepository {
     fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long)
     suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?>
     suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean>
+    /** The linked discussion supergroup of a channel, or zero when the channel has none. */
+    suspend fun linkedDiscussionChatId(chatId: Long): Result<Long>
+    /**
+     * Opens a channel post's comment thread. TDLib resolves the linked discussion chat and thread id; a post with
+     * comments disabled or hidden fails with a user-facing explanation instead of an empty thread.
+     */
+    suspend fun loadMessageThread(chatId: Long, messageId: Long): Result<MessageThread>
+    /** One older page of comments, newest first in TDLib and mapped oldest first for the thread list. */
+    suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long = 0L): Result<MessageThreadPage>
+    /** Sends into the discussion chat's thread, not into the channel; the reply keeps the target comment's thread. */
+    suspend fun sendThreadReply(
+        discussionChatId: Long,
+        threadId: Long,
+        text: String,
+        entities: List<MessageTextEntity> = emptyList(),
+        replyToMessageId: Long? = null
+    ): Result<ChatMessage>
+    /** Permanent deletions observed in a chat; history windows alone cannot distinguish deleted vs unloaded rows. */
+    fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>>
     fun openChat(chatId: Long)
     fun closeChat(chatId: Long)
     fun loadOlderMessages(chatId: Long)
@@ -129,6 +148,17 @@ interface ConversationRepository {
      */
     suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean = false): Result<MessageSearchPage>
     fun messagesVisible(chatId: Long, messageIds: List<Long>)
+    /**
+     * Streams the history of one chat into [target] (a SAF document), newest to oldest in bounded pages.
+     * Secret chats and chats with protected content are refused before anything is written. Messages TDLib
+     * marks as not saveable are skipped. The target is discarded on cancellation or any error.
+     */
+    suspend fun exportChat(
+        chatId: Long,
+        target: ChatExportTarget,
+        request: ChatExportRequest,
+        onProgress: (ChatExportProgress) -> Unit = {}
+    ): Result<ChatExportSummary>
     fun setAppForeground(foreground: Boolean)
     fun refreshInteractionPolicy()
     fun openMessageContent(chatId: Long, messageId: Long)

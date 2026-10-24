@@ -15,6 +15,8 @@ data class ChatPreview(
     val isChannel: Boolean = false,
     /** TDLib ChatTypeSecret: no translation, scheduling or server-side link-preview metadata. */
     val isSecret: Boolean = false,
+    /** TDLib Chat.hasProtectedContent: content cannot be saved, copied or exported. */
+    val hasProtectedContent: Boolean = false,
     /** Чат «Избранное»: личный чат аккаунта с самим собой. Его название и значок задаёт интерфейс. */
     val isSavedMessages: Boolean = false,
     val isPinned: Boolean = false,
@@ -23,6 +25,8 @@ data class ChatPreview(
     val isMarkedAsUnread: Boolean = false,
     /** False when the user may not write here: a channel they do not administer, or a group that restricts them. */
     val canPost: Boolean = true,
+    /** True for a channel owner or administrator, independently of the separate permission to post messages. */
+    val isChannelAdmin: Boolean = false,
     /** TDLib main-list position; zero means the chat is outside the main list. */
     val order: Long = 0L,
     /** TDLib archive-list position; zero means the chat is not archived. */

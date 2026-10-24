@@ -145,6 +145,13 @@ The same text is available through Settings → Diagnostics → «Поделит
 логами» (or «Посмотреть данные»). In a connected DEV build, `adb logcat -s
 BeyGramAccounts` shows the same lines.
 
+A real-device log identified one startup deadlock: TDLib at
+`WAIT_PARAMETERS` did not acknowledge the pre-parameters
+`SetNetworkType(NetworkTypeNone)` call, so the awaited request timed out after
+20 seconds and `SetTdlibParameters` was never sent. The transport now dispatches
+that isolation request without waiting, then confirms `NetworkTypeNone` after
+parameters and before configuring the route/proxy.
+
 ## Validation
 
 - `AccountSwitcherModelTest` covers selected/connected/auth-phase transitions,

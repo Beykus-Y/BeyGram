@@ -8,7 +8,7 @@ import org.junit.Test
 class TdAccountUiPolicyTest {
     @Test fun sameMainRoutesAreAvailableToAnyBoundAccount() {
         val common = listOf(
-            AppRoute.Chats, AppRoute.Chat, AppRoute.ChatInfo, AppRoute.Archive,
+            AppRoute.Chats, AppRoute.Chat, AppRoute.MessageThread, AppRoute.ChatInfo, AppRoute.Archive,
             AppRoute.Calls, AppRoute.Contacts, AppRoute.MyProfile,
             AppRoute.GlobalSearch, AppRoute.NewChat, AppRoute.Notifications
         )

@@ -71,6 +71,125 @@ internal class TdConversationActions(
         request(TdApi.GetSupergroup(type.supergroupId)).isForum
     }
 
+    /** The linked discussion supergroup of a broadcast channel; zero for ordinary chats and channels without one. */
+    suspend fun linkedDiscussionChatId(chatId: Long): Result<Long> = requestResult {
+        val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup ?: return@requestResult 0L
+        if (!type.isChannel) return@requestResult 0L
+        request(TdApi.GetSupergroupFullInfo(type.supergroupId)).linkedChatId
+    }
+
+    /**
+     * Resolves a channel post to its discussion thread with GetMessageThread. A channel post whose comments were
+     * disabled is reported by canGetMessageThread; TDLib errors are translated so hidden/removed threads never look
+     * like a normal empty discussion.
+     */
+    suspend fun messageThread(channelChatId: Long, messageId: Long): Result<MessageThread> = conversationResult {
+        if (channelChatId == 0L || messageId <= 0L) throw UserMessageException(UiText.Res(R.string.thread_comments_unavailable))
+        val properties = try {
+            request(TdApi.GetMessageProperties(channelChatId, messageId))
+        } catch (error: TdRequestError) {
+            throw threadRequestFailure(error)
+        }
+        if (!properties.canGetMessageThread) throw UserMessageException(UiText.Res(R.string.thread_comments_closed))
+        val info = try {
+            request(messageThreadRequest(channelChatId, messageId))
+        } catch (error: TdRequestError) {
+            throw threadRequestFailure(error)
+        }
+        if (info.chatId == 0L || info.messageThreadId == 0L) {
+            throw UserMessageException(UiText.Res(R.string.thread_comments_unavailable))
+        }
+        val discussion = request(TdApi.GetChat(info.chatId))
+        val supergroup = (discussion.type as? TdApi.ChatTypeSupergroup)?.let { type ->
+            try { request(TdApi.GetSupergroup(type.supergroupId)) } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: TdRequestError) { null }
+        }
+        val status = supergroup?.status
+        val isMember = status !is TdApi.ChatMemberStatusLeft && status !is TdApi.ChatMemberStatusBanned
+        // MessageThreadInfo.messages is only the thread prefix. The history call is the authoritative newest page,
+        // and it keeps the initial scroll at the latest comments on a busy post.
+        // Do not hide a failed first history request behind the thread prefix: that prefix is filtered out below,
+        // which would turn a transient failure into a permanent empty discussion with no retry action.
+        val firstPage = try {
+            request(messageThreadHistoryRequest(info.chatId, info.messageThreadId, 0L))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: TdRequestError) {
+            throw UserMessageException(UiText.Res(R.string.thread_comments_load_failed), error)
+        }
+        val pageMessages = firstPage.messages.orEmpty().filterNotNull()
+        val initialMessages = pageMessages
+            .filterNot { it.isChannelPost || it.id == info.messageThreadId }
+            .sortedBy { it.id }
+            .map(map)
+        // A page may be shorter than the reply count even when no older page remains, but a full page is not proof of
+        // the end either; the next history call is the only authoritative check.
+        val hasOlderMessages = initialMessages.isNotEmpty()
+        MessageThread(
+            channelChatId = channelChatId,
+            channelMessageId = messageId,
+            discussionChatId = info.chatId,
+            threadId = info.messageThreadId,
+            discussionTitle = discussion.title,
+            replyCount = info.replyInfo?.replyCount ?: 0,
+            unreadCount = info.unreadMessageCount,
+            canReply = canWriteThreadComment(
+                canGetMessageThread = properties.canGetMessageThread,
+                hasReplyInfo = info.replyInfo != null,
+                isMember = isMember,
+                canSendBasicMessages = status.allowsThreadComment(discussion.permissions)
+            ),
+            messages = initialMessages,
+            hasOlderMessages = hasOlderMessages
+        )
+    }
+
+    /** One older page of comments from GetMessageThreadHistory, normalized to oldest-first order. */
+    suspend fun threadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long): Result<MessageThreadPage> = conversationResult {
+        if (discussionChatId == 0L || threadId == 0L) throw UserMessageException(UiText.Res(R.string.thread_comments_unavailable))
+        val page = request(messageThreadHistoryRequest(discussionChatId, threadId, fromMessageId))
+        val messages = page.messages.orEmpty().filterNotNull()
+            .filter { it.id != fromMessageId && it.id != threadId && !it.isChannelPost }
+            .sortedBy { it.id }
+            .map(map)
+        val nextFromMessageId = messages.firstOrNull()?.id ?: 0L
+        MessageThreadPage(
+            messages = messages,
+            nextFromMessageId = nextFromMessageId,
+            hasMore = messages.isNotEmpty() && nextFromMessageId != 0L && nextFromMessageId != fromMessageId
+        )
+    }
+
+    /**
+     * Sends into the linked discussion group with a MessageTopicThread. A reply to a loaded comment keeps the same
+     * thread and adds InputMessageReplyToMessage for the target; the channel itself is never the send target.
+     */
+    suspend fun sendThreadReply(
+        discussionChatId: Long,
+        threadId: Long,
+        text: String,
+        entities: List<MessageTextEntity>,
+        replyToMessageId: Long?
+    ): Result<ChatMessage> = conversationResult {
+        val bounded = boundTelegramText(text, entities, limits.value.text)
+        if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
+        val replyTarget = replyToMessageId?.takeIf { it > 0L }?.let { targetId ->
+            if (!request(TdApi.GetMessageProperties(discussionChatId, targetId)).canBeReplied) {
+                throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+            }
+            request(TdApi.GetMessage(discussionChatId, targetId))
+        }
+        val content = TdApi.InputMessageText().apply {
+            this.text = formattedText(bounded.text, bounded.entities)
+            // The discussion chat may have its own draft; a thread reply must not clear it.
+            clearDraft = false
+        }
+        val sent = request(threadReplyRequest(discussionChatId, threadId, replyTarget?.id, content))
+        history.put(map(sent))
+        hydrateReply(sent)
+        map(sent)
+    }
+
     /**
      * Темы группы с темами, в которые можно писать; null для всего остального. TDLib отдаёт до 100 тем за запрос, поэтому идём по страницам.
      * Закрытые темы видны, если их создал этот аккаунт или он управляет темами: в закрытую тему пишут создатель и администраторы с этим правом.
@@ -541,6 +660,65 @@ internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(t
 
 internal fun messageLinkRequest(chatId: Long, messageId: Long, inMessageThread: Boolean) =
     TdApi.GetMessageLink(chatId, messageId, 0, 0, "", false, inMessageThread)
+
+internal fun messageThreadRequest(chatId: Long, messageId: Long) = TdApi.GetMessageThread(chatId, messageId)
+
+/** The thread lives in the linked discussion chat; messageId is MessageThreadInfo.messageThreadId, not the channel post. */
+internal fun messageThreadHistoryRequest(
+    discussionChatId: Long,
+    threadId: Long,
+    fromMessageId: Long,
+    limit: Int = 50
+) = TdApi.GetMessageThreadHistory(discussionChatId, threadId, fromMessageId, 0, limit)
+
+/**
+ * A comment always belongs to its thread even when it answers another comment. Passing only replyTo would make TDLib
+ * infer the topic; the explicit MessageTopicThread keeps the send in the discussion chat's correct thread.
+ */
+internal fun threadReplyRequest(
+    discussionChatId: Long,
+    threadId: Long,
+    replyToMessageId: Long?,
+    content: TdApi.InputMessageContent,
+    options: TdApi.MessageSendOptions = TdApi.MessageSendOptions()
+) = TdApi.SendMessage().apply {
+    chatId = discussionChatId
+    topicId = TdApi.MessageTopicThread(threadId)
+    replyTo = replyToMessageId?.takeIf { it > 0L }?.let { id ->
+        TdApi.InputMessageReplyToMessage().apply {
+            messageId = id
+            pollOptionId = ""
+        }
+    }
+    this.options = options
+    inputMessageContent = content
+}
+
+/**
+ * TDLib reports disabled comments as "Message has no thread"/"Message has no comments", while an inaccessible linked
+ * group says that its comments can't be accessed. Keep both explanations distinct from a retryable network failure.
+ */
+internal fun threadRequestFailure(error: TdRequestError): UserMessageException {
+    val message = error.message.orEmpty()
+    return when {
+        error.code == 403 || message.contains("CHAT_FORBIDDEN") || message.contains("CHANNEL_PRIVATE") ||
+            message.contains("access message comments") ->
+            UserMessageException(UiText.Res(R.string.thread_comments_hidden), error)
+        error.code == 404 || message.contains("MESSAGE_THREAD") || message.contains("MESSAGE_ID_INVALID") ||
+            message.contains("no thread") || message.contains("no comments") ->
+            UserMessageException(UiText.Res(R.string.thread_comments_closed), error)
+        else -> UserMessageException(UiText.Res(R.string.thread_comments_unavailable), error)
+    }
+}
+
+private fun TdApi.ChatMemberStatus?.allowsThreadComment(chatPermissions: TdApi.ChatPermissions): Boolean = when (this) {
+    null -> chatPermissions.canSendBasicMessages
+    is TdApi.ChatMemberStatusCreator -> true
+    is TdApi.ChatMemberStatusAdministrator -> true
+    is TdApi.ChatMemberStatusMember -> chatPermissions.canSendBasicMessages
+    is TdApi.ChatMemberStatusRestricted -> isMember && permissions?.canSendBasicMessages == true
+    else -> false
+}
 
 internal fun forwardMessagesRequest(toChatId: Long, fromChatId: Long, messageId: Long, asCopy: Boolean) =
     TdApi.ForwardMessages(toChatId, null, fromChatId, longArrayOf(messageId), TdApi.MessageSendOptions(), asCopy, false)

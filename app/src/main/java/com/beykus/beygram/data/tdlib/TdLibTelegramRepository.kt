@@ -7,9 +7,14 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.analytics.AnalyticsSync
+import com.beykus.beygram.data.export.ChatExportMessage
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatActivity
+import com.beykus.beygram.domain.model.ChatExportProgress
+import com.beykus.beygram.domain.model.ChatExportRequest
+import com.beykus.beygram.domain.model.ChatExportSummary
+import com.beykus.beygram.domain.model.ChatExportTarget
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatSearchFilter
@@ -26,6 +31,8 @@ import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.MessageDraft
+import com.beykus.beygram.domain.model.MessageThread
+import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
@@ -42,6 +49,11 @@ import com.beykus.beygram.domain.model.QrLoginLinkTracker
 import com.beykus.beygram.domain.model.QrLoginLinkUpdate
 import com.beykus.beygram.domain.model.QR_LOGIN_REFRESH_TIMEOUT_MS
 import com.beykus.beygram.domain.model.CallHistoryPage
+import com.beykus.beygram.domain.model.ChannelAdminEvent
+import com.beykus.beygram.domain.model.ChannelAdminEventPage
+import com.beykus.beygram.domain.model.ChannelEventFilter
+import com.beykus.beygram.domain.model.ChannelStatisticsPerson
+import com.beykus.beygram.domain.model.ChannelStatisticsSummary
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
@@ -320,6 +332,7 @@ class TdLibTelegramRepository private constructor(
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
+    private val deletedMessages = ConcurrentHashMap<Long, MutableStateFlow<Set<Long>>>()
     // A forum topic is a separate history even though all of its messages have the parent chatId.
     private val topicStores = ConcurrentHashMap<Pair<Long, Long>, MessageHistoryStore>()
     private fun topicStore(chatId: Long, topicId: Long): MessageHistoryStore =
@@ -939,6 +952,54 @@ class TdLibTelegramRepository private constructor(
         }
         MessageLinkTarget(info.chatId, message.id, forumTopicId)
     }
+    override suspend fun channelStatistics(chatId: Long): Result<ChannelStatisticsSummary> = requestResult {
+        when (val statistics = tdRequests(TdApi.GetChatStatistics(chatId, false))) {
+            is TdApi.ChatStatisticsChannel -> ChannelStatisticsSummary(
+                periodStart = statistics.period.startDate,
+                periodEnd = statistics.period.endDate,
+                memberCount = statistics.memberCount.value.toInt(),
+                memberGrowthPercent = statistics.memberCount.growthRatePercentage,
+                meanViewCount = statistics.meanMessageViewCount.value.toInt(),
+                meanShareCount = statistics.meanMessageShareCount.value.toInt(),
+                meanReactionCount = statistics.meanMessageReactionCount.value.toInt(),
+                notificationsPercent = statistics.enabledNotificationsPercentage.toInt()
+            )
+            is TdApi.ChatStatisticsSupergroup -> ChannelStatisticsSummary(
+                periodStart = statistics.period.startDate,
+                periodEnd = statistics.period.endDate,
+                memberCount = statistics.memberCount.value.toInt(),
+                memberGrowthPercent = statistics.memberCount.growthRatePercentage,
+                meanViewCount = statistics.viewerCount.value.toInt(),
+                meanShareCount = statistics.messageCount.value.toInt(),
+                meanReactionCount = statistics.senderCount.value.toInt(),
+                topSenders = statistics.topSenders.orEmpty().take(5).map {
+                    ChannelStatisticsPerson(it.userId, profiles.senderName(TdApi.MessageSenderUser(it.userId)), it.sentMessageCount)
+                }
+            )
+            else -> throw UserMessageException(UiText.Res(R.string.err_statistics_unavailable))
+        }
+    }
+
+    override suspend fun channelAdminEvents(chatId: Long, fromEventId: Long, filter: ChannelEventFilter): Result<ChannelAdminEventPage> = requestResult {
+        val found = tdRequests(
+            TdApi.GetChatEventLog(
+                chatId, "", fromEventId, ADMIN_LOG_PAGE_SIZE, adminLogFilters(filter), longArrayOf()
+            )
+        )
+        val events = found.events.orEmpty().map { event ->
+            val actorId = (event.memberId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L
+            ChannelAdminEvent(
+                id = event.id,
+                date = event.date,
+                actorId = actorId,
+                actorName = if (actorId > 0L) profiles.senderName(TdApi.MessageSenderUser(actorId)) else "",
+                text = event.action.adminText(appContext, profiles)
+            )
+        }
+        val next = events.lastOrNull()?.id?.takeIf { it != 0L && it != fromEventId } ?: 0L
+        ChannelAdminEventPage(events, next)
+    }
+
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
@@ -947,6 +1008,7 @@ class TdLibTelegramRepository private constructor(
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })
+    private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
@@ -1016,6 +1078,12 @@ class TdLibTelegramRepository private constructor(
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
+    override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
+    override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
+    override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long) =
+        conversationActions.threadComments(discussionChatId, threadId, fromMessageId)
+    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?) =
+        conversationActions.sendThreadReply(discussionChatId, threadId, text, entities, replyToMessageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
         conversationActions.search(chatId, query, fromMessageId, filter = filter)
     override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
@@ -1055,6 +1123,12 @@ class TdLibTelegramRepository private constructor(
         }
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean) = conversationActions.shared(chatId, kind, fromMessageId, newer)
         .onSuccess { page -> listedMediaFiles.remember(page.messages.flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }) }
+    override suspend fun exportChat(
+        chatId: Long,
+        target: ChatExportTarget,
+        request: ChatExportRequest,
+        onProgress: (ChatExportProgress) -> Unit
+    ): Result<ChatExportSummary> = chatExporter.export(chatId, target, request, onProgress)
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
     override fun startChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.startActivity(chatId, activity)
     override fun endChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.endActivity(chatId, activity)
@@ -1406,6 +1480,8 @@ class TdLibTelegramRepository private constructor(
     }
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = messageHistory.observe(chatId)
+    override fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>> =
+        deletedMessages.computeIfAbsent(chatId) { MutableStateFlow(emptySet()) }
     override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> =
         topicStore(chatId, forumTopicId).observe(chatId)
 
@@ -1718,14 +1794,23 @@ class TdLibTelegramRepository private constructor(
                 updateForumMessage(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
             }
             is TdApi.UpdateMessageInteractionInfo -> {
-                messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
-                updateForumMessage(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
+                val replyCount = update.interactionInfo?.replyInfo?.replyCount
+                messageHistory.update(update.chatId, update.messageId) {
+                    it.copy(reactions = messageReactions(update.interactionInfo), replyCount = replyCount ?: it.replyCount)
+                }
+                updateForumMessage(update.chatId, update.messageId) {
+                    it.copy(reactions = messageReactions(update.interactionInfo), replyCount = replyCount ?: it.replyCount)
+                }
             }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
             is TdApi.UpdateSupergroup, is TdApi.UpdateBasicGroup -> chatCache.keys.toList().forEach(::refreshPostingRight)
             is TdApi.UpdateChatPermissions -> refreshPostingRight(update.chatId)
+            is TdApi.UpdateChatHasProtectedContent -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(hasProtectedContent = update.hasProtectedContent) }
+                publishChat(update.chatId)
+            }
             is TdApi.UpdateChatPhoto -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(photo = profiles.photo(update.photo)) }
                 publishChat(update.chatId)
@@ -1781,6 +1866,9 @@ class TdLibTelegramRepository private constructor(
                 if (update.isPermanent) {
                     messageHistory.delete(update.chatId, update.messageIds.toList())
                     topicStores.filterKeys { it.first == update.chatId }.values.forEach { it.delete(update.chatId, update.messageIds.toList()) }
+                    if (update.messageIds.isNotEmpty()) {
+                        deletedMessages[update.chatId]?.update { it + update.messageIds.toList() }
+                    }
                 }
             }
             is TdApi.UpdateConnectionState    -> {
@@ -2164,8 +2252,9 @@ class TdLibTelegramRepository private constructor(
         val existing = chatCache[chatId] ?: return
         val chat = profiles.chat(chatId) ?: return
         val canPost = profiles.canPost(chat)
-        if (canPost == existing.canPost) return
-        chatCache[chatId] = existing.copy(canPost = canPost)
+        val isChannelAdmin = profiles.isChannelAdministrator(chat)
+        if (canPost == existing.canPost && isChannelAdmin == existing.isChannelAdmin) return
+        chatCache[chatId] = existing.copy(canPost = canPost, isChannelAdmin = isChannelAdmin)
         publishChat(chatId)
     }
 
@@ -2284,7 +2373,10 @@ class TdLibTelegramRepository private constructor(
         isCallEvent = content is TdApi.MessageCall,
         serviceUserId = event?.userId ?: 0L,
         forumTopicId = forumId(this),
+        messageThreadId = (topicId as? TdApi.MessageTopicThread)?.messageThreadId ?: 0L,
         isPinned = isPinned,
+        isChannelPost = isChannelPost,
+        replyCount = interactionInfo?.replyInfo?.replyCount ?: 0,
         linkPreview = if (event == null) mediaMapper.linkPreview(content, isSecretChat(chatId)) else null,
         scheduledAtSeconds = scheduledAt,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
@@ -2292,6 +2384,29 @@ class TdLibTelegramRepository private constructor(
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
         }
     )
+    }
+
+    /** Export projection avoids registering media files in MediaFileStore, so a huge history adds no UI state. */
+    private fun TdApi.Message.toExportMessage(): ChatExportMessage {
+        val media = content.toChatExportMedia()
+        val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
+        return ChatExportMessage(
+            id = id,
+            dateSeconds = date.toLong(),
+            isOutgoing = isOutgoing,
+            senderId = when (val sender = senderId) {
+                is TdApi.MessageSenderUser -> sender.userId.toLong()
+                is TdApi.MessageSenderChat -> sender.chatId
+                else -> 0L
+            },
+            senderName = profiles.senderName(senderId),
+            text = event?.text ?: contentText(content, media != null),
+            isEdited = editDate > 0,
+            serviceText = event?.text,
+            replyToMessageId = (replyTo as? TdApi.MessageReplyToMessage)?.messageId ?: 0L,
+            canBeSaved = canBeSaved,
+            media = media
+        )
     }
 
     /** The chat cache is normally warm; the stored TdApi.Chat covers a message that arrives first. */
@@ -2332,6 +2447,7 @@ class TdLibTelegramRepository private constructor(
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,
             isSecret = type.isSecretChatType(),
+            hasProtectedContent = hasProtectedContent,
             isSavedMessages = saved,
             isMarkedAsUnread = isMarkedAsUnread,
             isPinned = mainPosition?.isPinned == true,
@@ -2343,6 +2459,7 @@ class TdLibTelegramRepository private constructor(
             lastMessageSendState = lastMessage?.sendingState.toSendState(),
             lastReadOutboxMessageId = lastReadOutboxMessageId,
             canPost = profiles.canPost(this),
+            isChannelAdmin = profiles.isChannelAdministrator(this),
             photo = profiles.photo(photo),
             folderPositions = folderPositions
         )
@@ -2550,6 +2667,61 @@ private fun publicChatJoinError(error: Exception): UiText {
             UiText.Res(R.string.global_search_public_join_declined)
         else -> UiText.Res(R.string.global_search_public_open_failed)
     }
+}
+
+private const val ADMIN_LOG_PAGE_SIZE = 50
+
+/** Maps one UI filter to the TDLib switches; unselected groups stay false so no unrelated events are fetched. */
+internal fun adminLogFilters(filter: ChannelEventFilter): TdApi.ChatEventLogFilters =
+    TdApi.ChatEventLogFilters().apply {
+        when (filter) {
+            ChannelEventFilter.All -> {
+                messageEdits = true; messageDeletions = true; messagePins = true
+                memberJoins = true; memberLeaves = true; memberInvites = true
+                memberPromotions = true; memberRestrictions = true; memberTagChanges = true
+                infoChanges = true; settingChanges = true; inviteLinkChanges = true
+                videoChatChanges = true; forumChanges = true; subscriptionExtensions = true
+            }
+            ChannelEventFilter.Messages -> {
+                messageEdits = true; messageDeletions = true; messagePins = true
+            }
+            ChannelEventFilter.Members -> {
+                memberJoins = true; memberLeaves = true; memberInvites = true
+                memberPromotions = true; memberRestrictions = true; memberTagChanges = true
+            }
+            ChannelEventFilter.Settings -> {
+                infoChanges = true; settingChanges = true; inviteLinkChanges = true
+                videoChatChanges = true; forumChanges = true; subscriptionExtensions = true
+            }
+        }
+    }
+
+/** Human-readable admin-log action. Unknown/new TDLib actions fall back to a neutral settings label. */
+private fun TdApi.ChatEventAction.adminText(context: Context, profiles: TdProfiles): String = when (this) {
+    is TdApi.ChatEventTitleChanged -> context.getString(R.string.channel_event_title_changed, newTitle)
+    is TdApi.ChatEventPhotoChanged -> context.getString(R.string.channel_event_photo_changed)
+    is TdApi.ChatEventDescriptionChanged -> context.getString(R.string.channel_event_description_changed)
+    is TdApi.ChatEventUsernameChanged -> context.getString(R.string.channel_event_username_changed, newUsername)
+    is TdApi.ChatEventMessageDeleted -> context.getString(R.string.channel_event_message_deleted)
+    is TdApi.ChatEventMessageEdited -> context.getString(R.string.channel_event_message_edited)
+    is TdApi.ChatEventMessagePinned -> context.getString(R.string.channel_event_message_pinned)
+    is TdApi.ChatEventMessageUnpinned -> context.getString(R.string.channel_event_message_unpinned)
+    is TdApi.ChatEventMemberJoined, is TdApi.ChatEventMemberJoinedByInviteLink,
+    is TdApi.ChatEventMemberJoinedByRequest -> context.getString(R.string.channel_event_member_joined)
+    is TdApi.ChatEventMemberLeft -> context.getString(R.string.channel_event_member_left)
+    is TdApi.ChatEventMemberInvited -> context.getString(
+        R.string.channel_event_member_invited,
+        profiles.senderName(TdApi.MessageSenderUser(userId))
+    )
+    is TdApi.ChatEventMemberPromoted -> context.getString(
+        R.string.channel_event_member_promoted,
+        profiles.senderName(TdApi.MessageSenderUser(userId))
+    )
+    is TdApi.ChatEventMemberRestricted -> context.getString(
+        R.string.channel_event_member_restricted,
+        profiles.senderName(memberId)
+    )
+    else -> context.getString(R.string.channel_event_settings_changed)
 }
 
 /** A manual unread marker can be cleared without a message; a plain empty chat has nothing to mark read. */

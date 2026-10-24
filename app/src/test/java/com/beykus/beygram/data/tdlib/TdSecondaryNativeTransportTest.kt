@@ -18,6 +18,7 @@ class TdSecondaryNativeTransportTest {
     private fun fakeProxy() = TdApi.Proxy("127.0.0.1", 17893, TdApi.ProxyTypeSocks5("install", "secret"))
     private fun fake(
         commands: MutableList<TdApi.Function<*>>,
+        sent: MutableList<TdApi.Function<*>> = mutableListOf(),
         await: () -> Unit = {},
         revalidate: suspend () -> TdSecondaryRouteDecision,
         responder: (TdApi.Function<*>) -> TdApi.Object = {
@@ -26,6 +27,7 @@ class TdSecondaryNativeTransportTest {
         }
     ) = TdSecondaryNativeTransport(
         request = { function -> commands.add(function); responder(function) },
+        sendWithoutResult = { function -> sent.add(function) },
         awaitParameters = { await() },
         revalidate = revalidate,
         proxyEndpoint = ::fakeProxy,
@@ -34,30 +36,37 @@ class TdSecondaryNativeTransportTest {
 
     @Test fun directNetworkCannotStartBeforeParametersAndProxyDisabled() = runBlocking {
         val commands = mutableListOf<TdApi.Function<*>>()
+        val sent = mutableListOf<TdApi.Function<*>>()
         var observed = false
-        val transport = fake(commands, await = {
+        val transport = fake(commands, sent, await = {
             observed = true
-            assertEquals(1, commands.size)
-            assertTrue(commands.single() is TdApi.SetNetworkType)
-            assertTrue((commands.single() as TdApi.SetNetworkType).type is TdApi.NetworkTypeNone)
+            // Before parameters TDLib may not acknowledge SetNetworkType. It
+            // must be dispatched without blocking startup.
+            assertEquals(1, sent.size)
+            assertTrue(sent.single() is TdApi.SetNetworkType)
+            assertTrue((sent.single() as TdApi.SetNetworkType).type is TdApi.NetworkTypeNone)
+            assertTrue(commands.isEmpty())
         }, revalidate = { TdSecondaryRouteDecision.Direct })
         transport.initialize(config, TdSecondaryRouteDecision.Direct)
         assertTrue(observed)
         assertEquals(4, commands.size)
-        assertTrue(commands[1] is TdApi.SetTdlibParameters)
+        assertTrue(commands[0] is TdApi.SetTdlibParameters)
+        assertTrue((commands[1] as TdApi.SetNetworkType).type is TdApi.NetworkTypeNone)
         assertTrue(commands[2] is TdApi.DisableProxy)
         assertTrue((commands[3] as TdApi.SetNetworkType).type is TdApi.NetworkTypeOther)
     }
 
     @Test fun sharedMihomoMustEnableLocalProxyWhileOffline() = runBlocking {
         val commands = mutableListOf<TdApi.Function<*>>()
-        val transport = fake(commands, revalidate = {
+        val sent = mutableListOf<TdApi.Function<*>>()
+        val transport = fake(commands, sent, revalidate = {
             assertEquals(4, commands.size)
             assertTrue(commands[2] is TdApi.AddProxy)
             assertTrue(commands[3] is TdApi.EnableProxy)
             TdSecondaryRouteDecision.SharedMihomo
         })
         transport.initialize(config, TdSecondaryRouteDecision.SharedMihomo)
+        assertEquals(1, sent.size)
         assertEquals(5, commands.size)
         val proxy = (commands[2] as TdApi.AddProxy).proxy
         assertEquals("127.0.0.1", proxy.server)
