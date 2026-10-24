@@ -744,6 +744,7 @@ private fun MediaViewerPage(
             path = unlockedPath,
             totalSize = file.size,
             completed = { observeFile(media.fileId).value.localPath != null },
+            downloading = { observeFile(media.fileId).value.isDownloading },
             onNeedMore = {
                 val latest = observeFile(media.fileId).value
                 autoDownloadFile(
@@ -930,6 +931,7 @@ private data class ProgressiveVideoSource(
     val path: String,
     val totalSize: Long,
     val completed: () -> Boolean,
+    val downloading: () -> Boolean,
     val onNeedMore: () -> Unit
 )
 
@@ -944,6 +946,7 @@ private class ProgressiveFileDataSource(
     private val filePath: String,
     private val totalSize: Long,
     private val isComplete: () -> Boolean,
+    private val isDownloading: () -> Boolean,
     private val onNeedMore: () -> Unit
 ) : DataSource {
     private var file: RandomAccessFile? = null
@@ -982,6 +985,9 @@ private class ProgressiveFileDataSource(
             }
             if (isComplete()) return C.RESULT_END_OF_INPUT
             val now = SystemClock.elapsedRealtime()
+            if (!isDownloading() && now - startedAt >= NO_TRANSFER_TIMEOUT_MS) {
+                throw IOException("Automatic video download was cancelled")
+            }
             if (now - requestedAt >= REQUEST_INTERVAL_MS) {
                 requestedAt = now
                 onNeedMore()
@@ -1008,6 +1014,7 @@ private class ProgressiveFileDataSource(
     private companion object {
         const val POLL_INTERVAL_MS = 50L
         const val REQUEST_INTERVAL_MS = 1_000L
+        const val NO_TRANSFER_TIMEOUT_MS = 10_000L
         const val STALL_TIMEOUT_MS = 45_000L
     }
 }
@@ -1060,6 +1067,7 @@ private fun LocalVideo(
                     filePath = growth.path,
                     totalSize = growth.totalSize,
                     isComplete = growth.completed,
+                    isDownloading = growth.downloading,
                     onNeedMore = growth.onNeedMore
                 )
             }
