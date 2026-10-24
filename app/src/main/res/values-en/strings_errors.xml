@@ -67,6 +67,9 @@
     <string name="err_media_position_unknown">Could not determine its position in the chat</string>
     <string name="err_message_cannot_edit">This message cannot be edited</string>
     <string name="err_message_cannot_forward">This message cannot be forwarded</string>
+    <string name="err_messages_cannot_forward">Some selected messages cannot be forwarded</string>
+    <string name="err_messages_cannot_delete">Some selected messages cannot be deleted</string>
+    <string name="err_messages_cannot_copy">Some selected messages cannot be copied</string>
     <string name="err_message_cannot_reply">You cannot reply to this message</string>
     <string name="err_message_empty">Enter a message</string>
     <string name="err_message_original_unavailable">Original message unavailable</string>

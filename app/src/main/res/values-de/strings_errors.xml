@@ -33,6 +33,9 @@
     <string name="err_media_position_unknown">Die Position im Chat konnte nicht ermittelt werden</string>
     <string name="err_message_cannot_edit">Diese Nachricht kann nicht bearbeitet werden</string>
     <string name="err_message_cannot_forward">Diese Nachricht kann nicht weitergeleitet werden</string>
+    <string name="err_messages_cannot_forward">Einige ausgewählte Nachrichten können nicht weitergeleitet werden</string>
+    <string name="err_messages_cannot_delete">Einige ausgewählte Nachrichten können nicht gelöscht werden</string>
+    <string name="err_messages_cannot_copy">Einige ausgewählte Nachrichten können nicht kopiert werden</string>
     <string name="err_message_cannot_reply">Sie können auf diese Nachricht nicht antworten</string>
     <string name="err_message_empty">Geben Sie eine Nachricht ein</string>
     <string name="err_message_original_unavailable">Originalnachricht nicht verfügbar</string>
