@@ -4,6 +4,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.*
+import kotlinx.coroutines.CancellationException
 import org.drinkless.tdlib.TdApi
 
 /**
@@ -118,11 +119,24 @@ internal class TdGroupAdministration(
     suspend fun addMembers(chatId: Long, userIds: List<Long>): GroupMemberAddition {
         val ids = userIds.distinct().filter { it > 0L }
         require(ids.isNotEmpty()) { "No users to add" }
-        val result = requests(TdApi.AddChatMembers(chatId, ids.toLongArray()))
-        val failed = result.failedToAddMembers.orEmpty().filterNotNull()
+        val isBasicGroup = requests(TdApi.GetChat(chatId)).type is TdApi.ChatTypeBasicGroup
+        val failed = mutableListOf<TdApi.FailedToAddMember>()
+        val added = mutableListOf<Long>()
+        if (isBasicGroup) {
+            // TDLib принимает AddChatMembers только с одним пользователем для basic group.
+            for (id in ids) {
+                val result = requests(TdApi.AddChatMember(chatId, id, 0))
+                val failures = result.failedToAddMembers.orEmpty().filterNotNull()
+                if (failures.isEmpty()) added += id else failed += failures
+            }
+        } else {
+            val result = requests(TdApi.AddChatMembers(chatId, ids.toLongArray()))
+            failed += result.failedToAddMembers.orEmpty().filterNotNull()
+            added += ids.filterNot { id -> failed.any { it.userId == id } }
+        }
         val failedIds = failed.map { it.userId }
         return GroupMemberAddition(
-            addedUserIds = ids.filterNot { it in failedIds },
+            addedUserIds = added,
             failedUserIds = failedIds,
             premiumRequiredUserIds = failed
                 .filter { it.premiumWouldAllowInvite || it.premiumRequiredToSendMessages }
@@ -134,9 +148,9 @@ internal class TdGroupAdministration(
         requests(TdApi.BanChatMember(chatId, TdApi.MessageSenderUser(userId), 0, false))
     }
 
-    /** Снятие бана возвращает в супергруппе обычное членство; в обычной группе TDLib снова добавляет пользователя. */
+    /** Снятие бана не возвращает участника: статус Left убирает ограничение, не приглашая его обратно. */
     suspend fun unbanMember(chatId: Long, userId: Long) {
-        requests(TdApi.SetChatMemberStatus(chatId, TdApi.MessageSenderUser(userId), TdApi.ChatMemberStatusMember(0)))
+        requests(TdApi.SetChatMemberStatus(chatId, TdApi.MessageSenderUser(userId), TdApi.ChatMemberStatusLeft()))
     }
 
     suspend fun restrictMember(chatId: Long, userId: Long) {
@@ -168,23 +182,38 @@ internal class TdGroupAdministration(
     }
 
     suspend fun inviteLinks(chatId: Long): List<GroupInviteLink> {
-        // TDLib разрешает смотреть ссылки других администраторов только владельцу. Не-владельцу
-        // нужно передать собственный id, иначе запрос отклоняется проверкой прав.
-        val creatorUserId = if (isOwner(chatId)) 0L else profiles.myUserId()
+        // TDLib принимает только реальный id создателя; 0 не означает «все». Свои ссылки доступны
+        // любому администратору с can_invite_users, чужие — только владельцу, поэтому список
+        // создателей берём из owner-only счётчиков, а при отказе показываем хотя бы свои ссылки.
+        val myId = profiles.myUserId()
+        val creators = mutableListOf(myId)
+        try {
+            requests(TdApi.GetChatInviteLinkCounts(chatId)).inviteLinkCounts.orEmpty().filterNotNull()
+                .mapNotNull { it.userId.takeIf { id -> id > 0L } }
+                .forEach { if (it != myId) creators += it }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Не-владельцу TDLib не отдаёт счётчики: остаются собственные ссылки.
+        }
         val links = mutableListOf<TdApi.ChatInviteLink>()
-        var offsetDate = 0
-        var offsetLink = ""
-        var pages = 0
-        while (pages++ < MAX_INVITE_PAGES) {
-            val page = requests(TdApi.GetChatInviteLinks(chatId, creatorUserId, false, offsetDate, offsetLink, PAGE_SIZE))
-            val batch = page.inviteLinks.orEmpty().filterNotNull()
-            links += batch
-            if (batch.size < PAGE_SIZE || links.size >= page.totalCount) break
-            val last = batch.last()
-            // Защита от сервера, который повторяет ту же страницу.
-            if (last.date == offsetDate && last.inviteLink == offsetLink) break
-            offsetDate = last.date
-            offsetLink = last.inviteLink
+        for (creatorId in creators.distinct()) {
+            var offsetDate = 0
+            var offsetLink = ""
+            var pages = 0
+            var fetched = 0
+            while (pages++ < MAX_INVITE_PAGES) {
+                val page = requests(TdApi.GetChatInviteLinks(chatId, creatorId, false, offsetDate, offsetLink, PAGE_SIZE))
+                val batch = page.inviteLinks.orEmpty().filterNotNull()
+                links += batch
+                fetched += batch.size
+                if (batch.size < PAGE_SIZE || fetched >= page.totalCount) break
+                val last = batch.last()
+                // Защита от сервера, который повторяет ту же страницу.
+                if (last.date == offsetDate && last.inviteLink == offsetLink) break
+                offsetDate = last.date
+                offsetLink = last.inviteLink
+            }
         }
         return links.distinctBy { it.inviteLink }
             .map { link ->
@@ -295,13 +324,6 @@ internal class TdGroupAdministration(
         val type = requests(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup
             ?: throw UserMessageException(UiText.Res(R.string.err_group_not_manageable))
         return type.supergroupId
-    }
-
-    /** Владелец может запросить ссылки всех администраторов; остальным TDLib отдаёт только свои. */
-    private suspend fun isOwner(chatId: Long): Boolean = when (val type = requests(TdApi.GetChat(chatId)).type) {
-        is TdApi.ChatTypeBasicGroup -> requests(TdApi.GetBasicGroup(type.basicGroupId)).status is TdApi.ChatMemberStatusCreator
-        is TdApi.ChatTypeSupergroup -> requests(TdApi.GetSupergroup(type.supergroupId)).status is TdApi.ChatMemberStatusCreator
-        else -> false
     }
 
     private fun requireValidInviteDraft(draft: GroupInviteLinkDraft): GroupInviteLinkDraft {
