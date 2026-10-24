@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Videocam
@@ -57,7 +58,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit,
     onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit,
     onDiagnostics: () -> Unit, onUpdates: () -> Unit, onLanguage: () -> Unit, onSessions: () -> Unit,
-    onSecondaryAccounts: () -> Unit) {
+    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -81,10 +82,13 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
         }
         SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {
+            SettingsLink(Icons.Rounded.Security, stringResource(R.string.privacy_title), onPrivacy)
+            SettingsDivider()
             SettingsLink(Icons.Rounded.People, stringResource(R.string.secondary_accounts_title), onSecondaryAccounts)
             SettingsDivider()
             SettingsLink(Icons.Rounded.Devices, stringResource(R.string.feature_sessions), onSessions)
             SettingsDivider()
+            // Local text formatting only; the server privacy rule lives under PrivacySettings.
             SettingsLink(Icons.Rounded.Schedule, stringResource(R.string.settings_last_seen_title), onLastSeen)
         }
         SettingsGroup(stringResource(R.string.settings_group_network)) {

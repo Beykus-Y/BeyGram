@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="privacy_title">Приватность и безопасность</string>
+    <string name="privacy_intro">Правила хранятся в Telegram и действуют для этого аккаунта на всех устройствах. «Отображение последнего визита» меняет только текст в чатах и не является настройкой приватности.</string>
+    <string name="privacy_group_visible">Кто видит</string>
+    <string name="privacy_group_contact">Кто может связаться</string>
+    <string name="privacy_setting_phone">Номер телефона</string>
+    <string name="privacy_setting_photo">Фото профиля</string>
+    <string name="privacy_setting_last_seen">Время в сети</string>
+    <string name="privacy_setting_bio">Описание профиля</string>
+    <string name="privacy_setting_forwarded">Ссылка при пересылке</string>
+    <string name="privacy_setting_calls">Звонки</string>
+    <string name="privacy_setting_messages">Сообщения</string>
+    <string name="privacy_setting_groups">Группы и каналы</string>
+    <string name="privacy_setting_find_by_phone">Поиск по номеру</string>
+    <string name="privacy_audience_everyone">Все</string>
+    <string name="privacy_audience_contacts">Мои контакты</string>
+    <string name="privacy_audience_nobody">Никто</string>
+    <string name="privacy_exceptions_always">Всегда разрешено: %1$d</string>
+    <string name="privacy_exceptions_never">Никогда не разрешено: %1$d</string>
+    <string name="privacy_exceptions_manage">Исключения…</string>
+    <string name="privacy_exceptions_always_title">Всегда разрешать</string>
+    <string name="privacy_exceptions_never_title">Никогда не разрешать</string>
+    <string name="privacy_exceptions_empty">Исключений нет</string>
+    <string name="privacy_exceptions_add_always">Добавить в «Всегда разрешать»</string>
+    <string name="privacy_exceptions_add_never">Добавить в «Никогда не разрешать»</string>
+    <string name="privacy_exceptions_search">Поиск контакта</string>
+    <string name="privacy_exceptions_no_contacts">Подходящих контактов нет</string>
+    <string name="privacy_contacts_failed">Не удалось загрузить контакты</string>
+    <string name="privacy_load_failed">Не удалось загрузить настройки приватности</string>
+    <string name="privacy_save_failed">Не удалось сохранить настройку</string>
+    <string name="privacy_blocked_users_title">Заблокированные пользователи</string>
+    <string name="privacy_blocked_users_detail">Управление списком блокировки</string>
+    <string name="privacy_last_seen_hint">Вид времени «был(а) в сети» в чатах настраивается отдельно: «Отображение последнего визита».</string>
+
+    <string name="blocked_title">Заблокированные</string>
+    <string name="blocked_intro">Блокировка запрещает сообщения и звонки. Контакт и история чата при этом не удаляются.</string>
+    <string name="blocked_count">Заблокировано: %1$d</string>
+    <string name="blocked_empty">В списке блокировки никого нет</string>
+    <string name="blocked_load_failed">Не удалось загрузить список заблокированных</string>
+    <string name="blocked_unblock">Разблокировать</string>
+    <string name="blocked_unblocked">Пользователь разблокирован</string>
+    <string name="blocked_report_spam">Пожаловаться на спам</string>
+    <string name="blocked_report_spam_warning">Отправить жалобу в Telegram? Пользователь не узнает, кто пожаловался.</string>
+    <string name="blocked_report_sent">Жалоба отправлена</string>
+    <string name="blocked_report_failed">Не удалось отправить жалобу</string>
+    <string name="blocked_user_type">Пользователь</string>
+    <string name="blocked_bot_type">Бот</string>
+    <string name="blocked_chat_type">Чат</string>
+
+    <string name="feature_unblock_user">Разблокировать</string>
+    <string name="feature_unblock_warning">Пользователь снова сможет писать вам и звонить. Контакт и история чата не удаляются.</string>
+    <string name="feature_report_spam">Пожаловаться на спам</string>
+    <string name="feature_report_spam_warning">Отправить жалобу в Telegram? Это не удалит контакт и не изменит историю чата.</string>
+
+    <string name="err_report_spam_unavailable">Telegram не предложил вариант жалобы на спам.</string>
+    <string name="err_report_spam_requires_text">Telegram требует описать причину жалобы. Это можно сделать в официальном клиенте.</string>
+    <string name="err_report_spam_requires_messages">Telegram требует выбрать сообщения для жалобы.</string>
+</resources>

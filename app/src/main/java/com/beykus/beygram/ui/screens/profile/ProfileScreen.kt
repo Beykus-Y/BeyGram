@@ -70,7 +70,8 @@ fun ProfileScreen(
     deleteMyProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Profile photo deletion unavailable")) },
     setPreviousProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Previous photo unavailable")) },
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
-    onBlock: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
+    onSetBlocked: suspend (Boolean) -> Result<Unit> = { Result.failure(IllegalStateException()) },
+    onReportSpam: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
     onDelete: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
     onDeleted: () -> Unit = {}, onOpenLinkedChannel: (Long) -> Unit = {},
     hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
@@ -110,7 +111,9 @@ fun ProfileScreen(
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
             if (!isOwnProfile) ChatInfoMenu(
                 canBlock = state.info?.kind in listOf(ProfileKind.Person, ProfileKind.Bot) && state.info?.isSelf != true,
-                canDelete = true, onBlock = onBlock, onDelete = onDelete, onDeleted = onDeleted
+                canReport = state.info?.kind in listOf(ProfileKind.Person, ProfileKind.Bot) && state.info?.isSelf != true,
+                isBlocked = state.info?.isBlocked == true,
+                canDelete = true, onSetBlocked = onSetBlocked, onReportSpam = onReportSpam, onDelete = onDelete, onDeleted = onDeleted
             )
         }
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())

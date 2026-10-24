@@ -66,6 +66,11 @@ import com.beykus.beygram.domain.model.orderedTelegramFolderChats
 import com.beykus.beygram.domain.model.GroupCreationState
 import com.beykus.beygram.domain.model.mayBeginGroupCreation
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.BlockedSenderKind
+import com.beykus.beygram.domain.model.BlockedSendersPage
+import com.beykus.beygram.domain.model.PrivacyRules
+import com.beykus.beygram.domain.model.PrivacySetting
+import com.beykus.beygram.domain.model.PrivacySettingState
 import com.beykus.beygram.domain.model.orderedArchivedChats
 import com.beykus.beygram.domain.model.orderedMainChats
 import com.beykus.beygram.domain.model.TelegramConnectionState
@@ -390,6 +395,7 @@ class TdLibTelegramRepository private constructor(
         })
     }
     private val profiles = TdProfiles({ client }, mediaFiles)
+    private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
     private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
     private val notificationFeed = TdNotifications({ client }, profiles::senderName) { chatId ->
@@ -594,13 +600,69 @@ class TdLibTelegramRepository private constructor(
         Unit
     }
 
-    override suspend fun blockPrivateChat(chatId: Long): Result<Unit> = requestResult {
+    override suspend fun blockPrivateChat(chatId: Long): Result<Unit> = setPrivateChatBlocked(chatId, true)
+
+    override suspend fun setPrivateChatBlocked(chatId: Long, blocked: Boolean): Result<Unit> = requestResult {
         val chat = tdRequests(TdApi.GetChat(chatId))
         val privateType = chat.type as? TdApi.ChatTypePrivate
             ?: throw IllegalArgumentException("Only private conversations can be blocked")
         if (profiles.isSelf(privateType.userId)) throw IllegalArgumentException("Cannot block your own account")
-        tdRequests(TdApi.SetMessageSenderBlockList(TdApi.MessageSenderUser(privateType.userId), TdApi.BlockListMain()))
-        Unit
+        privacy.setBlocked(BlockedSenderKind.User, privateType.userId, blocked)
+    }
+
+    override suspend fun loadPrivacySettings(): Result<List<PrivacySettingState>> = requestResult {
+        privacy.loadSettings()
+    }
+
+    override suspend fun setPrivacySetting(setting: PrivacySetting, rules: PrivacyRules): Result<Unit> = requestResult {
+        privacy.setSetting(setting, rules)
+    }
+
+    override suspend fun loadBlockedSenders(offset: Int, limit: Int): Result<BlockedSendersPage> = requestResult {
+        privacy.loadBlockedSenders(offset, limit)
+    }
+
+    override suspend fun setSenderBlocked(kind: BlockedSenderKind, senderId: Long, blocked: Boolean): Result<Unit> = requestResult {
+        privacy.setBlocked(kind, senderId, blocked)
+    }
+
+    override suspend fun reportSpam(chatId: Long): Result<Unit> = requestResult {
+        reportChatAsSpam(chatId)
+    }
+
+    override suspend fun reportSpamForUser(userId: Long): Result<Unit> = requestResult {
+        require(userId > 0L) { "User id must be positive" }
+        // Reporting a blocked sender must not require the user to open the conversation first.
+        val chat = tdRequests(TdApi.CreatePrivateChat(userId, false))
+        handleNewChat(chat)
+        reportChatAsSpam(chat.id)
+    }
+
+    /**
+     * Telegram first asks for a report reason. Choose only the canonical spam option; sending
+     * an unrelated reason would be a false report, so a missing spam option is reported as an
+     * error instead. A text/message requirement is surfaced instead of inventing content.
+     */
+    private suspend fun reportChatAsSpam(chatId: Long) {
+        var result: TdApi.ReportChatResult = tdRequests(reportChatRequest(chatId))
+        if (result is TdApi.ReportChatResultOptionRequired) {
+            val option = chooseSpamReportOption(result.options)
+                ?: throw UserMessageException(UiText.Res(R.string.err_report_spam_unavailable))
+            result = tdRequests(reportChatRequest(chatId, option.id ?: ByteArray(0)))
+        }
+        when (result) {
+            is TdApi.ReportChatResultOk -> Unit
+            is TdApi.ReportChatResultTextRequired -> {
+                if (!result.isOptional) throw UserMessageException(UiText.Res(R.string.err_report_spam_requires_text))
+                val retried = tdRequests(reportChatRequest(chatId, result.optionId ?: ByteArray(0)))
+                if (retried !is TdApi.ReportChatResultOk) {
+                    throw UserMessageException(UiText.Res(R.string.err_report_spam_unavailable))
+                }
+            }
+            is TdApi.ReportChatResultMessagesRequired ->
+                throw UserMessageException(UiText.Res(R.string.err_report_spam_requires_messages))
+            else -> throw UserMessageException(UiText.Res(R.string.err_report_spam_unavailable))
+        }
     }
 
     /**

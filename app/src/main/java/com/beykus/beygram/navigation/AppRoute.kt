@@ -25,6 +25,8 @@ enum class AppRoute {
     SecondaryChats,
     NavigationSettings,
     LastSeenSettings,
+    PrivacySettings,
+    BlockedSenders,
     Updates,
     VideoMessageSettings,
     StorageSettings,

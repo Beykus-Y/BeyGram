@@ -87,7 +87,9 @@ data class ProfileInfo(
     val isVerified: Boolean = false,
     /** Telegram's personal profile channel, present on the user's own or another person's profile. */
     val personalChatId: Long = 0L,
-    val personalChatTitle: String = ""
+    val personalChatTitle: String = "",
+    /** TDLib's main block list contains this user; the profile menu must offer Unblock, not Block. */
+    val isBlocked: Boolean = false
 ) {
     val initials: String get() = initialsOf(title)
 }

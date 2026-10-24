@@ -90,6 +90,8 @@ import com.beykus.beygram.ui.screens.diagnostics.ResourcesScreen
 import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
+import com.beykus.beygram.ui.screens.settings.PrivacySettingsScreen
+import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
@@ -1441,7 +1443,11 @@ private fun BeyGramAppContent(
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
             loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
             setPreviousProfilePhoto = repository::setPreviousProfilePhoto,
-            onBlock = { repository.blockPrivateChat(selectedChatId) },
+            onSetBlocked = { blocked ->
+                repository.setPrivateChatBlocked(selectedChatId, blocked)
+                    .onSuccess { repository.refreshChatInfo(selectedChatId) }
+            },
+            onReportSpam = { repository.reportSpam(selectedChatId) },
             onDelete = { repository.deleteChatForSelf(selectedChatId) },
             onDeleted = { routeName = AppRoute.Chats.name },
             onOpenLinkedChannel = { channelId ->
@@ -1483,7 +1489,11 @@ private fun BeyGramAppContent(
             onEdit = {}, setPhoto = repository::setMyProfilePhoto,
             loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
             setPreviousProfilePhoto = repository::setPreviousProfilePhoto,
-            onBlock = { repository.blockPrivateChat(memberChatId) },
+            onSetBlocked = { blocked ->
+                repository.setPrivateChatBlocked(memberChatId, blocked)
+                    .onSuccess { repository.refreshChatInfo(memberChatId) }
+            },
+            onReportSpam = { repository.reportSpam(memberChatId) },
             onDelete = { repository.deleteChatForSelf(memberChatId) },
             onDeleted = { routeName = memberReturnRouteName },
             onOpenLinkedChannel = { channelId ->
@@ -1713,6 +1723,7 @@ private fun BeyGramAppContent(
                         onUpdates = { routeName = AppRoute.Updates.name },
                         onLanguage = { routeName = AppRoute.Language.name },
                         onSessions = { routeName = AppRoute.Sessions.name },
+                        onPrivacy = { routeName = AppRoute.PrivacySettings.name },
                         onSecondaryAccounts = { accountSwitcherVisible = true }
                     )
                 }
@@ -1891,6 +1902,25 @@ private fun BeyGramAppContent(
                     onBack = { routeName = AppRoute.Settings.name }
                 )
                 AppRoute.LastSeenSettings -> LastSeenSettingsScreen(lastSeenStyle, onStyleChange = lastSeenSettings::setStyle, onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.PrivacySettings -> key(selectedAccountId) {
+                    PrivacySettingsScreen(
+                        loadPrivacy = repository::loadPrivacySettings,
+                        savePrivacy = repository::setPrivacySetting,
+                        loadContacts = repository::loadContacts,
+                        onBlockedSenders = { routeName = AppRoute.BlockedSenders.name },
+                        onBack = { routeName = AppRoute.Settings.name }
+                    )
+                }
+                AppRoute.BlockedSenders -> key(selectedAccountId) {
+                    BlockedSendersScreen(
+                        loadPage = repository::loadBlockedSenders,
+                        setBlocked = repository::setSenderBlocked,
+                        reportSpam = repository::reportSpamForUser,
+                        observeFile = repository::observeFile,
+                        downloadFile = repository::downloadFile,
+                        onBack = { routeName = AppRoute.PrivacySettings.name }
+                    )
+                }
                 AppRoute.Proxy -> if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
                     ProxyListScreen(
                         repository = legacyRepository,
