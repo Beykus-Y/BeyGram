@@ -136,29 +136,42 @@ internal class TdChatExportMediaProvider(
             downloadedBytes + size > CHAT_EXPORT_MAX_TOTAL_DOWNLOAD_BYTES
         ) return null
 
-        if (!local.isDownloadingActive) {
-            requests(TdApi.DownloadFile(file.id, 16, 0, 0, false), DOWNLOAD_REQUEST_TIMEOUT_MS)
-        }
-        val deadline = System.currentTimeMillis() + MEDIA_DOWNLOAD_TIMEOUT_MS
-        while (System.currentTimeMillis() < deadline) {
-            delay(250)
-            currentCoroutineContext().ensureActive()
-            val current = requests(TdApi.GetFile(file.id), DOWNLOAD_REQUEST_TIMEOUT_MS)
-            val currentLocal = current.local ?: return null
-            if (currentLocal.isDownloadingCompleted) {
-                val path = currentLocal.path
-                if (!path.isNullOrBlank()) {
-                    val stream = runCatching { FileInputStream(path) }.getOrNull()
-                    if (stream != null) {
-                        downloadedBytes += maxOf(current.size, size)
-                        return stream
-                    }
-                }
-                return null
+        // Reserve the budget before starting the transfer: a timed-out download must not let later files
+        // silently exceed the documented total. The counter intentionally stays charged on failure.
+        downloadedBytes += size
+        val startedDownload = !local.isDownloadingActive
+        var completed = false
+        try {
+            if (startedDownload) {
+                requests(TdApi.DownloadFile(file.id, 16, 0, 0, false), DOWNLOAD_REQUEST_TIMEOUT_MS)
             }
-            if (!currentLocal.isDownloadingActive && !currentLocal.canBeDownloaded) return null
+            val deadline = System.currentTimeMillis() + MEDIA_DOWNLOAD_TIMEOUT_MS
+            while (System.currentTimeMillis() < deadline) {
+                delay(250)
+                currentCoroutineContext().ensureActive()
+                val current = requests(TdApi.GetFile(file.id), DOWNLOAD_REQUEST_TIMEOUT_MS)
+                val currentLocal = current.local ?: return null
+                if (currentLocal.isDownloadingCompleted) {
+                    val path = currentLocal.path
+                    if (!path.isNullOrBlank()) {
+                        val stream = runCatching { FileInputStream(path) }.getOrNull()
+                        if (stream != null) {
+                            completed = true
+                            return stream
+                        }
+                    }
+                    return null
+                }
+                if (!currentLocal.isDownloadingActive && !currentLocal.canBeDownloaded) return null
+            }
+            return null
+        } finally {
+            if (!completed && startedDownload) {
+                runCatching {
+                    requests(TdApi.CancelDownloadFile(file.id, true), DOWNLOAD_REQUEST_TIMEOUT_MS)
+                }
+            }
         }
-        return null
     }
 
     private companion object {

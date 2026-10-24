@@ -56,6 +56,18 @@ class ChatExportFormattingTest {
         assertEquals("media/42_document.bin", mediaEntryName(42L, media.copy(fileName = "", mimeType = "application/octet-stream")))
     }
 
+    @Test fun `truncating a media file name never leaves an unpaired surrogate`() {
+        val media = ChatExportMedia(
+            kind = com.beykus.beygram.domain.model.MediaKind.Document,
+            fileId = 7,
+            fileName = "a".repeat(79) + "\uD83D\uDE00" + ".pdf",
+            mimeType = "application/pdf"
+        )
+        val entry = mediaEntryName(42L, media)
+        assertEquals("media/42_" + "a".repeat(79) + ".pdf", entry)
+        assertTrue(entry.toByteArray(Charsets.UTF_8).isNotEmpty())
+    }
+
     @Test fun `date range is inclusive at the start and exclusive at the end`() {
         val range = com.beykus.beygram.domain.model.ChatExportRequest(
             format = ChatExportFormat.Json,

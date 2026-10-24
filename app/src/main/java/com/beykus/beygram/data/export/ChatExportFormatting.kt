@@ -74,8 +74,16 @@ internal fun safeExportFileName(raw: String, fallback: String = "chat", maxLengt
         .trim(' ', '.')
         .ifBlank { fallback }
     val safe = cleaned.replace(DOT_RUN, "_").ifBlank { fallback }
-    val limited = if (safe.length <= maxLength) safe else safe.take(maxLength).trimEnd(' ', '.')
+    val limited = if (safe.length <= maxLength) safe else safe.takeCodeUnits(maxLength).trimEnd(' ', '.')
     return limited.ifBlank { fallback }
+}
+
+/** A code-unit prefix that never ends in the high half of a surrogate pair (invalid for ZIP/UTF-8 names). */
+private fun String.takeCodeUnits(maxLength: Int): String {
+    if (length <= maxLength) return this
+    var end = maxLength.coerceAtLeast(0)
+    if (end > 0 && Character.isHighSurrogate(this[end - 1])) end--
+    return substring(0, end)
 }
 
 internal fun safeExportFileNameWithExtension(raw: String, fallback: String, extension: String): String {

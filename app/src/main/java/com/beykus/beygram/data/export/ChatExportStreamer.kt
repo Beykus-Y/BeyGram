@@ -18,6 +18,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -55,7 +56,7 @@ internal class ChatExportStreamer(
             val counting = CountingOutputStream(output)
             onProgress(ChatExportProgress(phase = ChatExportPhase.Preparing, totalMessages = totalMessages))
 
-            val linkedMedia = HashSet<Long>()
+            val linkedMedia = HashMap<Long, CopiedMedia>()
             val mediaStats: MediaStats
             val documentStats: DocumentStats
             if (request.includeMedia) {
@@ -96,7 +97,7 @@ internal class ChatExportStreamer(
         counting: CountingOutputStream,
         chat: ChatExportChat,
         request: ChatExportRequest,
-        linkedMedia: Set<Long>,
+        linkedMedia: Map<Long, CopiedMedia>,
         mediaStats: MediaStats,
         onProgress: (ChatExportProgress) -> Unit,
         totalMessages: Int?
@@ -120,7 +121,7 @@ internal class ChatExportStreamer(
         counting: CountingOutputStream,
         chat: ChatExportChat,
         request: ChatExportRequest,
-        linkedMedia: MutableSet<Long>,
+        linkedMedia: MutableMap<Long, CopiedMedia>,
         onProgress: (ChatExportProgress) -> Unit,
         totalMessages: Int?
     ): ZipResult {
@@ -159,7 +160,7 @@ internal class ChatExportStreamer(
     private suspend fun copyMedia(
         zip: ZipOutputStream,
         request: ChatExportRequest,
-        linkedMedia: MutableSet<Long>,
+        linkedMedia: MutableMap<Long, CopiedMedia>,
         counting: CountingOutputStream,
         onProgress: (ChatExportProgress) -> Unit,
         totalMessages: Int?
@@ -187,6 +188,9 @@ internal class ChatExportStreamer(
             }
             val stream = try {
                 mediaProvider.open(media)
+            } catch (timeout: TimeoutCancellationException) {
+                // A single slow TDLib file request skips this attachment; export cancellation still propagates.
+                null
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -196,10 +200,11 @@ internal class ChatExportStreamer(
                 skipped++
                 return@walkExportable
             }
-            zip.putNextEntry(ZipEntry(mediaEntryName(message.id, media)))
+            val entry = mediaEntryName(message.id, media)
+            zip.putNextEntry(ZipEntry(entry))
             stream.use { copyToZip(it, zip) }
             zip.closeEntry()
-            linkedMedia += message.id
+            linkedMedia[message.id] = CopiedMedia(media.fileId, entry)
             copied++
             onProgress(
                 ChatExportProgress(
@@ -217,7 +222,7 @@ internal class ChatExportStreamer(
         writer: Writer,
         chat: ChatExportChat,
         request: ChatExportRequest,
-        linkedMedia: Set<Long>,
+        linkedMedia: Map<Long, CopiedMedia>,
         mediaStats: MediaStats,
         counting: CountingOutputStream,
         onProgress: (ChatExportProgress) -> Unit,
@@ -235,7 +240,7 @@ internal class ChatExportStreamer(
         writer: Writer,
         chat: ChatExportChat,
         request: ChatExportRequest,
-        linkedMedia: Set<Long>,
+        linkedMedia: Map<Long, CopiedMedia>,
         mediaStats: MediaStats,
         counting: CountingOutputStream,
         onProgress: (ChatExportProgress) -> Unit,
@@ -278,7 +283,11 @@ internal class ChatExportStreamer(
         ) { message ->
             if (!first) writer.write(",")
             writer.write("\n")
-            writeJsonMessage(writer, message, linkedMedia.contains(message.id))
+            writeJsonMessage(
+                writer,
+                message,
+                linkedMedia[message.id]?.takeIf { it.fileId == message.media?.fileId }?.entry
+            )
             first = false
         }
         writer.write("\n],\n\"summary\":{\"messages\":")
@@ -293,7 +302,7 @@ internal class ChatExportStreamer(
         return stats
     }
 
-    private fun writeJsonMessage(writer: Writer, message: ChatExportMessage, mediaIncluded: Boolean) {
+    private fun writeJsonMessage(writer: Writer, message: ChatExportMessage, mediaEntry: String?) {
         writer.write("{\"id\":")
         writer.write(message.id.toString())
         writer.write(",\"date\":")
@@ -334,7 +343,7 @@ internal class ChatExportStreamer(
             writer.write(",\"height\":")
             writer.write(media.height.toString())
             writer.write(",\"exportedPath\":")
-            if (mediaIncluded) appendJsonString(writer, mediaEntryName(message.id, media)) else writer.write("null")
+            if (mediaEntry != null) appendJsonString(writer, mediaEntry) else writer.write("null")
             writer.write("}")
         }
         writer.write("}")
@@ -344,7 +353,7 @@ internal class ChatExportStreamer(
         writer: Writer,
         chat: ChatExportChat,
         request: ChatExportRequest,
-        linkedMedia: Set<Long>,
+        linkedMedia: Map<Long, CopiedMedia>,
         mediaStats: MediaStats,
         counting: CountingOutputStream,
         onProgress: (ChatExportProgress) -> Unit,
@@ -378,7 +387,11 @@ internal class ChatExportStreamer(
                 )
             }
         ) { message ->
-            writeHtmlMessage(writer, message, linkedMedia.contains(message.id))
+            writeHtmlMessage(
+                writer,
+                message,
+                linkedMedia[message.id]?.takeIf { it.fileId == message.media?.fileId }?.entry
+            )
         }
         writer.write("</section>\n<footer class=\"chat-footer\">\n<p>")
         appendHtmlEscaped(
@@ -390,7 +403,7 @@ internal class ChatExportStreamer(
         return stats
     }
 
-    private fun writeHtmlMessage(writer: Writer, message: ChatExportMessage, mediaIncluded: Boolean) {
+    private fun writeHtmlMessage(writer: Writer, message: ChatExportMessage, mediaEntry: String?) {
         writer.write("<article class=\"message ")
         writer.write(if (message.isOutgoing) "outgoing" else "incoming")
         if (message.serviceText != null) writer.write(" service")
@@ -411,8 +424,8 @@ internal class ChatExportStreamer(
         }
         message.media?.let { media ->
             writer.write("<figure class=\"attachment\">")
-            if (mediaIncluded) {
-                val entry = mediaEntryName(message.id, media)
+            if (mediaEntry != null) {
+                val entry = mediaEntry
                 if (media.mimeType.startsWith("image/")) {
                     writer.write("<img loading=\"lazy\" src=\"")
                     appendHtmlEscaped(writer, exportMediaHref(entry))
@@ -436,7 +449,7 @@ internal class ChatExportStreamer(
                     if (media.size > 0) "${media.size} bytes" else ""
                 ).filter { it.isNotBlank() }.joinToString(" · ")
             )
-            if (!mediaIncluded) {
+            if (mediaEntry == null) {
                 writer.write(" <span class=\"missing\">not included</span>")
             }
             writer.write("</figcaption></figure>\n")
@@ -506,6 +519,7 @@ internal class ChatExportStreamer(
 
     private data class DocumentStats(val messages: Int, val skippedSaveRestricted: Int)
     private data class MediaStats(val copied: Int, val skipped: Int)
+    private data class CopiedMedia(val fileId: Int, val entry: String)
     private data class ZipResult(val document: DocumentStats, val media: MediaStats)
 
     private companion object {
