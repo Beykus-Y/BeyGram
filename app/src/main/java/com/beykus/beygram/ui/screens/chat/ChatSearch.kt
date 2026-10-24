@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -47,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.exclusiveEndOfDayEpochSeconds
@@ -365,7 +367,7 @@ internal fun ChatSearchResults(
                 }
                 if (hasMore) SearchMoreButton(busy, onMore)
                 error?.let { message ->
-                    Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                    Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement())
                 }
             }
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
@@ -381,7 +383,7 @@ internal fun ChatSearchResults(
                 items(results, key = { it.id }) { message -> SearchResultRow(message, needle) { onOpen(message) } }
                 if (hasMore) item(key = "search_more") { SearchMoreButton(busy, onMore) }
                 error?.let { message ->
-                    item(key = "search_error") { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+                    item(key = "search_error") { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement()) }
                 }
             }
         }
@@ -398,7 +400,7 @@ private fun SearchMoreButton(busy: Boolean, onMore: () -> Unit) {
 @Composable
 private fun SearchResultRow(message: ChatMessage, query: String, onClick: () -> Unit) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp)) {
+    Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (message.isOutgoing) stringResource(R.string.search_you) else message.senderName, color = palette.accentInk, fontSize = 13.sp,
@@ -414,9 +416,9 @@ private fun SearchResultRow(message: ChatMessage, query: String, onClick: () -> 
 }
 
 @Composable
-private fun SearchNote(text: String, color: Color) {
+private fun SearchNote(text: String, color: Color, announce: Boolean = false) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = color, textAlign = TextAlign.Center)
+        Text(text, color = color, textAlign = TextAlign.Center, modifier = if (announce) Modifier.errorAnnouncement() else Modifier)
     }
 }
 

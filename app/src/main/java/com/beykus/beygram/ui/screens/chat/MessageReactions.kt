@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -74,19 +75,25 @@ private fun ReactionChip(
     val shape = RoundedCornerShape(50)
     val description = if (reaction.customEmojiId == 0L) stringResource(R.string.chat_reaction_description, reaction.emoji, reaction.count)
         else stringResource(R.string.chat_reaction_custom_description, reaction.count)
-    Row(
-        Modifier.semantics { contentDescription = description; selected = reaction.isChosen }
-            .clip(shape)
-            .background(if (reaction.isChosen) palette.accentSoft else palette.surface2)
-            .then(if (reaction.isChosen) Modifier.border(1.dp, palette.accent, shape) else Modifier)
-            .clickable { onToggle(reaction.option) }
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically
+    // The pill keeps its compact look, while the invisible touch area meets the 48 dp minimum.
+    Box(
+        Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .semantics { contentDescription = description; selected = reaction.isChosen }
+            .clickable { onToggle(reaction.option) },
+        contentAlignment = Alignment.Center
     ) {
-        ReactionGlyph(reaction.option, 18.dp, 15.sp, observeCustomEmoji, observeFile, downloadFile)
-        Spacer(Modifier.width(4.dp))
-        Text(reaction.count.toString(), color = if (reaction.isChosen) palette.accentInk else palette.textSecondary,
-            fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Row(
+            Modifier.clip(shape)
+                .background(if (reaction.isChosen) palette.accentSoft else palette.surface2)
+                .then(if (reaction.isChosen) Modifier.border(1.dp, palette.accent, shape) else Modifier)
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ReactionGlyph(reaction.option, 18.dp, 15.sp, observeCustomEmoji, observeFile, downloadFile)
+            Spacer(Modifier.width(4.dp))
+            Text(reaction.count.toString(), color = if (reaction.isChosen) palette.accentInk else palette.textSecondary,
+                fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 
@@ -118,10 +125,10 @@ internal fun MessageReactionPicker(
     if (options.isEmpty()) return
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
-        // Two 40dp rows, 2dp apart, inside 4dp of padding.
+        // Two 48dp touch rows, 2dp apart, inside 4dp of padding.
         LazyHorizontalGrid(
             rows = GridCells.Fixed(2),
-            modifier = Modifier.fillMaxWidth().height(90.dp).padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().height(106.dp).padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
@@ -129,7 +136,7 @@ internal fun MessageReactionPicker(
                 val isChosen = option in chosen
                 val description = if (option.customEmojiId != 0L) stringResource(if (isChosen) R.string.chat_reaction_custom_remove_description else R.string.chat_reaction_custom_pick_description)
                     else stringResource(if (isChosen) R.string.chat_reaction_remove_description else R.string.chat_reaction_pick_description, option.emoji)
-                Box(Modifier.size(40.dp).clip(CircleShape)
+                Box(Modifier.size(48.dp).clip(CircleShape)
                     .background(if (isChosen) palette.accentSoft else Color.Transparent)
                     .semantics { contentDescription = description; selected = isChosen }
                     .clickable { onPick(option) },

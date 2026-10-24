@@ -23,11 +23,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 
 @Composable
 internal fun RecordingPreviewDialog(
@@ -74,6 +77,7 @@ internal fun RecordingPreviewDialog(
                                 setMediaController(MediaController(context))
                             } },
                             modifier = Modifier.fillMaxWidth().height(280.dp)
+                                .semantics { contentDescription = context.getString(R.string.a11y_video_note_preview) }
                         )
                     }
                 } else {
@@ -90,7 +94,7 @@ internal fun RecordingPreviewDialog(
                     }
                     if (sentPaths.isNotEmpty()) Text(stringResource(R.string.recorder_queue_sent, sentPaths.size, mediaList.size))
                     if (sending) {
-                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.errorAnnouncement()) {
                             CircularProgressIndicator(Modifier.height(20.dp), strokeWidth = 2.dp)
                             Text(stringResource(R.string.recorder_queue_progress, progress, mediaList.size))
                         }

@@ -45,6 +45,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,6 +78,8 @@ import com.beykus.beygram.data.settings.translationTargetLanguage
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.ui.accessibility.accessibleTouchTarget
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
@@ -1048,7 +1056,7 @@ fun ChatScreen(
         PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected,
             ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary, forumTopicId = forumTopicId)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
-            Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 16.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Rounded.WifiOff, null, tint = palette.warningText, modifier = Modifier.size(18.dp))
@@ -1120,7 +1128,7 @@ fun ChatScreen(
                 }
             }
             history.error?.let { historyError -> item(key = "history_error") {
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.fillMaxWidth().errorAnnouncement(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(historyError.resolve(), color = palette.warningText, modifier = Modifier.padding(8.dp))
                     TextButton(onClick = { if (forumTopicId > 0L) conversation.loadOlderForumTopicMessages(chat.id, forumTopicId) else conversation.loadOlderMessages(chat.id) }) {
                         Text(stringResource(R.string.common_retry))
@@ -1138,7 +1146,7 @@ fun ChatScreen(
         if (!searching) FloatingMessageDate(listState, messageListItems, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
         if (away || history.hasNewerMessages) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).clip(RoundedCornerShape(50)).background(palette.surface)
-            .border(1.dp, palette.divider, RoundedCornerShape(50)).clickable {
+            .border(1.dp, palette.divider, RoundedCornerShape(50)).heightIn(min = 48.dp).clickable(role = Role.Button) {
                 if (history.hasNewerMessages) { if (forumTopicId > 0L) conversation.loadForumTopicHistory(chat.id, forumTopicId) else conversation.loadLatestMessages(chat.id); scope.launch { listState.scrollToItem(0) } }
                 else scope.launch { listState.animateScrollToItem(0) }
             }
@@ -1161,7 +1169,7 @@ fun ChatScreen(
         )
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
-        error?.let { failure -> Row(Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        error?.let { failure -> Row(Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(failure, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { error = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.warningText) }
         } }
@@ -1216,6 +1224,8 @@ fun ChatScreen(
             attachments.active -> attachments.pending.isNotEmpty() && !attachments.importing
             else -> fieldText.isNotBlank()
         }
+        val sendLabel = if (editing) stringResource(R.string.common_save) else stringResource(R.string.common_send)
+        val sendState = if (busy) stringResource(R.string.chat_sending_description) else null
         val recordingActive = videoNote.active || audioNote.active
         val recordingLocked = if (recordingMode == ComposerRecordingMode.Voice) audioNote.locked else videoNote.locked
         val recordingCanceling = if (recordingMode == ComposerRecordingMode.Voice) audioNote.canceling else videoNote.canceling
@@ -1266,11 +1276,13 @@ fun ChatScreen(
                 onLock = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.lock() else videoNote.lock() },
                 onRelease = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.release(it) else videoNote.release(it) }
             )
-            else Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f))
+            else Box(Modifier.size(accessibleTouchTarget(40.dp))
                 // A tap must not move focus off the text field, or the keyboard closes.
                 .focusProperties { canFocus = false }
                 .combinedClickable(
                     enabled = canSend,
+                    onClickLabel = sendLabel,
+                    role = Role.Button,
                     onLongClickLabel = if (!editing) stringResource(R.string.chat_send_options) else null,
                     onLongClick = if (editing) null else { { sendOptionsOpen = true } }
                 ) {
@@ -1286,10 +1298,17 @@ fun ChatScreen(
                     } else {
                         sendCurrentDraft(MessageSendOptions())
                     }
-                }, contentAlignment = Alignment.Center) {
-                if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
-                else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, if (editing) stringResource(R.string.common_save) else stringResource(R.string.common_send),
-                    tint = palette.onAccent.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
+                }
+                .semantics {
+                    contentDescription = sendLabel
+                    sendState?.let { stateDescription = it }
+                },
+                contentAlignment = Alignment.Center) {
+                Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f)), contentAlignment = Alignment.Center) {
+                    if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
+                    else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
+                        tint = palette.onAccent.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
+                }
             }
         }
         if (!recordingActive && overLimit) Text(
@@ -1434,14 +1453,22 @@ private fun ChatTopBar(
     var menuOpen by remember { mutableStateOf(false) }
     // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
     val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
+    val chatInfoLabel = stringResource(R.string.a11y_chat_info)
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
-            ChatAvatar(chat, 40.dp, observeFile, downloadFile, Modifier.clickable(onClick = onInfo))
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f).clickable(onClick = onInfo)) {
-                Text(forumTopicTitle ?: chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(chatPresenceLine(chat, info, lastSeenStyle, now).resolve(), color = palette.textSecondary, fontSize = 13.sp)
+            // Avatar and title share one focus stop: TalkBack should not visit the same "chat info" target twice.
+            Row(
+                Modifier.weight(1f).heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = chatInfoLabel, onClick = onInfo)
+                    .semantics(mergeDescendants = true) { role = Role.Button },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ChatAvatar(chat, 40.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(forumTopicTitle ?: chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(chatPresenceLine(chat, info, lastSeenStyle, now).resolve(), color = palette.textSecondary, fontSize = 13.sp)
+                }
             }
             if (!chat.isSecret) IconButton(onClick = onScheduled) { Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_scheduled_title), tint = palette.textSecondary) }
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
@@ -1501,6 +1528,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
+    val openMediaLabel = stringResource(R.string.a11y_open_attachment)
+    val messageActionsLabel = stringResource(R.string.a11y_message_actions)
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
             onReply = { onReply?.invoke(message.id) }) { swipe ->
@@ -1512,7 +1541,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                     .then(if (highlighted && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                     .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
-                    .combinedClickable(onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() }, onLongClick = onActions),
+                    .combinedClickable(
+                        onClickLabel = if (message.media != null && !message.media.kind.playsInline()) openMediaLabel else null,
+                        onLongClickLabel = messageActionsLabel,
+                        onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() },
+                        onLongClick = onActions
+                    ),
                 overlayMeta = overlayMeta,
                 body = {
                     Column {

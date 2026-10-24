@@ -47,6 +47,7 @@ import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.repository.ConversationRepository
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import java.text.DateFormat
@@ -98,7 +99,7 @@ internal fun SendOptionsDialog(
                         modifier = Modifier.padding(vertical = 10.dp)
                     )
                 }
-                error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
+                error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp).errorAnnouncement()) }
             }
         },
         confirmButton = {},
@@ -209,7 +210,7 @@ internal fun ScheduledMessagesDialog(
         title = { Text(stringResource(R.string.chat_scheduled_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold) },
         text = {
             Column(Modifier.fillMaxWidth()) {
-                error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+                error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp).errorAnnouncement()) }
                 when {
                     loading -> CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent, strokeWidth = 2.dp)
                     messages.isEmpty() -> if (error == null) Text(stringResource(R.string.chat_scheduled_empty), color = palette.textSecondary, fontSize = 14.sp)
@@ -286,7 +287,7 @@ private fun ScheduledMessageEditDialog(
         title = { Text(stringResource(R.string.common_edit), color = palette.textPrimary, fontWeight = FontWeight.SemiBold) },
         text = {
             Column(Modifier.fillMaxWidth()) {
-                error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+                error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp).errorAnnouncement()) }
                 FormattingTextField(
                     value = text,
                     entities = entities,

@@ -109,8 +109,13 @@ import com.beykus.beygram.ui.text.russianPlural
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import com.beykus.beygram.ui.accessibility.accessibleChatRowDescription
+import com.beykus.beygram.ui.accessibility.accessibleDescription
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 
 private enum class ChatFilter(val title: Int) {
@@ -262,7 +267,8 @@ fun ChatsScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.app_name).uppercase(), color = palette.accent, style = MaterialTheme.typography.labelMedium, letterSpacing = 0.8.sp)
-                    Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp)
+                    Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
+                        modifier = Modifier.semantics { heading() })
                 }
                 (chats + archivedChats).firstOrNull { it.isSavedMessages }?.let { saved ->
                     androidx.compose.material3.IconButton(onClick = { onChatClick(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
@@ -275,8 +281,16 @@ fun ChatsScreen(
                         tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                 }
                 Spacer(Modifier.width(4.dp))
-                TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 40.dp, myProfile?.photo, observeFile, downloadFile,
-                    Modifier.semantics { contentDescription = context.getString(R.string.chats_my_profile_description) }.clickable(onClick = onMyProfile))
+                // The avatar stays 40 dp visually, while the tap area covers Android's 48 dp minimum.
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape)
+                        .clickable(role = Role.Button, onClick = onMyProfile)
+                        .semantics { contentDescription = context.getString(R.string.chats_my_profile_description) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 40.dp, myProfile?.photo, observeFile, downloadFile,
+                        Modifier.clearAndSetSemantics {})
+                }
             }
 
             Spacer(Modifier.height(14.dp))
@@ -359,7 +373,7 @@ fun ChatsScreen(
                         stringResource(R.string.chats_search_all, query),
                         color = palette.accent,
                         fontSize = 15.sp,
-                        modifier = Modifier.fillMaxWidth().clickable { onGlobalSearch(query) }.padding(horizontal = 20.dp, vertical = 14.dp)
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { onGlobalSearch(query) }.padding(horizontal = 20.dp, vertical = 14.dp)
                     )
                 }
             }
@@ -406,7 +420,7 @@ fun ChatsScreen(
                         horizontalAlignment = Alignment.CenterHorizontally) {
                         if (folderLoad.loading) CircularProgressIndicator(color = palette.accent, modifier = Modifier.size(26.dp))
                         if (folderLoad.error) Text(stringResource(R.string.chat_folder_load_failed),
-                            color = palette.danger, fontSize = 13.sp)
+                            color = palette.danger, fontSize = 13.sp, modifier = Modifier.errorAnnouncement())
                         if (folderLoad.hasMore && !folderLoad.loading) {
                             TextButton(onClick = { onFolderLoadMore(activeFolderId) }) {
                                 Text(stringResource(if (folderLoad.error) R.string.common_retry else R.string.chat_folder_load_more))
@@ -448,6 +462,7 @@ private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, on
     val context = LocalContext.current
     var actionsOpen by remember { mutableStateOf(false) }
     val unread = archivedChats.sumOf { it.unreadCount }
+    val title = stringResource(R.string.chats_archive_title)
     val summary = buildString {
         append("${archivedChats.size} ${russianPlural(archivedChats.size, context.getString(R.string.chats_archive_count_one), context.getString(R.string.chats_archive_count_few), context.getString(R.string.chats_archive_count_many))}")
         if (unread > 0) append(" · $unread ${russianPlural(unread, context.getString(R.string.chats_archive_unread_one), context.getString(R.string.chats_archive_unread_few), context.getString(R.string.chats_archive_unread_few))}")
@@ -456,7 +471,8 @@ private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, on
         Row(
             modifier = Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp)).background(palette.surface)
-                .combinedClickable(onClick = onClick, onLongClick = { actionsOpen = true })
+                .combinedClickable(onClick = onClick, onLongClick = { actionsOpen = true }, role = Role.Button)
+                .semantics(mergeDescendants = true) { contentDescription = accessibleDescription(title, summary) }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -465,7 +481,7 @@ private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, on
             }
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.chats_archive_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text(summary, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
@@ -487,7 +503,7 @@ private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, on
 @Composable
 private fun ArchiveAction(icon: ImageVector, label: String, iconTint: Color, labelColor: Color, labelWeight: FontWeight, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(22.dp))
@@ -527,7 +543,7 @@ private fun ArchivePullHint(heightDp: Dp) {
 private fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
-        Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(16.dp))
+        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
             .background(if (selected) palette.accent else palette.surface2)
             .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 14.dp),
@@ -558,8 +574,8 @@ private fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?
 internal fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
-        modifier = Modifier.height(34.dp).clip(RoundedCornerShape(50)).background(if (selected) palette.accent else palette.surface2)
-            .clickable(onClick = onClick).padding(horizontal = 14.dp),
+        modifier = Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(50)).background(if (selected) palette.accent else palette.surface2)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(title, color = if (selected) palette.onAccent else palette.textPrimary, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
@@ -605,17 +621,31 @@ private fun previewLine(chat: ChatPreview, emptyPreview: Boolean): String {
 
 /** Статус своего последнего сообщения: отправляется, отправлено, прочитано или не отправлено. */
 @Composable
+private fun sendStatusLabel(chat: ChatPreview): String? {
+    if (!chat.lastMessageOutgoing) return null
+    return when (chat.lastMessageSendState) {
+        MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
+        MessageSendState.Failed -> stringResource(R.string.chat_status_not_sent)
+        MessageSendState.Sent -> {
+            val read = chat.lastMessageId > 0L && chat.lastMessageId <= chat.lastReadOutboxMessageId
+            stringResource(if (read) R.string.chat_read_description else R.string.chat_sent_description)
+        }
+    }
+}
+
+@Composable
 private fun SendStatusIcon(chat: ChatPreview) {
     val palette = beyGramPalette()
     if (!chat.lastMessageOutgoing) return
     val modifier = Modifier.padding(start = 6.dp).size(16.dp)
+    // The row speaks one merged description (see ChatListItem), so the glyph itself stays decorative.
     when (chat.lastMessageSendState) {
-        MessageSendState.Sending -> Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = palette.textSecondary, modifier = modifier)
-        MessageSendState.Failed -> Icon(Icons.Rounded.ErrorOutline, stringResource(R.string.chat_status_not_sent), tint = palette.warningText, modifier = modifier)
+        MessageSendState.Sending -> Icon(Icons.Rounded.Schedule, null, tint = palette.textSecondary, modifier = modifier)
+        MessageSendState.Failed -> Icon(Icons.Rounded.ErrorOutline, null, tint = palette.warningText, modifier = modifier)
         MessageSendState.Sent -> {
             val read = chat.lastMessageId > 0L && chat.lastMessageId <= chat.lastReadOutboxMessageId
-            if (read) Icon(Icons.Rounded.DoneAll, stringResource(R.string.chat_read_description), tint = palette.accent, modifier = modifier)
-            else Icon(Icons.Rounded.Done, stringResource(R.string.chat_sent_description), tint = palette.textSecondary, modifier = modifier)
+            if (read) Icon(Icons.Rounded.DoneAll, null, tint = palette.accent, modifier = modifier)
+            else Icon(Icons.Rounded.Done, null, tint = palette.textSecondary, modifier = modifier)
         }
     }
 }
@@ -645,12 +675,26 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
     val listDensity = LocalChatListDensity.current
     val unread = showsUnreadIndicator(chat)
     val emptyPreview = (chat.lastMessage as? UiText.Raw)?.text?.isBlank() == true
+    val preview = previewLine(chat, emptyPreview)
+    val unreadLabel = if (unread) {
+        if (chat.unreadCount > 0) stringResource(R.string.a11y_chat_unread_count, chat.unreadCount)
+        else stringResource(R.string.a11y_chat_unread_marked)
+    } else null
+    val description = accessibleChatRowDescription(
+        title = chat.title,
+        preview = preview,
+        time = chat.lastMessageTime,
+        unreadLabel = unreadLabel,
+        mutedLabel = if (chat.isMuted) stringResource(R.string.a11y_chat_muted) else null,
+        statusLabel = sendStatusLabel(chat)
+    )
     Row(
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick)
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick, role = Role.Button)
+            .semantics(mergeDescendants = true) { contentDescription = description }
             .padding(horizontal = 20.dp, vertical = listDensity.rowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ChatAvatar(chat, 54.dp, observeFile, downloadFile)
+        ChatAvatar(chat, 54.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -661,7 +705,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             Spacer(Modifier.height(3.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (chat.isMuted) Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
-                Text(previewLine(chat, emptyPreview), color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(preview, color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 SendStatusIcon(chat)
                 if (unread) {
                     Spacer(Modifier.width(8.dp))

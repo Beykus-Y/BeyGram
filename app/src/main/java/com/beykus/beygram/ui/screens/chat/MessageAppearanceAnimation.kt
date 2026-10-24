@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
@@ -164,6 +165,33 @@ internal fun messageAnimationPlan(direction: MessageAnimationDirection, outgoing
 internal fun messageAnimationPlan(config: MessageAnimationConfig, animate: Boolean, outgoing: Boolean): MessageAnimationPlan? =
     if (!config.enabled || !animate) null else messageAnimationPlan(config.direction(outgoing), outgoing)
 
+/**
+ * System "Remove animations" sets the animator duration scale to zero. Compose would finish the animation
+ * on the next frame anyway, but skipping the plan keeps the row visible from its first frame instead of
+ * showing it transparent or shifted for one frame.
+ */
+internal fun messageAnimationPlan(
+    config: MessageAnimationConfig,
+    animate: Boolean,
+    outgoing: Boolean,
+    motionEnabled: Boolean
+): MessageAnimationPlan? = if (!motionEnabled) null else messageAnimationPlan(config, animate, outgoing)
+
+/** Reads Android's global animator duration scale at composition time. */
+@Composable
+internal fun systemMotionEnabled(): Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        runCatching {
+            android.provider.Settings.Global.getFloat(
+                context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            ) > 0f
+        }.getOrDefault(true)
+    }
+}
+
 private fun horizontalSign(outgoing: Boolean, direction: MessageAnimationMotionDirection): Float = when (direction) {
     MessageAnimationMotionDirection.Auto -> automaticHorizontalSign(outgoing)
     MessageAnimationMotionDirection.FromEnd -> 1f
@@ -199,7 +227,8 @@ private fun MessageAnimationEasing.toComposeEasing() = when (this) {
 /**
  * Plays the entrance for one already-present list row. [animate] is a one-shot claim from [MessageArrivalTracker]:
  * recomposition, delivery updates and the temporary-to-server key change never turn it back on. Compose's animation
- * clock already carries Android's animator duration scale, so system "remove animations" makes this immediate.
+ * clock carries Android's animator duration scale, and [systemMotionEnabled] skips the first-frame offset when the
+ * user removed animations.
  */
 @Composable
 internal fun MessageAnimationFrame(
@@ -209,7 +238,10 @@ internal fun MessageAnimationFrame(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val plan = remember(config, animate, outgoing) { messageAnimationPlan(config, animate, outgoing) }
+    val motionEnabled = systemMotionEnabled()
+    val plan = remember(config, animate, outgoing, motionEnabled) {
+        messageAnimationPlan(config, animate, outgoing, motionEnabled)
+    }
     val play = plan != null
     val progress = remember { Animatable(if (play) 0f else 1f) }
     var animating by remember { mutableStateOf(play) }

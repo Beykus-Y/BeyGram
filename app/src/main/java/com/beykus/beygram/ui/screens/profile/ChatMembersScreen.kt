@@ -20,6 +20,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ProfileMember
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.*
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
@@ -77,7 +78,7 @@ fun ChatMembersScreen(
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         error?.let { message ->
             Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                Text(message, color = palette.danger)
+                Text(message, color = palette.danger, modifier = Modifier.errorAnnouncement())
                 TextButton(onClick = ::loadNext) { Text(stringResource(R.string.common_retry), fontWeight = FontWeight.SemiBold) }
             }
         }

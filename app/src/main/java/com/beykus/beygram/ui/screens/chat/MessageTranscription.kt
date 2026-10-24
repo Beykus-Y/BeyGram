@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 
@@ -69,11 +70,11 @@ internal fun TranscriptionSection(
             Text(text, color = palette.messageText, fontSize = 14.sp, lineHeight = 19.sp)
             if (rate != null && !rated) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { rate(true) }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { rate(true) }) {
                         Icon(Icons.Rounded.ThumbUp, stringResource(R.string.transcription_rate_good), tint = palette.textSecondary,
                             modifier = Modifier.size(17.dp))
                     }
-                    IconButton(onClick = { rate(false) }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { rate(false) }) {
                         Icon(Icons.Rounded.ThumbDown, stringResource(R.string.transcription_rate_bad), tint = palette.textSecondary,
                             modifier = Modifier.size(17.dp))
                     }
@@ -81,7 +82,7 @@ internal fun TranscriptionSection(
             }
         }
         error != null -> Column(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-            Text(error, color = palette.danger, fontSize = 13.sp)
+            Text(error, color = palette.danger, fontSize = 13.sp, modifier = Modifier.errorAnnouncement())
             if (request != null) TextButton(onClick = request) { Text(stringResource(R.string.common_retry), color = palette.accent) }
         }
         request != null -> TextButton(onClick = request, modifier = modifier.padding(horizontal = 4.dp)) {

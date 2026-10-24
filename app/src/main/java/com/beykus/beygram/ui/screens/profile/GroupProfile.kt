@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -30,6 +31,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,12 +120,19 @@ internal fun GroupProfileScreen(
                     Modifier.fillMaxWidth().onSizeChanged { headerHeightPx = it.height }.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
+                    Box(
                         Modifier.graphicsLayer { val scale = 1f - AVATAR_SHRINK * collapse.value; scaleX = scale; scaleY = scale }
-                            .clickable(enabled = info.photo != null, onClick = onAvatarClick))
+                            .clickable(enabled = info.photo != null, role = Role.Button, onClick = onAvatarClick)
+                            .semantics { contentDescription = context.getString(R.string.a11y_profile_photo_open) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
+                            Modifier.clearAndSetSemantics {})
+                    }
                     Spacer(Modifier.height(16.dp))
                     Column(Modifier.fillMaxWidth().graphicsLayer { alpha = 1f - collapse.value }, horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(title, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                        Text(title, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                            modifier = Modifier.semantics { heading() })
                         Spacer(Modifier.height(4.dp))
                         ProfileSubtitle(info, lastSeenStyle)
                         ProfileBadges(info)
@@ -158,7 +171,7 @@ private fun GroupProfileToolbar(title: String, collapse: State<Float>, onBack: (
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
         Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).graphicsLayer { alpha = collapse.value })
+            modifier = Modifier.weight(1f).graphicsLayer { alpha = collapse.value }.semantics { heading() })
         ChatInfoMenu(canBlock = false, canDelete = true, onBlock = { Result.success(Unit) },
             onDelete = onDelete, onDeleted = onDeleted)
     }
@@ -177,7 +190,8 @@ private fun GroupTabRow(tabs: List<GroupTab>, selected: GroupTab, countText: (Gr
             Row(
                 Modifier.clip(RoundedCornerShape(percent = 50))
                     .background(if (isSelected) palette.accentSoft else palette.surface2)
-                    .clickable { onSelect(tab) }
+                    .heightIn(min = 48.dp)
+                    .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(tab) })
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)

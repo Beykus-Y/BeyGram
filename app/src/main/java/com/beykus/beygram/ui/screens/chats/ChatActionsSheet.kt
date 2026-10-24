@@ -10,6 +10,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
@@ -56,7 +57,7 @@ internal fun ChatActionsSheet(
         TextButton(onClick = { confirmDelete = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.feature_delete_chat), color = palette.danger)
         }
-        error?.let { Text(it, color = palette.danger, modifier = Modifier.padding(horizontal = 20.dp)) }
+        error?.let { Text(it, color = palette.danger, modifier = Modifier.padding(horizontal = 20.dp).errorAnnouncement()) }
         Spacer(Modifier.height(20.dp))
     }
     if (confirmDelete) AlertDialog(

@@ -12,12 +12,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.SavedMessagesAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -32,11 +35,11 @@ internal fun ForwardChatDialog(chats: List<ChatPreview>, busy: Boolean, error: S
         text = {
             Column {
                 if (asCopy) Text(stringResource(R.string.forward_copy_note), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
-                error?.let { Text(it, color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+                error?.let { Text(it, color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp).errorAnnouncement()) }
                 LazyColumn(Modifier.heightIn(max = 420.dp)) {
                     items(chats, key = { it.id }) { chat ->
-                        Row(Modifier.fillMaxWidth().clickable(enabled = !busy) { onPick(chat) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (chat.isSavedMessages) SavedMessagesAvatar(40.dp) else Avatar(chat.initials, Color(chat.avatarColorArgb), 40.dp)
+                        Row(Modifier.fillMaxWidth().clickable(enabled = !busy, role = Role.Button) { onPick(chat) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (chat.isSavedMessages) SavedMessagesAvatar(40.dp, Modifier.clearAndSetSemantics {}) else Avatar(chat.initials, Color(chat.avatarColorArgb), 40.dp, Modifier.clearAndSetSemantics {})
                             Spacer(Modifier.width(12.dp))
                             Text(chat.title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         }
