@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wallpaper_title">Chat-Hintergrundbild</string>
+    <string name="wallpaper_option_none">Kein Hintergrundbild</string>
+    <string name="wallpaper_option_solid">Einfarbig %1$d</string>
+    <string name="wallpaper_option_gradient">Farbverlauf %1$d</string>
+    <string name="wallpaper_option_photo">Foto aus der Galerie</string>
+    <string name="wallpaper_dim">Hintergrund abdunkeln</string>
+    <string name="wallpaper_import_failed">Dieses Foto kann nicht geöffnet werden</string>
+    <string name="wallpaper_reset">Hintergrund zurücksetzen</string>
+    <string name="wallpaper_blur">Foto unscharf machen</string>
+    <string name="wallpaper_blur_hint">Funktioniert auf Android 12 und neuer. Ältere Versionen verdunkeln das Foto stattdessen stärker.</string>
+    <string name="wallpaper_option_solid_custom">Benutzerdefinierter Hintergrund</string>
+    <string name="wallpaper_option_gradient_custom">Benutzerdefinierter Farbverlauf</string>
+</resources>

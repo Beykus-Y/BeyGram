@@ -37,8 +37,10 @@ fun LanguageScreen(translationSettings: TranslationSettingsStore, onBack: () -> 
         AppLocale.supported.forEach { language ->
             val title = when (language) {
                 AppLocale.SYSTEM -> stringResource(R.string.feature_language_system)
-                AppLocale.RUSSIAN -> "Русский"
-                else -> "English"
+                AppLocale.RUSSIAN -> stringResource(R.string.settings_language_ru)
+                AppLocale.ENGLISH -> stringResource(R.string.settings_language_en)
+                AppLocale.GERMAN -> stringResource(R.string.settings_language_de)
+                else -> stringResource(R.string.settings_language_en)
             }
             Row(
                 Modifier.fillMaxWidth()

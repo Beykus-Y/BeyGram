@@ -1091,7 +1091,10 @@
     <string name="settings_video_diagnostics_cancel">Отмена</string>
     <string name="feature_language">Язык приложения</string>
     <string name="feature_language_system">Как в системе</string>
-    <string name="feature_language_hint">Язык меняется сразу. Непереведённые строки пока отображаются по-русски.</string>
+    <string name="settings_language_ru">Русский</string>
+    <string name="settings_language_en">English</string>
+    <string name="settings_language_de">Deutsch</string>
+    <string name="feature_language_hint">Язык меняется сразу.</string>
     <string name="translation_settings_title">Перевод</string>
     <string name="translation_target_title">Перевести на</string>
     <string name="translation_translating">Перевод…</string>
