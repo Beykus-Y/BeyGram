@@ -30,6 +30,7 @@ internal class AppLockManager private constructor(context: Context) {
     @Volatile private var foreground = false
     private var backgrounded = false
     private var activeWhenBackgrounded = false
+    private var backgroundedAtElapsed: Long? = null
     /** Set by a successful unlock; the gap before MainActivity starts must not re-lock. */
     private var unlockInProgress = false
 
@@ -48,13 +49,19 @@ internal class AppLockManager private constructor(context: Context) {
     fun onActivityStarted(activity: Any) {
         synchronized(this) {
             val wasForeground = foreground
+            val wasUnlocking = unlockInProgress
+            val now = SystemClock.elapsedRealtime()
+            val backgroundAge = backgroundedAtElapsed?.let { now - it }
             startedActivities += activity
             foreground = true
-            unlockInProgress = false
             if (!wasForeground) {
                 val settings = store.settings.value
                 if (!settings.isActive) {
                     session.onDisabled()
+                    session.clearBackground()
+                } else if (backgrounded && AppLockPolicy.isUnlockHandover(wasUnlocking, backgroundAge)) {
+                    // LockActivity finished after a successful unlock and MainActivity
+                    // started immediately: this is a hand-over, not a new background period.
                     session.clearBackground()
                 } else {
                     // The lock may have become active while this process was in the background
@@ -65,11 +72,13 @@ internal class AppLockManager private constructor(context: Context) {
                     ) {
                         session.lockNow()
                     }
-                    session.onForeground(SystemClock.elapsedRealtime(), settings.timeout)
+                    session.onForeground(now, settings.timeout)
                 }
                 backgrounded = false
                 activeWhenBackgrounded = false
             }
+            backgroundedAtElapsed = null
+            unlockInProgress = false
             _locked.value = session.locked
         }
     }
@@ -83,21 +92,21 @@ internal class AppLockManager private constructor(context: Context) {
             startedActivities -= activity
             if (startedActivities.isNotEmpty()) return
             foreground = false
+            val now = SystemClock.elapsedRealtime()
             val settings = store.settings.value
+            backgrounded = true
+            activeWhenBackgrounded = settings.isActive
+            backgroundedAtElapsed = now
             if (unlockInProgress) {
-                // AppLockActivity is finishing after a successful unlock; MainActivity is
-                // about to start. Do not record this hand-over as real background time.
-                backgrounded = false
-                activeWhenBackgrounded = false
+                // Authentication just succeeded. Keep a timestamp: if MainActivity starts
+                // immediately this is a hand-over; if the user actually left, the next start
+                // must apply the timeout and the immediate setting must lock again.
+                session.recordBackground(now)
+            } else if (settings.isActive) {
+                session.onBackground(now, settings.timeout)
             } else {
-                backgrounded = true
-                activeWhenBackgrounded = settings.isActive
-                if (settings.isActive) {
-                    session.onBackground(SystemClock.elapsedRealtime(), settings.timeout)
-                } else {
-                    session.onDisabled()
-                    session.recordBackground(SystemClock.elapsedRealtime())
-                }
+                session.onDisabled()
+                session.recordBackground(now)
             }
             _locked.value = session.locked
         }

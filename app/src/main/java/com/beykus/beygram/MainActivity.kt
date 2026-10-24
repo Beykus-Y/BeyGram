@@ -236,12 +236,12 @@ class MainActivity : FragmentActivity() {
     }
 
     /** The lock Activity covers every child dialog of this Activity while it is stopped. */
+    @Suppress("DEPRECATION")
     private fun startLockScreen() {
         startActivity(
             Intent(this, AppLockActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
         )
-        @Suppress("DEPRECATION")
         overridePendingTransition(0, 0)
     }
 

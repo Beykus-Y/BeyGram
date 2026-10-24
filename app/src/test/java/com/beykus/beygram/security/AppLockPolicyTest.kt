@@ -81,4 +81,13 @@ class AppLockPolicyTest {
             )
         )
     }
+
+    @Test
+    fun onlyAShortUnlockHandoverSkipsTheBackgroundPolicy() {
+        assertTrue(AppLockPolicy.isUnlockHandover(wasUnlocking = true, backgroundAgeMillis = 120L))
+        assertFalse(AppLockPolicy.isUnlockHandover(wasUnlocking = false, backgroundAgeMillis = 120L))
+        assertFalse(AppLockPolicy.isUnlockHandover(wasUnlocking = true, backgroundAgeMillis = null))
+        assertFalse(AppLockPolicy.isUnlockHandover(wasUnlocking = true, backgroundAgeMillis = 10_000L))
+        assertFalse(AppLockPolicy.isUnlockHandover(wasUnlocking = true, backgroundAgeMillis = -1L))
+    }
 }

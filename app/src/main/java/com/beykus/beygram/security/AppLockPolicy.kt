@@ -59,6 +59,18 @@ internal object AppLockPolicy {
         activeNow: Boolean,
     ): Boolean = backgrounded && !activeWhenBackgrounded && activeNow
 
+    /**
+     * AppLockActivity finishing after authentication normally hands over to MainActivity in a
+     * few hundred milliseconds. Only that short gap may skip the background timeout; pressing
+     * Home and returning later must still be treated as a real background period.
+     */
+    fun isUnlockHandover(
+        wasUnlocking: Boolean,
+        backgroundAgeMillis: Long?,
+        graceMillis: Long = 2_000L,
+    ): Boolean = wasUnlocking && backgroundAgeMillis != null &&
+        backgroundAgeMillis in 0L..graceMillis
+
     /** Zero until the free attempts are used, then a doubling delay capped at five minutes. */
     fun lockoutMillisForFailures(failedAttempts: Int): Long {
         if (failedAttempts < FREE_ATTEMPTS) return 0L

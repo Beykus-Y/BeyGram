@@ -296,10 +296,13 @@ private fun BeyGramAppContent(
     val myProfile by repository.myProfile.collectAsStateWithLifecycle()
     val bioLimit by repository.bioLengthLimit.collectAsStateWithLifecycle()
     val lastSeenStyle by lastSeenSettings.style.collectAsStateWithLifecycle()
-    LifecycleResumeEffect(repository) {
-        repository.setAppForeground(true)
+    // A chat concealed by the lock gate is not a visible chat: do not suppress its
+    // notifications or advance their handled watermark while locked.
+    LifecycleResumeEffect(repository, locked) {
+        val visible = !locked
+        repository.setAppForeground(visible)
         // После репозитория: отметка «прослушано» уходит через него, и ему нужен уже действующий передний план.
-        PlaybackEngine.setForeground(true)
+        PlaybackEngine.setForeground(visible)
         onPauseOrDispose {
             repository.setAppForeground(false)
             PlaybackEngine.setForeground(false)
