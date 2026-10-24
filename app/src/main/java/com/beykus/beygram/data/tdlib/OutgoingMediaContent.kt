@@ -1,9 +1,11 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.data.media.Mp4StreamingProbe
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.OutgoingMedia
 import org.drinkless.tdlib.TdApi
+import java.io.File
 
 internal fun OutgoingMedia.toInputContent(caption: String, entities: List<MessageTextEntity> = emptyList()): TdApi.InputMessageContent {
     val local = TdApi.InputFileLocal(path)
@@ -27,8 +29,9 @@ internal fun OutgoingMedia.toInputContent(caption: String, entities: List<Messag
                 width = this@toInputContent.width
                 height = this@toInputContent.height
                 duration = durationSeconds
-                // The original container may have its index at the end of the file.
-                supportsStreaming = false
+                // Only a fast-start MP4 can be played before the recipient downloads the whole file.
+                // A container with moov at the end keeps the flag false instead of promising streaming.
+                supportsStreaming = runCatching { Mp4StreamingProbe.supportsStreaming(File(path)) }.getOrDefault(false)
                 addedStickerFileIds = intArrayOf()
             }
             this.caption = formattedCaption

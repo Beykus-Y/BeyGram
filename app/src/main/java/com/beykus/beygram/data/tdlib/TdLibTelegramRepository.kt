@@ -10,6 +10,7 @@ import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.export.ChatExportMessage
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatExportProgress
 import com.beykus.beygram.domain.model.ChatExportRequest
@@ -38,6 +39,14 @@ import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.media.VideoNoteSendTracking
+import com.beykus.beygram.data.media.AutoDownloadDecision
+import com.beykus.beygram.data.media.AutoDownloadNetwork
+import com.beykus.beygram.data.media.AutoDownloadNetworkMonitor
+import com.beykus.beygram.data.media.AutoDownloadSettings
+import com.beykus.beygram.data.media.AutoDownloadTdlibMapping
+import com.beykus.beygram.data.media.currentAutoDownloadNetwork
+import com.beykus.beygram.data.media.decideAutoDownload
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.storage.StorageSettingsStore
 import com.beykus.beygram.domain.model.CachePolicy
@@ -99,6 +108,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
@@ -361,7 +371,18 @@ class TdLibTelegramRepository private constructor(
         topicStores.filterKeys { it.first == chatId }.values.forEach { it.update(chatId, messageId, transform) }
     }
     private val mediaFiles = MediaFileStore()
+    private val autoDownloadSettingsStore = AutoDownloadSettingsStore.getInstance(appContext, accountId)
+    /** Files this repository started automatically; a network or settings change may cancel them. */
+    private val autoDownloads = ConcurrentHashMap<Int, AutoDownloadRequest>()
+    /** Automatic downloads stopped by policy; their late TDLib error must not replace the retry button with an error. */
+    private val cancelledAutoDownloads = ConcurrentHashMap.newKeySet<Int>()
+    private var autoDownloadSettingsJob: Job? = null
+    private val autoDownloadNetworkMonitor = AutoDownloadNetworkMonitor(appContext, authScope, ::reevaluateAutoDownloads)
     private val mediaMapper = TdMediaMapper(mediaFiles)
+
+    init {
+        autoDownloadNetworkMonitor.start()
+    }
     private val serviceMessages = TdServiceMessageMapper(appContext)
     private val pendingServiceUserRequests = ConcurrentHashMap.newKeySet<Triple<Long, Long, Long>>()
 
@@ -1241,6 +1262,9 @@ class TdLibTelegramRepository private constructor(
             secondaryDisposed = true
         }
         networkMonitor.stop()
+        autoDownloadNetworkMonitor.stop()
+        autoDownloadSettingsJob?.cancel()
+        autoDownloadSettingsJob = null
         messageDrafts.dispose()
         notificationFeed.dispose()
         com.beykus.beygram.data.media.VideoNoteLossDiagnostics.releaseRepository(this)
@@ -1331,6 +1355,7 @@ class TdLibTelegramRepository private constructor(
                 client = createLegacyClient()
                 networkMonitor.start()
                 networkMonitor.reconnect()
+                autoDownloadNetworkMonitor.start()
             } catch (error: Throwable) {
                 StructuredEventLog.shared.record(
                     kind = EventKind.TDLIB,
@@ -1602,22 +1627,108 @@ class TdLibTelegramRepository private constructor(
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = mediaFiles.observe(fileId)
 
     override fun downloadFile(fileId: Int) {
+        // A manual tap takes ownership of a file that was being downloaded automatically.
+        autoDownloads.remove(fileId)
+        cancelledAutoDownloads.remove(fileId)
         if (!mediaFiles.beginDownload(fileId)) return
+        sendDownload(fileId)
+    }
+
+    override fun autoDownloadFile(request: AutoDownloadRequest) {
+        val decision = decideAutoDownload(
+            settings = autoDownloadSettingsStore.settings.value,
+            network = currentAutoDownloadNetwork(appContext),
+            request = request
+        )
+        if (decision != AutoDownloadDecision.Allowed) return
+        if (!mediaFiles.beginDownload(request.fileId)) return
+        autoDownloads[request.fileId] = request
+        sendDownload(request.fileId)
+    }
+
+    private fun sendDownload(fileId: Int) {
         client.send(TdApi.DownloadFile(fileId, 16, 0, 0, false), Client.ResultHandler { result ->
             when (result) {
-                is TdApi.File -> mediaFiles.update(result.toMediaFileState())
+                is TdApi.File -> {
+                    mediaFiles.update(result.toMediaFileState())
+                    if (result.local?.isDownloadingCompleted == true) {
+                        autoDownloads.remove(fileId)
+                        cancelledAutoDownloads.remove(fileId)
+                    }
+                }
                 is TdApi.Error -> {
-                    recordAppEvent(
-                        kind = EventKind.TDLIB,
-                        code = "file_download_failed",
-                        text = "Файл не загрузился, код ${result.code}",
-                        severity = Severity.WARNING,
-                        attrs = mapOf("error_code" to result.code.toString())
-                    )
-                    mediaFiles.fail(fileId, UiText.Res(R.string.err_media_download_failed))
+                    if (cancelledAutoDownloads.remove(fileId)) {
+                        mediaFiles.cancel(fileId)
+                    } else {
+                        autoDownloads.remove(fileId)
+                        recordAppEvent(
+                            kind = EventKind.TDLIB,
+                            code = "file_download_failed",
+                            text = "Файл не загрузился, код ${result.code}",
+                            severity = Severity.WARNING,
+                            attrs = mapOf("error_code" to result.code.toString())
+                        )
+                        mediaFiles.fail(fileId, UiText.Res(R.string.err_media_download_failed))
+                    }
                 }
             }
         })
+    }
+
+    /** Cancels automatic downloads that the current network or settings no longer allow. */
+    private fun reevaluateAutoDownloads(network: AutoDownloadNetwork) {
+        if (autoDownloads.isEmpty()) return
+        val settings = autoDownloadSettingsStore.settings.value
+        autoDownloads.values.toList().forEach { request ->
+            val state = mediaFiles.snapshot(request.fileId)
+            if (state?.localPath != null) {
+                autoDownloads.remove(request.fileId)
+                return@forEach
+            }
+            val current = if (state != null && state.size > 0L) request.copy(sizeBytes = state.size) else request
+            if (decideAutoDownload(settings, network, current) == AutoDownloadDecision.Allowed) return@forEach
+            if (autoDownloads.remove(request.fileId) == null) return@forEach
+            cancelledAutoDownloads += request.fileId
+            mediaFiles.cancel(request.fileId)
+            client.send(TdApi.CancelDownloadFile(request.fileId, /* onlyIfPending = */ true), Client.ResultHandler { })
+        }
+    }
+
+    /** Pushes the local policy to TDLib for its own preloading and applies it to downloads already running. */
+    private fun startAutoDownloadSettingsSync() {
+        if (autoDownloadSettingsJob?.isActive != true) {
+            autoDownloadSettingsJob = authScope.launch {
+                autoDownloadSettingsStore.settings.collectLatest { settings ->
+                    applyAutoDownloadSettings(settings)
+                }
+            }
+        } else {
+            // Re-authorization after logout does not re-emit an unchanged flow value.
+            authScope.launch { applyAutoDownloadSettings(autoDownloadSettingsStore.settings.value) }
+        }
+    }
+
+    private suspend fun applyAutoDownloadSettings(settings: AutoDownloadSettings) {
+        reevaluateAutoDownloads(currentAutoDownloadNetwork(appContext))
+        if (_authState.value != AuthState.Ready) return
+        val presets = try {
+            tdRequests(TdApi.GetAutoDownloadSettingsPresets())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        val template = presets?.high ?: TdApi.AutoDownloadSettings()
+        AutoDownloadTdlibMapping.configuredNetworks.forEach { (network, type) ->
+            val mapped = AutoDownloadTdlibMapping.toTdlib(settings, network, template)
+            try {
+                tdRequests(TdApi.SetAutoDownloadSettings(mapped, type))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A failed TDLib update does not change the local policy or the manual button.
+            }
+        }
     }
 
     override fun openMessageContent(chatId: Long, messageId: Long) {
@@ -1822,7 +1933,10 @@ class TdLibTelegramRepository private constructor(
                 publishChat(update.chatId)
             }
             is TdApi.UpdateMessageContent -> {
-                val attachment = mediaMapper.media(update.newContent)
+                val secretChat = isSecretChat(update.chatId)
+                val attachment = mediaMapper.media(update.newContent)?.let {
+                    if (secretChat) it.copy(isSecretChat = true) else it
+                }
                 val service = serviceMessages.text(update.newContent)
                 val transform: (ChatMessage) -> ChatMessage = { message ->
                     val rendered = (update.newContent as? TdApi.MessageCall)?.let {
@@ -1831,7 +1945,7 @@ class TdLibTelegramRepository private constructor(
                     message.withUpdatedContent(update.newContent, attachment,
                         contentText(update.newContent, attachment != null),
                         messageFormattedText(update.newContent)?.domainEntities().orEmpty(), rendered,
-                        linkPreview = mediaMapper.linkPreview(update.newContent, isSecretChat(update.chatId)))
+                        linkPreview = mediaMapper.linkPreview(update.newContent, secretChat))
                 }
                 messageHistory.update(update.chatId, update.messageId, transform)
                 updateForumMessage(update.chatId, update.messageId, transform)
@@ -1891,7 +2005,24 @@ class TdLibTelegramRepository private constructor(
                     VideoNoteSendTracking.tracker.onPending(update.message.chatId, update.message.id)
                 }
             }
-            is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
+            is TdApi.UpdateFile -> {
+                val state = update.file.toMediaFileState()
+                mediaFiles.update(state)
+                val fileId = update.file.id
+                if (!state.isDownloading && state.localPath == null && cancelledAutoDownloads.remove(fileId)) {
+                    mediaFiles.cancel(fileId)
+                }
+                val tracked = autoDownloads[fileId]
+                if (tracked != null) {
+                    if (state.localPath != null) {
+                        autoDownloads.remove(fileId)
+                        cancelledAutoDownloads.remove(fileId)
+                    } else if (state.size > 0L && state.size != tracked.sizeBytes) {
+                        autoDownloads[fileId] = tracked.copy(sizeBytes = state.size)
+                        reevaluateAutoDownloads(currentAutoDownloadNetwork(appContext))
+                    }
+                }
+            }
             is TdApi.UpdateMessageSendSucceeded -> {
                 videoNoteLossTransport.onSendSucceeded(update)
                 VideoNoteSendTracking.tracker.onSucceeded(update.message.chatId, update.oldMessageId)
@@ -2075,6 +2206,7 @@ class TdLibTelegramRepository private constructor(
                     }
                 }
                 syncArchiveReturnSetting()
+                startAutoDownloadSettingsSync()
                 val analyticsGeneration = synchronized(analyticsAccountLock) {
                     analyticsSessionGeneration++
                     analyticsProfileJob?.cancel()
@@ -2129,6 +2261,7 @@ class TdLibTelegramRepository private constructor(
             is TdApi.AuthorizationStateClosed -> {
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()
                 networkMonitor.stop()
+                autoDownloadNetworkMonitor.stop()
                 clearQrLoginState(resetCancellation = false)
                 synchronized(analyticsAccountLock) {
                     analyticsSessionGeneration++
@@ -2411,6 +2544,7 @@ class TdLibTelegramRepository private constructor(
 
     private fun TdApi.Message.toChatMessage(): ChatMessage {
         val attachment = mediaMapper.media(content)
+        val secretChat = isSecretChat(chatId)
         val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
         val service = event?.text
         val scheduledAt = (schedulingState as? TdApi.MessageSchedulingStateSendAtDate)?.sendDate?.takeIf { it > 0 }?.toLong()
@@ -2423,7 +2557,7 @@ class TdLibTelegramRepository private constructor(
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
         sendState = sendingState.toSendState(),
-        media = attachment,
+        media = if (secretChat) attachment?.copy(isSecretChat = true) else attachment,
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
         senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
@@ -2439,7 +2573,7 @@ class TdLibTelegramRepository private constructor(
         isPinned = isPinned,
         isChannelPost = isChannelPost,
         replyCount = interactionInfo?.replyInfo?.replyCount ?: 0,
-        linkPreview = if (event == null) mediaMapper.linkPreview(content, isSecretChat(chatId)) else null,
+        linkPreview = if (event == null) mediaMapper.linkPreview(content, secretChat) else null,
         scheduledAtSeconds = scheduledAt,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,

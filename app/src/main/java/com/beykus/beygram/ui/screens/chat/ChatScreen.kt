@@ -126,7 +126,9 @@ fun ChatScreen(
     threadOpen: Boolean = false,
     messageAnimations: MessageAnimationConfig = MessageAnimationConfig(),
     accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
-    accountLabel: String = ""
+    accountLabel: String = "",
+    /** Repository-backed automatic download; absent means the local policy gates the plain download callback. */
+    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val canPostHere = chat.canPost && topicCanPost
@@ -1168,6 +1170,7 @@ fun ChatScreen(
                                 } else {
                                     { isGood -> rateTranscription(message, isGood) }
                                 },
+                                onAutoDownloadFile = onAutoDownloadFile,
                                 commentsBar = if (showsChannelComments(chat.isChannel, message.isChannelPost, linkedDiscussionChatId)) {
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
                                 } else null)
@@ -1432,7 +1435,8 @@ fun ChatScreen(
             onForward = { forwardAsCopy = false; forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
             onDelete = { deleteEveryone = viewedRights?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
-        ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) })
+        ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) },
+            autoDownloadFile = onAutoDownloadFile)
     forwardId?.let { id ->
         ForwardChatDialog(chats, forwardBusy, forwardError, asCopy = forwardAsCopy,
             onPick = { target -> scope.launch {
@@ -1605,6 +1609,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
     onRateTranscription: ((Boolean) -> Unit)? = null,
+    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     commentsBar: (@Composable () -> Unit)? = null) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -1671,7 +1676,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 transcriptionRequestError = transcriptionRequestError,
                                 transcriptionRated = transcriptionRated,
                                 onTranscribe = onTranscribe,
-                                onRateTranscription = onRateTranscription)
+                                onRateTranscription = onRateTranscription,
+                                autoDownloadFile = onAutoDownloadFile)
                         }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
