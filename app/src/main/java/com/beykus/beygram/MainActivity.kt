@@ -20,6 +20,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
+import com.beykus.beygram.deeplink.PendingDeepLinkInbox
+import com.beykus.beygram.deeplink.PendingTelegramDeepLink
+import com.beykus.beygram.deeplink.SharedPreferencesPendingDeepLinkStorage
 import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationIntents
 import com.beykus.beygram.notifications.NotificationRuntime
@@ -46,6 +50,11 @@ class MainActivity : ComponentActivity() {
     }
     private var notificationRequest by mutableStateOf<NotificationOpenRequest?>(null)
     private var incomingShare by mutableStateOf<IncomingShare?>(null)
+    private val deepLinkInbox by lazy {
+        PendingDeepLinkInbox(SharedPreferencesPendingDeepLinkStorage(this))
+    }
+    private var pendingDeepLink by mutableStateOf<PendingTelegramDeepLink?>(null)
+    private var lastDeepLinkIntentData: String? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null) {
@@ -62,6 +71,15 @@ class MainActivity : ComponentActivity() {
             acceptNotificationIntent(intent)
             acceptShareIntent(intent)
         }
+        // A configuration change keeps the same intent; only a genuinely new VIEW data string is accepted again.
+        lastDeepLinkIntentData = savedInstanceState?.getString("deeplink_intent_data") ?: lastDeepLinkIntentData
+        val incomingLinkData = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString
+        val savedLinkData = savedInstanceState?.getString("deeplink_intent_data")
+        if (savedInstanceState == null || (incomingLinkData != null && incomingLinkData != savedLinkData)) {
+            acceptDeepLinkIntent(intent)
+        }
+        // The link is persisted before login, so it is also restored after process death or Activity recreation.
+        pendingDeepLink = deepLinkInbox.restore()
         enableEdgeToEdge()
 
         setContent {
@@ -99,6 +117,20 @@ class MainActivity : ComponentActivity() {
                             onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
                             incomingShare = incomingShare,
                             onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null; ShareSessions.release(this, it) },
+                            pendingDeepLink = pendingDeepLink,
+                            onDeepLinkBound = { token, accountId ->
+                                pendingDeepLink = deepLinkInbox.bind(token, accountId) ?: pendingDeepLink
+                            },
+                            onDeepLinkHandled = { token ->
+                                val current = pendingDeepLink?.takeIf { it.token == token }
+                                if (current != null) {
+                                    deepLinkInbox.take(
+                                        token,
+                                        current.accountId ?: TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+                                    )
+                                    pendingDeepLink = deepLinkInbox.restore()
+                                }
+                            },
                             appearance = config,
                             onAppearanceChange = appearance::save
                         )
@@ -107,13 +139,34 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptNotificationIntent(intent); acceptShareIntent(intent) }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        acceptNotificationIntent(intent)
+        acceptShareIntent(intent)
+        acceptDeepLinkIntent(intent)
+        pendingDeepLink = deepLinkInbox.restore()
+    }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
         notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId); outState.putString("notification_account", it.accountId) }
         incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text); outState.putParcelableArrayList("share_uris", ArrayList(it.uris)); outState.putLong("share_chat_id", it.targetChatId) }
+        outState.putString("deeplink_intent_data", lastDeepLinkIntentData)
         super.onSaveInstanceState(outState)
     }
+    /**
+     * External t.me/telegram.me/tg link. Only the parser decides whether it is known; nothing is opened here, because
+     * the account may still be signed out. The pending link is applied after AuthState.Ready.
+     */
+    private fun acceptDeepLinkIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        // A Direct Share shortcut is handled as a chat target, never as an external Telegram link.
+        if (intent.hasExtra(DirectShareShortcuts.LAUNCH_CHAT)) return
+        val data = intent.dataString ?: return
+        lastDeepLinkIntentData = data
+        pendingDeepLink = deepLinkInbox.offer(data, SystemClock.elapsedRealtimeNanos()) ?: pendingDeepLink
+    }
+
     /** Текст и файлы из другого приложения: сохраняем до выбора чата; отправка начнётся только после подтверждения на экране. */
     private fun acceptShareIntent(intent: Intent?) {
         // The same dynamic shortcut also appears in some launcher long-press menus:

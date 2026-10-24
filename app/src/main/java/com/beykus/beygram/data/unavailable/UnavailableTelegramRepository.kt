@@ -8,6 +8,7 @@ import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ChatNotificationPreferences
 import com.beykus.beygram.domain.model.NotificationSoundOption
 import com.beykus.beygram.domain.model.ChatMembersPage
@@ -119,7 +120,15 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun markChatUnread(chatId: Long): Result<Unit> = unavailable()
     override suspend fun loadContacts(): Result<List<ContactPreview>> = Result.success(emptyList())
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> = unavailable()
+    override suspend fun updateContact(userId: Long, firstName: String, lastName: String, phone: String): Result<Unit> = unavailable()
+    override suspend fun deleteContact(userId: Long): Result<Unit> = unavailable()
+    override suspend fun sendContact(chatId: Long, userId: Long): Result<Unit> = unavailable()
     override suspend fun openPrivateChat(userId: Long): Result<Long> = unavailable()
+    override suspend fun resolvePublicChat(username: String): Result<Long> = unavailable()
+    override suspend fun resolvePhoneNumber(phone: String): Result<Long> = unavailable()
+    override suspend fun checkInviteLink(url: String): Result<com.beykus.beygram.domain.model.ChatInvitePreview> = unavailable()
+    override suspend fun joinInviteLink(url: String): Result<com.beykus.beygram.domain.model.InviteJoinOutcome> = unavailable()
+    override suspend fun resolveMessageLink(url: String): Result<com.beykus.beygram.domain.model.MessageLinkTarget> = unavailable()
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = Result.success(CallHistoryPage(emptyList(), ""))
     override suspend fun storageUsage(): Result<StorageUsage> = unavailable()
     override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> = unavailable()
@@ -200,7 +209,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = unavailable()
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = unavailable()
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = unavailable()
-    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
+    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter): Result<MessageSearchPage> = unavailable()
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = unavailable()
@@ -222,7 +231,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> = unavailable()
     override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()
-    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
+    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter): Result<MessageSearchPage> = unavailable()
     override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter): Result<GlobalMessagePage> = unavailable()
     override suspend fun searchGlobalChats(query: String, limit: Int): Result<GlobalSearchPage<ChatPreview>> = unavailable()
     override suspend fun searchGlobalContacts(query: String, limit: Int): Result<GlobalSearchPage<ContactPreview>> = unavailable()

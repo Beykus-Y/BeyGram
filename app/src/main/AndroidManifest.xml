@@ -74,6 +74,25 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!--
+                Telegram links. autoVerify is intentionally NOT used: BeyGram does not control t.me or telegram.me
+                and cannot publish /.well-known/assetlinks.json for them. The app therefore offers itself as a
+                possible handler, but Android may still show a chooser and another app may remain the default.
+                Keep the hosts exact: a wildcard would make BeyGram claim unrelated https links.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="t.me" />
+                <data android:scheme="https" android:host="telegram.me" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tg" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <action android:name="android.intent.action.SEND_MULTIPLE" />

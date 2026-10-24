@@ -12,6 +12,7 @@ import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.GlobalSearchPage
@@ -42,6 +43,9 @@ import com.beykus.beygram.domain.model.QrLoginLinkUpdate
 import com.beykus.beygram.domain.model.QR_LOGIN_REFRESH_TIMEOUT_MS
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ChatInvitePreview
+import com.beykus.beygram.domain.model.InviteJoinOutcome
+import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.FolderChatPosition
 import com.beykus.beygram.domain.model.TelegramChatFolders
 import com.beykus.beygram.domain.model.TelegramFolderDraft
@@ -759,6 +763,14 @@ class TdLibTelegramRepository private constructor(
     override suspend fun loadContacts(): Result<List<ContactPreview>> = requestResult { contactBook.load() }
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> =
         requestResult { contactBook.add(firstName, lastName, phone) }
+    override suspend fun updateContact(userId: Long, firstName: String, lastName: String, phone: String): Result<Unit> =
+        requestResult { contactBook.update(userId, firstName, lastName, phone) }
+    override suspend fun deleteContact(userId: Long): Result<Unit> =
+        requestResult { contactBook.delete(userId) }
+    override suspend fun sendContact(chatId: Long, userId: Long): Result<Unit> {
+        val card = requestResult { contactBook.shareCard(userId) }.getOrElse { return Result.failure(it) }
+        return conversationActions.sendContact(chatId, card)
+    }
     override suspend fun openPrivateChat(userId: Long): Result<Long> = requestResult {
         val chat = TdRequests { client }(TdApi.CreatePrivateChat(userId, false))
         handleNewChat(chat)
@@ -877,6 +889,56 @@ class TdLibTelegramRepository private constructor(
             null
         }
     }
+
+    override suspend fun resolvePublicChat(username: String): Result<Long> = requestResult {
+        val cleaned = username.trim().removePrefix("@")
+        require(cleaned.isNotEmpty()) { "Empty public username" }
+        val chat = tdRequests(TdApi.SearchPublicChat(cleaned))
+        handleNewChat(chat)
+        chat.id
+    }
+
+    override suspend fun resolvePhoneNumber(phone: String): Result<Long> = requestResult {
+        val normalized = phone.trim().let { if (it.startsWith("+")) it else "+$it" }
+        require(normalized.length > 1) { "Empty phone number" }
+        val user = tdRequests(TdApi.SearchUserByPhoneNumber(normalized, false))
+        val chat = tdRequests(TdApi.CreatePrivateChat(user.id, false))
+        handleNewChat(chat)
+        chat.id
+    }
+
+    override suspend fun checkInviteLink(url: String): Result<ChatInvitePreview> = requestResult {
+        val info = tdRequests(TdApi.CheckChatInviteLink(url))
+        ChatInvitePreview(
+            title = info.title,
+            memberCount = info.memberCount,
+            createsJoinRequest = info.createsJoinRequest,
+            isPublic = info.isPublic
+        )
+    }
+
+    override suspend fun joinInviteLink(url: String): Result<InviteJoinOutcome> = requestResult {
+        when (val result = tdRequests(TdApi.JoinChatByInviteLink(url))) {
+            is TdApi.ChatJoinResultSuccess -> {
+                handleNewChat(tdRequests(TdApi.GetChat(result.chatId)))
+                InviteJoinOutcome.Joined(result.chatId)
+            }
+            is TdApi.ChatJoinResultRequestSent -> InviteJoinOutcome.RequestSent
+            else -> throw UserMessageException(UiText.Res(R.string.err_app_open_chat_failed))
+        }
+    }
+
+    override suspend fun resolveMessageLink(url: String): Result<MessageLinkTarget> = requestResult {
+        val info = tdRequests(TdApi.GetMessageLinkInfo(url))
+        val message = info.message
+            ?: throw UserMessageException(UiText.Res(R.string.chat_message_open_failed))
+        handleNewChat(tdRequests(TdApi.GetChat(info.chatId)))
+        val forumTopicId = when (val topic = info.topicId) {
+            is TdApi.MessageTopicForum -> topic.forumTopicId.toLong()
+            else -> 0L
+        }
+        MessageLinkTarget(info.chatId, message.id, forumTopicId)
+    }
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
@@ -954,9 +1016,10 @@ class TdLibTelegramRepository private constructor(
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
-    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
-    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long) =
-        conversationActions.search(chatId, query, fromMessageId, forumTopicId)
+    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
+        conversationActions.search(chatId, query, fromMessageId, filter = filter)
+    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
+        conversationActions.search(chatId, query, fromMessageId, forumTopicId, filter)
     override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter) =
         conversationActions.searchGlobal(query, offset, filter).map { page ->
             // One metadata lookup per distinct uncached chat, never per message. Bounded
@@ -2212,6 +2275,7 @@ class TdLibTelegramRepository private constructor(
         media = attachment,
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
+        senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
         isEdited = editDate > 0,
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),
@@ -2284,8 +2348,19 @@ class TdLibTelegramRepository private constructor(
         )
     }
 
-    private fun contentText(content: TdApi.MessageContent, hasMedia: Boolean): String =
-        if (hasMedia) mediaMapper.caption(content) else (content as? TdApi.MessageText)?.text?.text.orEmpty()
+    private fun contentText(content: TdApi.MessageContent, hasMedia: Boolean): String = when {
+        content is TdApi.MessageContact -> content.contact.cardText()
+        hasMedia -> mediaMapper.caption(content)
+        else -> (content as? TdApi.MessageText)?.text?.text.orEmpty()
+    }
+
+    /** Contact messages are rendered as a text bubble: name and (when visible) the phone number. */
+    private fun TdApi.Contact.cardText(): String =
+        listOf(displayName(), phoneNumber.orEmpty()).filter { it.isNotBlank() }.distinct().joinToString("\n")
+
+    private fun TdApi.Contact.displayName(): String =
+        listOf(firstName.orEmpty(), lastName.orEmpty()).filter { it.isNotBlank() }.joinToString(" ")
+            .ifBlank { phoneNumber.orEmpty() }
 
     /** Текст ответа: цитата, подпись или текст; у медиа без подписи и у пустого текста — «Медиа». */
     private fun replyText(content: TdApi.MessageContent): UiText {
@@ -2305,6 +2380,8 @@ class TdLibTelegramRepository private constructor(
     private fun previewText(c: TdApi.MessageContent): UiText =
         serviceMessages.text(c)?.let(UiText::Raw) ?: when (c) {
             is TdApi.MessageText      -> UiText.Raw(c.text.text)
+            is TdApi.MessageContact   -> c.contact.displayName().takeIf { it.isNotBlank() }?.let { UiText.Raw(it) }
+                ?: UiText.Res(R.string.message_title)
             is TdApi.MessagePhoto     -> UiText.Res(R.string.chat_preview_photo)
             is TdApi.MessageVideo     -> UiText.Res(R.string.chat_preview_video)
             is TdApi.MessageAudio     -> UiText.Res(R.string.chat_preview_audio)

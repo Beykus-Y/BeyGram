@@ -95,9 +95,14 @@ interface ConversationRepository {
     /** The custom emoji sticker behind [customEmojiId]. TDLib is asked on first use; the value stays null until it answers. */
     fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?>
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
-    /** Messages in one chat whose text matches [query]. Pass 0 for the first page, then the previous page's nextFromMessageId. */
-    suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
-    suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
+    /**
+     * Messages in one chat whose text matches [query] and whose sender/attachment type match [filter]. Pass 0 for the
+     * first page, then the previous page's nextFromMessageId. [filter]'s date range is applied to each returned page
+     * without changing that cursor, so a page can be empty while [MessageSearchPage.nextFromMessageId] still allows more.
+     */
+    suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter = ChatSearchFilter()): Result<MessageSearchPage>
+    /** Same as [searchMessages], scoped to one forum topic. */
+    suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter = ChatSearchFilter()): Result<MessageSearchPage>
     /**
      * Messages matching [query] in all chats of the account, limited by [filter]. Pass "" for the first page, then the
      * previous page's nextOffset. The offset is only valid with the same filter it came from.
