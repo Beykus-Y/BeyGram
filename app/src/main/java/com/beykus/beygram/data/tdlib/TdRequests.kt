@@ -67,9 +67,9 @@ private fun groupErrorText(error: Exception): UiText {
         message.contains("USERNAME_INVALID") -> UiText.Res(R.string.err_username_invalid)
         message.contains("USERNAME_PURCHASE_AVAILABLE") -> UiText.Res(R.string.err_username_purchase)
         message.contains("CHAT_ADMIN_REQUIRED") || message.contains("CHAT_NOT_ENOUGH_RIGHTS") ||
-            message.contains("CHAT_WRITE_FORBIDDEN") || message.contains("CHANNEL_PRIVATE") ||
-            message.contains("CHAT_MEMBER_REQUIRED") || message.contains("CHAT_OWNER") ||
-            message.contains("administrator rights", ignoreCase = true) ||
+            message.contains("CHAT_WRITE_FORBIDDEN") || message.contains("CHAT_FORBIDDEN") ||
+            message.contains("CHANNEL_PRIVATE") || message.contains("CHAT_MEMBER_REQUIRED") ||
+            message.contains("CHAT_OWNER") || message.contains("administrator rights", ignoreCase = true) ||
             message.contains("Not enough rights", ignoreCase = true) ->
             UiText.Res(R.string.err_group_rights_missing)
         message.contains("USER_ALREADY_PARTICIPANT") || message.contains("already a participant", ignoreCase = true) ->
