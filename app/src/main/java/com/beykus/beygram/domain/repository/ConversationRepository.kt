@@ -129,6 +129,17 @@ interface ConversationRepository {
      */
     suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean = false): Result<MessageSearchPage>
     fun messagesVisible(chatId: Long, messageIds: List<Long>)
+    /**
+     * Streams the history of one chat into [target] (a SAF document), newest to oldest in bounded pages.
+     * Secret chats and chats with protected content are refused before anything is written. Messages TDLib
+     * marks as not saveable are skipped. The target is discarded on cancellation or any error.
+     */
+    suspend fun exportChat(
+        chatId: Long,
+        target: ChatExportTarget,
+        request: ChatExportRequest,
+        onProgress: (ChatExportProgress) -> Unit = {}
+    ): Result<ChatExportSummary>
     fun setAppForeground(foreground: Boolean)
     fun refreshInteractionPolicy()
     fun openMessageContent(chatId: Long, messageId: Long)

@@ -95,6 +95,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -118,7 +119,8 @@ fun ChatScreen(
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
     onServiceUser: (Long) -> Unit = {},
     messageAnimations: MessageAnimationConfig = MessageAnimationConfig(),
-    accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+    accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
+    accountLabel: String = ""
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val canPostHere = chat.canPost && topicCanPost
@@ -139,6 +141,15 @@ fun ChatScreen(
     // The message of the latest swipe; a slower capability check for an older swipe is ignored.
     var swipedReplyId by remember(chat.id) { mutableLongStateOf(0L) }
     var actionsId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    var exportOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    val exportModel: ChatExportViewModel = viewModel(key = "chat-export-$accountId-${chat.id}")
+    val exportVisible by remember(exportModel) {
+        exportModel.state.map { it !is ChatExportUiState.Idle }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
+    // Returning to this chat while an export is still running (or finished) brings its progress/result back.
+    LaunchedEffect(exportVisible) {
+        if (exportVisible) exportOpen = true
+    }
     // Translation is manual and cached for this chat visit, per message and target language.
     var translationPickerId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var translationLanguages by remember(chat.id) { mutableStateOf<Map<Long, String>>(emptyMap()) }
@@ -1028,7 +1039,8 @@ fun ChatScreen(
             },
             onJumpUnread = ::jumpToFirstUnread,
             onScheduled = { scheduledMessagesOpen = true },
-            onChatSettings = { chatSettingsOpen = true }
+            onChatSettings = { chatSettingsOpen = true },
+            onExport = { exportOpen = true }
         )
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
@@ -1432,6 +1444,13 @@ fun ChatScreen(
         globalWallpaper = globalWallpaper,
         onClose = { chatSettingsOpen = false }
     )
+    if (exportOpen) ChatExportDialog(
+        chat = chat,
+        accountId = accountId,
+        accountLabel = accountLabel,
+        conversation = conversation,
+        onDismiss = { exportOpen = false }
+    )
 }
 
 @Composable
@@ -1447,7 +1466,7 @@ private fun ChatTopBar(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
     hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
-    onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}
+    onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onExport: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
     var menuOpen by remember { mutableStateOf(false) }
@@ -1483,6 +1502,10 @@ private fun ChatTopBar(
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_mark_unread)) },
                         onClick = { menuOpen = false; onMarkUnread() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_export_title)) },
+                        onClick = { menuOpen = false; onExport() }
                     )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_settings_title)) },

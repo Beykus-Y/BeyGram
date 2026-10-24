@@ -7,9 +7,14 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.analytics.AnalyticsSync
+import com.beykus.beygram.data.export.ChatExportMessage
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatActivity
+import com.beykus.beygram.domain.model.ChatExportProgress
+import com.beykus.beygram.domain.model.ChatExportRequest
+import com.beykus.beygram.domain.model.ChatExportSummary
+import com.beykus.beygram.domain.model.ChatExportTarget
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatSearchFilter
@@ -947,6 +952,7 @@ class TdLibTelegramRepository private constructor(
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })
+    private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
@@ -1055,6 +1061,12 @@ class TdLibTelegramRepository private constructor(
         }
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean) = conversationActions.shared(chatId, kind, fromMessageId, newer)
         .onSuccess { page -> listedMediaFiles.remember(page.messages.flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }) }
+    override suspend fun exportChat(
+        chatId: Long,
+        target: ChatExportTarget,
+        request: ChatExportRequest,
+        onProgress: (ChatExportProgress) -> Unit
+    ): Result<ChatExportSummary> = chatExporter.export(chatId, target, request, onProgress)
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
     override fun startChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.startActivity(chatId, activity)
     override fun endChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.endActivity(chatId, activity)
@@ -1726,6 +1738,10 @@ class TdLibTelegramRepository private constructor(
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
             is TdApi.UpdateSupergroup, is TdApi.UpdateBasicGroup -> chatCache.keys.toList().forEach(::refreshPostingRight)
             is TdApi.UpdateChatPermissions -> refreshPostingRight(update.chatId)
+            is TdApi.UpdateChatHasProtectedContent -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(hasProtectedContent = update.hasProtectedContent) }
+                publishChat(update.chatId)
+            }
             is TdApi.UpdateChatPhoto -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(photo = profiles.photo(update.photo)) }
                 publishChat(update.chatId)
@@ -2294,6 +2310,29 @@ class TdLibTelegramRepository private constructor(
     )
     }
 
+    /** Export projection avoids registering media files in MediaFileStore, so a huge history adds no UI state. */
+    private fun TdApi.Message.toExportMessage(): ChatExportMessage {
+        val media = content.toChatExportMedia()
+        val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
+        return ChatExportMessage(
+            id = id,
+            dateSeconds = date.toLong(),
+            isOutgoing = isOutgoing,
+            senderId = when (val sender = senderId) {
+                is TdApi.MessageSenderUser -> sender.userId.toLong()
+                is TdApi.MessageSenderChat -> sender.chatId
+                else -> 0L
+            },
+            senderName = profiles.senderName(senderId),
+            text = event?.text ?: contentText(content, media != null),
+            isEdited = editDate > 0,
+            serviceText = event?.text,
+            replyToMessageId = (replyTo as? TdApi.MessageReplyToMessage)?.messageId ?: 0L,
+            canBeSaved = canBeSaved,
+            media = media
+        )
+    }
+
     /** The chat cache is normally warm; the stored TdApi.Chat covers a message that arrives first. */
     private fun isSecretChat(chatId: Long): Boolean =
         chatCache[chatId]?.isSecret == true || (profiles.chat(chatId)?.type is TdApi.ChatTypeSecret)
@@ -2332,6 +2371,7 @@ class TdLibTelegramRepository private constructor(
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,
             isSecret = type.isSecretChatType(),
+            hasProtectedContent = hasProtectedContent,
             isSavedMessages = saved,
             isMarkedAsUnread = isMarkedAsUnread,
             isPinned = mainPosition?.isPinned == true,
