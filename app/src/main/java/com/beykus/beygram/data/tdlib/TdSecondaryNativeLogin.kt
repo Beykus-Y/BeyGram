@@ -176,7 +176,7 @@ internal class TdSecondaryNativeLoginLauncher(
                                 "logout_started",
                                 attrs = mapOf("phase" to current.name, "previous_phase" to previous.name)
                             )
-                            else -> operation.stage(
+                            else -> operation.trace(
                                 "auth_${current.name.lowercase()}",
                                 attrs = mapOf(
                                     "phase" to current.name,
