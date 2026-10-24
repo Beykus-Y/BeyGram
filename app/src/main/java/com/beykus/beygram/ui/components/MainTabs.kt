@@ -103,7 +103,7 @@ internal fun MainTabItem(
             indication = null,
             role = Role.Tab,
             onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                 onSelect()
             }
         )

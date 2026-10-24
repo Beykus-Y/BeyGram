@@ -64,7 +64,7 @@ class MainTabItemTest {
             .performClick()
         composeRule.runOnIdle {
             assertEquals(listOf(MainTab.Chats), opened)
-            assertEquals(listOf(HapticFeedbackType.TextHandleMove), haptics.types)
+            assertEquals(listOf(HapticFeedbackType.ContextClick), haptics.types)
         }
     }
 
