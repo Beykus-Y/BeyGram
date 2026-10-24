@@ -197,7 +197,10 @@ private fun chartRange(
     if (values.isEmpty()) return 0L to 1L
     var minValue = values.minOrNull() ?: 0L
     var maxValue = values.maxOrNull() ?: 0L
-    if (chart.kind == ChannelChartKind.Bar || chart.kind == ChannelChartKind.Area) {
+    if (chart.percentage) {
+        minValue = 0L
+        maxValue = 100L
+    } else if (chart.kind == ChannelChartKind.Bar || chart.kind == ChannelChartKind.Area) {
         minValue = min(0L, minValue)
         maxValue = max(0L, maxValue)
     }
