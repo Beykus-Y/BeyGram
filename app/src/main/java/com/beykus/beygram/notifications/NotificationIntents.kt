@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import com.beykus.beygram.MainActivity
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 
 /**
  * Stable PendingIntent URI identity: the same numeric Telegram chat/group IDs
@@ -18,14 +19,14 @@ internal fun notificationChatPath(
     maxId: Int,
     topicId: Long
 ): String {
-    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,80}")))
+    require(TdAccountStorageLayout.isValidAccountId(accountId))
     return if (accountId == "legacy") "chat/$chatId/$groupId/$maxId/$topicId"
         else "account/$accountId/chat/$chatId/$groupId/$maxId/$topicId"
 }
 
 /** URI ownership must be part of the PendingIntent identity. */
 internal fun notificationReplyPath(accountId: String, groupId: Int): String {
-    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+    require(TdAccountStorageLayout.isValidAccountId(accountId))
     require(groupId > 0)
     return if (accountId == "legacy") "reply/$groupId" else "account/$accountId/reply/$groupId"
 }
@@ -55,7 +56,7 @@ internal object NotificationIntents {
      * session whose HMAC covers the reply's chat/message/group routing. */
     fun replyAccount(intent: Intent): String? {
         val accountId = intent.getStringExtra(ACCOUNT_ID) ?: "legacy"
-        if (!accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}"))) return null
+        if (!TdAccountStorageLayout.isValidAccountId(accountId)) return null
         val groupId = intent.getIntExtra(GROUP_ID, 0)
         val chatId = intent.getLongExtra(CHAT_ID, 0L)
         if (groupId <= 0 || chatId == 0L) return null
@@ -78,7 +79,7 @@ internal object NotificationIntents {
         context: Context, chatId: Long, groupId: Int, maxId: Int, topicId: Long = 0L,
         accountId: String = "legacy"
     ): PendingIntent {
-        require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,80}"))) {
+        require(TdAccountStorageLayout.isValidAccountId(accountId)) {
             "Invalid notification account"
         }
         val path = notificationChatPath(accountId, chatId, groupId, maxId, topicId)
@@ -96,7 +97,7 @@ internal object NotificationIntents {
     /** Prevent a forged/mutated account extra from rerouting an existing link. */
     fun accountForChatIntent(intent: Intent): String? {
         val accountId = intent.getStringExtra(ACCOUNT_ID) ?: "legacy"
-        if (!accountId.matches(Regex("[a-zA-Z0-9_-]{1,80}"))) return null
+        if (!TdAccountStorageLayout.isValidAccountId(accountId)) return null
         val chatId = intent.getLongExtra(CHAT_ID, 0L)
         val groupId = intent.getIntExtra(GROUP_ID, 0)
         val maxId = intent.getIntExtra(MAX_ID, 0)
@@ -111,7 +112,7 @@ internal object NotificationIntents {
         Intent(context, MainActivity::class.java).setAction(OPEN_PROXY).setData(Uri.parse("beygram://${context.packageName}/proxy"))
             .putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     fun dismiss(context: Context, groupId: Int, maxId: Int, accountId: String = "legacy"): PendingIntent {
-        require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        require(TdAccountStorageLayout.isValidAccountId(accountId))
         val path = if (accountId == "legacy") "dismiss/$groupId/$maxId"
             else "account/$accountId/dismiss/$groupId/$maxId"
         return PendingIntent.getBroadcast(context, 0,
@@ -125,7 +126,7 @@ internal object NotificationIntents {
 
     fun accountForDismissIntent(intent: Intent): String? {
         val account = intent.getStringExtra(ACCOUNT_ID) ?: "legacy"
-        if (!account.matches(Regex("[a-zA-Z0-9_-]{1,64}"))) return null
+        if (!TdAccountStorageLayout.isValidAccountId(account)) return null
         val group = intent.getIntExtra(GROUP_ID, 0)
         val newest = intent.getIntExtra(MAX_ID, 0)
         if (group <= 0 || newest <= 0) return null
@@ -138,7 +139,7 @@ internal object NotificationIntents {
      * One identity per group: a re-post updates the live action instead of leaving older ones behind. The receiver is not exported and still checks the token, which covers the routing extras.
      */
     fun reply(context: Context, chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long, accountId: String = "legacy"): PendingIntent {
-        require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        require(TdAccountStorageLayout.isValidAccountId(accountId))
         val path = notificationReplyPath(accountId, groupId)
         val session = NotificationRuntime.get(context).preferencesForAccount(accountId).replyToken()
         return PendingIntent.getBroadcast(context, 0,

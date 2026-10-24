@@ -12,6 +12,12 @@ internal class TdAccountStorageLayout(private val privateFilesDir: File) {
     internal companion object {
         const val LEGACY_ACCOUNT_ID = "legacy"
         private val VALID_ACCOUNT_ID = Regex("[a-zA-Z0-9_-]{1,64}")
+
+        /**
+         * The one account-ID rule for file names, notification intents, preference names and deep links:
+         * a full match of 1 to 64 ASCII letters, digits, '_' or '-'.
+         */
+        fun isValidAccountId(accountId: String): Boolean = VALID_ACCOUNT_ID.matches(accountId)
     }
 
     private val root: File get() = privateFilesDir.resolve("tdlib")

@@ -31,7 +31,7 @@ private const val DRAFTS_PREFS = "chat_message_drafts"
  * Once TDLib holds a value, its backup is marked synced, so a draft cleared on another device is never sent back.
  */
 internal fun tdDraftPreferencesName(accountId: String): String {
-    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}"))) {
+    require(TdAccountStorageLayout.isValidAccountId(accountId)) {
         "Invalid account identifier for local drafts"
     }
     return if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) DRAFTS_PREFS

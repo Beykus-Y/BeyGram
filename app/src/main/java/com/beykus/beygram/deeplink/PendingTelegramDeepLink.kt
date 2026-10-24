@@ -82,11 +82,7 @@ internal class PendingDeepLinkInbox(private val storage: PendingDeepLinkStorage)
 
     private fun validAccountId(accountId: String): Boolean =
         accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID ||
-            ACCOUNT_ID.matches(accountId)
-
-    private companion object {
-        val ACCOUNT_ID = Regex("[a-zA-Z0-9_-]{1,64}")
-    }
+            TdAccountStorageLayout.isValidAccountId(accountId)
 }
 
 /** App-private persistence for a link that must survive a process restart during login. */

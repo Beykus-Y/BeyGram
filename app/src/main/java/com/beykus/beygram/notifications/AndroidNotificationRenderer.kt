@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.beykus.beygram.R
 import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
@@ -24,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Stable across restarts; Android tags must never collide across TDLib clients. */
 internal fun accountNotificationTag(accountId: String, groupId: Int): String {
-    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+    require(TdAccountStorageLayout.isValidAccountId(accountId))
     return if (accountId == "legacy") "beygram_message_$groupId"
     else "beygram_message_${accountId}_$groupId"
 }

@@ -65,7 +65,7 @@ internal class TdSecondaryRestoreStore(context: Context) {
      * A registered account is NEVER deleted by this recovery pass. */
     fun markDeletionPending(accountId: String) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-            accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+            TdAccountStorageLayout.isValidAccountId(accountId))
         check(preferences.edit().putBoolean("delete_pending:$accountId", true).commit())
     }
 
@@ -80,7 +80,7 @@ internal class TdSecondaryRestoreStore(context: Context) {
         preferences.all.keys.filter { it.startsWith("delete_pending:") }
             .map { it.removePrefix("delete_pending:") }
             .filter { it != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-                it.matches(Regex("[a-zA-Z0-9_-]{1,64}")) && deletionPending(it) }
+                TdAccountStorageLayout.isValidAccountId(it) && deletionPending(it) }
 
     fun forget(accountId: String) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)

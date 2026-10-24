@@ -499,7 +499,7 @@ internal class TdSecondaryAccountController private constructor(
      * the registry no longer references this ID. Symlinks are never followed. */
     suspend fun logoutAndDelete(accountId: String) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
-            accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+            TdAccountStorageLayout.isValidAccountId(accountId))
         val operation = MultiAccountDiagnostics.begin("logout_delete", accountId)
         restoreStore.markDeletionPending(accountId)
         // A native logout failure must not unregister or delete an active DB.

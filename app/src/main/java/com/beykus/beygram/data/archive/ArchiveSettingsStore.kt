@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.archive
 
 import android.content.Context
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.domain.model.ArchiveSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * The original login retains its exact historical preferences filename.
  */
 internal fun archivePreferencesName(accountId: String): String {
-    require(accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+    require(TdAccountStorageLayout.isValidAccountId(accountId))
     return if (accountId == "legacy") "chats" else "chats_$accountId"
 }
 class ArchiveSettingsStore private constructor(context: Context, accountId: String) {
