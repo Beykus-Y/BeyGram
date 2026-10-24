@@ -10,7 +10,9 @@ data class TelegramNoticeGroup(
     /** Чат в архиве: уведомления приходят без звука, пока это не включено в настройках архива. */
     val archived: Boolean = false,
     /** Ответ из уведомления возможен: чат не канал и пользователь может писать в него. */
-    val replyable: Boolean = false
+    val replyable: Boolean = false,
+    /** TDLib Chat.hasProtectedContent: the owner forbids forwarding and saving this chat's content. */
+    val hasProtectedContent: Boolean = false
 )
 /** [snapshot] is set once TDLib's notification state has arrived, from the startup snapshot or the first group update; only then may tray entries missing from it be cancelled. */
 data class TelegramNotifications(val groups: List<TelegramNoticeGroup> = emptyList(), val initialized: Boolean = false, val hasPending: Boolean = false, val snapshot: Boolean = false)
