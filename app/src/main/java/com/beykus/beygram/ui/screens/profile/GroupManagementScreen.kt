@@ -160,7 +160,14 @@ private fun GroupManagementOverview(
                         val role = groupViewerRole(rights)
                         if (role.isNotBlank()) Text(role, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         info.memberCount?.let {
-                            Text(stringResource(R.string.profile_group_members_count, it), color = palette.textSecondary, fontSize = 13.sp)
+                            Text(
+                                stringResource(
+                                    if (info.kind == ManagedChatKind.Channel) R.string.profile_channel_subscribers_count
+                                    else R.string.profile_group_members_count,
+                                    it
+                                ),
+                                color = palette.textSecondary, fontSize = 13.sp
+                            )
                         }
                     }
                 }
@@ -183,8 +190,13 @@ private fun GroupManagementOverview(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (rights.canManageMembers) GroupManagementSection(
                         title = stringResource(R.string.group_manage_overview_members),
-                        subtitle = info.memberCount?.let { context.getString(R.string.profile_group_members_count, it) }
-                            ?: context.getString(R.string.group_manage_overview_members_hint),
+                        subtitle = info.memberCount?.let {
+                            context.getString(
+                                if (info.kind == ManagedChatKind.Channel) R.string.profile_channel_subscribers_count
+                                else R.string.profile_group_members_count,
+                                it
+                            )
+                        } ?: context.getString(R.string.group_manage_overview_members_hint),
                         icon = Icons.Rounded.Group, onClick = onMembers
                     )
                     if (rights.canManageInviteLinks) GroupManagementSection(

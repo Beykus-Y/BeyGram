@@ -266,7 +266,8 @@ fun groupMemberActions(
         GroupMemberStatus.Owner, GroupMemberStatus.Left -> Unit
         GroupMemberStatus.Administrator -> {
             if ((rights.isOwner || member.canBeEdited) && rights.canPromoteMembers) {
-                add(GroupMemberAction.EditRights)
+                // В обычной группе права администратора не гранулярные: доступно только снятие.
+                if (rights.kind != ManagedChatKind.BasicGroup) add(GroupMemberAction.EditRights)
                 add(GroupMemberAction.Demote)
             }
             if (rights.isOwner && rights.canRemoveMembers) add(GroupMemberAction.Ban)

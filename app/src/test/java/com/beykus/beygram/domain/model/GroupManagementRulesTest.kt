@@ -60,6 +60,12 @@ class GroupManagementRulesTest {
             setOf(GroupMemberAction.Ban),
             groupMemberActions(rights, member(GroupMemberStatus.Member))
         )
+        // Владелец обычной группы снимает администратора, но не редактирует несуществующие права.
+        val owner = groupAdminRights(ManagedChatKind.BasicGroup, GroupMemberStatus.Owner)
+        assertEquals(
+            setOf(GroupMemberAction.Demote, GroupMemberAction.Ban),
+            groupMemberActions(owner, member(GroupMemberStatus.Administrator))
+        )
     }
 
     @Test fun channelAdminRightsComeFromTdlibAndNeverAllowRestricting() {
