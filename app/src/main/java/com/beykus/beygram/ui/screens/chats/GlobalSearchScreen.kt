@@ -229,7 +229,8 @@ fun GlobalSearchScreen(
                         if (isCurrent()) {
                             source.items.value = merge(source.items.value, page.items)
                             source.limit.value = requestedLimit
-                            source.hasMore.value = maxOf(page.totalCount, source.items.value.size) > requestedLimit
+                            source.hasMore.value = maxOf(page.totalCount, source.items.value.size) > requestedLimit &&
+                                source.nextLimit() > requestedLimit
                         }
                     }
                     .onFailure { if (isCurrent()) source.moreFailed.value = true }
@@ -276,7 +277,7 @@ fun GlobalSearchScreen(
                     items(chatItems, key = { "chat:${it.id}" }) { chat ->
                         GlobalChatRow(chat, observeFile, downloadFile) { onOpenChat(chat) }
                     }
-                    if (session.chats.hasMore.value && session.chats.supportsMore) {
+                    if (session.chats.canLoadMore()) {
                         item("chats-more") {
                             SearchMoreRow(
                                 loading = session.chats.loadingMore.value,
@@ -309,7 +310,7 @@ fun GlobalSearchScreen(
                     items(contactItems, key = { "contact:${it.userId}" }) { contact ->
                         GlobalContactRow(contact, observeFile, downloadFile) { onOpenProfile(contact.userId) }
                     }
-                    if (session.contacts.hasMore.value) {
+                    if (session.contacts.canLoadMore()) {
                         item("contacts-more") {
                             SearchMoreRow(
                                 loading = session.contacts.loadingMore.value,
@@ -488,7 +489,8 @@ private suspend fun <T> searchGlobalSource(
             .onSuccess { page ->
                 if (isCurrent()) {
                     source.items.value = merge(source.items.value, page.items)
-                    source.hasMore.value = maxOf(page.totalCount, source.items.value.size) > source.limit.value
+                    source.hasMore.value = maxOf(page.totalCount, source.items.value.size) > source.limit.value &&
+                        source.nextLimit() > source.limit.value
                 }
             }
             .onFailure { if (isCurrent()) source.failed.value = true }

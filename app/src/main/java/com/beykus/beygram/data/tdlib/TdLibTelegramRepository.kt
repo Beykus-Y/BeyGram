@@ -754,6 +754,9 @@ class TdLibTelegramRepository private constructor(
             val serverRequest = async {
                 try {
                     tdRequests(TdApi.SearchChatsOnServer(query, null, pageSize))
+                } catch (_: TimeoutCancellationException) {
+                    // A slow server search must not hide local matches; only genuine caller cancellation aborts.
+                    null
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
