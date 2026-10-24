@@ -41,7 +41,9 @@ enum class AppRoute {
     Sessions,
     NewChat,
     CreateGroup,
-    CreateChannel
+    CreateChannel,
+    Stories,
+    StoryPublisher
 }
 
 /**

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -83,6 +84,8 @@ import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
 import com.beykus.beygram.ui.screens.chats.NewChatScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchSession
+import com.beykus.beygram.ui.screens.stories.StoryPublisherScreen
+import com.beykus.beygram.ui.screens.stories.StoryViewerScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ConnectionDiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.DiagnosticsScreen
@@ -142,7 +145,10 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 
 /** Экраны, где мини-плеер встроен в свою разметку: над нижним меню или над полем ввода. На остальных экранах он стоит снизу. */
-private val playerBarHostRoutes = setOf(AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat, AppRoute.MessageThread)
+private val playerBarHostRoutes = setOf(
+    AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat, AppRoute.MessageThread,
+    AppRoute.Stories, AppRoute.StoryPublisher
+)
 
 @Composable
 fun BeyGramApp(
@@ -615,6 +621,10 @@ private fun BeyGramAppContent(
     // Куда вернуться из раздела нижнего меню и из уведомлений: их открывают из разных мест.
     var tabReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var notificationsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    // The story viewer and publisher are full-screen routes; both return to where they were opened.
+    var storyReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    var storyChatId by rememberSaveable { mutableLongStateOf(0L) }
+    var storyInitialId by rememberSaveable { mutableIntStateOf(0) }
     // Оформление открывают из профиля и из настроек: запоминаем, откуда пришли.
     var appearanceReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyProfile.name) }
     val openTab: (MainTab, AppRoute) -> Unit = { tab, returnTo ->
@@ -1167,6 +1177,10 @@ private fun BeyGramAppContent(
         val folders by repository.chatFolders.collectAsStateWithLifecycle()
         val folderLists by repository.folderChats.collectAsStateWithLifecycle()
         val folderLoading by repository.folderLoadStates.collectAsStateWithLifecycle()
+        val activeStories by repository.activeStories.collectAsStateWithLifecycle()
+        LaunchedEffect(repository, authState) {
+            if (authState == AuthState.Ready) repository.refreshActiveStories()
+        }
         MainTabsScaffold("${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
             ChatsScreen(
                 chats = chats,
@@ -1182,6 +1196,17 @@ private fun BeyGramAppContent(
                 onSaveFolder = repository::saveFolderDraft,
                 onDeleteFolder = repository::deleteServerFolder,
                 onReorderFolders = repository::reorderServerFolders,
+                stories = activeStories,
+                onOpenStories = { entry ->
+                    storyChatId = entry.chatId
+                    storyInitialId = entry.firstUnreadStoryId
+                    storyReturnRouteName = AppRoute.Chats.name
+                    routeName = AppRoute.Stories.name
+                },
+                onAddStory = {
+                    storyReturnRouteName = AppRoute.Chats.name
+                    routeName = AppRoute.StoryPublisher.name
+                },
                 myProfile = myProfile.info,
                 observeFile = repository::observeFile,
                 downloadFile = repository::downloadFile,
@@ -1649,6 +1674,24 @@ private fun BeyGramAppContent(
                 AppRoute.Chats -> chatsTab()
 
                 AppRoute.Archive -> archiveRoute()
+
+                AppRoute.Stories -> StoryViewerScreen(
+                    repository = repository,
+                    posterChatId = storyChatId,
+                    initialStoryId = storyInitialId,
+                    onClose = { routeName = storyReturnRouteName }
+                )
+
+                AppRoute.StoryPublisher -> StoryPublisherScreen(
+                    repository = repository,
+                    myProfile = myProfile.info,
+                    accountId = selectedAccountId,
+                    onBack = { routeName = storyReturnRouteName },
+                    onPublished = {
+                        repository.refreshActiveStories()
+                        routeName = AppRoute.Chats.name
+                    }
+                )
 
                 AppRoute.Chat, AppRoute.MessageThread -> chatRoute()
                 AppRoute.ChatInfo -> chatInfoRoute()

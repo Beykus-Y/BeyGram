@@ -1,0 +1,701 @@
+package com.beykus.beygram.ui.screens.stories
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.EmojiEmotions
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Reply
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.ChatStories
+import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.ReactionOption
+import com.beykus.beygram.domain.model.StoryDetail
+import com.beykus.beygram.domain.model.StoryMediaKind
+import com.beykus.beygram.domain.model.StoryPreview
+import com.beykus.beygram.domain.repository.TelegramRepository
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.components.TelegramAvatar
+import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.chat.LocalMediaImage
+import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withFrameNanos
+import java.text.DateFormat
+import java.util.Date
+
+/**
+ * Full-screen story viewer. It loads the current story and neighbor previews only, pauses while the
+ * user holds the screen, and reports OpenStory/CloseStory to TDLib so the unread marker is real.
+ */
+@Composable
+fun StoryViewerScreen(
+    repository: TelegramRepository,
+    posterChatId: Long,
+    initialStoryId: Int,
+    onClose: () -> Unit
+) {
+    SecureStoryWindow()
+    BackHandler { onClose() }
+
+    val bars by repository.activeStories.collectAsStateWithLifecycle()
+    var snapshot by remember(posterChatId) { mutableStateOf<ChatStories?>(null) }
+    var missing by remember(posterChatId) { mutableStateOf(false) }
+    LaunchedEffect(posterChatId, bars) {
+        bars.firstOrNull { it.chatId == posterChatId }?.let { snapshot = it }
+    }
+    LaunchedEffect(posterChatId) {
+        repository.refreshActiveStories()
+        delay(8_000)
+        if (snapshot == null) missing = true
+    }
+
+    val stories = snapshot?.stories.orEmpty()
+    val storyIds = stories.map { it.storyId }
+    var index by remember(posterChatId) { mutableIntStateOf(-1) }
+    LaunchedEffect(storyIds, initialStoryId) {
+        if (stories.isEmpty()) return@LaunchedEffect
+        index = if (index !in stories.indices) {
+            storyInitialIndex(stories, snapshot?.maxReadStoryId ?: 0, initialStoryId)
+        } else {
+            index.coerceIn(0, stories.lastIndex)
+        }
+    }
+    val current = stories.getOrNull(index)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var detail by remember(posterChatId, current?.storyId) { mutableStateOf<StoryDetail?>(null) }
+    var loading by remember(posterChatId, current?.storyId) { mutableStateOf(false) }
+    var loadError by remember(posterChatId, current?.storyId) { mutableStateOf<String?>(null) }
+    var retry by remember(posterChatId, current?.storyId) { mutableIntStateOf(0) }
+    LaunchedEffect(posterChatId, current?.storyId, retry) {
+        val storyId = current?.storyId ?: return@LaunchedEffect
+        loading = true
+        loadError = null
+        val result = repository.loadStory(posterChatId, storyId)
+        loading = false
+        result.onSuccess { detail = it }
+            .onFailure { loadError = it.userMessage(context, R.string.stories_unavailable) }
+    }
+
+    // The current story is open only while it is on screen; leaving it sends CloseStory.
+    LaunchedEffect(posterChatId, current?.storyId) {
+        val storyId = current?.storyId ?: return@LaunchedEffect
+        repository.openStory(posterChatId, storyId)
+        try {
+            awaitCancellation()
+        } finally {
+            withContext(NonCancellable) { repository.closeStory(posterChatId, storyId) }
+        }
+    }
+
+    val downloaded = remember(posterChatId) { mutableSetOf<Int>() }
+    DisposableEffect(posterChatId) {
+        onDispose { downloaded.toList().forEach(repository::cancelFileDownload) }
+    }
+    // Current full file and neighbor thumbnails, never a neighbor's full video.
+    LaunchedEffect(posterChatId, current?.storyId, detail?.media?.fileId) {
+        val media = detail?.media ?: return@LaunchedEffect
+        val previousId = stories.getOrNull(index - 1)?.storyId
+        val nextId = stories.getOrNull(index + 1)?.storyId
+        val previous = previousId?.let { repository.loadStory(posterChatId, it).getOrNull() }
+        val next = nextId?.let { repository.loadStory(posterChatId, it).getOrNull() }
+        val targets = storyPrefetchTargets(media, previous?.media, next?.media)
+        val keep = targets.map { it.fileId }.toSet()
+        (downloaded - keep).forEach(repository::cancelFileDownload)
+        downloaded.clear()
+        targets.forEach {
+            downloaded += it.fileId
+            repository.downloadFile(it.fileId)
+        }
+    }
+
+    val media = detail?.media
+    val emptyFile = remember { MutableStateFlow(MediaFileState(0)) }
+    val fullFile by remember(media?.fileId) { media?.fileId?.let(repository::observeFile) ?: emptyFile }
+        .collectAsStateWithLifecycle()
+    val thumbnailFile by remember(media?.thumbnailFileId, media?.fileId) {
+        (media?.thumbnailFileId ?: media?.fileId)?.let(repository::observeFile) ?: emptyFile
+    }.collectAsStateWithLifecycle()
+
+    var paused by remember(current?.storyId) { mutableStateOf(false) }
+    var progress by remember(current?.storyId) { mutableFloatStateOf(0f) }
+    var progressRestart by remember(current?.storyId) { mutableIntStateOf(0) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    val reducedMotion = rememberReducedMotion()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var resumed by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, _ ->
+            resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    val canPlay = detail != null && loadError == null && resumed && !paused
+    val duration = storyDurationMillis(detail)
+    val closeLatest by rememberUpdatedState(onClose)
+    val storyCount = stories.size
+    LaunchedEffect(current?.storyId, detail?.media?.fileId, canPlay, duration, progressRestart) {
+        if (!canPlay) return@LaunchedEffect
+        var elapsed = (progress * duration).coerceAtLeast(0f)
+        var last = withFrameNanos { it }
+        var lastReported = progress
+        while (true) {
+            val now = withFrameNanos { it }
+            elapsed += (now - last) / 1_000_000f
+            last = now
+            val next = (elapsed / duration).coerceIn(0f, 1f)
+            // With reduced motion the bar steps instead of animating every frame.
+            if (!reducedMotion || next - lastReported >= 0.1f || next >= 1f) {
+                progress = next
+                lastReported = next
+            }
+            if (next >= 1f) break
+        }
+        if (index < storyCount - 1) index++ else closeLatest()
+    }
+
+    LaunchedEffect(notice) {
+        if (notice != null) {
+            delay(3_000)
+            notice = null
+        }
+    }
+
+    val goPrevious: () -> Unit = {
+        if (index > 0) index-- else {
+            progress = 0f
+            progressRestart++
+        }
+    }
+    val goNext: () -> Unit = {
+        if (index < storyCount - 1) index++ else closeLatest()
+    }
+
+    var showReactions by remember { mutableStateOf(false) }
+    var reactions by remember { mutableStateOf<List<ReactionOption>?>(null) }
+    var reactionsLoading by remember { mutableStateOf(false) }
+    var reactionsError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(showReactions) {
+        if (!showReactions || reactions != null || reactionsLoading) return@LaunchedEffect
+        reactionsLoading = true
+        reactionsError = null
+        reactions = repository.storyReactions().getOrElse {
+            reactionsError = it.userMessage(context, R.string.stories_reaction_failed)
+            emptyList()
+        }
+        reactionsLoading = false
+    }
+    var showReply by remember { mutableStateOf(false) }
+    var replySending by remember { mutableStateOf(false) }
+    var showDelete by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+
+    val entry = snapshot
+    val title = when {
+        entry == null -> ""
+        entry.isSelf -> stringResource(R.string.stories_you)
+        else -> entry.title
+    }
+    val preview: StoryPreview? = current
+    val timeText = remember(preview?.storyId, detail?.dateSeconds) {
+        val seconds = detail?.dateSeconds ?: preview?.dateSeconds ?: 0L
+        if (seconds <= 0L) "" else DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+            .format(Date(seconds * 1000L))
+    }
+
+    if (stories.isEmpty()) {
+        StoryEmptyView(
+            missing = missing || entry != null,
+            title = title,
+            onRetry = {
+                missing = false
+                repository.refreshActiveStories()
+            },
+            onClose = onClose
+        )
+        return
+    }
+
+    Box(
+        Modifier.fillMaxSize().background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier.fillMaxSize().pointerInput(current?.storyId) {
+                detectTapGestures(
+                    onPress = {
+                        paused = true
+                        tryAwaitRelease()
+                        paused = false
+                    },
+                    onLongPress = {},
+                    onTap = { offset ->
+                        if (storyTapTarget(offset.x, size.width) == StoryTapTarget.Previous) goPrevious() else goNext()
+                    }
+                )
+            }
+        ) {
+            StoryContent(
+                detail = detail,
+                loading = loading,
+                loadError = loadError,
+                fullFile = fullFile,
+                thumbnailFile = thumbnailFile,
+                playing = canPlay,
+                onRetry = { retry++ },
+                onFailure = { notice = context.getString(R.string.stories_media_unsupported) }
+            )
+        }
+
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            StoryProgressRow(stories.size, index, progress)
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (entry != null) {
+                    TelegramAvatar(
+                        initials = entry.initials,
+                        color = Color(entry.avatarColorArgb),
+                        size = 38.dp,
+                        photo = entry.photo,
+                        observeFile = repository::observeFile,
+                        downloadFile = repository::downloadFile
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() }
+                    )
+                    if (timeText.isNotBlank()) {
+                        Text(timeText, color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+                    }
+                }
+                IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.Close, stringResource(R.string.stories_close), tint = Color.White)
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            if (detail?.caption.orEmpty().isNotBlank()) {
+                Box(
+                    Modifier.fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f))))
+                        .padding(horizontal = 18.dp, vertical = 14.dp)
+                ) {
+                    Text(detail?.caption.orEmpty(), color = Color.White, fontSize = 16.sp, lineHeight = 21.sp)
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.42f)).padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = goPrevious, enabled = index > 0, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.SkipPrevious, stringResource(R.string.stories_previous), tint = Color.White)
+                }
+                IconButton(onClick = { paused = !paused }, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        if (paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                        stringResource(if (paused) R.string.stories_resume else R.string.stories_pause),
+                        tint = Color.White
+                    )
+                }
+                IconButton(onClick = goNext, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.SkipNext, stringResource(R.string.stories_next), tint = Color.White)
+                }
+                Spacer(Modifier.weight(1f))
+                if (detail?.canBeReplied == true) {
+                    IconButton(onClick = { showReply = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.Reply, stringResource(R.string.stories_reply), tint = Color.White)
+                    }
+                }
+                IconButton(onClick = { showReactions = true }, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        Icons.Rounded.EmojiEmotions,
+                        stringResource(R.string.stories_reaction),
+                        tint = if (detail?.chosenReaction != null) Color(0xFF69C9FF) else Color.White
+                    )
+                }
+                if (detail?.canBeDeleted == true) {
+                    IconButton(onClick = { showDelete = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.Delete, stringResource(R.string.stories_delete), tint = Color.White)
+                    }
+                }
+            }
+        }
+
+        notice?.let {
+            Text(
+                it,
+                color = Color.White,
+                fontSize = 14.sp,
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(bottom = 76.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xE62A2D34))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .errorAnnouncement()
+            )
+        }
+    }
+
+    if (showReactions) {
+        StoryReactionDialog(
+            reactions = reactions.orEmpty(),
+            loading = reactionsLoading,
+            error = reactionsError,
+            chosen = detail?.chosenReaction,
+            repository = repository,
+            onDismiss = { showReactions = false },
+            onPick = { option ->
+                val target = if (detail?.chosenReaction == option) null else option
+                scope.launch {
+                    repository.setStoryReaction(posterChatId, current?.storyId ?: 0, target)
+                        .onSuccess {
+                            detail = detail?.copy(chosenReaction = target)
+                            showReactions = false
+                        }
+                        .onFailure { notice = it.userMessage(context, R.string.stories_reaction_failed) }
+                }
+            }
+        )
+    }
+
+    if (showReply) {
+        StoryReplyDialog(
+            sending = replySending,
+            onDismiss = { if (!replySending) showReply = false },
+            onSend = { text ->
+                replySending = true
+                scope.launch {
+                    repository.replyToStory(posterChatId, current?.storyId ?: 0, text)
+                        .onSuccess {
+                            replySending = false
+                            showReply = false
+                            notice = context.getString(R.string.stories_reply_sent)
+                        }
+                        .onFailure {
+                            replySending = false
+                            notice = it.userMessage(context, R.string.stories_reply_failed)
+                        }
+                }
+            }
+        )
+    }
+
+    if (showDelete) {
+        AlertDialog(
+            onDismissRequest = { if (!deleting) showDelete = false },
+            title = { Text(stringResource(R.string.stories_delete)) },
+            text = { Text(stringResource(R.string.stories_delete_confirm)) },
+            confirmButton = {
+                TextButton(
+                    enabled = !deleting,
+                    onClick = {
+                        deleting = true
+                        scope.launch {
+                            repository.deleteStory(posterChatId, current?.storyId ?: 0)
+                                .onSuccess {
+                                    notice = context.getString(R.string.stories_deleted)
+                                    onClose()
+                                }
+                                .onFailure {
+                                    deleting = false
+                                    showDelete = false
+                                    notice = it.userMessage(context, R.string.stories_delete_failed)
+                                }
+                        }
+                    }
+                ) { Text(stringResource(R.string.common_delete)) }
+            },
+            dismissButton = {
+                TextButton(enabled = !deleting, onClick = { showDelete = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun StoryContent(
+    detail: StoryDetail?,
+    loading: Boolean,
+    loadError: String?,
+    fullFile: MediaFileState,
+    thumbnailFile: MediaFileState,
+    playing: Boolean,
+    onRetry: () -> Unit,
+    onFailure: () -> Unit
+) {
+    val media = detail?.media
+    when {
+        loadError != null -> Column(
+            Modifier.fillMaxWidth().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(loadError, color = Color.White, fontSize = 16.sp)
+            TextButton(onClick = onRetry) { Text(stringResource(R.string.stories_retry), color = Color.White) }
+        }
+        detail != null && media == null -> Text(
+            stringResource(R.string.stories_media_unsupported),
+            color = Color.White.copy(alpha = 0.85f),
+            fontSize = 15.sp,
+            modifier = Modifier.padding(32.dp)
+        )
+        media == null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = Color.White)
+            if (loading) Text(
+                stringResource(R.string.stories_loading),
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 10.dp)
+            )
+        }
+        media.kind == StoryMediaKind.Photo -> StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
+        else -> {
+            val path = fullFile.localPath
+            if (path == null) StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
+            else StoryVideo(path, playing, onFailure)
+        }
+    }
+}
+
+@Composable
+private fun StoryProgressRow(count: Int, index: Int, progress: Float) {
+    if (count <= 0) return
+    val currentIndex = index.coerceIn(0, count - 1)
+    val currentProgress = progress.coerceIn(0f, 1f)
+    val description = stringResource(R.string.stories_progress, currentIndex + 1, count)
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)
+            .semantics {
+                contentDescription = description
+                progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(
+                    (currentIndex + currentProgress) / count,
+                    0f..1f
+                )
+            },
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        repeat(count) { segment ->
+            val fraction = when {
+                segment < currentIndex -> 1f
+                segment > currentIndex -> 0f
+                else -> currentProgress
+            }
+            Box(Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.34f))) {
+                Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(Color.White))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StoryEmptyView(missing: Boolean, title: String, onRetry: () -> Unit, onClose: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+            Text(
+                if (missing) stringResource(R.string.stories_unavailable) else stringResource(R.string.stories_loading),
+                color = Color.White,
+                fontSize = 17.sp
+            )
+            if (!title.isBlank()) {
+                Text(title, color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+            }
+            if (missing) {
+                TextButton(onClick = onRetry) { Text(stringResource(R.string.stories_retry), color = Color.White) }
+            }
+            TextButton(onClick = onClose) { Text(stringResource(R.string.common_close), color = Color.White) }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StoryReactionDialog(
+    reactions: List<ReactionOption>,
+    loading: Boolean,
+    error: String?,
+    chosen: ReactionOption?,
+    repository: TelegramRepository,
+    onDismiss: () -> Unit,
+    onPick: (ReactionOption) -> Unit
+) {
+    val palette = beyGramPalette()
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.padding(horizontal = 28.dp).clip(RoundedCornerShape(24.dp)).background(palette.surface)
+                .padding(20.dp)
+        ) {
+            Text(
+                stringResource(R.string.stories_reaction_title),
+                color = palette.textPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.semantics { heading() }
+            )
+            when {
+                loading -> CircularProgressIndicator(color = palette.accent, modifier = Modifier.padding(24.dp).size(28.dp))
+                error != null -> Text(error, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(top = 12.dp))
+                reactions.isEmpty() -> Text(
+                    stringResource(R.string.stories_reactions_empty),
+                    color = palette.textSecondary,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+                else -> FlowRow(
+                    Modifier.padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    reactions.forEach { option ->
+                        val selected = option == chosen
+                        Box(
+                            Modifier.size(52.dp).clip(CircleShape)
+                                .background(if (selected) palette.accentSoft else palette.surface2)
+                                .then(if (selected) Modifier.border(1.dp, palette.accent, CircleShape) else Modifier)
+                                .clickable { onPick(option) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            StoryReactionGlyph(option, repository)
+                        }
+                    }
+                }
+            }
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End).padding(top = 6.dp)) {
+                Text(stringResource(R.string.common_close))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StoryReactionGlyph(option: ReactionOption, repository: TelegramRepository) {
+    if (option.customEmojiId == 0L) {
+        Text(option.emoji, fontSize = 24.sp)
+        return
+    }
+    val custom by remember(option.customEmojiId) { repository.observeCustomEmoji(option.customEmojiId) }
+        .collectAsStateWithLifecycle()
+    val emoji = custom
+    if (emoji == null) {
+        Text("…", fontSize = 20.sp, color = Color.White)
+        return
+    }
+    val file by remember(emoji.fileId) { repository.observeFile(emoji.fileId) }.collectAsStateWithLifecycle()
+    LaunchedEffect(emoji.fileId) { repository.downloadFile(emoji.fileId) }
+    val path = file.localPath
+    if (path != null) LocalMediaImage(path, Modifier.size(30.dp))
+    else Text(emoji.emoji.ifBlank { "…" }, fontSize = 20.sp, color = Color.White)
+}
+
+@Composable
+private fun StoryReplyDialog(sending: Boolean, onDismiss: () -> Unit, onSend: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = { if (!sending) onDismiss() },
+        title = { Text(stringResource(R.string.stories_reply_title)) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                placeholder = { Text(stringResource(R.string.stories_reply_hint)) },
+                minLines = 2,
+                maxLines = 5,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = text.isNotBlank() && !sending,
+                onClick = { onSend(text) }
+            ) { Text(stringResource(R.string.common_send)) }
+        },
+        dismissButton = {
+            TextButton(enabled = !sending, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+        }
+    )
+}
