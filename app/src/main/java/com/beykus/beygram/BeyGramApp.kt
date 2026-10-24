@@ -30,6 +30,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import android.widget.Toast
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
@@ -41,11 +42,18 @@ import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
 import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
+import com.beykus.beygram.deeplink.PendingTelegramDeepLink
+import com.beykus.beygram.deeplink.TelegramDeepLinkParser
+import com.beykus.beygram.deeplink.TelegramDeepLinkRoute
+import com.beykus.beygram.deeplink.TelegramDeepLinkRouter
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ArchiveSettings
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.ChatInvitePreview
+import com.beykus.beygram.domain.model.InviteJoinOutcome
+import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
 import com.beykus.beygram.navigation.appRouteFromStored
@@ -136,7 +144,10 @@ fun BeyGramApp(
     notificationRequest: NotificationOpenRequest? = null,
     onNotificationHandled: (Long) -> Unit = {},
     incomingShare: IncomingShare? = null,
-    onIncomingShareHandled: (Long) -> Unit = {}
+    onIncomingShareHandled: (Long) -> Unit = {},
+    pendingDeepLink: PendingTelegramDeepLink? = null,
+    onDeepLinkBound: (Long, String) -> Unit = { _, _ -> },
+    onDeepLinkHandled: (Long) -> Unit = {}
 ) {
     val context = LocalContext.current
     val videoMessageSettings = remember(context) { VideoMessageSettingsStore(context) }
@@ -178,7 +189,10 @@ fun BeyGramApp(
         notificationRequest = notificationRequest,
         onNotificationHandled = onNotificationHandled,
         incomingShare = incomingShare,
-        onIncomingShareHandled = onIncomingShareHandled
+        onIncomingShareHandled = onIncomingShareHandled,
+        pendingDeepLink = pendingDeepLink,
+        onDeepLinkBound = onDeepLinkBound,
+        onDeepLinkHandled = onDeepLinkHandled
     )
 }
 
@@ -195,7 +209,10 @@ private fun BeyGramAppContent(
     notificationRequest: NotificationOpenRequest?,
     onNotificationHandled: (Long) -> Unit,
     incomingShare: IncomingShare?,
-    onIncomingShareHandled: (Long) -> Unit
+    onIncomingShareHandled: (Long) -> Unit,
+    pendingDeepLink: PendingTelegramDeepLink?,
+    onDeepLinkBound: (Long, String) -> Unit,
+    onDeepLinkHandled: (Long) -> Unit
 ) {
     val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
@@ -604,6 +621,166 @@ private fun BeyGramAppContent(
                     if (selectedAccountId == sourceAccountId && latestMemberUserId == userId)
                         noticeError = (error as? UserMessageException)?.text ?: UiText.Res(R.string.profile_member_open_failed)
                 }
+        }
+    }
+    // ---- External Telegram links --------------------------------------------
+    // The parser only classifies the link. Every lookup is done by the selected account's repository, and joining a
+    // chat or saving a proxy waits for the confirmation dialogs below.
+    var deepLinkInvite by remember { mutableStateOf<DeepLinkInvitePrompt?>(null) }
+    var deepLinkProxy by remember { mutableStateOf<DeepLinkProxyPrompt?>(null) }
+    var deepLinkBusy by remember { mutableStateOf(false) }
+    val deepLinkScope = rememberCoroutineScope()
+    fun openDeepLinkChat(chatId: Long, messageId: Long = 0L, topicId: Long = 0L) {
+        selectedChatId = chatId
+        selectedTopicChatId = if (topicId > 0L) chatId else 0L
+        selectedForumTopicId = topicId
+        trustedForumTopicId = topicId
+        chatFocusMessageId = messageId
+        chatBackRouteName = AppRoute.Chats.name
+        routeName = AppRoute.Chat.name
+    }
+    LaunchedEffect(
+        pendingDeepLink?.token,
+        pendingDeepLink?.accountId,
+        accountRegistryReady,
+        accountRegistryError,
+        selectedAccountId,
+        authState,
+        repositorySelection
+    ) {
+        val pending = pendingDeepLink ?: return@LaunchedEffect
+        if (!accountRegistryReady || accountRegistryError) return@LaunchedEffect
+        // A link already bound to another account waits until that account is selected again.
+        if (pending.accountId != null && pending.accountId != selectedAccountId) return@LaunchedEffect
+        // Signed-out links stay pending without an account binding and apply only after AuthState.Ready.
+        if (authState != AuthState.Ready || repositorySelection == null) return@LaunchedEffect
+        if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
+            (repositorySelection as? TdLibTelegramRepository)?.accountId != selectedAccountId
+        ) return@LaunchedEffect
+        // Fix the account before the first lookup so a later account switch cannot apply this link elsewhere.
+        if (pending.accountId == null) {
+            onDeepLinkBound(pending.token, selectedAccountId)
+            return@LaunchedEffect
+        }
+        val accountId = pending.accountId ?: return@LaunchedEffect
+        // The confirmation already belongs to this link; an unrelated recomposition must not repeat the TDLib lookup.
+        if (deepLinkInvite?.token == pending.token || deepLinkProxy?.token == pending.token) return@LaunchedEffect
+
+        when (val target = TelegramDeepLinkRouter.route(TelegramDeepLinkParser.parse(pending.raw))) {
+            TelegramDeepLinkRoute.Ignore -> onDeepLinkHandled(pending.token)
+            is TelegramDeepLinkRoute.Chat -> {
+                deepLinkBusy = true
+                try {
+                    val result = repository.resolvePublicChat(target.username)
+                    if (selectedAccountId != accountId) return@LaunchedEffect
+                    result
+                        .onSuccess { chatId -> openDeepLinkChat(chatId) }
+                        .onFailure { error ->
+                            noticeError = (error as? UserMessageException)?.text
+                                ?: UiText.Res(R.string.err_app_open_chat_failed)
+                        }
+                    onDeepLinkHandled(pending.token)
+                } finally {
+                    deepLinkBusy = false
+                }
+            }
+            is TelegramDeepLinkRoute.Phone -> {
+                deepLinkBusy = true
+                try {
+                    val result = repository.resolvePhoneNumber(target.phone)
+                    if (selectedAccountId != accountId) return@LaunchedEffect
+                    result
+                        .onSuccess { chatId -> openDeepLinkChat(chatId) }
+                        .onFailure { error ->
+                            noticeError = (error as? UserMessageException)?.text
+                                ?: UiText.Res(R.string.err_app_open_chat_failed)
+                        }
+                    onDeepLinkHandled(pending.token)
+                } finally {
+                    deepLinkBusy = false
+                }
+            }
+            is TelegramDeepLinkRoute.UserId -> {
+                deepLinkBusy = true
+                try {
+                    val result = repository.openPrivateChat(target.userId)
+                    if (selectedAccountId != accountId) return@LaunchedEffect
+                    result
+                        .onSuccess { chatId -> openDeepLinkChat(chatId) }
+                        .onFailure { error ->
+                            noticeError = (error as? UserMessageException)?.text
+                                ?: UiText.Res(R.string.err_app_open_chat_failed)
+                        }
+                    onDeepLinkHandled(pending.token)
+                } finally {
+                    deepLinkBusy = false
+                }
+            }
+            is TelegramDeepLinkRoute.Message -> {
+                deepLinkBusy = true
+                try {
+                    val result = repository.resolveMessageLink(target.url)
+                    if (selectedAccountId != accountId) return@LaunchedEffect
+                    result
+                        .onSuccess { resolved ->
+                            openDeepLinkChat(resolved.chatId, resolved.messageId, resolved.forumTopicId)
+                        }
+                        .onFailure { error ->
+                            noticeError = (error as? UserMessageException)?.text
+                                ?: UiText.Res(R.string.chat_message_open_failed)
+                        }
+                    onDeepLinkHandled(pending.token)
+                } finally {
+                    deepLinkBusy = false
+                }
+            }
+            is TelegramDeepLinkRoute.Invite -> {
+                deepLinkBusy = true
+                try {
+                    val result = repository.checkInviteLink(target.url)
+                    if (selectedAccountId != accountId) return@LaunchedEffect
+                    result
+                        .onSuccess { preview ->
+                            deepLinkInvite = DeepLinkInvitePrompt(
+                                token = pending.token,
+                                accountId = accountId,
+                                url = target.url,
+                                preview = preview
+                            )
+                        }
+                        .onFailure { error ->
+                            noticeError = (error as? UserMessageException)?.text
+                                ?: UiText.Res(R.string.err_app_open_chat_failed)
+                            onDeepLinkHandled(pending.token)
+                        }
+                } finally {
+                    deepLinkBusy = false
+                }
+            }
+            is TelegramDeepLinkRoute.Proxy -> {
+                deepLinkProxy = DeepLinkProxyPrompt(
+                    token = pending.token,
+                    accountId = accountId,
+                    draft = target.draft
+                )
+            }
+        }
+    }
+    // A pending prompt belongs to the account that resolved it; switching accounts must not apply it elsewhere.
+    LaunchedEffect(selectedAccountId) {
+        if (deepLinkInvite?.accountId != selectedAccountId) deepLinkInvite = null
+        if (deepLinkProxy?.accountId != selectedAccountId) deepLinkProxy = null
+    }
+    // A newer external link replaces a prompt that belonged to the previous one.
+    LaunchedEffect(pendingDeepLink?.token) {
+        if (deepLinkInvite?.token != pendingDeepLink?.token) deepLinkInvite = null
+        if (deepLinkProxy?.token != pendingDeepLink?.token) deepLinkProxy = null
+    }
+    // Signing out keeps the pending link but hides an action that belonged to the previous session.
+    LaunchedEffect(authState) {
+        if (authState != AuthState.Ready) {
+            deepLinkInvite = null
+            deepLinkProxy = null
         }
     }
     if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
@@ -1655,9 +1832,151 @@ private fun BeyGramAppContent(
             accountSwitcherRouteAccountId = null
         }
     )
+    deepLinkInvite?.takeIf { it.accountId == selectedAccountId }?.let { prompt ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {
+                if (!deepLinkBusy) {
+                    deepLinkInvite = null
+                    onDeepLinkHandled(prompt.token)
+                }
+            },
+            title = { Text(stringResource(R.string.deep_link_invite_title)) },
+            text = {
+                Column {
+                    Text(
+                        stringResource(
+                            R.string.deep_link_invite_message,
+                            prompt.preview.title.ifBlank { context.getString(R.string.deep_link_invite_unknown_chat) }
+                        )
+                    )
+                    if (prompt.preview.memberCount > 0) {
+                        Text(stringResource(R.string.deep_link_invite_members, prompt.preview.memberCount))
+                    }
+                    if (prompt.preview.createsJoinRequest) {
+                        Text(stringResource(R.string.deep_link_invite_request_note))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !deepLinkBusy,
+                    onClick = {
+                        if (deepLinkBusy) return@TextButton
+                        deepLinkBusy = true
+                        deepLinkScope.launch {
+                            try {
+                                val result = repository.joinInviteLink(prompt.url)
+                                if (selectedAccountId != prompt.accountId) return@launch
+                                result
+                                    .onSuccess { outcome ->
+                                        when (outcome) {
+                                            is InviteJoinOutcome.Joined -> openDeepLinkChat(outcome.chatId)
+                                            InviteJoinOutcome.RequestSent ->
+                                                Toast.makeText(
+                                                    context,
+                                                    R.string.deep_link_join_request_sent,
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                        }
+                                    }
+                                    .onFailure { error ->
+                                        noticeError = (error as? UserMessageException)?.text
+                                            ?: UiText.Res(R.string.err_app_open_chat_failed)
+                                    }
+                                deepLinkInvite = null
+                                onDeepLinkHandled(prompt.token)
+                            } finally {
+                                deepLinkBusy = false
+                            }
+                        }
+                    }
+                ) { Text(stringResource(R.string.deep_link_invite_join)) }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !deepLinkBusy,
+                    onClick = {
+                        deepLinkInvite = null
+                        onDeepLinkHandled(prompt.token)
+                    }
+                ) { Text(stringResource(R.string.common_cancel)) }
+            }
+        )
+    }
+    deepLinkProxy?.takeIf { it.accountId == selectedAccountId }?.let { prompt ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {
+                if (!deepLinkBusy) {
+                    deepLinkProxy = null
+                    onDeepLinkHandled(prompt.token)
+                }
+            },
+            title = { Text(stringResource(R.string.deep_link_proxy_title)) },
+            text = {
+                Column {
+                    Text(
+                        stringResource(
+                            R.string.deep_link_proxy_message,
+                            prompt.draft.server,
+                            prompt.draft.port
+                        )
+                    )
+                    Text(stringResource(R.string.deep_link_proxy_note))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !deepLinkBusy,
+                    onClick = {
+                        if (deepLinkBusy) return@TextButton
+                        deepLinkBusy = true
+                        deepLinkScope.launch {
+                            try {
+                                val result = repository.addProxy(prompt.draft, enable = true)
+                                if (selectedAccountId != prompt.accountId) return@launch
+                                result.onFailure { error ->
+                                    noticeError = (error as? UserMessageException)?.text
+                                        ?: UiText.Res(R.string.proxy_connect_add_failed)
+                                }
+                                deepLinkProxy = null
+                                onDeepLinkHandled(prompt.token)
+                            } finally {
+                                deepLinkBusy = false
+                            }
+                        }
+                    }
+                ) { Text(stringResource(R.string.deep_link_proxy_connect)) }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !deepLinkBusy,
+                    onClick = {
+                        deepLinkProxy = null
+                        onDeepLinkHandled(prompt.token)
+                    }
+                ) { Text(stringResource(R.string.common_cancel)) }
+            }
+        )
+    }
     noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
         text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
     ProxyRestoreDialog(vpnBackend = vpnBackend)
+}
+
+private data class DeepLinkInvitePrompt(
+    val token: Long,
+    val accountId: String,
+    val url: String,
+    val preview: ChatInvitePreview
+)
+
+private data class DeepLinkProxyPrompt(
+    val token: Long,
+    val accountId: String,
+    val draft: TelegramProxyDraft
+) {
+    override fun toString(): String =
+        "DeepLinkProxyPrompt(token=$token, account=$accountId, server=${draft.server}:${draft.port})"
 }
 
 /** Fresh topics first, then topics already on screen that a reload has not returned yet. */

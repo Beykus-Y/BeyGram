@@ -3,9 +3,12 @@ package com.beykus.beygram.domain.repository
 import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.InviteJoinOutcome
+import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.MediaFileState
@@ -104,6 +107,21 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Открывает личный чат с пользователем и возвращает идентификатор чата. */
     suspend fun openPrivateChat(userId: Long): Result<Long>
+
+    /** Resolve a validated public username or bot through TDLib and return its chat ID. */
+    suspend fun resolvePublicChat(username: String): Result<Long>
+
+    /** Resolve a validated phone number through TDLib and return the private chat ID. */
+    suspend fun resolvePhoneNumber(phone: String): Result<Long>
+
+    /** Inspect an invite link without joining it. The UI must ask for confirmation before [joinInviteLink]. */
+    suspend fun checkInviteLink(url: String): Result<ChatInvitePreview>
+
+    /** Join an invite link only after an explicit user confirmation. */
+    suspend fun joinInviteLink(url: String): Result<InviteJoinOutcome>
+
+    /** Resolve a t.me message link (including /c/ links) and its forum topic without sending any action. */
+    suspend fun resolveMessageLink(url: String): Result<MessageLinkTarget>
 
     /** Страница истории звонков. Первая страница запрашивается с пустым [offset], дальше — с [CallHistoryPage.nextOffset]. */
     suspend fun loadCallHistory(offset: String): Result<CallHistoryPage>

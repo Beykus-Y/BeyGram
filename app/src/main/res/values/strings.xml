@@ -1334,4 +1334,15 @@
     <string name="multi_share_switch_action">Переключиться</string>
     <string name="multi_share_choose_other">Выбрать другой</string>
     <plurals name="multi_account_unread"><item quantity="one">%d непрочитанное сообщение</item><item quantity="few">%d непрочитанных сообщения</item><item quantity="many">%d непрочитанных сообщений</item><item quantity="other">%d непрочитанных сообщений</item></plurals>
+    <string name="deep_link_invite_title">Приглашение в чат</string>
+    <string name="deep_link_invite_message">Войти в «%1$s»?</string>
+    <string name="deep_link_invite_unknown_chat">этот чат</string>
+    <string name="deep_link_invite_members">Участников: %1$d</string>
+    <string name="deep_link_invite_request_note">Администратор должен одобрить заявку на вступление.</string>
+    <string name="deep_link_invite_join">Вступить</string>
+    <string name="deep_link_join_request_sent">Заявка на вступление отправлена</string>
+    <string name="deep_link_proxy_title">Ссылка на прокси</string>
+    <string name="deep_link_proxy_message">Добавить и включить прокси %1$s:%2$d?</string>
+    <string name="deep_link_proxy_note">Продолжайте, только если доверяете этому серверу.</string>
+    <string name="deep_link_proxy_connect">Добавить и включить</string>
 </resources>

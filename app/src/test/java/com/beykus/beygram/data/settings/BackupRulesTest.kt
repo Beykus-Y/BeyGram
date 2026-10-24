@@ -130,7 +130,9 @@ class BackupRulesTest {
             "mihomo_tdlib_proxy.xml",
             "beygram_secondary_resume_v1.xml",
             "mihomo-loopback.xml",
-            "analytics.xml"
+            "analytics.xml",
+            // External links can contain invite hashes or proxy secrets; never restore them on another device.
+            "telegram_deep_links.xml"
         )
         val TRANSFERABLE_SHARED_PREFS = listOf(
             "analytics-consent.xml",
