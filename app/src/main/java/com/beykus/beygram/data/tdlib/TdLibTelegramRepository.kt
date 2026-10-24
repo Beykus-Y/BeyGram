@@ -31,6 +31,8 @@ import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.MessageDraft
+import com.beykus.beygram.domain.model.MessageThread
+import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
@@ -325,6 +327,7 @@ class TdLibTelegramRepository private constructor(
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
+    private val deletedMessages = ConcurrentHashMap<Long, MutableStateFlow<Set<Long>>>()
     // A forum topic is a separate history even though all of its messages have the parent chatId.
     private val topicStores = ConcurrentHashMap<Pair<Long, Long>, MessageHistoryStore>()
     private fun topicStore(chatId: Long, topicId: Long): MessageHistoryStore =
@@ -1022,6 +1025,12 @@ class TdLibTelegramRepository private constructor(
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
+    override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
+    override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
+    override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long) =
+        conversationActions.threadComments(discussionChatId, threadId, fromMessageId)
+    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?) =
+        conversationActions.sendThreadReply(discussionChatId, threadId, text, entities, replyToMessageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
         conversationActions.search(chatId, query, fromMessageId, filter = filter)
     override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
@@ -1418,6 +1427,8 @@ class TdLibTelegramRepository private constructor(
     }
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = messageHistory.observe(chatId)
+    override fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>> =
+        deletedMessages.computeIfAbsent(chatId) { MutableStateFlow(emptySet()) }
     override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> =
         topicStore(chatId, forumTopicId).observe(chatId)
 
@@ -1730,8 +1741,13 @@ class TdLibTelegramRepository private constructor(
                 updateForumMessage(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
             }
             is TdApi.UpdateMessageInteractionInfo -> {
-                messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
-                updateForumMessage(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
+                val replyCount = update.interactionInfo?.replyInfo?.replyCount
+                messageHistory.update(update.chatId, update.messageId) {
+                    it.copy(reactions = messageReactions(update.interactionInfo), replyCount = replyCount ?: it.replyCount)
+                }
+                updateForumMessage(update.chatId, update.messageId) {
+                    it.copy(reactions = messageReactions(update.interactionInfo), replyCount = replyCount ?: it.replyCount)
+                }
             }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
@@ -1797,6 +1813,9 @@ class TdLibTelegramRepository private constructor(
                 if (update.isPermanent) {
                     messageHistory.delete(update.chatId, update.messageIds.toList())
                     topicStores.filterKeys { it.first == update.chatId }.values.forEach { it.delete(update.chatId, update.messageIds.toList()) }
+                    if (update.messageIds.isNotEmpty()) {
+                        deletedMessages[update.chatId]?.update { it + update.messageIds.toList() }
+                    }
                 }
             }
             is TdApi.UpdateConnectionState    -> {
@@ -2300,7 +2319,10 @@ class TdLibTelegramRepository private constructor(
         isCallEvent = content is TdApi.MessageCall,
         serviceUserId = event?.userId ?: 0L,
         forumTopicId = forumId(this),
+        messageThreadId = (topicId as? TdApi.MessageTopicThread)?.messageThreadId ?: 0L,
         isPinned = isPinned,
+        isChannelPost = isChannelPost,
+        replyCount = interactionInfo?.replyInfo?.replyCount ?: 0,
         linkPreview = if (event == null) mediaMapper.linkPreview(content, isSecretChat(chatId)) else null,
         scheduledAtSeconds = scheduledAt,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
