@@ -7,6 +7,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.analytics.AnalyticsSync
+import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
@@ -2032,7 +2033,14 @@ class TdLibTelegramRepository private constructor(
 
         fun getInstance(context: Context, policy: InteractionPolicy = InteractionPolicy.Standard): TdLibTelegramRepository =
             instance ?: synchronized(this) {
-                instance ?: TdLibTelegramRepository(context.applicationContext, policy).also { instance = it }
+                instance ?: TdLibTelegramRepository(context.applicationContext, policy).also {
+                    instance = it
+                    MultiAccountDiagnostics.milestone(
+                        code = "legacy_repository",
+                        stage = "created",
+                        accountId = "legacy"
+                    )
+                }
             }
 
         /**

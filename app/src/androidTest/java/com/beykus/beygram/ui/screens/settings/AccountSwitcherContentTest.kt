@@ -155,4 +155,41 @@ class AccountSwitcherContentTest {
         composeRule.onNodeWithText(context.getString(R.string.account_switcher_title))
             .assertExists()
     }
+
+    @Test fun failedPreparationShowsAnErrorInsteadOfAnEndlessSpinner() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        composeRule.setContent {
+            BeyGramTheme {
+                AccountAuthContent(
+                    addMode = true,
+                    accountTitle = null,
+                    step = AccountAuthStep.PREPARING,
+                    busy = false,
+                    errorText = context.getString(R.string.account_switcher_error_timeout),
+                    phone = "",
+                    onPhoneChange = {},
+                    code = "",
+                    onCodeChange = {},
+                    password = "",
+                    onPasswordChange = {},
+                    onBack = {},
+                    onPhoneSubmit = {},
+                    onCodeSubmit = {},
+                    onResendCode = {},
+                    onPasswordSubmit = {},
+                    onRetryConnect = {},
+                    onRetrySwitch = {},
+                    onConfigureRoute = {},
+                    onDelete = null,
+                    onLater = {}
+                )
+            }
+        }
+        composeRule.onNodeWithText(
+            context.getString(R.string.account_switcher_auth_prepare_failed)
+        ).assertExists()
+        composeRule.onNodeWithText(
+            context.getString(R.string.account_switcher_auth_retry_connect)
+        ).assertExists()
+    }
 }
