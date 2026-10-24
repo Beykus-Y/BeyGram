@@ -109,6 +109,35 @@ class TdMessageEffectsTest {
     }
 
     @Test
+    fun laterObservationRetriesAnExhaustedTransientFailure() = runTest {
+        var asks = 0
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        try {
+            val effects = TdMessageEffects(
+                client = { error("the lookup is replaced in this test") },
+                scope = scope,
+                lookup = {
+                    asks++
+                    MessageEffectAnswer.Unanswered
+                }
+            )
+            val observed = effects.observe(42L)
+
+            // First attempt plus two bounded retries (1.5 s + 4 s).
+            advanceTimeBy(6_000L)
+            assertEquals(3, asks)
+            assertNull(observed.value)
+
+            // A later observer restarts the lookup on the same flow instead of keeping a permanent null cache.
+            assertSame(observed, effects.observe(42L))
+            advanceTimeBy(6_000L)
+            assertEquals(6, asks)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun missingEffectIsNotRetriedForever() = runTest {
         var asks = 0
         val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))

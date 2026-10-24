@@ -32,26 +32,54 @@ internal class TdMessageEffects(
         lookupMessageEffect(TdRequests(client), effectId)
     }
 ) {
-    private val flows = ConcurrentHashMap<Long, MutableStateFlow<MessageEffect?>>()
-
-    /** The effect behind [effectId]; null until TDLib answers and for ids TDLib does not know. */
-    fun observe(effectId: Long): StateFlow<MessageEffect?> {
-        flows[effectId]?.let { return it }
+    private class Entry {
         val flow = MutableStateFlow<MessageEffect?>(null)
-        flows.putIfAbsent(effectId, flow)?.let { return it }
-        scope.launch {
-            var answer = lookup(effectId)
-            var attempt = 0
-            while (answer !is MessageEffectAnswer.Found && answer == MessageEffectAnswer.Unanswered &&
-                attempt < RETRY_PAUSES_MILLIS.size
-            ) {
-                delay(RETRY_PAUSES_MILLIS[attempt])
-                attempt++
-                answer = lookup(effectId)
-            }
-            (answer as? MessageEffectAnswer.Found)?.let { flow.value = it.effect }
+        var inFlight = false
+        var missing = false
+    }
+
+    private val entries = ConcurrentHashMap<Long, Entry>()
+
+    /**
+     * The effect behind [effectId]; null until TDLib answers and for ids TDLib does not know. A transient failure is not
+     * cached forever: after the bounded retries end unanswered, a later [observe] starts a fresh attempt on the same
+     * flow, so existing collectors recover as soon as connectivity does.
+     */
+    fun observe(effectId: Long): StateFlow<MessageEffect?> {
+        val entry = entries.computeIfAbsent(effectId) { Entry() }
+        startLookup(effectId, entry)
+        return entry.flow
+    }
+
+    private fun startLookup(effectId: Long, entry: Entry) {
+        synchronized(entry) {
+            if (entry.missing || entry.inFlight || entry.flow.value != null) return
+            entry.inFlight = true
         }
-        return flow
+        scope.launch {
+            var answer: MessageEffectAnswer = MessageEffectAnswer.Unanswered
+            try {
+                answer = lookup(effectId)
+                var attempt = 0
+                while (answer !is MessageEffectAnswer.Found && answer == MessageEffectAnswer.Unanswered &&
+                    attempt < RETRY_PAUSES_MILLIS.size
+                ) {
+                    delay(RETRY_PAUSES_MILLIS[attempt])
+                    attempt++
+                    answer = lookup(effectId)
+                }
+            } finally {
+                synchronized(entry) {
+                    entry.inFlight = false
+                    when (answer) {
+                        is MessageEffectAnswer.Found -> entry.flow.value = answer.effect
+                        MessageEffectAnswer.Missing -> entry.missing = true
+                        // Unanswered keeps the flow retryable for a later observe call.
+                        MessageEffectAnswer.Unanswered -> Unit
+                    }
+                }
+            }
+        }
     }
 
     private companion object {

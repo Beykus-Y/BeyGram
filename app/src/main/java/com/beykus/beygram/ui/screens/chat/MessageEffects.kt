@@ -91,6 +91,9 @@ internal fun MessageEffectFrame(
     val enabled = preferences.messageEffects && !systemReducedMotion()
     var effect by remember(effectId) { mutableStateOf<MessageEffect?>(null) }
     var visible by remember(effectId) { mutableStateOf(false) }
+    // A settings change may stop a running effect and later re-enable animations; the already played effect must not
+    // start again for the same arrival. This flag is read inside LaunchedEffect, never used as its key.
+    var consumed by remember(messageId) { mutableStateOf(false) }
 
     LaunchedEffect(effectId, enabled) {
         effect = null
@@ -98,11 +101,12 @@ internal fun MessageEffectFrame(
         observeEffect(effectId).collect { effect = it }
     }
     LaunchedEffect(effect, enabled, animate) {
-        if (!enabled || !animate || effect == null) {
+        if (!enabled || !animate || effect == null || consumed) {
             visible = false
             return@LaunchedEffect
         }
         if (!limiter.tryAcquire(messageId)) return@LaunchedEffect
+        consumed = true
         try {
             visible = true
             delay(EFFECT_VISIBLE_MILLIS)
