@@ -15,7 +15,7 @@ data class ChatPreview(
     val isChannel: Boolean = false,
     /** Чат «Избранное»: личный чат аккаунта с самим собой. Его название и значок задаёт интерфейс. */
     val isSavedMessages: Boolean = false,
-    /** Secret chats never receive server link-preview metadata, and the UI must not try to load it. */
+    /** Secret chats cannot schedule messages or use server-side link-preview metadata. */
     val isSecret: Boolean = false,
     val isPinned: Boolean = false,
     val isMuted: Boolean = false,

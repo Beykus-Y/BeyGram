@@ -20,6 +20,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageDraft
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
@@ -1123,15 +1124,23 @@ class TdLibTelegramRepository private constructor(
     override suspend fun deleteVideoNoteLossTest(messageId: Long): Result<Unit> =
         videoNoteLossTransport.deleteOwnTest(messageId)
 
-    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
+    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)
-        return conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId)
+        return conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
     }
 
-    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
+    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)
-        return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities, forumTopicId)
+        return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
     }
+
+    override suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.scheduledMessages(chatId)
+    override suspend fun deleteScheduledMessage(chatId: Long, messageId: Long): Result<Unit> =
+        conversationActions.deleteScheduledMessage(chatId, messageId)
+    override suspend fun rescheduleMessage(chatId: Long, messageId: Long, atSeconds: Long): Result<Unit> =
+        conversationActions.rescheduleMessage(chatId, messageId, atSeconds)
+    override suspend fun sendScheduledNow(chatId: Long, messageId: Long): Result<Unit> =
+        conversationActions.sendScheduledNow(chatId, messageId)
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> =
         conversationActions.retryMessages(chatId, messageIds)
 
@@ -1236,10 +1245,10 @@ class TdLibTelegramRepository private constructor(
             }
         }
 
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean): Result<Unit> {
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)
         conversationEffects.endActivity(chatId, ChatActivity.Typing)
-        return conversationActions.sendText(chatId, text, replyToMessageId, entities, forumTopicId, clearDraft)
+        return conversationActions.sendText(chatId, text, replyToMessageId, entities, forumTopicId, clearDraft, options)
     }
 
     // =========================================================================
@@ -1373,9 +1382,11 @@ class TdLibTelegramRepository private constructor(
                 VideoNoteSendTracking.tracker.onSucceeded(update.message.chatId, update.oldMessageId)
                 reportBotChannel.onSendSucceeded(update)
                 cleanupSentUploads(update.message)
-                messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
-                putForumMessage(update.message, update.oldMessageId)
-                conversationActions.hydrateReply(update.message)
+                if (update.message.schedulingState == null) {
+                    messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+                    putForumMessage(update.message, update.oldMessageId)
+                    conversationActions.hydrateReply(update.message)
+                }
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateMessageSendFailed -> {
@@ -1391,8 +1402,10 @@ class TdLibTelegramRepository private constructor(
                     severity = Severity.ERROR,
                     attrs = mapOf("content" to update.message.content.javaClass.simpleName, "error_code" to (sendError?.code ?: 0).toString())
                 )
-                messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
-                putForumMessage(update.message, update.oldMessageId)
+                if (update.message.schedulingState == null) {
+                    messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+                    putForumMessage(update.message, update.oldMessageId)
+                }
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateDeleteMessages -> {
@@ -1818,9 +1831,12 @@ class TdLibTelegramRepository private constructor(
     }
 
     private fun handleNewMessage(message: TdApi.Message) {
-        messageHistory.put(message.toChatMessage())
-        putForumMessage(message)
-        conversationActions.hydrateReply(message)
+        // TDLib keeps scheduled messages in a separate queue; only delivered messages belong to the chat history.
+        if (message.schedulingState == null) {
+            messageHistory.put(message.toChatMessage())
+            putForumMessage(message)
+            conversationActions.hydrateReply(message)
+        }
         val chat = chatCache[message.chatId]
         // Muted archived chats stay in the archive, as they do in Telegram. Until the chat's notification settings are
         // known, it stays in the archive too: it may be muted.
@@ -1839,12 +1855,13 @@ class TdLibTelegramRepository private constructor(
         val attachment = mediaMapper.media(content)
         val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
         val service = event?.text
+        val scheduledAt = (schedulingState as? TdApi.MessageSchedulingStateSendAtDate)?.sendDate?.takeIf { it > 0 }?.toLong()
         if (event != null) hydrateServiceMember(this, event.userId)
         return ChatMessage(
         id = id,
         chatId = chatId,
         text = service ?: contentText(content, attachment != null),
-        time = toTimeString(),
+        time = scheduledAt?.let { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it * 1000L)) } ?: toTimeString(),
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
         sendState = sendingState.toSendState(),
@@ -1861,6 +1878,7 @@ class TdLibTelegramRepository private constructor(
         forumTopicId = forumId(this),
         isPinned = isPinned,
         linkPreview = if (event == null) mediaMapper.linkPreview(content, isSecretChat(chatId)) else null,
+        scheduledAtSeconds = scheduledAt,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
@@ -1905,9 +1923,9 @@ class TdLibTelegramRepository private constructor(
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,
+            isSecret = type is TdApi.ChatTypeSecret,
             isSavedMessages = saved,
             isMarkedAsUnread = isMarkedAsUnread,
-            isSecret = type is TdApi.ChatTypeSecret,
             isPinned = mainPosition?.isPinned == true,
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,

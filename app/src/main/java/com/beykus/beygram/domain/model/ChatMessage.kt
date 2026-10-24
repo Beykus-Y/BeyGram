@@ -30,7 +30,9 @@ data class ChatMessage(
     /** The message is pinned in its chat (TDLib's Message.isPinned). */
     val isPinned: Boolean = false,
     /** Web-page metadata for a text message link; never populated in secret chats. */
-    val linkPreview: MessageLinkPreview? = null
+    val linkPreview: MessageLinkPreview? = null,
+    /** Unix timestamp when a scheduled message will be sent; null for a normal message. */
+    val scheduledAtSeconds: Long? = null
 )
 
 /**
