@@ -107,6 +107,8 @@ internal fun GifPickerPanel(
     var searchLoading by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
     var searchRetry by remember { mutableIntStateOf(0) }
+    // Guards the search list and its cursor from a page request that belongs to an older query.
+    var searchGeneration by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(recentRetry) {
         recentLoading = true
@@ -126,18 +128,17 @@ internal fun GifPickerPanel(
     }
     LaunchedEffect(query, searchRetry) {
         val needle = query.trim()
-        if (needle.isEmpty()) {
-            search = AnimationPage()
-            searchError = null
-            searchLoading = false
-            return@LaunchedEffect
-        }
+        // Clear the previous page before the debounce so its cursor cannot be reused with the new query.
+        searchGeneration++
+        search = AnimationPage()
+        searchError = null
+        searchLoading = false
+        if (needle.isEmpty()) return@LaunchedEffect
         delay(350)
         searchLoading = true
-        searchError = null
         conversation.searchAnimations(needle)
             .onSuccess { search = it }
-            .onFailure { searchError = it.userMessage(context, R.string.gif_picker_load_failed); search = AnimationPage() }
+            .onFailure { searchError = it.userMessage(context, R.string.gif_picker_load_failed) }
         searchLoading = false
     }
 
@@ -160,15 +161,16 @@ internal fun GifPickerPanel(
         val needle = query.trim()
         val offset = search.nextOffset.takeIf { it.isNotBlank() } ?: return
         if (needle.isEmpty() || searchLoading) return
+        val generation = searchGeneration
         scope.launch {
             searchLoading = true
             searchError = null
             conversation.searchAnimations(needle, offset)
                 .onSuccess { page ->
-                    if (query.trim() == needle) search = AnimationPage(mergeAnimationPages(search.animations, page), page.nextOffset)
+                    if (searchGeneration == generation) search = AnimationPage(mergeAnimationPages(search.animations, page), page.nextOffset)
                 }
-                .onFailure { if (query.trim() == needle) searchError = it.userMessage(context, R.string.gif_picker_load_failed) }
-            searchLoading = false
+                .onFailure { if (searchGeneration == generation) searchError = it.userMessage(context, R.string.gif_picker_load_failed) }
+            if (searchGeneration == generation) searchLoading = false
         }
     }
 

@@ -116,6 +116,8 @@ internal fun StickerPickerPanel(
     var searchError by remember { mutableStateOf<String?>(null) }
     var searchPage by remember { mutableStateOf<StickerSearchPage?>(null) }
     var searchRetry by remember { mutableIntStateOf(0) }
+    // A page request from an older query must not overwrite a newer first page or its continuation offset.
+    var searchGeneration by remember { mutableIntStateOf(0) }
 
     var notice by remember { mutableStateOf<String?>(null) }
     val premiumNotice = stringResource(R.string.sticker_picker_premium_locked)
@@ -149,18 +151,17 @@ internal fun StickerPickerPanel(
     LaunchedEffect(query, searchRetry) {
         val needle = query.trim()
         notice = null
-        if (needle.isEmpty()) {
-            searchPage = null
-            searchError = null
-            searchLoading = false
-            return@LaunchedEffect
-        }
+        // Drop the old page before the debounce, so its "Load more" cannot start with the new query and old offset.
+        searchGeneration++
+        searchPage = null
+        searchError = null
+        searchLoading = false
+        if (needle.isEmpty()) return@LaunchedEffect
         delay(350)
         searchLoading = true
-        searchError = null
         conversation.searchStickers(needle, 0)
             .onSuccess { searchPage = it }
-            .onFailure { searchError = it.userMessage(context, R.string.sticker_picker_load_failed); searchPage = null }
+            .onFailure { searchError = it.userMessage(context, R.string.sticker_picker_load_failed) }
         searchLoading = false
     }
     LaunchedEffect(viewingSet, setRetry) {
@@ -179,16 +180,16 @@ internal fun StickerPickerPanel(
         val page = searchPage ?: return
         val offset = page.nextOffset ?: return
         if (needle.isEmpty() || searchLoading) return
+        val generation = searchGeneration
         scope.launch {
             searchLoading = true
             searchError = null
             conversation.searchStickers(needle, offset)
                 .onSuccess { next ->
-                    // A newer query may have replaced the page while this request was in flight.
-                    if (query.trim() == needle) searchPage = StickerSearchPage(mergeStickerPages(page.stickers, next), next.nextOffset)
+                    if (searchGeneration == generation) searchPage = StickerSearchPage(mergeStickerPages(page.stickers, next), next.nextOffset)
                 }
-                .onFailure { if (query.trim() == needle) searchError = it.userMessage(context, R.string.sticker_picker_load_failed) }
-            searchLoading = false
+                .onFailure { if (searchGeneration == generation) searchError = it.userMessage(context, R.string.sticker_picker_load_failed) }
+            if (searchGeneration == generation) searchLoading = false
         }
     }
 
