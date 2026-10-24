@@ -55,4 +55,30 @@ class AppLockPolicyTest {
         assertEquals(300_000L, AppLockPolicy.lockoutMillisForFailures(9))
         assertEquals(300_000L, AppLockPolicy.lockoutMillisForFailures(100))
     }
+
+    @Test
+    fun lockEnabledWhileAwayRequiresTheNextReturnToAuthenticate() {
+        assertTrue(
+            AppLockPolicy.lockBecameActiveWhileAway(
+                backgrounded = true, activeWhenBackgrounded = false, activeNow = true
+            )
+        )
+        // Ordinary background return with an already active lock uses the timeout instead.
+        assertFalse(
+            AppLockPolicy.lockBecameActiveWhileAway(
+                backgrounded = true, activeWhenBackgrounded = true, activeNow = true
+            )
+        )
+        // Enabling the lock while still in the foreground keeps the current session open.
+        assertFalse(
+            AppLockPolicy.lockBecameActiveWhileAway(
+                backgrounded = false, activeWhenBackgrounded = false, activeNow = true
+            )
+        )
+        assertFalse(
+            AppLockPolicy.lockBecameActiveWhileAway(
+                backgrounded = true, activeWhenBackgrounded = false, activeNow = false
+            )
+        )
+    }
 }

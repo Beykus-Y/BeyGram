@@ -52,7 +52,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
@@ -61,6 +65,26 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * Modal, full-screen window used while the app is locked. A separate window keeps the chat
+ * composition (and its in-flight coroutines) alive while taking input focus away from it.
+ */
+@Composable
+internal fun AppLockDialog(manager: AppLockManager) {
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+            securePolicy = SecureFlagPolicy.SecureOn,
+        ),
+    ) {
+        AppLockScreen(manager)
+    }
+}
 
 /**
  * Full-screen gate shown instead of the chat UI. It deliberately contains no account or chat
@@ -80,6 +104,14 @@ internal fun AppLockScreen(manager: AppLockManager) {
     var checking by remember { mutableStateOf(false) }
     var autoPrompted by remember { mutableStateOf(false) }
     var lockoutMillis by remember { mutableLongStateOf(store.lockoutRemainingMillis()) }
+
+    // Do not keep a typed PIN in a stopped composition.
+    LifecycleResumeEffect(Unit) {
+        onPauseOrDispose {
+            pin = ""
+            errorText = null
+        }
+    }
 
     val biometricEnabled = settings.biometricEnabled
     val lifecycle = LocalLifecycleOwner.current.lifecycle

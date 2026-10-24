@@ -49,6 +49,16 @@ internal object AppLockPolicy {
     fun attemptsLeft(failedAttempts: Int): Int =
         (FREE_ATTEMPTS - failedAttempts).coerceAtLeast(0)
 
+    /**
+     * True when the app was stopped without an active lock and the lock is active now.
+     * A slow PIN setup may finish after the Activity stopped; that first return must fail closed.
+     */
+    fun lockBecameActiveWhileAway(
+        backgrounded: Boolean,
+        activeWhenBackgrounded: Boolean,
+        activeNow: Boolean,
+    ): Boolean = backgrounded && !activeWhenBackgrounded && activeNow
+
     /** Zero until the free attempts are used, then a doubling delay capped at five minutes. */
     fun lockoutMillisForFailures(failedAttempts: Int): Long {
         if (failedAttempts < FREE_ATTEMPTS) return 0L

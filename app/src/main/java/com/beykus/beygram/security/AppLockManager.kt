@@ -22,14 +22,20 @@ internal class AppLockManager private constructor(context: Context) {
     val locked: StateFlow<Boolean> = _locked.asStateFlow()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Foreground state is tracked even while the lock is disabled, for enable-while-background. */
+    @Volatile private var foreground = false
+    /** Whether the Activity was genuinely stopped, and whether the lock was active at that moment. */
+    private var backgrounded = false
+    private var activeWhenBackgrounded = false
 
     init {
         // Settings can change while the process lives. Disabling must unlock immediately;
-        // enabling never locks the session that the user just authenticated in Settings.
+        // if the new PIN finishes while the app is already in the background, fail closed.
         scope.launch {
             store.settings.collect { current ->
                 synchronized(this@AppLockManager) {
                     if (!current.isActive) session.onDisabled()
+                    else if (!foreground) session.lockNow()
                     _locked.value = session.locked
                 }
             }
@@ -38,9 +44,21 @@ internal class AppLockManager private constructor(context: Context) {
 
     fun onActivityStarted() {
         synchronized(this) {
+            foreground = true
             val settings = store.settings.value
-            if (!settings.isActive) session.onDisabled()
-            else session.onForeground(SystemClock.elapsedRealtime(), settings.timeout)
+            if (!settings.isActive) {
+                session.onDisabled()
+                session.clearBackground()
+            } else {
+                // Disabled when the app went away, active now: PIN setup finished in the
+                // background, so this first return must authenticate even with a long timeout.
+                if (AppLockPolicy.lockBecameActiveWhileAway(backgrounded, activeWhenBackgrounded, settings.isActive)) {
+                    session.lockNow()
+                }
+                session.onForeground(SystemClock.elapsedRealtime(), settings.timeout)
+            }
+            backgrounded = false
+            activeWhenBackgrounded = false
             _locked.value = session.locked
         }
     }
@@ -52,11 +70,16 @@ internal class AppLockManager private constructor(context: Context) {
     fun onActivityStopped(changingConfigurations: Boolean) {
         if (changingConfigurations) return
         synchronized(this) {
+            foreground = false
+            backgrounded = true
             val settings = store.settings.value
+            activeWhenBackgrounded = settings.isActive
             if (settings.isActive) {
                 session.onBackground(SystemClock.elapsedRealtime(), settings.timeout)
             } else {
+                // The lock may become active after a slow PIN setup finishes in the background.
                 session.onDisabled()
+                session.recordBackground(SystemClock.elapsedRealtime())
             }
             _locked.value = session.locked
         }

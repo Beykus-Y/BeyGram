@@ -21,14 +21,28 @@ internal class AppLockSession(initiallyLocked: Boolean) {
         if (timeout == AppLockTimeout.Immediately) locked = true
     }
 
+    /** Records that the app left the foreground without deciding whether a lock is configured yet. */
+    fun recordBackground(nowMillis: Long) {
+        backgroundedAtMillis = nowMillis
+    }
+
+    fun lockNow() {
+        locked = true
+    }
+
+    fun clearBackground() {
+        backgroundedAtMillis = null
+    }
+
     fun unlock() {
         locked = false
         backgroundedAtMillis = null
     }
 
     fun onDisabled() {
+        // Keep the background timestamp: the lock may be enabled while this process is still
+        // in the background, and that transition must not lose the elapsed time.
         locked = false
-        backgroundedAtMillis = null
     }
 
     /** Enabling the lock from Settings keeps the current, already authenticated session open. */

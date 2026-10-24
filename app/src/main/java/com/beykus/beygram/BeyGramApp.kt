@@ -156,7 +156,8 @@ fun BeyGramApp(
     pendingDeepLink: PendingTelegramDeepLink? = null,
     onDeepLinkBound: (Long, String) -> Unit = { _, _ -> },
     onDeepLinkHandled: (Long) -> Unit = {},
-    onSecureScreenChange: (Boolean) -> Unit = {}
+    onSecureScreenChange: (Boolean) -> Unit = {},
+    locked: Boolean = false
 ) {
     val context = LocalContext.current
     val videoMessageSettings = remember(context) { VideoMessageSettingsStore(context) }
@@ -202,7 +203,8 @@ fun BeyGramApp(
         pendingDeepLink = pendingDeepLink,
         onDeepLinkBound = onDeepLinkBound,
         onDeepLinkHandled = onDeepLinkHandled,
-        onSecureScreenChange = onSecureScreenChange
+        onSecureScreenChange = onSecureScreenChange,
+        locked = locked
     )
 }
 
@@ -223,7 +225,8 @@ private fun BeyGramAppContent(
     pendingDeepLink: PendingTelegramDeepLink?,
     onDeepLinkBound: (Long, String) -> Unit,
     onDeepLinkHandled: (Long) -> Unit,
-    onSecureScreenChange: (Boolean) -> Unit
+    onSecureScreenChange: (Boolean) -> Unit,
+    locked: Boolean
 ) {
     val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
@@ -824,7 +827,7 @@ private fun BeyGramAppContent(
             deepLinkProxy = null
         }
     }
-    if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
+    if (authState == AuthState.Ready && !locked) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, legacyAuthState, notificationRequest?.token, accountRegistryReady) {
         if (!accountRegistryReady || accountRegistryError) return@LaunchedEffect
         val request = notificationRequest ?: return@LaunchedEffect
@@ -1992,7 +1995,7 @@ private fun BeyGramAppContent(
     }
     }
     AccountSwitcherSheet(
-        visible = accountSwitcherVisible,
+        visible = accountSwitcherVisible && !locked,
         currentAccountId = selectedAccountId,
         legacyReady = legacyAuthState == AuthState.Ready,
         snapshot = accountChoice,
@@ -2030,7 +2033,7 @@ private fun BeyGramAppContent(
             accountSwitcherRouteAccountId = null
         }
     )
-    deepLinkInvite?.takeIf { it.accountId == selectedAccountId }?.let { prompt ->
+    deepLinkInvite?.takeIf { !locked && it.accountId == selectedAccountId }?.let { prompt ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = {
                 if (!deepLinkBusy) {
@@ -2101,7 +2104,7 @@ private fun BeyGramAppContent(
             }
         )
     }
-    deepLinkProxy?.takeIf { it.accountId == selectedAccountId }?.let { prompt ->
+    deepLinkProxy?.takeIf { !locked && it.accountId == selectedAccountId }?.let { prompt ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = {
                 if (!deepLinkBusy) {
@@ -2159,9 +2162,9 @@ private fun BeyGramAppContent(
             }
         )
     }
-    noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
+    if (!locked) noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
         text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
-    ProxyRestoreDialog(vpnBackend = vpnBackend)
+    if (!locked) ProxyRestoreDialog(vpnBackend = vpnBackend)
 }
 
 private data class DeepLinkInvitePrompt(

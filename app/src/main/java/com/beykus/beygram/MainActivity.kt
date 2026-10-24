@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -29,8 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.security.AppLockDialog
 import com.beykus.beygram.security.AppLockManager
-import com.beykus.beygram.security.AppLockScreen
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -48,6 +49,7 @@ import com.beykus.beygram.share.ShareSessions
 import com.beykus.beygram.share.DirectShareShortcuts
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
 import com.beykus.beygram.ui.screens.chat.LocalChatWallpaper
@@ -119,8 +121,8 @@ class MainActivity : FragmentActivity() {
             // composition before the StateFlow collector has delivered its value. The gate
             // fails closed on the current value instead of drawing one unlocked frame.
             val gateLocked = (locked || lockManager.locked.value) && lockSettings.isActive
-            // Keeps the navigation state while the lock replaces the chat UI, without
-            // composing any chat screen or collecting its data behind the gate.
+            // Keeps navigation and in-flight chat work alive while a secure modal gate is shown.
+            // The gate hides the content visually and from accessibility; it is not disposed.
             val appStateHolder = rememberSaveableStateHolder()
             var secureScreen by remember { mutableStateOf(false) }
             val secretPlaybackActive by produceState(initialValue = false) {
@@ -134,20 +136,26 @@ class MainActivity : FragmentActivity() {
                 secretPlayback = secretPlaybackActive
                 applyWindowPrivacy()
             }
+            // The chat composition survives the lock so in-flight sends keep their scope.
+            // Stop only secret audio/video; ordinary music may continue like in a media app.
+            LaunchedEffect(gateLocked) { if (gateLocked) PlaybackEngine.stopSecret() }
             val appearance: AppearanceViewModel = viewModel()
             // Reading the revision makes Compose reveal the window again after onStart hid
             // it for a locked foreground transition.
             val visibilityRevision = windowVisibilityRevision
-            LaunchedEffect(visibilityRevision) { window.decorView.visibility = View.VISIBLE }
+            LaunchedEffect(visibilityRevision, gateLocked) {
+                if (!gateLocked) window.decorView.visibility = View.VISIBLE
+            }
             // The saved choice is read asynchronously. Nothing is drawn until it is known, so the theme never flips.
             val config = appearance.config.collectAsState().value ?: return@setContent
             val systemDark = isSystemInDarkTheme()
             val isDarkTheme = config.mode.isDark(systemDark)
             // The status and navigation bar icons follow the theme in use. The bars stay transparent, so the app's own colours show through.
             SideEffect {
-                // onStart hides the window while a locked session is recomposed; the new frame
-                // is the lock screen, never the previous chat frame.
-                window.decorView.visibility = View.VISIBLE
+                // While the gate is up, the Activity window stays hidden behind the secure
+                // dialog. The chat composition keeps running (in-flight sends), but nothing
+                // of it can be drawn, captured, focused or read by accessibility.
+                window.decorView.visibility = if (gateLocked) View.INVISIBLE else View.VISIBLE
                 enableEdgeToEdge(
                     statusBarStyle = if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
                     navigationBarStyle = if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
@@ -170,34 +178,43 @@ class MainActivity : FragmentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
-                        if (gateLocked) {
-                            AppLockScreen(lockManager)
-                        } else {
-                            appStateHolder.SaveableStateProvider("beygram") {
-                                BeyGramApp(
-                                    notificationRequest = notificationRequest,
-                                    onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
-                                    incomingShare = incomingShare,
-                                    onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null; ShareSessions.release(this, it) },
-                                    pendingDeepLink = pendingDeepLink,
-                                    onDeepLinkBound = { token, accountId ->
-                                        pendingDeepLink = deepLinkInbox.bind(token, accountId) ?: pendingDeepLink
-                                    },
-                                    onDeepLinkHandled = { token ->
-                                        val current = pendingDeepLink?.takeIf { it.token == token }
-                                        if (current != null) {
-                                            deepLinkInbox.take(
-                                                token,
-                                                current.accountId ?: TdAccountStorageLayout.LEGACY_ACCOUNT_ID
-                                            )
-                                            pendingDeepLink = deepLinkInbox.restore()
-                                        }
-                                    },
-                                    appearance = config,
-                                    onAppearanceChange = appearance::save,
-                                    onSecureScreenChange = { secureScreen = it }
+                        Box(Modifier.fillMaxSize()) {
+                            // The content stays composed for the lifetime of the Activity. A
+                            // secure modal dialog covers it; while locked its semantics are
+                            // cleared so TalkBack cannot read chat content behind the gate.
+                            Box(
+                                Modifier.fillMaxSize().then(
+                                    if (gateLocked) Modifier.clearAndSetSemantics {} else Modifier
                                 )
+                            ) {
+                                appStateHolder.SaveableStateProvider("beygram") {
+                                    BeyGramApp(
+                                        notificationRequest = if (gateLocked) null else notificationRequest,
+                                        onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
+                                        incomingShare = if (gateLocked) null else incomingShare,
+                                        onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null; ShareSessions.release(this, it) },
+                                        pendingDeepLink = if (gateLocked) null else pendingDeepLink,
+                                        onDeepLinkBound = { token, accountId ->
+                                            pendingDeepLink = deepLinkInbox.bind(token, accountId) ?: pendingDeepLink
+                                        },
+                                        onDeepLinkHandled = { token ->
+                                            val current = pendingDeepLink?.takeIf { it.token == token }
+                                            if (current != null) {
+                                                deepLinkInbox.take(
+                                                    token,
+                                                    current.accountId ?: TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+                                                )
+                                                pendingDeepLink = deepLinkInbox.restore()
+                                            }
+                                        },
+                                        appearance = config,
+                                        onAppearanceChange = appearance::save,
+                                        onSecureScreenChange = { secureScreen = it },
+                                        locked = gateLocked
+                                    )
+                                }
                             }
+                            if (gateLocked) AppLockDialog(lockManager)
                         }
                     }
                 }

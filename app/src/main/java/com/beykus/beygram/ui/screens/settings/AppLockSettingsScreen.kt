@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.beykus.beygram.R
 import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.security.AppLockPinCheck
@@ -82,12 +83,23 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
     val manager = remember(context) { AppLockManager.get(context.applicationContext) }
     val store = manager.store
     val settings by store.settings.collectAsStateWithLifecycle()
+    val locked by manager.locked.collectAsStateWithLifecycle()
     val biometricAvailable = remember(context) { BiometricSupport.canAuthenticate(context) }
 
     var setupForEnable by remember { mutableStateOf(false) }
     var setupAfterConfirmation by remember { mutableStateOf(false) }
     var confirmDisable by remember { mutableStateOf(false) }
     var confirmChangePin by remember { mutableStateOf(false) }
+
+    // A lock must not leave a PIN setup/confirmation dialog (and its in-memory PIN) open.
+    LaunchedEffect(locked) {
+        if (locked) {
+            setupForEnable = false
+            setupAfterConfirmation = false
+            confirmDisable = false
+            confirmChangePin = false
+        }
+    }
 
     BackHandler(onBack = onBack)
 
@@ -333,6 +345,14 @@ private fun SetupPinDialog(store: AppLockStore, onDone: () -> Unit, onDismiss: (
     var errorText by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
 
+    LifecycleResumeEffect(Unit) {
+        onPauseOrDispose {
+            pin = ""
+            confirmation = ""
+            errorText = null
+        }
+    }
+
     fun save() {
         if (saving) return
         if (!AppLockPolicy.isValidPin(pin)) {
@@ -412,6 +432,13 @@ private fun ConfirmIdentityDialog(
     var errorText by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
     var lockoutMillis by remember { mutableLongStateOf(store.lockoutRemainingMillis()) }
+
+    LifecycleResumeEffect(Unit) {
+        onPauseOrDispose {
+            pin = ""
+            errorText = null
+        }
+    }
 
     val biometric = rememberBiometricAuthenticator { result ->
         when (result) {
