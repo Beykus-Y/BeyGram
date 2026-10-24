@@ -261,7 +261,8 @@ private fun BeyGramAppContent(
             } catch (cancelled: CancellationException) {
                 // A cancelled producer must not publish its stale result over the new selection.
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
+                // Any other failure leaves the selected account without a repository, as runCatching did before.
                 null
             }
         }
