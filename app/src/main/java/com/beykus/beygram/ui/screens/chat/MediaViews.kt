@@ -98,10 +98,10 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.beykus.beygram.R
 import com.beykus.beygram.BeyGramApplication
-import com.beykus.beygram.data.media.AutoDownloadRequest
 import com.beykus.beygram.data.media.AutoDownloadRuntime
 import com.beykus.beygram.data.media.Mp4StreamingProbe
 import com.beykus.beygram.data.media.Mp4StreamingReason
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
@@ -790,7 +790,7 @@ private fun MediaViewerPage(
             media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = controlsVisible && active,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
-                LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
+                LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) })
             media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, if (previewId != null) thumb.localPath else null, active) { currentOnViewed(item.messageId) }
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
