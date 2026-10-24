@@ -442,12 +442,26 @@ internal class TdConversationActions(
         // Editing a scheduled message must not insert it into the visible chat history before it is sent.
         if (message.schedulingState == null) { history.put(map(message)); hydrateReply(message) }
     }
-    suspend fun delete(chatId: Long, messageId: Long, deleteScope: DeleteMessageScope): Result<Unit> = conversationResult {
-        val properties = request(TdApi.GetMessageProperties(chatId, messageId))
-        val allowed = if (deleteScope == DeleteMessageScope.ForEveryone) properties.canBeDeletedForAllUsers else properties.canBeDeletedOnlyForSelf
-        if (!allowed) throw UserMessageException(UiText.Res(R.string.err_delete_option_unavailable))
-        request(TdApi.DeleteMessages(chatId, longArrayOf(messageId), deleteScope == DeleteMessageScope.ForEveryone))
-        history.delete(chatId, listOf(messageId))
+    suspend fun delete(chatId: Long, messageId: Long, deleteScope: DeleteMessageScope): Result<Unit> =
+        deleteMessages(chatId, listOf(messageId), deleteScope)
+
+    /**
+     * Deletes all [messageIds] with one DeleteMessages request. Every message is checked for the chosen scope first:
+     * TDLib applies one revoke flag to the whole batch, so a mixed batch must not silently delete more or less than asked.
+     */
+    suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, deleteScope: DeleteMessageScope): Result<Unit> = conversationResult {
+        val ids = messageIds.distinct()
+        require(ids.isNotEmpty()) { "Нет сообщений для удаления" }
+        val blocked = ids.any { messageId ->
+            val properties = request(TdApi.GetMessageProperties(chatId, messageId))
+            if (deleteScope == DeleteMessageScope.ForEveryone) !properties.canBeDeletedForAllUsers
+            else !properties.canBeDeletedOnlyForSelf
+        }
+        if (blocked) throw UserMessageException(UiText.Res(
+            if (ids.size == 1) R.string.err_delete_option_unavailable else R.string.err_messages_cannot_delete
+        ))
+        request(deleteMessagesRequest(chatId, ids, deleteScope == DeleteMessageScope.ForEveryone))
+        history.delete(chatId, ids)
     }
 
     /**
@@ -465,10 +479,43 @@ internal class TdConversationActions(
      * Пересылка обычная или без автора ([asCopy]). TDLib сам отказывает, если сообщение нельзя переслать
      * или содержимое защищено.
      */
-    suspend fun forward(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean = false): Result<Unit> = conversationResult {
-        if (!request(TdApi.GetMessageProperties(fromChatId, messageId)).canBeForwarded) throw UserMessageException(UiText.Res(R.string.err_message_cannot_forward))
-        val forwarded = request(forwardMessagesRequest(toChatId, fromChatId, messageId, asCopy))
-        if (!forwarded.messages.orEmpty().any { it != null }) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
+    suspend fun forward(
+        fromChatId: Long,
+        messageId: Long,
+        toChatId: Long,
+        asCopy: Boolean = false,
+        messageThreadId: Long? = null,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<Unit> = forwardMessages(fromChatId, listOf(messageId), toChatId, asCopy, messageThreadId, options)
+
+    /**
+     * One ForwardMessages request for a whole selection. Album members are kept next to each other by the caller, so
+     * TDLib can preserve the album. Each message is checked separately: one protected message refuses the whole batch
+     * instead of silently forwarding only part of the selection.
+     */
+    suspend fun forwardMessages(
+        fromChatId: Long,
+        messageIds: List<Long>,
+        toChatId: Long,
+        asCopy: Boolean = false,
+        messageThreadId: Long? = null,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<Unit> = conversationResult {
+        val ids = messageIds.distinct()
+        require(ids.isNotEmpty()) { "Нет сообщений для пересылки" }
+        val blocked = ids.any { messageId ->
+            !request(TdApi.GetMessageProperties(fromChatId, messageId)).canBeForwarded
+        }
+        if (blocked) throw UserMessageException(UiText.Res(
+            if (ids.size == 1) R.string.err_message_cannot_forward else R.string.err_messages_cannot_forward
+        ))
+        requireFutureSchedule(options)
+        val forwarded = request(
+            forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(options))
+        )
+        if (!forwarded.messages.orEmpty().any { it != null }) {
+            throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
+        }
     }
 
     /** A Telegram link to the message; comments in a thread need the thread form. */
@@ -720,8 +767,29 @@ private fun TdApi.ChatMemberStatus?.allowsThreadComment(chatPermissions: TdApi.C
     else -> false
 }
 
+internal fun forwardMessagesRequest(
+    toChatId: Long,
+    fromChatId: Long,
+    messageIds: List<Long>,
+    asCopy: Boolean,
+    messageThreadId: Long? = null,
+    options: TdApi.MessageSendOptions = TdApi.MessageSendOptions()
+) = TdApi.ForwardMessages(
+    toChatId,
+    messageThreadId?.takeIf { it > 0L }?.let { TdApi.MessageTopicForum(it.toInt()) },
+    fromChatId,
+    messageIds.toLongArray(),
+    options,
+    asCopy,
+    false
+)
+
+/** Single-message overload kept for shared-media forwarding and focused protocol tests. */
 internal fun forwardMessagesRequest(toChatId: Long, fromChatId: Long, messageId: Long, asCopy: Boolean) =
-    TdApi.ForwardMessages(toChatId, null, fromChatId, longArrayOf(messageId), TdApi.MessageSendOptions(), asCopy, false)
+    forwardMessagesRequest(toChatId, fromChatId, listOf(messageId), asCopy)
+
+internal fun deleteMessagesRequest(chatId: Long, messageIds: List<Long>, revoke: Boolean) =
+    TdApi.DeleteMessages(chatId, messageIds.toLongArray(), revoke)
 
 internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L) = TdApi.SearchChatMessages().apply {
     this.chatId = chatId

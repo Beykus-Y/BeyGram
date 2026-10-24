@@ -1131,8 +1131,25 @@ class TdLibTelegramRepository private constructor(
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>) = conversationActions.edit(chatId, messageId, text, entities)
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) =
         conversationActions.delete(chatId, messageId, scope).onSuccess { conversationEffects.uploadFinished(chatId, messageId) }
-    override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean) =
-        conversationActions.forward(fromChatId, messageId, toChatId, asCopy)
+    override suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, scope: DeleteMessageScope) =
+        conversationActions.deleteMessages(chatId, messageIds, scope)
+            .onSuccess { messageIds.forEach { conversationEffects.uploadFinished(chatId, it) } }
+    override suspend fun forwardMessage(
+        fromChatId: Long,
+        messageId: Long,
+        toChatId: Long,
+        asCopy: Boolean,
+        messageThreadId: Long?,
+        options: MessageSendOptions
+    ) = conversationActions.forward(fromChatId, messageId, toChatId, asCopy, messageThreadId, options)
+    override suspend fun forwardMessages(
+        fromChatId: Long,
+        messageIds: List<Long>,
+        toChatId: Long,
+        asCopy: Boolean,
+        messageThreadId: Long?,
+        options: MessageSendOptions
+    ) = conversationActions.forwardMessages(fromChatId, messageIds, toChatId, asCopy, messageThreadId, options)
     override suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean) =
         conversationActions.messageLink(chatId, messageId, inMessageThread)
     override suspend fun availableReactions(chatId: Long, messageId: Long) = conversationActions.availableReactions(chatId, messageId)

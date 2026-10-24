@@ -92,13 +92,34 @@ interface ConversationRepository {
     suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition>
     suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
     suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit>
+    /** Deletes a selection with one DeleteMessages request, after checking the chosen scope for every message. */
+    suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, scope: DeleteMessageScope): Result<Unit>
     /** Marks a chat unread without changing its read watermark; the chat list shows an unread marker. */
     suspend fun markChatUnread(chatId: Long): Result<Unit>
     /**
      * Forwards a message. With [asCopy] the original sender is hidden, like Telegram's "Forward without author";
-     * TDLib refuses either form when the message can't be forwarded.
+     * TDLib refuses either form when the message can't be forwarded. [messageThreadId] targets a forum topic.
      */
-    suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean = false): Result<Unit>
+    suspend fun forwardMessage(
+        fromChatId: Long,
+        messageId: Long,
+        toChatId: Long,
+        asCopy: Boolean = false,
+        messageThreadId: Long? = null,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<Unit>
+    /**
+     * Forwards a whole selection with one ForwardMessages request. [messageIds] must keep album members adjacent so
+     * TDLib does not split the album. Each message is checked for forward rights before anything is sent.
+     */
+    suspend fun forwardMessages(
+        fromChatId: Long,
+        messageIds: List<Long>,
+        toChatId: Long,
+        asCopy: Boolean = false,
+        messageThreadId: Long? = null,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<Unit>
     /** A t.me link to [messageId], or a Telegram error when the message has no shareable link. */
     suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean = false): Result<String>
     /**
