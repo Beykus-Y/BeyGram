@@ -22,6 +22,8 @@
     <string name="auth_phone_connection_timeout">Telegram пока не ответил. Запрос остаётся активным и продолжится после восстановления связи.</string>
     <string name="auth_phone_get_code">Получить код</string>
     <string name="auth_phone_label">Телефон</string>
+    <string name="auth_phone_mode_phone">Телефон</string>
+    <string name="auth_phone_mode_qr">Войти по QR</string>
     <string name="auth_phone_proxy_help">Не подключается? Настроить прокси</string>
     <string name="auth_phone_reconnect">Переподключиться</string>
     <string name="auth_phone_status_connected">Соединение с Telegram установлено</string>
@@ -31,6 +33,18 @@
     <string name="auth_phone_subtitle">Введите номер, к которому привязан Telegram.</string>
     <string name="auth_phone_title">Номер телефона</string>
     <string name="auth_phone_waiting_response">Ожидаем ответ Telegram…</string>
+    <string name="auth_qr_auto_refresh">Код обновляется автоматически. Не закрывайте экран.</string>
+    <string name="auth_qr_cancel">Войти по номеру телефона</string>
+    <string name="auth_qr_code_description">QR-код для входа в Telegram</string>
+    <string name="auth_qr_copied">Ссылка скопирована</string>
+    <string name="auth_qr_copy_link">Скопировать ссылку</string>
+    <string name="auth_qr_render_failed">Не удалось отобразить QR-код. Скопируйте ссылку.</string>
+    <string name="auth_qr_requesting">Запрашиваем QR-код…</string>
+    <string name="auth_qr_retry">Повторить</string>
+    <string name="auth_qr_subtitle">Отсканируйте код в Telegram на устройстве, где вы уже вошли: Настройки → Устройства → Сканировать QR.</string>
+    <string name="auth_qr_timeout">Telegram не прислал QR-код. Проверьте соединение и повторите.</string>
+    <string name="auth_qr_title">Вход по QR-коду</string>
+    <string name="auth_qr_waiting">Отсканируйте код другим телефоном с Telegram.</string>
     <string name="auth_share_logs">Поделиться логами</string>
     <string name="auth_share_logs_progress">Собираем логи…</string>
     <string name="auth_sign_in">Войти</string>
@@ -280,6 +294,9 @@
     <string name="err_auth_code_invalid">Неверный код. Попробуйте ещё раз.</string>
     <string name="err_auth_failed">Не удалось войти. Попробуйте ещё раз.</string>
     <string name="err_auth_password_invalid">Неверный пароль. Попробуйте ещё раз.</string>
+    <string name="err_auth_qr_failed">Не удалось начать вход по QR-коду. Попробуйте ещё раз.</string>
+    <string name="err_auth_qr_link">Некорректная ссылка QR-кода. Попробуйте ещё раз.</string>
+    <string name="err_auth_qr_stale">QR-код устарел. Проверьте соединение и повторите.</string>
     <string name="err_bio_too_long">Описание — не более %1$d символов</string>
     <string name="err_caption_too_long">Подпись слишком длинная</string>
     <string name="err_chat_actions_load_failed">Не удалось загрузить действия с сообщением</string>

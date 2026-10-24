@@ -185,6 +185,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.lottie.compose)
     implementation(libs.snakeyaml)
+    implementation(libs.zxing.core)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.json)
