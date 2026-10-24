@@ -25,6 +25,8 @@ import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.MessageContext
+import com.beykus.beygram.domain.model.MessageThread
+import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MessageLimits
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -192,6 +194,10 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {}
     override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> = unavailable()
     override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = unavailable()
+    override suspend fun linkedDiscussionChatId(chatId: Long): Result<Long> = unavailable()
+    override suspend fun loadMessageThread(chatId: Long, messageId: Long): Result<MessageThread> = unavailable()
+    override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long): Result<MessageThreadPage> = unavailable()
+    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?): Result<ChatMessage> = unavailable()
     override fun openChat(chatId: Long) {}
     override fun closeChat(chatId: Long) {}
     override fun loadOlderMessages(chatId: Long) {}

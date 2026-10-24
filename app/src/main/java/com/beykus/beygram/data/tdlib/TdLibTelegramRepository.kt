@@ -26,6 +26,8 @@ import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.MessageDraft
+import com.beykus.beygram.domain.model.MessageThread
+import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
@@ -1016,6 +1018,12 @@ class TdLibTelegramRepository private constructor(
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
+    override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
+    override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
+    override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long) =
+        conversationActions.threadComments(discussionChatId, threadId, fromMessageId)
+    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?) =
+        conversationActions.sendThreadReply(discussionChatId, threadId, text, entities, replyToMessageId)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
         conversationActions.search(chatId, query, fromMessageId, filter = filter)
     override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
@@ -1718,8 +1726,13 @@ class TdLibTelegramRepository private constructor(
                 updateForumMessage(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
             }
             is TdApi.UpdateMessageInteractionInfo -> {
-                messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
-                updateForumMessage(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
+                val replyCount = update.interactionInfo?.replyInfo?.replyCount
+                messageHistory.update(update.chatId, update.messageId) {
+                    it.copy(reactions = messageReactions(update.interactionInfo), replyCount = replyCount ?: it.replyCount)
+                }
+                updateForumMessage(update.chatId, update.messageId) {
+                    it.copy(reactions = messageReactions(update.interactionInfo), replyCount = replyCount ?: it.replyCount)
+                }
             }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
@@ -2285,6 +2298,8 @@ class TdLibTelegramRepository private constructor(
         serviceUserId = event?.userId ?: 0L,
         forumTopicId = forumId(this),
         isPinned = isPinned,
+        isChannelPost = isChannelPost,
+        replyCount = interactionInfo?.replyInfo?.replyCount ?: 0,
         linkPreview = if (event == null) mediaMapper.linkPreview(content, isSecretChat(chatId)) else null,
         scheduledAtSeconds = scheduledAt,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->

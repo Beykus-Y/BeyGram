@@ -73,6 +73,7 @@ import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
 import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
+import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
@@ -137,7 +138,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 
 /** Экраны, где мини-плеер встроен в свою разметку: над нижним меню или над полем ввода. На остальных экранах он стоит снизу. */
-private val playerBarHostRoutes = setOf(AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat)
+private val playerBarHostRoutes = setOf(AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat, AppRoute.MessageThread)
 
 @Composable
 fun BeyGramApp(
@@ -307,6 +308,9 @@ private fun BeyGramAppContent(
     var appearanceDraft by rememberSaveable(stateSaver = AppearanceDraftSaver) { mutableStateOf<AppearanceConfig?>(null) }
     var phone by rememberSaveable { mutableStateOf("") }
     var selectedChatId by rememberSaveable { mutableStateOf(0L) }
+    // A channel post's discussion thread is an overlay over the same chat visit; only ids survive recreation.
+    var threadChannelChatId by rememberSaveable { mutableStateOf(0L) }
+    var threadPostId by rememberSaveable { mutableStateOf(0L) }
     // The selected forum topic follows its parent chat. Other chats must never inherit the previous topic.
     var selectedTopicChatId by rememberSaveable { mutableStateOf(0L) }
     var selectedForumTopicId by rememberSaveable { mutableStateOf(0L) }
@@ -408,6 +412,8 @@ private fun BeyGramAppContent(
             // selected account. Discard it BEFORE rendering can be unlocked.
             if (selectedAccountId != state.activeAccountId) {
                 selectedChatId = 0L
+                threadChannelChatId = 0L
+                threadPostId = 0L
                 selectedTopicChatId = 0L
                 selectedForumTopicId = 0L
                 trustedForumTopicId = 0L
@@ -433,6 +439,8 @@ private fun BeyGramAppContent(
     fun resetAccountScopedState() {
         PlaybackEngine.stop()
         selectedChatId = 0L
+        threadChannelChatId = 0L
+        threadPostId = 0L
         selectedForumTopicId = 0L
         selectedTopicChatId = 0L
         trustedForumTopicId = 0L
@@ -1336,6 +1344,11 @@ private fun BeyGramAppContent(
                     onDelete = { topic -> forumAction { repository.deleteForumTopic(selectedChatId, topic.id) } }
                 )
                 else -> key(selectedAccountId, selectedChatId, activeTopicId) {
+                    val commentsOpen = route == AppRoute.MessageThread &&
+                        threadChannelChatId == selectedChatId && threadPostId > 0L
+                    LaunchedEffect(route, commentsOpen) {
+                        if (route == AppRoute.MessageThread && !commentsOpen) routeName = AppRoute.Chat.name
+                    }
                     ChatScreen(
                         chat = chat,
                         accountId = selectedAccountId,
@@ -1364,11 +1377,32 @@ private fun BeyGramAppContent(
                         topicCanPost = selectedTopic?.canWrite ?: true,
                         topicUnreadCount = selectedTopic?.unreadCount ?: 0,
                         onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
+                        onOpenComments = { post ->
+                            threadChannelChatId = selectedChatId
+                            threadPostId = post.id
+                            routeName = AppRoute.MessageThread.name
+                        },
+                        threadOpen = commentsOpen,
                         focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L },
                         messageAnimations = appearance.messageAnimations,
                         translationSettings = translationSettings,
                         chatOverrides = chatOverrides
                     )
+                    // The channel ChatScreen stays composed under this overlay: closing the thread restores its
+                    // exact list position without reopening or reloading the channel.
+                    if (commentsOpen) {
+                        MessageThreadScreen(
+                            channelChatId = selectedChatId,
+                            channelTitle = chat.title,
+                            postId = threadPostId,
+                            initialPost = history.messages.firstOrNull { it.id == threadPostId },
+                            conversation = repository,
+                            observeFile = repository::observeFile,
+                            downloadFile = repository::downloadFile,
+                            onBack = { routeName = AppRoute.Chat.name },
+                            onOpenProfile = { userId -> openUserProfile(userId, AppRoute.MessageThread) }
+                        )
+                    }
                 }
             }
         }
@@ -1567,7 +1601,7 @@ private fun BeyGramAppContent(
 
                 AppRoute.Archive -> archiveRoute()
 
-                AppRoute.Chat -> chatRoute()
+                AppRoute.Chat, AppRoute.MessageThread -> chatRoute()
                 AppRoute.ChatInfo -> chatInfoRoute()
                 AppRoute.ChatMembers -> chatMembersRoute()
                 AppRoute.MemberProfile -> memberProfileRoute()
