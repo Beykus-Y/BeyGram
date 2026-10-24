@@ -460,9 +460,10 @@ internal class ChatExportStreamer(
     }
 
     /**
-     * Walks every page once, newest to oldest, in a bounded window. Messages above [ChatExportRequest.toDateSeconds]
-     * are skipped; the walk stops as soon as it passes below the inclusive from-bound. Save-restricted messages are
-     * counted and never passed to [onMessage].
+     * Walks every page once, newest to oldest, in a bounded window. A date bound starts the walk at the newest message
+     * sent before it when the source can resolve that, so newer history is never requested. Messages at or after
+     * [ChatExportRequest.toDateSeconds] are skipped; the walk stops as soon as it passes below the inclusive from-bound.
+     * Save-restricted messages are counted and never passed to [onMessage].
      */
     private suspend fun walkExportable(
         request: ChatExportRequest,
@@ -470,12 +471,17 @@ internal class ChatExportStreamer(
         onMessage: suspend (ChatExportMessage) -> Unit
     ): DocumentStats {
         var cursor = 0L
+        // The resolved message is a page of its own. Pages requested after it hold only messages older than it.
+        var anchorPage: ChatExportPage? = request.toDateSeconds
+            ?.let { source.newestMessageAtOrBefore(it) }
+            ?.let { ChatExportPage(listOf(it), nextBeforeMessageId = it.id, hasMore = true) }
         var lastId = Long.MAX_VALUE
         var written = 0
         var skipped = 0
         while (true) {
             currentCoroutineContext().ensureActive()
-            val page = source.page(cursor, CHAT_EXPORT_PAGE_SIZE)
+            val page = anchorPage ?: source.page(cursor, CHAT_EXPORT_PAGE_SIZE)
+            anchorPage = null
             var reachedFromBoundary = false
             for (message in page.messages.sortedByDescending { it.id }) {
                 if (message.id >= lastId) continue

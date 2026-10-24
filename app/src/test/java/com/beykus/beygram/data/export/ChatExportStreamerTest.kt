@@ -292,4 +292,70 @@ class ChatExportStreamerTest {
         val actual = JSONObject(String(rendered.last().second, Charsets.UTF_8)).getJSONArray("messages").toString()
         assertEquals(expected, actual)
     }
+
+    /** A whole chat served newest first with the cursor semantics of the TDLib page source; resolves date bounds on request. */
+    private class HistorySource(
+        private val messages: List<ChatExportMessage>,
+        private val resolvesDates: Boolean
+    ) : ChatExportPageSource {
+        val cursors = mutableListOf<Long>()
+
+        override suspend fun page(beforeMessageId: Long, limit: Int): ChatExportPage {
+            cursors += beforeMessageId
+            val older = messages
+                .filter { beforeMessageId == 0L || it.id < beforeMessageId }
+                .sortedByDescending { it.id }
+            val slice = older.take(limit)
+            return ChatExportPage(slice, nextBeforeMessageId = slice.lastOrNull()?.id ?: 0L, hasMore = older.size > slice.size)
+        }
+
+        override suspend fun newestMessageAtOrBefore(dateSeconds: Long): ChatExportMessage? =
+            if (resolvesDates) messages.filter { it.dateSeconds <= dateSeconds }.maxByOrNull { it.id } else null
+    }
+
+    private fun exportedIds(target: RecordingTarget): List<Long> {
+        val exported = JSONObject(String(target.bytes.toByteArray(), Charsets.UTF_8)).getJSONArray("messages")
+        return (0 until exported.length()).map { exported.getJSONObject(it).getLong("id") }
+    }
+
+    @Test fun `date bound starts the walk at the newest message before it`() = runBlocking {
+        val target = RecordingTarget()
+        val source = HistorySource((1L..10L).map { message(it, it * 10) }, resolvesDates = true)
+        val summary = ChatExportStreamer(target, source, NoMediaProvider).export(
+            chat = chat(),
+            request = ChatExportRequest(fromDateSeconds = 20L, toDateSeconds = 55L),
+            onProgress = {}
+        )
+
+        assertEquals(listOf(5L), source.cursors)
+        assertEquals(4, summary.messages)
+        assertEquals(listOf(5L, 4L, 3L, 2L), exportedIds(target))
+    }
+
+    @Test fun `date bound keeps paging older history from its anchor`() = runBlocking {
+        val target = RecordingTarget()
+        val source = HistorySource((1L..250L).map { message(it, it * 10) }, resolvesDates = true)
+        val summary = ChatExportStreamer(target, source, NoMediaProvider).export(
+            chat = chat(),
+            request = ChatExportRequest(toDateSeconds = 2_000L),
+            onProgress = {}
+        )
+
+        assertEquals(listOf(200L, 100L), source.cursors)
+        assertEquals(199, summary.messages)
+    }
+
+    @Test fun `date bound that cannot be resolved walks from the newest message as before`() = runBlocking {
+        val target = RecordingTarget()
+        val source = HistorySource((1L..10L).map { message(it, it * 10) }, resolvesDates = false)
+        val summary = ChatExportStreamer(target, source, NoMediaProvider).export(
+            chat = chat(),
+            request = ChatExportRequest(fromDateSeconds = 20L, toDateSeconds = 55L),
+            onProgress = {}
+        )
+
+        assertEquals(0L, source.cursors.first())
+        assertEquals(4, summary.messages)
+        assertEquals(listOf(5L, 4L, 3L, 2L), exportedIds(target))
+    }
 }

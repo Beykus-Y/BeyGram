@@ -46,6 +46,12 @@ internal data class ChatExportPage(
 
 internal interface ChatExportPageSource {
     suspend fun page(beforeMessageId: Long, limit: Int): ChatExportPage
+
+    /**
+     * The newest message sent at or before [dateSeconds], or null when that is unknown. A date-bounded walk begins
+     * with it, so history newer than the bound is never requested. The message is walked like any other page entry.
+     */
+    suspend fun newestMessageAtOrBefore(dateSeconds: Long): ChatExportMessage? = null
 }
 
 /** Opens media bytes for copying. Null means the file is unavailable and only its metadata will be exported. */
