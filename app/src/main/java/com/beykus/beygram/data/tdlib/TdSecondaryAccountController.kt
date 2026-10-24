@@ -496,18 +496,32 @@ internal class TdSecondaryAccountController private constructor(
 
     /** Run only after explicit user confirmation. TDLib owns deletion of its
      * authorization; account-root files are removed only after CLOSED and
-     * the registry no longer references this ID. Symlinks are never followed. */
-    suspend fun logoutAndDelete(accountId: String) {
+     * the registry no longer references this ID. Symlinks are never followed.
+     *
+     * [serverDeleted] must be true only after Telegram confirmed DeleteAccount.
+     * It closes an already-invalid authorization instead of requiring LogOut. */
+    suspend fun logoutAndDelete(accountId: String, serverDeleted: Boolean = false) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
             TdAccountStorageLayout.isValidAccountId(accountId))
-        val operation = MultiAccountDiagnostics.begin("logout_delete", accountId)
+        val operation = MultiAccountDiagnostics.begin(
+            if (serverDeleted) "server_delete_cleanup" else "logout_delete",
+            accountId
+        )
         restoreStore.markDeletionPending(accountId)
         // A native logout failure must not unregister or delete an active DB.
         try {
             operation.trace("coordinator_logout_start")
-            coordinator.logoutSecondary(accountId)
+            coordinator.logoutSecondary(accountId, serverDeleted)
             operation.trace("coordinator_logout_done")
         } catch (error: Throwable) {
+            if (serverDeleted) {
+                // Telegram confirmed that the account no longer exists. Clear stale
+                // restore metadata so the account switcher can still discard the
+                // remaining local session explicitly instead of hiding that action
+                // behind an "authorized" flag. The registry and files stay untouched.
+                runCatching { restoreStore.forget(accountId) }
+                runCatching { NotificationRuntime.get(app).detachSecondary(accountId) }
+            }
             if (accountId in registry.loadOrCreate().accountIds) {
                 restoreStore.clearDeletionPending(accountId)
                 operation.failure("logout", error)
