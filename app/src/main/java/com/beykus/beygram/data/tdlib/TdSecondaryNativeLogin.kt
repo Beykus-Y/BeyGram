@@ -204,6 +204,9 @@ internal class TdSecondaryNativeLoginLauncher(
             operation.trace("transport_initialize")
             val transport = TdSecondaryNativeTransport(
                 request = { function -> bound.request(function) },
+                sendWithoutResult = { function ->
+                    bound.client.send(function, Client.ResultHandler { })
+                },
                 awaitParameters = { withTimeout(20_000) { waitParameters.await() } },
                 revalidate = { preflight.decide(primaryRoute(), preference) },
                 proxyEndpoint = {
