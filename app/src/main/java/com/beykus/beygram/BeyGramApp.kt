@@ -102,6 +102,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
@@ -528,6 +529,9 @@ private fun BeyGramAppContent(
     }
     val archiveSettingsStore = remember(context, selectedAccountId) {
         ArchiveSettingsStore.get(context, selectedAccountId)
+    }
+    val translationSettings = remember(context, selectedAccountId) {
+        TranslationSettingsStore(context.applicationContext, selectedAccountId)
     }
     val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
     val archiveSettingsScope = rememberCoroutineScope()
@@ -1169,7 +1173,8 @@ private fun BeyGramAppContent(
                         topicUnreadCount = selectedTopic?.unreadCount ?: 0,
                         onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
                         focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L },
-                        messageAnimations = appearance.messageAnimations
+                        messageAnimations = appearance.messageAnimations,
+                        translationSettings = translationSettings
                     )
                 }
             }
@@ -1445,7 +1450,7 @@ private fun BeyGramAppContent(
                         onSecondaryAccounts = { accountSwitcherVisible = true }
                     )
                 }
-                AppRoute.Language -> LanguageScreen(onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.Language -> LanguageScreen(translationSettings, onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.AccountPicker, AppRoute.SecondaryAccounts, AppRoute.SecondaryChats ->
                     LaunchedEffect(Unit) {
                         // Old saved navigation from the experimental account

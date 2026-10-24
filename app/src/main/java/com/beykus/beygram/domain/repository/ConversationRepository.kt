@@ -57,6 +57,12 @@ interface ConversationRepository {
     /** Retries failed outgoing messages regardless of their content type. */
     suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit>
     suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities>
+    /** Translates a message with TDLib, preserving its formatting entities. Secret chats are refused locally. */
+    suspend fun translateMessage(chatId: Long, messageId: Long, toLanguageCode: String): Result<MessageTranslation>
+    /** Starts server-side speech recognition; the result arrives through UpdateMessageContent. Never automatic. */
+    suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit>
+    /** Rates the last recognition result as good or bad. Telegram uses it to improve recognition quality. */
+    suspend fun rateSpeechRecognition(chatId: Long, messageId: Long, isGood: Boolean): Result<Unit>
     /** Place among the chat's attachments of the same kind; TDLib counts can be approximate in large chats. */
     suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition>
     suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity> = emptyList()): Result<Unit>

@@ -1,5 +1,7 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageLinkPreview
@@ -31,6 +33,20 @@ internal fun stickerMimeType(format: TdApi.StickerFormat): String = when (format
     else -> "image/webp"
 }
 
+/** Domain bridge for TDLib's speech result. Error details are intentionally replaced by a friendly UI message. */
+internal data class TranscriptionSnapshot(
+    val text: String = "",
+    val pendingText: String? = null,
+    val error: UiText? = null
+)
+
+internal fun TdApi.SpeechRecognitionResult?.toTranscriptionSnapshot(): TranscriptionSnapshot = when (this) {
+    is TdApi.SpeechRecognitionResultText -> TranscriptionSnapshot(text = text)
+    is TdApi.SpeechRecognitionResultPending -> TranscriptionSnapshot(pendingText = partialText.orEmpty())
+    is TdApi.SpeechRecognitionResultError -> TranscriptionSnapshot(error = UiText.Res(R.string.err_transcription_failed))
+    else -> TranscriptionSnapshot()
+}
+
 internal class TdMediaMapper(private val files: MediaFileStore) {
     private fun register(file: TdApi.File): Int {
         files.register(file.toMediaFileState())
@@ -59,10 +75,14 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             MessageMedia(MediaKind.Audio, register(it.audio), thumbnail(it.albumCoverThumbnail), it.fileName.orEmpty().ifBlank { it.title.orEmpty() }, it.mimeType.orEmpty().ifBlank { "audio/mpeg" }, durationSeconds = it.duration, title = it.title.orEmpty(), performer = it.performer.orEmpty())
         }
         is TdApi.MessageVoiceNote -> content.voiceNote.let {
-            MessageMedia(MediaKind.Voice, register(it.voice), fileName = "", mimeType = it.mimeType.orEmpty().ifBlank { "audio/ogg" }, durationSeconds = it.duration, waveform = decodeVoiceWaveform(it.waveform ?: ByteArray(0)))
+            val transcription = it.speechRecognitionResult.toTranscriptionSnapshot()
+            MessageMedia(MediaKind.Voice, register(it.voice), fileName = "", mimeType = it.mimeType.orEmpty().ifBlank { "audio/ogg" }, durationSeconds = it.duration, waveform = decodeVoiceWaveform(it.waveform ?: ByteArray(0)),
+                transcriptionText = transcription.text, transcriptionPending = transcription.pendingText, transcriptionError = transcription.error)
         }
         is TdApi.MessageVideoNote -> content.videoNote.let {
-            MessageMedia(MediaKind.VideoNote, register(it.video), thumbnail(it.thumbnail), "", "video/mp4", it.length, it.length, it.duration, isSecret = content.isSecret, isViewed = content.isViewed, minithumbnail = it.minithumbnail?.data)
+            val transcription = it.speechRecognitionResult.toTranscriptionSnapshot()
+            MessageMedia(MediaKind.VideoNote, register(it.video), thumbnail(it.thumbnail), "", "video/mp4", it.length, it.length, it.duration, isSecret = content.isSecret, isViewed = content.isViewed, minithumbnail = it.minithumbnail?.data,
+                transcriptionText = transcription.text, transcriptionPending = transcription.pendingText, transcriptionError = transcription.error)
         }
         is TdApi.MessageSticker -> content.sticker.let {
             MessageMedia(MediaKind.Sticker, register(it.sticker), thumbnail(it.thumbnail), "", stickerMimeType(it.format), it.width, it.height)

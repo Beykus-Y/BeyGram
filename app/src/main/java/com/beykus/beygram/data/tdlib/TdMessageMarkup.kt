@@ -40,6 +40,33 @@ internal fun TdApi.FormattedText.domainEntities(): List<MessageTextEntity> = val
     MessageTextEntity(entity.offset, entity.length, kind, argument)
 })
 
+/** Keeps TDLib's translated text, its formatting entities and the requested language code together. */
+internal fun TdApi.FormattedText.toMessageTranslation(languageCode: String): MessageTranslation =
+    MessageTranslation(text = text, entities = domainEntities(), languageCode = languageCode)
+
+/** ChatPreview does not carry TdApi types; this is the single place where the secret chat type is recognised. */
+internal fun TdApi.ChatType.isSecretChatType(): Boolean = this is TdApi.ChatTypeSecret
+
+/**
+ * Pure UpdateMessageContent transform: a voice note's speechRecognitionResult arrives in [media], so replacing the
+ * media is enough to refresh pending/text/error without touching the message's sender, reply or reactions.
+ */
+internal fun ChatMessage.withUpdatedContent(
+    content: TdApi.MessageContent,
+    media: MessageMedia?,
+    text: String,
+    entities: List<MessageTextEntity>,
+    serviceText: String?,
+    linkPreview: MessageLinkPreview? = null
+): ChatMessage = copy(
+    text = serviceText ?: text,
+    serviceText = serviceText,
+    isCallEvent = content is TdApi.MessageCall,
+    entities = entities,
+    media = media,
+    linkPreview = linkPreview
+)
+
 internal fun formattedText(text: String, entities: List<MessageTextEntity>) = TdApi.FormattedText(text, validTextEntities(text, entities).sortedWith(compareBy<MessageTextEntity> { it.offset }.thenByDescending { it.length }).mapNotNull { entity ->
     val type = when (entity.kind) {
         TextStyleKind.Bold -> TdApi.TextEntityTypeBold()

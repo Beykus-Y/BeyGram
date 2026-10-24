@@ -233,7 +233,12 @@ internal fun MediaPreview(
     onOpen: () -> Unit,
     onLongPress: (() -> Unit)? = null,
     onPlayed: () -> Unit = {},
-    origin: PlaybackOrigin? = null
+    origin: PlaybackOrigin? = null,
+    transcriptionRequestPending: Boolean = false,
+    transcriptionRequestError: String? = null,
+    transcriptionRated: Boolean = false,
+    onTranscribe: (() -> Unit)? = null,
+    onRateTranscription: ((Boolean) -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -293,11 +298,21 @@ internal fun MediaPreview(
         onDispose { if (pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
     }
     if (media.kind == MediaKind.Voice) {
-        VoiceBubble(media, file, downloadFile, onPlayed, onLongPress, origin)
+        VoiceBubble(media, file, downloadFile, onPlayed, onLongPress, origin,
+            transcriptionRequestPending = transcriptionRequestPending,
+            transcriptionRequestError = transcriptionRequestError,
+            transcriptionRated = transcriptionRated,
+            onTranscribe = onTranscribe,
+            onRateTranscription = onRateTranscription)
         return
     }
     if (media.kind == MediaKind.VideoNote) {
-        VideoNoteBubble(media, observeFile, downloadFile, onPlayed, onLongPress, origin = origin)
+        VideoNoteBubble(media, observeFile, downloadFile, onPlayed, onLongPress, origin = origin,
+            transcriptionRequestPending = transcriptionRequestPending,
+            transcriptionRequestError = transcriptionRequestError,
+            transcriptionRated = transcriptionRated,
+            onTranscribe = onTranscribe,
+            onRateTranscription = onRateTranscription)
         return
     }
     if (media.kind == MediaKind.Sticker) {
