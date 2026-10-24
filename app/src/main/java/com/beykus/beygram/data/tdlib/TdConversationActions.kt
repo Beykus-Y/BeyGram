@@ -14,8 +14,6 @@ import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
 
-private const val SEARCH_PAGE_SIZE = 50
-
 internal class TdConversationActions(
     client: () -> Client, private val history: MessageHistoryStore,
     private val map: (TdApi.Message) -> ChatMessage,
@@ -464,7 +462,7 @@ internal class TdConversationActions(
                 query,
                 offset,
                 SEARCH_PAGE_SIZE,
-                filter.kind?.let { sharedFilter(it) },
+                filter.kind?.toSearchMessagesFilter(),
                 filter.chatType?.let { chatTypeFilter(it) },
                 minDate,
                 0
@@ -478,11 +476,15 @@ internal class TdConversationActions(
         GlobalChatType.Channel -> TdApi.SearchMessagesChatTypeFilterChannel()
     }
 
-    /** Поиск по тексту внутри одного чата: TDLib отдаёт новые сообщения первыми, дальше страницы идут через nextFromMessageId. */
-    suspend fun search(chatId: Long, query: String, fromMessageId: Long, forumTopicId: Long = 0L): Result<MessageSearchPage> = requestResult {
-        val topic = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
-        val found = request(TdApi.SearchChatMessages(chatId, topic, query, null, fromMessageId, 0, SEARCH_PAGE_SIZE, null))
-        MessageSearchPage(found.messages.orEmpty().map(map), found.nextFromMessageId)
+    /**
+     * Поиск внутри одного чата: TDLib отдаёт новые сообщения первыми, дальше страницы идут через nextFromMessageId.
+     * TDLib применяет отправителя и тип вложения, а диапазон дат фильтруется на каждой странице локально:
+     * курсор остаётся тем, что вернул сервер, поэтому страницы не смешиваются.
+     */
+    suspend fun search(chatId: Long, query: String, fromMessageId: Long, forumTopicId: Long = 0L, filter: ChatSearchFilter = ChatSearchFilter()): Result<MessageSearchPage> = requestResult {
+        val found = request(chatSearchRequest(chatId, query, fromMessageId, filter, forumTopicId))
+        val messages = found.messages.orEmpty().filterNotNull().map(map).filter(filter::matchesDate)
+        MessageSearchPage(messages, found.nextFromMessageId, found.totalCount)
     }
 
     /**
@@ -492,15 +494,8 @@ internal class TdConversationActions(
     suspend fun shared(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean): Result<MessageSearchPage> = requestResult {
         // На одно меньше лимита: повтор [fromMessageId] в ответе окно отсекает по id.
         val offset = if (newer) -(SEARCH_PAGE_SIZE - 1) else 0
-        val found = request(TdApi.SearchChatMessages(chatId, null, "", null, fromMessageId, offset, SEARCH_PAGE_SIZE, sharedFilter(kind)))
-        MessageSearchPage(found.messages.orEmpty().filterNotNull().map(map), found.nextFromMessageId)
-    }
-    private fun sharedFilter(kind: SharedMediaKind): TdApi.SearchMessagesFilter = when (kind) {
-        SharedMediaKind.Media -> TdApi.SearchMessagesFilterPhotoAndVideo()
-        SharedMediaKind.Files -> TdApi.SearchMessagesFilterDocument()
-        SharedMediaKind.Links -> TdApi.SearchMessagesFilterUrl()
-        SharedMediaKind.Voice -> TdApi.SearchMessagesFilterVoiceNote()
-        SharedMediaKind.Music -> TdApi.SearchMessagesFilterAudio()
+        val found = request(TdApi.SearchChatMessages(chatId, null, "", null, fromMessageId, offset, SEARCH_PAGE_SIZE, kind.toSearchMessagesFilter()))
+        MessageSearchPage(found.messages.orEmpty().filterNotNull().map(map), found.nextFromMessageId, found.totalCount)
     }
 
     fun hydrateReply(message: TdApi.Message) {

@@ -62,6 +62,7 @@ import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
 import com.beykus.beygram.navigation.TabVisibility
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.MainTabsScaffold
@@ -1727,6 +1728,57 @@ private fun BeyGramAppContent(
                     conversation = repository,
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
+                    onOpenChat = { chat ->
+                        val sourceAccountId = selectedAccountId
+                        val sourceRepository = repository
+                        globalSearchNavScope.launch {
+                            val loaded = sourceRepository.loadChat(chat.id)
+                            if (selectedAccountId != sourceAccountId) return@launch
+                            if (loaded.isSuccess) {
+                                selectedChatId = chat.id
+                                selectedTopicChatId = chat.id
+                                selectedForumTopicId = 0L
+                                trustedForumTopicId = 0L
+                                chatFocusMessageId = 0L
+                                chatBackRouteName = AppRoute.GlobalSearch.name
+                                routeName = AppRoute.Chat.name
+                            } else {
+                                chatFocusMessageId = 0L
+                                noticeError = UiText.Res(R.string.err_app_open_chat_failed)
+                            }
+                        }
+                    },
+                    onOpenProfile = { userId -> openUserProfile(userId, AppRoute.GlobalSearch) },
+                    onOpenPublicChat = { chat ->
+                        val sourceAccountId = selectedAccountId
+                        val sourceRepository = repository
+                        globalSearchNavScope.launch {
+                            sourceRepository.openPublicChat(chat.id)
+                                .onSuccess { result ->
+                                    if (selectedAccountId == sourceAccountId) {
+                                        when (result) {
+                                            is PublicChatOpenResult.Opened -> {
+                                                selectedChatId = result.chatId
+                                                selectedTopicChatId = result.chatId
+                                                selectedForumTopicId = 0L
+                                                trustedForumTopicId = 0L
+                                                chatFocusMessageId = 0L
+                                                chatBackRouteName = AppRoute.GlobalSearch.name
+                                                routeName = AppRoute.Chat.name
+                                            }
+                                            PublicChatOpenResult.JoinRequestSent ->
+                                                noticeError = UiText.Res(R.string.global_search_public_join_request_sent)
+                                        }
+                                    }
+                                }
+                                .onFailure { error ->
+                                    if (selectedAccountId == sourceAccountId) {
+                                        noticeError = (error as? UserMessageException)?.text
+                                            ?: UiText.Res(R.string.global_search_public_open_failed)
+                                    }
+                                }
+                        }
+                    },
                     onOpenMessage = { chatId, forumTopicId, messageId ->
                         val sourceAccountId = selectedAccountId
                         val sourceRepository = repository

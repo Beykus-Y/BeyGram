@@ -8,6 +8,7 @@ import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ChatNotificationPreferences
 import com.beykus.beygram.domain.model.NotificationSoundOption
 import com.beykus.beygram.domain.model.ChatMembersPage
@@ -16,6 +17,8 @@ import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.GlobalMessagePage
 import com.beykus.beygram.domain.model.GlobalSearchFilter
+import com.beykus.beygram.domain.model.GlobalSearchPage
+import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
@@ -206,7 +209,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = unavailable()
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = unavailable()
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = unavailable()
-    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
+    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter): Result<MessageSearchPage> = unavailable()
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = unavailable()
@@ -228,8 +231,12 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> = unavailable()
     override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()
-    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()
+    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter): Result<MessageSearchPage> = unavailable()
     override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter): Result<GlobalMessagePage> = unavailable()
+    override suspend fun searchGlobalChats(query: String, limit: Int): Result<GlobalSearchPage<ChatPreview>> = unavailable()
+    override suspend fun searchGlobalContacts(query: String, limit: Int): Result<GlobalSearchPage<ContactPreview>> = unavailable()
+    override suspend fun searchGlobalPublicChats(query: String): Result<GlobalSearchPage<ChatPreview>> = unavailable()
+    override suspend fun openPublicChat(chatId: Long): Result<PublicChatOpenResult> = unavailable()
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean): Result<MessageSearchPage> = unavailable()
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) {}
     override fun setAppForeground(foreground: Boolean) {}

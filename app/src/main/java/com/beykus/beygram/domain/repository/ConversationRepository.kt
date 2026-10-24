@@ -95,14 +95,34 @@ interface ConversationRepository {
     /** The custom emoji sticker behind [customEmojiId]. TDLib is asked on first use; the value stays null until it answers. */
     fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?>
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
-    /** Messages in one chat whose text matches [query]. Pass 0 for the first page, then the previous page's nextFromMessageId. */
-    suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
-    suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage>
+    /**
+     * Messages in one chat whose text matches [query] and whose sender/attachment type match [filter]. Pass 0 for the
+     * first page, then the previous page's nextFromMessageId. [filter]'s date range is applied to each returned page
+     * without changing that cursor, so a page can be empty while [MessageSearchPage.nextFromMessageId] still allows more.
+     */
+    suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter = ChatSearchFilter()): Result<MessageSearchPage>
+    /** Same as [searchMessages], scoped to one forum topic. */
+    suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter = ChatSearchFilter()): Result<MessageSearchPage>
     /**
      * Messages matching [query] in all chats of the account, limited by [filter]. Pass "" for the first page, then the
      * previous page's nextOffset. The offset is only valid with the same filter it came from.
      */
     suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter): Result<GlobalMessagePage>
+    /**
+     * Local and server chat-title search. TDLib has no offset here, so [limit] grows for the next page
+     * and callers merge rows by chat id. Only chats already known to TDLib are returned.
+     */
+    suspend fun searchGlobalChats(query: String, limit: Int): Result<GlobalSearchPage<ChatPreview>>
+    /** Address-book contacts matching [query], with TDLib's total count for the "show more" limit. */
+    suspend fun searchGlobalContacts(query: String, limit: Int): Result<GlobalSearchPage<ContactPreview>>
+    /** Public chats matching [query]. Results are not joined until the user taps one. */
+    suspend fun searchGlobalPublicChats(query: String): Result<GlobalSearchPage<ChatPreview>>
+    /**
+     * Resolves a public search result only after the user taps it. Channels open in preview; public
+     * groups join when needed. A join request that needs approval is returned, never sent silently
+     * while the query is being typed.
+     */
+    suspend fun openPublicChat(chatId: Long): Result<PublicChatOpenResult>
     /**
      * Messages with an attachment of [kind] for the chat profile tabs and the chat media viewer, newest first. Same paging as
      * [searchMessages]. With [newer], the page holds messages newer than [fromMessageId] instead.

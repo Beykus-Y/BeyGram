@@ -12,8 +12,11 @@ import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.GlobalSearchFilter
+import com.beykus.beygram.domain.model.GlobalSearchPage
+import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MediaFileState
@@ -774,6 +777,119 @@ class TdLibTelegramRepository private constructor(
         chat.id
     }
 
+    /**
+     * Local and server chat search. TDLib returns only ids and has no offset, so [limit] grows for
+     * the next page. SearchChatsOnServer is best-effort: a server-side failure must not hide the
+     * locally known chats that SearchChats already returned.
+     */
+    override suspend fun searchGlobalChats(query: String, limit: Int): Result<GlobalSearchPage<ChatPreview>> = requestResult {
+        if (query.isBlank()) return@requestResult GlobalSearchPage(emptyList(), 0)
+        val pageSize = limit.coerceIn(1, GLOBAL_SEARCH_PEOPLE_MAX)
+        val (local, server) = coroutineScope {
+            val localRequest = async { tdRequests(TdApi.SearchChats(query, null, pageSize)) }
+            val serverRequest = async {
+                try {
+                    tdRequests(TdApi.SearchChatsOnServer(query, null, pageSize))
+                } catch (_: TimeoutCancellationException) {
+                    // A slow server search must not hide local matches; only genuine caller cancellation aborts.
+                    null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            localRequest.await() to serverRequest.await()
+        }
+        val ids = (local.chatIds.toList() + server?.chatIds?.toList().orEmpty()).distinct()
+        GlobalSearchPage(
+            items = globalChatPreviews(ids),
+            totalCount = maxOf(local.totalCount, server?.totalCount ?: 0)
+        )
+    }
+
+    override suspend fun searchGlobalContacts(query: String, limit: Int): Result<GlobalSearchPage<ContactPreview>> = requestResult {
+        if (query.isBlank()) return@requestResult GlobalSearchPage(emptyList(), 0)
+        contactBook.search(query, limit.coerceIn(1, GLOBAL_SEARCH_PEOPLE_MAX))
+    }
+
+    /** Public chats are only listed here; joining happens in [openPublicChat] after an explicit tap. */
+    override suspend fun searchGlobalPublicChats(query: String): Result<GlobalSearchPage<ChatPreview>> = requestResult {
+        if (query.isBlank()) return@requestResult GlobalSearchPage(emptyList(), 0)
+        val found = tdRequests(TdApi.SearchPublicChats(query, null))
+        GlobalSearchPage(globalChatPreviews(found.chatIds.toList()), found.totalCount)
+    }
+
+    /**
+     * Channels open in preview without joining. A public group is joined only when it is opened;
+     * a join request awaiting approval is reported to the UI instead of being treated as an error.
+     */
+    override suspend fun openPublicChat(chatId: Long): Result<PublicChatOpenResult> = requestResult {
+        if (chatId == 0L) throw UserMessageException(UiText.Res(R.string.err_app_open_chat_failed))
+        var chat = tdRequests(TdApi.GetChat(chatId))
+        val type = chat.type
+        if (type is TdApi.ChatTypeSupergroup && !type.isChannel) {
+            val status = try {
+                tdRequests(TdApi.GetSupergroup(type.supergroupId)).status
+            } catch (_: TimeoutCancellationException) {
+                null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (status is TdApi.ChatMemberStatusBanned) {
+                throw UserMessageException(UiText.Res(R.string.global_search_public_join_declined))
+            }
+            if (!status.isJoinedChat()) {
+                val joined = try {
+                    tdRequests(TdApi.JoinChat(chatId))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    throw UserMessageException(publicChatJoinError(error), error)
+                }
+                when (joined) {
+                    is TdApi.ChatJoinResultSuccess -> {
+                        val openedChatId = joined.chatId.takeIf { it != 0L } ?: chatId
+                        chat = tdRequests(TdApi.GetChat(openedChatId))
+                    }
+                    is TdApi.ChatJoinResultRequestSent -> return@requestResult PublicChatOpenResult.JoinRequestSent
+                    is TdApi.ChatJoinResultDeclined ->
+                        throw UserMessageException(UiText.Res(R.string.global_search_public_join_declined))
+                    is TdApi.ChatJoinResultGuardBotApprovalRequired ->
+                        throw UserMessageException(UiText.Res(R.string.global_search_public_join_guard))
+                    else -> throw UserMessageException(UiText.Res(R.string.global_search_public_open_failed))
+                }
+            }
+        }
+        handleNewChat(chat)
+        PublicChatOpenResult.Opened(chat.id)
+    }
+
+    /** Reuses cached metadata and bounds concurrent GetChat requests for one search page. */
+    private suspend fun globalChatPreviews(chatIds: List<Long>): List<ChatPreview> = coroutineScope {
+        val limiter = Semaphore(6)
+        chatIds.distinct().map { id ->
+            async { limiter.withPermit { globalChatPreview(id) } }
+        }.awaitAll().filterNotNull()
+    }
+
+    private suspend fun globalChatPreview(chatId: Long): ChatPreview? {
+        chatCache[chatId]?.let { return it }
+        return try {
+            val preview = tdRequests(TdApi.GetChat(chatId)).toChatPreview()
+            if (preview != null) chatCache[chatId] = preview
+            preview
+        } catch (_: TimeoutCancellationException) {
+            null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     override suspend fun resolvePublicChat(username: String): Result<Long> = requestResult {
         val cleaned = username.trim().removePrefix("@")
         require(cleaned.isNotEmpty()) { "Empty public username" }
@@ -900,9 +1016,10 @@ class TdLibTelegramRepository private constructor(
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
-    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
-    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long) =
-        conversationActions.search(chatId, query, fromMessageId, forumTopicId)
+    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
+        conversationActions.search(chatId, query, fromMessageId, filter = filter)
+    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
+        conversationActions.search(chatId, query, fromMessageId, forumTopicId, filter)
     override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter) =
         conversationActions.searchGlobal(query, offset, filter).map { page ->
             // One metadata lookup per distinct uncached chat, never per message. Bounded
@@ -2158,6 +2275,7 @@ class TdLibTelegramRepository private constructor(
         media = attachment,
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
+        senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
         isEdited = editDate > 0,
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),
@@ -2404,6 +2522,33 @@ class TdLibTelegramRepository private constructor(
             check(native.authPhase.value == TdAccountAuthPhase.READY && !native.routePaused.value)
             return TdLibTelegramRepository(context.applicationContext, policy, native)
         }
+    }
+}
+
+internal const val GLOBAL_SEARCH_PEOPLE_MAX = 50
+
+/** A chat is already joined when TDLib reports any membership status except left/banned/restricted-without-membership. */
+private fun TdApi.ChatMemberStatus?.isJoinedChat(): Boolean = when (this) {
+    is TdApi.ChatMemberStatusMember,
+    is TdApi.ChatMemberStatusCreator,
+    is TdApi.ChatMemberStatusAdministrator -> true
+    is TdApi.ChatMemberStatusRestricted -> isMember
+    else -> false
+}
+
+/** JoinChat errors are user-facing: restricted groups must not look like a generic network failure. */
+private fun publicChatJoinError(error: Exception): UiText {
+    val text = error.message.orEmpty()
+    return when {
+        text.contains("FLOOD_WAIT") || text.contains("Too Many Requests") ->
+            UiText.Res(R.string.err_tdlib_flood_wait)
+        text.contains("CHANNEL_PRIVATE") || text.contains("CHANNEL_INVALID") ||
+            text.contains("CHAT_PRIVATE") || text.contains("CHAT_NOT_FOUND") ->
+            UiText.Res(R.string.global_search_public_open_failed)
+        text.contains("CHAT_RESTRICTED") || text.contains("CHANNEL_JOIN_TOO_MUCH") ||
+            text.contains("USERS_TOO_MUCH") || text.contains("CHAT_MEMBER_ADD_FAILED") ->
+            UiText.Res(R.string.global_search_public_join_declined)
+        else -> UiText.Res(R.string.global_search_public_open_failed)
     }
 }
 
