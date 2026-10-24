@@ -99,4 +99,25 @@ class VideoNoteDeliveryStateTest {
             VideoNoteExportCenter.results.first { list -> list.none { it.sessionName == item.sessionName } }
         }
     }
+    @Test fun differentAccountCannotClaimOrDiscardQueuedVideoNote() = runBlocking {
+        val sameNumericChat = 711L
+        val session = "account-isolation-test"
+        val source = VideoNoteExportResult(sameNumericChat, listOf(media("owner")), false,
+            session, accountId = "account-owner")
+        VideoNoteExportCenter.publish(source)
+        var foreignSendInvoked = false
+        assertFalse(VideoNoteExportCenter.send(sameNumericChat, session, null, "account-foreign") { _, _ ->
+            foreignSendInvoked = true
+            Result.success(Unit)
+        })
+        assertFalse(foreignSendInvoked)
+        VideoNoteExportCenter.discard(sameNumericChat, session, "account-foreign")
+        assertTrue(VideoNoteExportCenter.results.value.any {
+            it.accountId == "account-owner" && it.chatId == sameNumericChat && it.sessionName == session
+        })
+        VideoNoteExportCenter.discard(sameNumericChat, session, "account-owner")
+        assertFalse(VideoNoteExportCenter.results.value.any {
+            it.accountId == "account-owner" && it.sessionName == session
+        })
+    }
 }

@@ -62,6 +62,12 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         }
         chat.canPostMessages(status)
     }
+    /** Owner/administrator membership is separate from the posting right: some admins only moderate or manage settings. */
+    fun isChannelAdministrator(chat: TdApi.Chat): Boolean = synchronized(lock) {
+        val supergroupId = (chat.type as? TdApi.ChatTypeSupergroup)?.supergroupId ?: return@synchronized false
+        val status = supers[supergroupId]?.status
+        status is TdApi.ChatMemberStatusCreator || status is TdApi.ChatMemberStatusAdministrator
+    }
     fun observe(chatId: Long): StateFlow<ProfileState> = synchronized(lock) {
         details.getOrPut(chatId) { MutableStateFlow(ProfileState(info = chatInfo(chatId))) }.asStateFlow()
     }
@@ -403,7 +409,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             commonGroupCount = full?.groupInCommonCount?.takeIf { it > 0 && user.id != myId },
             personalChatId = full?.personalChatId?.toLong() ?: 0L,
             personalChatTitle = full?.personalChatId?.let { chats[it]?.title }.orEmpty(),
-            isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true
+            isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true,
+            isBlocked = user.id != myId && full?.blockList is TdApi.BlockListMain
         )
     }
     private fun chatInfo(id: Long): ProfileInfo? = chatProfile(id)?.copy(

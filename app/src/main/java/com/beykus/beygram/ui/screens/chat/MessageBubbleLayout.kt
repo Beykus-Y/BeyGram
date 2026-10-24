@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -92,6 +93,8 @@ internal fun bubbleMetricsFor(style: BubbleStyle, density: ListDensity, cornerRa
  * Пузырь из трёх частей: [body] — содержимое сверху, [meta] — время и статус в правом нижнем углу,
  * [footer] — кнопки под пузырём. Ширина пузыря — по самой широкой части, поэтому время всегда у правого края.
  * При [overlayMeta] время кладётся поверх нижнего правого угла [body], а не отдельной строкой.
+ * [bottomBar] — полоса во всю ширину пузыря под временем (например, «Комментарии» у поста канала): пузырь не уже
+ * её подписи, а сама полоса растягивается до ширины пузыря.
  */
 @Composable
 internal fun BubbleLayout(
@@ -99,23 +102,29 @@ internal fun BubbleLayout(
     overlayMeta: Boolean,
     body: @Composable () -> Unit,
     meta: @Composable () -> Unit,
-    footer: @Composable () -> Unit = {}
+    footer: @Composable () -> Unit = {},
+    bottomBar: @Composable () -> Unit = {}
 ) {
     // Каждая часть обёрнута в Box, чтобы пустая часть всё равно давала одно измеряемое место.
-    Layout(content = { Box { body() }; Box { meta() }; Box { footer() } }, modifier = modifier) { measurables, constraints ->
+    Layout(content = { Box { body() }; Box { meta() }; Box { footer() }; Box { bottomBar() } }, modifier = modifier) { measurables, constraints ->
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val bodyPlaceable = measurables[0].measure(loose)
         val metaPlaceable = measurables[1].measure(loose)
         val footerPlaceable = measurables[2].measure(loose)
-        val width = maxOf(bodyPlaceable.width, metaPlaceable.width, footerPlaceable.width).coerceIn(constraints.minWidth, constraints.maxWidth)
+        // Полоса сама не растягивает пузырь до максимума, но и не даёт ему стать уже своей подписи.
+        val barWidth = measurables[3].maxIntrinsicWidth(loose.maxHeight)
+        val width = maxOf(bodyPlaceable.width, metaPlaceable.width, footerPlaceable.width, barWidth).coerceIn(constraints.minWidth, constraints.maxWidth)
+        val barPlaceable = measurables[3].measure(Constraints(minWidth = 0, maxWidth = width, minHeight = 0, maxHeight = loose.maxHeight))
         val inset = OverlayInset.roundToPx()
         val metaTop = if (overlayMeta) bodyPlaceable.height - metaPlaceable.height - inset else bodyPlaceable.height
-        val footerTop = bodyPlaceable.height + (if (overlayMeta) 0 else metaPlaceable.height)
+        val barTop = bodyPlaceable.height + (if (overlayMeta) 0 else metaPlaceable.height)
+        val footerTop = barTop + barPlaceable.height
         val height = footerTop + footerPlaceable.height
         val metaLeft = width - metaPlaceable.width - (if (overlayMeta) inset else 0)
         layout(width, height) {
             bodyPlaceable.placeRelative(0, 0)
             metaPlaceable.placeRelative(metaLeft, metaTop)
+            barPlaceable.placeRelative(0, barTop)
             footerPlaceable.placeRelative(0, footerTop)
         }
     }

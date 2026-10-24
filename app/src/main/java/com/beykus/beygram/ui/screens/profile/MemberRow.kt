@@ -11,6 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,10 +52,10 @@ internal fun MemberRow(
 ) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).semantics(mergeDescendants = true) {}.padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TelegramAvatar(member.initials, Color(member.avatarColorArgb), 48.dp, member.photo, observeFile, downloadFile)
+        TelegramAvatar(member.initials, Color(member.avatarColorArgb), 48.dp, member.photo, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(

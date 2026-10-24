@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="secondary_accounts_title">Telegram-Konten</string>
+    <string name="secondary_accounts_primary">Primäres Konto</string>
+    <string name="secondary_accounts_others">Sekundärkonto</string>
+    <string name="secondary_accounts_account_label">Sekundärkonto %1$d</string>
+    <string name="secondary_accounts_registry_error">Die Telegram-Kontenregistrierung konnte nicht geladen werden. Es wurden keine Kontodaten geändert. Überprüfen Sie den App-Speicher.</string>
+
+    <string name="account_switcher_title">Konten</string>
+    <string name="account_switcher_add">Konto hinzufügen</string>
+    <string name="account_switcher_add_note">Eine separate Telegram-Sitzung. Chats, Einstellungen und Benachrichtigungen bleiben isoliert.</string>
+    <string name="account_switcher_menu_description">Aktionen für %1$s</string>
+    <string name="account_switcher_current_description">Aktuelles Konto</string>
+    <string name="account_switcher_identifier_username">\@%1$s</string>
+    <string name="account_switcher_status_current">Ausgewählt</string>
+    <string name="account_switcher_status_ready">Verbunden</string>
+    <string name="account_switcher_status_switching">Wird gewechselt…</string>
+    <string name="account_switcher_status_connecting">Wird verbunden…</string>
+    <string name="account_switcher_status_offline">Kein Netzwerk</string>
+    <string name="account_switcher_status_route_paused">Verbindungsroute nicht verfügbar</string>
+    <string name="account_switcher_status_phone">Warten auf Telefonnummer</string>
+    <string name="account_switcher_status_code">Warten auf Code</string>
+    <string name="account_switcher_status_password">Warten auf Passwort</string>
+    <string name="account_switcher_status_disconnected">Angemeldet · Sitzung beendet</string>
+    <string name="account_switcher_status_not_connected">Nicht verbunden</string>
+    <string name="account_switcher_status_unsigned">Die Anmeldung ist nicht abgeschlossen</string>
+    <string name="account_switcher_status_logging_out">Wird abgemeldet…</string>
+    <string name="account_switcher_status_unsupported">Eine andere Anmeldemethode ist erforderlich</string>
+    <string name="account_switcher_status_primary_signed_out">Anmeldung erforderlich</string>
+
+    <string name="account_switcher_continue">Anmeldung fortsetzen</string>
+    <string name="account_switcher_configure">Verbindungseinstellungen</string>
+    <string name="account_switcher_retry">Wiederholen</string>
+    <string name="account_switcher_disconnect">Sitzung beenden</string>
+    <string name="account_switcher_disconnect_title">Diese Sitzung beenden?</string>
+    <string name="account_switcher_disconnect_message">Das Konto bleibt in BeyGram und seine Telegram-Anmeldung bleibt erhalten. Sie können es jederzeit wieder anschließen.</string>
+    <string name="account_switcher_disconnect_unsigned_message">Die noch nicht abgeschlossene Anmeldung wird gestoppt. Der Slot bleibt in der Liste, sodass Sie später fortfahren können.</string>
+    <string name="account_switcher_disconnect_confirm">Stoppen</string>
+    <string name="account_switcher_logout">Abmelden und Daten löschen</string>
+    <string name="account_switcher_delete_incomplete">Nicht abgeschlossene Anmeldung löschen</string>
+    <string name="account_switcher_delete_title">Nicht abgeschlossene Anmeldung löschen?</string>
+    <string name="account_switcher_delete_message">Die unvollständige lokale Sitzung wird gelöscht. Autorisierte Konten sind nicht betroffen.</string>
+    <string name="account_switcher_delete_confirm">Löschen</string>
+
+    <string name="account_switcher_auth_add_title">Konto hinzufügen</string>
+    <string name="account_switcher_auth_continue_title">Anmeldung fortsetzen</string>
+    <string name="account_switcher_auth_later">Später</string>
+    <string name="account_switcher_auth_preparing">Sitzung wird vorbereitet…</string>
+    <string name="account_switcher_auth_prepare_failed">Die Sitzung konnte nicht erstellt werden</string>
+    <string name="account_switcher_auth_switch_progress">Anmeldung läuft…</string>
+    <string name="account_switcher_auth_closed">Die Sitzung wurde geschlossen. Verbinden Sie das Konto erneut.</string>
+    <string name="account_switcher_auth_unsupported">Telegram hat eine Anmeldemethode angefordert, die noch nicht unterstützt wird. Löschen Sie die nicht abgeschlossene Anmeldung und versuchen Sie es mit einem anderen Konto.</string>
+    <string name="account_switcher_auth_retry_connect">Erneut verbinden</string>
+    <string name="account_switcher_auth_phone_hint">Sie erhalten den Code in Telegram.</string>
+    <string name="account_switcher_auth_code_hint">Geben Sie den Code von Telegram ein.</string>
+    <string name="account_switcher_auth_password_hint">Geben Sie Ihr Telegram-Cloud-Passwort ein.</string>
+
+    <string name="account_switcher_route_title">Kontoverbindung</string>
+    <string name="account_switcher_route_message">Standardmäßig folgt das Konto derselben sicheren Route wie das Hauptkonto. Ändern Sie sie nur, wenn Verbindungsprobleme auftreten.</string>
+    <string name="account_switcher_route_apply">Anwenden</string>
+    <string name="account_switcher_route_saved">Die Route wurde gespeichert und wird bei der nächsten Verbindung verwendet.</string>
+
+    <string name="account_switcher_error_route">Die Verbindungsroute ist nicht verfügbar. Überprüfen Sie den Proxy oder wählen Sie eine andere Route.</string>
+    <string name="account_switcher_error_route_paused">Die Verbindung wird pausiert, da die Route nicht mehr mit den Einstellungen des Hauptkontos übereinstimmt.</string>
+    <string name="account_switcher_error_session_limit">Es können maximal zwei weitere Konten gleichzeitig verbunden werden. Stoppen Sie eine ihrer Sitzungen.</string>
+    <string name="account_switcher_error_account_limit">Das BeyGram-Kontolimit wurde erreicht.</string>
+    <string name="account_switcher_error_timeout">Telegram reagierte nicht rechtzeitig. Überprüfen Sie das Netzwerk und versuchen Sie es erneut.</string>
+    <string name="account_switcher_error_not_authorized">Schließen Sie zuerst die Anmeldung bei diesem Konto ab.</string>
+    <string name="account_switcher_error_auth_phone">Überprüfen Sie die Telefonnummer und versuchen Sie es erneut.</string>
+    <string name="account_switcher_error_auth_code">Der Code ist falsch. Überprüfen Sie ihn und versuchen Sie es erneut.</string>
+    <string name="account_switcher_error_auth_code_expired">Der Code ist abgelaufen. Fordern Sie ein neues an.</string>
+    <string name="account_switcher_error_auth_password">Das Cloud-Passwort ist falsch. Versuchen Sie es erneut.</string>
+    <string name="account_switcher_error_auth_flood">Zu viele Versuche. Warten Sie und versuchen Sie es erneut.</string>
+    <string name="account_switcher_error_auth_failed">Telegram hat die Anmeldung abgelehnt. Überprüfen Sie die Details und versuchen Sie es erneut.</string>
+    <string name="account_switcher_error_generic">Die Aktion ist fehlgeschlagen. Andere Konten waren nicht betroffen.</string>
+
+    <string name="account_recovery_title">Konto nicht verfügbar</string>
+    <string name="account_recovery_message">Die Telegram-Sitzung für das ausgewählte Konto läuft nicht. Versuchen Sie die Verbindung erneut, wählen Sie ein anderes Konto oder konfigurieren Sie die Route.</string>
+    <string name="account_recovery_retry">Verbindung erneut versuchen</string>
+    <string name="account_recovery_choose">Konto auswählen</string>
+    <string name="account_recovery_configure">Verbindungseinstellungen</string>
+    <string name="account_recovery_primary">Gehen Sie zum Hauptkonto</string>
+    <string name="account_recovery_busy">Konto verbinden…</string>
+</resources>

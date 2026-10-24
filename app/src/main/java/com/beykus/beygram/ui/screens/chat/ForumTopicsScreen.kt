@@ -87,6 +87,7 @@ fun ForumTopicsLoadingScreen(chatTitle: String, onBack: () -> Unit) {
 @Composable
 fun ForumTopicsScreen(
     chatId: Long,
+    accountId: String = "legacy",
     chatTitle: String,
     topics: List<ForumTopic>,
     loadPreview: suspend (Long) -> Result<String?>,
@@ -109,11 +110,11 @@ fun ForumTopicsScreen(
     var editing by remember { mutableStateOf<ForumTopic?>(null) }
     var deleting by remember { mutableStateOf<ForumTopic?>(null) }
     var name by remember { mutableStateOf("") }
-    val topicPreviews = remember(chatId) { mutableStateMapOf<Long, TopicPreviewState>() }
+    val topicPreviews = remember(accountId, chatId) { mutableStateMapOf<Long, TopicPreviewState>() }
     val ordered = remember(topics) { orderedForumTopics(topics) }
     val pinned = remember(ordered) { ordered.filter(ForumTopic::isPinned) }
     val regular = remember(ordered) { ordered.filterNot(ForumTopic::isPinned) }
-    val savedPosition: ChatScrollPositionViewModel = viewModel(key = "forum-scroll-$chatId")
+    val savedPosition: ChatScrollPositionViewModel = viewModel(key = "forum-scroll-$accountId-$chatId")
     val listState = rememberLazyListState(savedPosition.firstVisibleItemIndex, savedPosition.firstVisibleItemScrollOffset)
     DisposableEffect(listState) {
         onDispose {

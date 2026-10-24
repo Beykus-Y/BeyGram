@@ -7,19 +7,32 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.analytics.AnalyticsSync
+import com.beykus.beygram.data.export.ChatExportMessage
+import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatActivity
+import com.beykus.beygram.domain.model.ChatExportProgress
+import com.beykus.beygram.domain.model.ChatExportRequest
+import com.beykus.beygram.domain.model.ChatExportSummary
+import com.beykus.beygram.domain.model.ChatExportTarget
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.GlobalSearchFilter
+import com.beykus.beygram.domain.model.GlobalSearchPage
+import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.MessageSendOptions
+import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.MessageDraft
+import com.beykus.beygram.domain.model.MessageThread
+import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
@@ -32,8 +45,19 @@ import com.beykus.beygram.domain.model.StorageCategory
 import com.beykus.beygram.domain.model.StorageUsage
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
+import com.beykus.beygram.domain.model.QrLoginLinkTracker
+import com.beykus.beygram.domain.model.QrLoginLinkUpdate
+import com.beykus.beygram.domain.model.QR_LOGIN_REFRESH_TIMEOUT_MS
 import com.beykus.beygram.domain.model.CallHistoryPage
+import com.beykus.beygram.domain.model.ChannelAdminEvent
+import com.beykus.beygram.domain.model.ChannelAdminEventPage
+import com.beykus.beygram.domain.model.ChannelEventFilter
+import com.beykus.beygram.domain.model.ChannelStatisticsPerson
+import com.beykus.beygram.domain.model.ChannelStatisticsSummary
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ChatInvitePreview
+import com.beykus.beygram.domain.model.InviteJoinOutcome
+import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.FolderChatPosition
 import com.beykus.beygram.domain.model.TelegramChatFolders
 import com.beykus.beygram.domain.model.TelegramFolderDraft
@@ -42,13 +66,20 @@ import com.beykus.beygram.domain.model.orderedTelegramFolderChats
 import com.beykus.beygram.domain.model.GroupCreationState
 import com.beykus.beygram.domain.model.mayBeginGroupCreation
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.BlockedSenderKind
+import com.beykus.beygram.domain.model.BlockedSendersPage
+import com.beykus.beygram.domain.model.PrivacyRules
+import com.beykus.beygram.domain.model.PrivacySetting
+import com.beykus.beygram.domain.model.PrivacySettingState
 import com.beykus.beygram.domain.model.orderedArchivedChats
 import com.beykus.beygram.domain.model.orderedMainChats
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.InteractionPolicy
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
+import com.beykus.beygram.domain.model.ChatNotificationPreferences
 import com.beykus.beygram.domain.model.NotificationPresentation
+import com.beykus.beygram.domain.model.NotificationSoundOption
 import com.beykus.beygram.domain.model.SavedTelegramProxy
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.TelegramRoute
@@ -106,15 +137,23 @@ import java.util.Date
  *  - потокобезопасную запись (value=),
  *  - автоматический recomposition в Compose через collectAsStateWithLifecycle().
  */
-class TdLibTelegramRepository private constructor(context: Context, policy: InteractionPolicy) : TelegramRepository {
+class TdLibTelegramRepository private constructor(
+    context: Context,
+    policy: InteractionPolicy,
+    private val nativeSecondary: TdSecondaryNativeLogin? = null
+) : TelegramRepository {
+    val accountId: String = nativeSecondary?.accountId ?: TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+    private val isLegacyAccount: Boolean get() = nativeSecondary == null
+    @Volatile private var secondaryAuthorizationLost = false
+    internal val hasSecondaryAuthorizationLoss: Boolean get() = secondaryAuthorizationLost
 
     private val appContext = context.applicationContext
     private val proxyMutex = Mutex()
-    private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences("mihomo_tdlib_proxy", Context.MODE_PRIVATE)
+    private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences(if (isLegacyAccount) "mihomo_tdlib_proxy" else "mihomo_tdlib_proxy_$accountId", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
     private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
-    private val messageDrafts = TdChatDrafts(appContext) { client }
+    private val messageDrafts = TdChatDrafts(appContext, accountId) { client }
 
     // ---- Прокси Telegram -----------------------------------------------------
 
@@ -242,7 +281,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
 
-    private val config = TdLibConfig.from(context)
+    private val config = nativeSecondary?.config ?: TdLibConfig.from(context)
 
     // ---- Реактивное состояние ------------------------------------------------
 
@@ -271,12 +310,24 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val authScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var authTimeoutJob: Job? = null
 
+    // ---- QR login ------------------------------------------------------------
+    private val qrLinks = QrLoginLinkTracker()
+    @Volatile private var qrRefreshJob: Job? = null
+    @Volatile private var qrStateActive = false
+    @Volatile private var qrRequestInFlight = false
+    /** Suppresses a late QR update that arrives after the user already asked for the phone form. */
+    @Volatile private var qrCancelled = false
+    /** A stale token restarts the client; request a fresh QR once it is waiting for authorization again. */
+    @Volatile private var qrRetryAfterReopen = false
+
     // ---- Вспомогательные структуры -------------------------------------------
 
     /** Кэш сообщений по chatId. */
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId)
+    override suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean) =
+        conversationActions.pinMessage(chatId, messageId, pinned).onSuccess { invalidatePins(chatId) }
     override fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft> = messageDrafts.observe(chatId)
     override fun observeForumTopicDraft(chatId: Long, forumTopicId: Long): StateFlow<MessageDraft> = messageDrafts.observeTopic(chatId, forumTopicId)
     override fun updateForumTopicDraft(chatId: Long, forumTopicId: Long, transform: (MessageDraft) -> MessageDraft) =
@@ -286,6 +337,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
+    private val deletedMessages = ConcurrentHashMap<Long, MutableStateFlow<Set<Long>>>()
     // A forum topic is a separate history even though all of its messages have the parent chatId.
     private val topicStores = ConcurrentHashMap<Pair<Long, Long>, MessageHistoryStore>()
     private fun topicStore(chatId: Long, topicId: Long): MessageHistoryStore =
@@ -343,6 +395,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         })
     }
     private val profiles = TdProfiles({ client }, mediaFiles)
+    private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
     private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
     private val notificationFeed = TdNotifications({ client }, profiles::senderName) { chatId ->
@@ -512,6 +565,26 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         Unit
     }
 
+    override suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences> = requestResult {
+        val chat = tdRequests(TdApi.GetChat(chatId))
+        // An inherited preview or mention setting shows what the chat's notification scope currently uses.
+        val scopeSettings = tdRequests(TdApi.GetScopeNotificationSettings(NotificationScope.ofChat(chat.type).toTd()))
+        chat.notificationSettings.toChatNotificationPreferences(scopeSettings)
+    }
+
+    override suspend fun setChatNotificationPreferences(chatId: Long, preferences: ChatNotificationPreferences): Result<Unit> = requestResult {
+        // Only the fields the user changed become explicit; the others keep following the scope.
+        val settings = tdRequests(TdApi.GetChat(chatId)).notificationSettings.withChatNotificationPreferences(preferences)
+        tdRequests(TdApi.SetChatNotificationSettings(chatId, settings))
+        Unit
+    }
+
+    override suspend fun savedNotificationSounds(): Result<List<NotificationSoundOption>> = requestResult {
+        tdRequests(TdApi.GetSavedNotificationSounds()).notificationSounds.orEmpty().mapNotNull { sound ->
+            sound.title?.takeIf { it.isNotBlank() }?.let { NotificationSoundOption(sound.id, it) }
+        }
+    }
+
     override suspend fun deleteChatForSelf(chatId: Long): Result<Unit> = requestResult {
         val chat = tdRequests(TdApi.GetChat(chatId))
         val privateChat = chat.type is TdApi.ChatTypePrivate || chat.type is TdApi.ChatTypeSecret
@@ -525,13 +598,69 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         Unit
     }
 
-    override suspend fun blockPrivateChat(chatId: Long): Result<Unit> = requestResult {
+    override suspend fun blockPrivateChat(chatId: Long): Result<Unit> = setPrivateChatBlocked(chatId, true)
+
+    override suspend fun setPrivateChatBlocked(chatId: Long, blocked: Boolean): Result<Unit> = requestResult {
         val chat = tdRequests(TdApi.GetChat(chatId))
         val privateType = chat.type as? TdApi.ChatTypePrivate
             ?: throw IllegalArgumentException("Only private conversations can be blocked")
         if (profiles.isSelf(privateType.userId)) throw IllegalArgumentException("Cannot block your own account")
-        tdRequests(TdApi.SetMessageSenderBlockList(TdApi.MessageSenderUser(privateType.userId), TdApi.BlockListMain()))
-        Unit
+        privacy.setBlocked(BlockedSenderKind.User, privateType.userId, blocked)
+    }
+
+    override suspend fun loadPrivacySettings(): Result<List<PrivacySettingState>> = requestResult {
+        privacy.loadSettings()
+    }
+
+    override suspend fun setPrivacySetting(setting: PrivacySetting, rules: PrivacyRules): Result<Unit> = requestResult {
+        privacy.setSetting(setting, rules)
+    }
+
+    override suspend fun loadBlockedSenders(offset: Int, limit: Int): Result<BlockedSendersPage> = requestResult {
+        privacy.loadBlockedSenders(offset, limit)
+    }
+
+    override suspend fun setSenderBlocked(kind: BlockedSenderKind, senderId: Long, blocked: Boolean): Result<Unit> = requestResult {
+        privacy.setBlocked(kind, senderId, blocked)
+    }
+
+    override suspend fun reportSpam(chatId: Long): Result<Unit> = requestResult {
+        reportChatAsSpam(chatId)
+    }
+
+    override suspend fun reportSpamForUser(userId: Long): Result<Unit> = requestResult {
+        require(userId > 0L) { "User id must be positive" }
+        // Reporting a blocked sender must not require the user to open the conversation first.
+        val chat = tdRequests(TdApi.CreatePrivateChat(userId, false))
+        handleNewChat(chat)
+        reportChatAsSpam(chat.id)
+    }
+
+    /**
+     * Telegram first asks for a report reason. Choose only the canonical spam option; sending
+     * an unrelated reason would be a false report, so a missing spam option is reported as an
+     * error instead. A text/message requirement is surfaced instead of inventing content.
+     */
+    private suspend fun reportChatAsSpam(chatId: Long) {
+        var result: TdApi.ReportChatResult = tdRequests(reportChatRequest(chatId))
+        if (result is TdApi.ReportChatResultOptionRequired) {
+            val option = chooseSpamReportOption(result.options)
+                ?: throw UserMessageException(UiText.Res(R.string.err_report_spam_unavailable))
+            result = tdRequests(reportChatRequest(chatId, option.id ?: ByteArray(0)))
+        }
+        when (result) {
+            is TdApi.ReportChatResultOk -> Unit
+            is TdApi.ReportChatResultTextRequired -> {
+                if (!result.isOptional) throw UserMessageException(UiText.Res(R.string.err_report_spam_requires_text))
+                val retried = tdRequests(reportChatRequest(chatId, result.optionId ?: ByteArray(0)))
+                if (retried !is TdApi.ReportChatResultOk) {
+                    throw UserMessageException(UiText.Res(R.string.err_report_spam_unavailable))
+                }
+            }
+            is TdApi.ReportChatResultMessagesRequired ->
+                throw UserMessageException(UiText.Res(R.string.err_report_spam_requires_messages))
+            else -> throw UserMessageException(UiText.Res(R.string.err_report_spam_unavailable))
+        }
     }
 
     /**
@@ -540,7 +669,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
      * repeated taps observe the same in-flight request rather than create a duplicate.
      */
     private val groupRequestLock = Any()
-    private val groupCreationPrefs = appContext.getSharedPreferences("pending_group_creation", Context.MODE_PRIVATE)
+    private val groupCreationPrefs = appContext.getSharedPreferences(if (isLegacyAccount) "pending_group_creation" else "pending_group_creation_$accountId", Context.MODE_PRIVATE)
     private val _groupCreation = MutableStateFlow<GroupCreationState>(
         if (groupCreationPrefs.getBoolean("unconfirmed", false)) GroupCreationState.NeedsVerification
         else GroupCreationState.Idle
@@ -689,19 +818,248 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         TdRequests { client }(TdApi.SetArchiveChatListSettings(settings)); Unit
     }
     override suspend fun markChatRead(chatId: Long): Result<Unit> = conversationResult {
-        val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L } ?: throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
-        TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true)); Unit
+        val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L }
+        val markedAsUnread = chatCache[chatId]?.isMarkedAsUnread == true
+        // An empty chat can still be marked unread; clearing that marker must not require a message to view.
+        if (!canMarkChatRead(lastMessageId, markedAsUnread)) throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
+        if (lastMessageId != null) TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true))
+        // Opening a chat also clears an explicit "unread" marker, not only the server read watermark.
+        if (markedAsUnread) TdRequests { client }(markChatReadToggleRequest(chatId))
+        Unit
+    }
+
+    override suspend fun markChatUnread(chatId: Long): Result<Unit> = conversationResult {
+        TdRequests { client }(markChatUnreadRequest(chatId)); Unit
     }
     private val contactBook = TdContacts({ client }, profiles)
     private val callHistory = TdCallHistory({ client }, profiles)
     override suspend fun loadContacts(): Result<List<ContactPreview>> = requestResult { contactBook.load() }
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> =
         requestResult { contactBook.add(firstName, lastName, phone) }
+    override suspend fun updateContact(userId: Long, firstName: String, lastName: String, phone: String): Result<Unit> =
+        requestResult { contactBook.update(userId, firstName, lastName, phone) }
+    override suspend fun deleteContact(userId: Long): Result<Unit> =
+        requestResult { contactBook.delete(userId) }
+    override suspend fun sendContact(chatId: Long, userId: Long): Result<Unit> {
+        val card = requestResult { contactBook.shareCard(userId) }.getOrElse { return Result.failure(it) }
+        return conversationActions.sendContact(chatId, card)
+    }
     override suspend fun openPrivateChat(userId: Long): Result<Long> = requestResult {
         val chat = TdRequests { client }(TdApi.CreatePrivateChat(userId, false))
         handleNewChat(chat)
         chat.id
     }
+
+    /**
+     * Local and server chat search. TDLib returns only ids and has no offset, so [limit] grows for
+     * the next page. SearchChatsOnServer is best-effort: a server-side failure must not hide the
+     * locally known chats that SearchChats already returned.
+     */
+    override suspend fun searchGlobalChats(query: String, limit: Int): Result<GlobalSearchPage<ChatPreview>> = requestResult {
+        if (query.isBlank()) return@requestResult GlobalSearchPage(emptyList(), 0)
+        val pageSize = limit.coerceIn(1, GLOBAL_SEARCH_PEOPLE_MAX)
+        val (local, server) = coroutineScope {
+            val localRequest = async { tdRequests(TdApi.SearchChats(query, null, pageSize)) }
+            val serverRequest = async {
+                try {
+                    tdRequests(TdApi.SearchChatsOnServer(query, null, pageSize))
+                } catch (_: TimeoutCancellationException) {
+                    // A slow server search must not hide local matches; only genuine caller cancellation aborts.
+                    null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            localRequest.await() to serverRequest.await()
+        }
+        val ids = (local.chatIds.toList() + server?.chatIds?.toList().orEmpty()).distinct()
+        GlobalSearchPage(
+            items = globalChatPreviews(ids),
+            totalCount = maxOf(local.totalCount, server?.totalCount ?: 0)
+        )
+    }
+
+    override suspend fun searchGlobalContacts(query: String, limit: Int): Result<GlobalSearchPage<ContactPreview>> = requestResult {
+        if (query.isBlank()) return@requestResult GlobalSearchPage(emptyList(), 0)
+        contactBook.search(query, limit.coerceIn(1, GLOBAL_SEARCH_PEOPLE_MAX))
+    }
+
+    /** Public chats are only listed here; joining happens in [openPublicChat] after an explicit tap. */
+    override suspend fun searchGlobalPublicChats(query: String): Result<GlobalSearchPage<ChatPreview>> = requestResult {
+        if (query.isBlank()) return@requestResult GlobalSearchPage(emptyList(), 0)
+        val found = tdRequests(TdApi.SearchPublicChats(query, null))
+        GlobalSearchPage(globalChatPreviews(found.chatIds.toList()), found.totalCount)
+    }
+
+    /**
+     * Channels open in preview without joining. A public group is joined only when it is opened;
+     * a join request awaiting approval is reported to the UI instead of being treated as an error.
+     */
+    override suspend fun openPublicChat(chatId: Long): Result<PublicChatOpenResult> = requestResult {
+        if (chatId == 0L) throw UserMessageException(UiText.Res(R.string.err_app_open_chat_failed))
+        var chat = tdRequests(TdApi.GetChat(chatId))
+        val type = chat.type
+        if (type is TdApi.ChatTypeSupergroup && !type.isChannel) {
+            val status = try {
+                tdRequests(TdApi.GetSupergroup(type.supergroupId)).status
+            } catch (_: TimeoutCancellationException) {
+                null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            if (status is TdApi.ChatMemberStatusBanned) {
+                throw UserMessageException(UiText.Res(R.string.global_search_public_join_declined))
+            }
+            if (!status.isJoinedChat()) {
+                val joined = try {
+                    tdRequests(TdApi.JoinChat(chatId))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    throw UserMessageException(publicChatJoinError(error), error)
+                }
+                when (joined) {
+                    is TdApi.ChatJoinResultSuccess -> {
+                        val openedChatId = joined.chatId.takeIf { it != 0L } ?: chatId
+                        chat = tdRequests(TdApi.GetChat(openedChatId))
+                    }
+                    is TdApi.ChatJoinResultRequestSent -> return@requestResult PublicChatOpenResult.JoinRequestSent
+                    is TdApi.ChatJoinResultDeclined ->
+                        throw UserMessageException(UiText.Res(R.string.global_search_public_join_declined))
+                    is TdApi.ChatJoinResultGuardBotApprovalRequired ->
+                        throw UserMessageException(UiText.Res(R.string.global_search_public_join_guard))
+                    else -> throw UserMessageException(UiText.Res(R.string.global_search_public_open_failed))
+                }
+            }
+        }
+        handleNewChat(chat)
+        PublicChatOpenResult.Opened(chat.id)
+    }
+
+    /** Reuses cached metadata and bounds concurrent GetChat requests for one search page. */
+    private suspend fun globalChatPreviews(chatIds: List<Long>): List<ChatPreview> = coroutineScope {
+        val limiter = Semaphore(6)
+        chatIds.distinct().map { id ->
+            async { limiter.withPermit { globalChatPreview(id) } }
+        }.awaitAll().filterNotNull()
+    }
+
+    private suspend fun globalChatPreview(chatId: Long): ChatPreview? {
+        chatCache[chatId]?.let { return it }
+        return try {
+            val preview = tdRequests(TdApi.GetChat(chatId)).toChatPreview()
+            if (preview != null) chatCache[chatId] = preview
+            preview
+        } catch (_: TimeoutCancellationException) {
+            null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    override suspend fun resolvePublicChat(username: String): Result<Long> = requestResult {
+        val cleaned = username.trim().removePrefix("@")
+        require(cleaned.isNotEmpty()) { "Empty public username" }
+        val chat = tdRequests(TdApi.SearchPublicChat(cleaned))
+        handleNewChat(chat)
+        chat.id
+    }
+
+    override suspend fun resolvePhoneNumber(phone: String): Result<Long> = requestResult {
+        val normalized = phone.trim().let { if (it.startsWith("+")) it else "+$it" }
+        require(normalized.length > 1) { "Empty phone number" }
+        val user = tdRequests(TdApi.SearchUserByPhoneNumber(normalized, false))
+        val chat = tdRequests(TdApi.CreatePrivateChat(user.id, false))
+        handleNewChat(chat)
+        chat.id
+    }
+
+    override suspend fun checkInviteLink(url: String): Result<ChatInvitePreview> = requestResult {
+        val info = tdRequests(TdApi.CheckChatInviteLink(url))
+        ChatInvitePreview(
+            title = info.title,
+            memberCount = info.memberCount,
+            createsJoinRequest = info.createsJoinRequest,
+            isPublic = info.isPublic
+        )
+    }
+
+    override suspend fun joinInviteLink(url: String): Result<InviteJoinOutcome> = requestResult {
+        when (val result = tdRequests(TdApi.JoinChatByInviteLink(url))) {
+            is TdApi.ChatJoinResultSuccess -> {
+                handleNewChat(tdRequests(TdApi.GetChat(result.chatId)))
+                InviteJoinOutcome.Joined(result.chatId)
+            }
+            is TdApi.ChatJoinResultRequestSent -> InviteJoinOutcome.RequestSent
+            else -> throw UserMessageException(UiText.Res(R.string.err_app_open_chat_failed))
+        }
+    }
+
+    override suspend fun resolveMessageLink(url: String): Result<MessageLinkTarget> = requestResult {
+        val info = tdRequests(TdApi.GetMessageLinkInfo(url))
+        val message = info.message
+            ?: throw UserMessageException(UiText.Res(R.string.chat_message_open_failed))
+        handleNewChat(tdRequests(TdApi.GetChat(info.chatId)))
+        val forumTopicId = when (val topic = info.topicId) {
+            is TdApi.MessageTopicForum -> topic.forumTopicId.toLong()
+            else -> 0L
+        }
+        MessageLinkTarget(info.chatId, message.id, forumTopicId)
+    }
+    override suspend fun channelStatistics(chatId: Long): Result<ChannelStatisticsSummary> = requestResult {
+        when (val statistics = tdRequests(TdApi.GetChatStatistics(chatId, false))) {
+            is TdApi.ChatStatisticsChannel -> ChannelStatisticsSummary(
+                periodStart = statistics.period.startDate,
+                periodEnd = statistics.period.endDate,
+                memberCount = statistics.memberCount.value.toInt(),
+                memberGrowthPercent = statistics.memberCount.growthRatePercentage,
+                meanViewCount = statistics.meanMessageViewCount.value.toInt(),
+                meanShareCount = statistics.meanMessageShareCount.value.toInt(),
+                meanReactionCount = statistics.meanMessageReactionCount.value.toInt(),
+                notificationsPercent = statistics.enabledNotificationsPercentage.toInt()
+            )
+            is TdApi.ChatStatisticsSupergroup -> ChannelStatisticsSummary(
+                periodStart = statistics.period.startDate,
+                periodEnd = statistics.period.endDate,
+                memberCount = statistics.memberCount.value.toInt(),
+                memberGrowthPercent = statistics.memberCount.growthRatePercentage,
+                meanViewCount = statistics.viewerCount.value.toInt(),
+                meanShareCount = statistics.messageCount.value.toInt(),
+                meanReactionCount = statistics.senderCount.value.toInt(),
+                topSenders = statistics.topSenders.orEmpty().take(5).map {
+                    ChannelStatisticsPerson(it.userId, profiles.senderName(TdApi.MessageSenderUser(it.userId)), it.sentMessageCount)
+                }
+            )
+            else -> throw UserMessageException(UiText.Res(R.string.err_statistics_unavailable))
+        }
+    }
+
+    override suspend fun channelAdminEvents(chatId: Long, fromEventId: Long, filter: ChannelEventFilter): Result<ChannelAdminEventPage> = requestResult {
+        val found = tdRequests(
+            TdApi.GetChatEventLog(
+                chatId, "", fromEventId, ADMIN_LOG_PAGE_SIZE, adminLogFilters(filter), longArrayOf()
+            )
+        )
+        val events = found.events.orEmpty().map { event ->
+            val actorId = (event.memberId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L
+            ChannelAdminEvent(
+                id = event.id,
+                date = event.date,
+                actorId = actorId,
+                actorName = if (actorId > 0L) profiles.senderName(TdApi.MessageSenderUser(actorId)) else "",
+                text = event.action.adminText(appContext, profiles)
+            )
+        }
+        val next = events.lastOrNull()?.id?.takeIf { it != 0L && it != fromEventId } ?: 0L
+        ChannelAdminEventPage(events, next)
+    }
+
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
@@ -710,6 +1068,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })
+    private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
@@ -717,7 +1076,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     // Copies listed in the profile's shared media stay protected from the cache policy while that listing is recent.
     private val listedMediaFiles = ListedMediaFiles()
-    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")), File(appContext.filesDir, "uploads")) { messageHistory.mediaFileIds() + listedMediaFiles.current() }
+    private val storage = TdStorage({ client }, listOf(File(appContext.filesDir, "uploads"), File(appContext.noBackupFilesDir, "uploads")), File(appContext.filesDir, "uploads"), { messageHistory.mediaFileIds() + listedMediaFiles.current() }, accountId)
     private val storageSettings = StorageSettingsStore.getInstance(context)
     private val cacheMaintenance = TdCacheMaintenance(authScope) { applyCachePolicy(storageSettings.settings.value.policy()) }
     override suspend fun storageUsage(): Result<StorageUsage> = storageResult { storage.usage() }
@@ -743,19 +1102,52 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override fun cancelBotWait() = reportBotChannel.cancelBotWait()
     override val messageLimits get() = conversationActions.limits
     override suspend fun messageCapabilities(chatId: Long, messageId: Long) = conversationActions.capabilities(chatId, messageId)
+    override suspend fun translateMessage(chatId: Long, messageId: Long, toLanguageCode: String): Result<MessageTranslation> =
+        translationResult {
+            require(toLanguageCode.isNotBlank()) { "Target language must not be blank" }
+            if (resolveIsSecretChat(chatId)) throw UserMessageException(UiText.Res(R.string.err_translation_secret_chat))
+            // TDLib's "tone" argument is optional; the empty string asks for the default neutral translation.
+            val translated = tdRequests(TdApi.TranslateMessageText(chatId, messageId, toLanguageCode, ""))
+            if (translated.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_translation_failed))
+            translated.toMessageTranslation(toLanguageCode)
+        }
+    override suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit> = speechRecognitionResult {
+        if (resolveIsSecretChat(chatId)) throw UserMessageException(UiText.Res(R.string.err_transcription_secret_chat))
+        tdRequests(TdApi.RecognizeSpeech(chatId, messageId))
+        Unit
+    }
+    override suspend fun rateSpeechRecognition(chatId: Long, messageId: Long, isGood: Boolean): Result<Unit> =
+        speechRecognitionResult {
+            tdRequests(TdApi.RateSpeechRecognition(chatId, messageId, isGood))
+            Unit
+        }
+
+    /** The open chat is normally cached; fetch the type if a caller got here before the chat list was populated. */
+    private suspend fun resolveIsSecretChat(chatId: Long): Boolean =
+        chatCache[chatId]?.isSecret ?: (tdRequests(TdApi.GetChat(chatId)).type is TdApi.ChatTypeSecret)
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind) = conversationActions.mediaPosition(chatId, messageId, kind)
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>) = conversationActions.edit(chatId, messageId, text, entities)
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) =
         conversationActions.delete(chatId, messageId, scope).onSuccess { conversationEffects.uploadFinished(chatId, messageId) }
-    override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long) = conversationActions.forward(fromChatId, messageId, toChatId)
+    override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean) =
+        conversationActions.forward(fromChatId, messageId, toChatId, asCopy)
+    override suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean) =
+        conversationActions.messageLink(chatId, messageId, inMessageThread)
     override suspend fun availableReactions(chatId: Long, messageId: Long) = conversationActions.availableReactions(chatId, messageId)
     override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean) =
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
-    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
-    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long) =
-        conversationActions.search(chatId, query, fromMessageId, forumTopicId)
+    override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
+    override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
+    override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long) =
+        conversationActions.threadComments(discussionChatId, threadId, fromMessageId)
+    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?) =
+        conversationActions.sendThreadReply(discussionChatId, threadId, text, entities, replyToMessageId)
+    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
+        conversationActions.search(chatId, query, fromMessageId, filter = filter)
+    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
+        conversationActions.search(chatId, query, fromMessageId, forumTopicId, filter)
     override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter) =
         conversationActions.searchGlobal(query, offset, filter).map { page ->
             // One metadata lookup per distinct uncached chat, never per message. Bounded
@@ -791,6 +1183,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         }
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean) = conversationActions.shared(chatId, kind, fromMessageId, newer)
         .onSuccess { page -> listedMediaFiles.remember(page.messages.flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }) }
+    override suspend fun exportChat(
+        chatId: Long,
+        target: ChatExportTarget,
+        request: ChatExportRequest,
+        onProgress: (ChatExportProgress) -> Unit
+    ): Result<ChatExportSummary> = chatExporter.export(chatId, target, request, onProgress)
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) = conversationEffects.visible(chatId, messageIds)
     override fun startChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.startActivity(chatId, activity)
     override fun endChatActivity(chatId: Long, activity: ChatActivity) = conversationEffects.endActivity(chatId, activity)
@@ -832,7 +1230,27 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private val muteState = ChatMuteState()
     // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
     private val historyRequests = ConcurrentHashMap<Long, Long>()
+    @Volatile private var secondaryDisposed = false
+    /** The native TDLib owner remains responsible for Client/lease shutdown. */
+    internal fun disposeSecondaryRepository() {
+        if (isLegacyAccount || secondaryDisposed) return
+        synchronized(this) {
+            if (secondaryDisposed) return
+            secondaryDisposed = true
+        }
+        networkMonitor.stop()
+        messageDrafts.dispose()
+        notificationFeed.dispose()
+        com.beykus.beygram.data.media.VideoNoteLossDiagnostics.releaseRepository(this)
+        chatListScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+        authScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
+
     private val chatListScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Keep logout + account-ID publications ordered even if a pending profile lookup completes. */
+    private val analyticsAccountLock = Any()
+    private var analyticsSessionGeneration = 0L
+    private var analyticsProfileJob: Job? = null
     private val chatListPublisher = CoalescedPublisher(chatListScope, CHAT_LIST_PUBLISH_DELAY_MS) {
         // Main-list ordering comes from Telegram, including pins and draft activity.
         val previews = chatCache.values.map { it.withMute() }
@@ -847,32 +1265,138 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     // ---- TDLib Client --------------------------------------------------------
 
-    private val client: Client = run {
-        // Don't let TDLib include API credentials or phone numbers in logcat.
-        runCatching { Client.execute(TdApi.SetLogVerbosityLevel(if (BuildConfig.DEBUG) 2 else 0)) }
-        Client.create(
-            /* updateHandler          = */ Client.ResultHandler { update -> handleUpdate(update) },
-            /* updateExceptionHandler = */ null,
-            /* defaultExceptionHandler= */ null
-        )
+    private val legacyClientLifecycle =
+        if (nativeSecondary == null) TdAccountClientLifecycle(appContext.filesDir) else null
+    private val legacyClientLock = Any()
+    private var recreateLegacyClientOnClose = false
+    @Volatile private var client: Client = nativeSecondary?.client ?: createLegacyClient()
+
+    /**
+     * Reopens the legacy client after a QR reset. TDLib has no cancel-authentication API, so the client is closed
+     * without logging out: a confirmation that races cancellation is then restored as a normal authorized session,
+     * while an unconfirmed attempt restarts at WaitPhoneNumber.
+     */
+    private fun createLegacyClient(): Client {
+        val lifecycle = checkNotNull(legacyClientLifecycle) { "The legacy TDLib client is not owned here" }
+        return lifecycle.open(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) { directories, onNativeClientClosed ->
+            // Existing installs MUST keep precisely the old filesDir/tdlib database,
+            // even though the registry may already contain prepared secondary IDs.
+            check(config.databaseDirectory == directories.database.absolutePath &&
+                config.filesDirectory == directories.files.absolutePath) {
+                "TDLib legacy session storage does not match its database lease"
+            }
+            // Don't let TDLib include API credentials or phone numbers in logcat.
+            runCatching { Client.execute(TdApi.SetLogVerbosityLevel(if (BuildConfig.DEBUG) 2 else 0)) }
+            Client.create(
+                /* updateHandler          = */ Client.ResultHandler { update ->
+                    try {
+                        handleUpdate(update)
+                    } finally {
+                        // TDLib owns the SQLite database until native close finishes.
+                        // Never release on logout, screen disposal, or a Close request.
+                        if (update is TdApi.UpdateAuthorizationState &&
+                            update.authorizationState is TdApi.AuthorizationStateClosed) {
+                            onNativeClientClosed()
+                            onLegacyClientClosed()
+                        }
+                    }
+                },
+                /* updateExceptionHandler = */ null,
+                /* defaultExceptionHandler= */ null
+            )
+        }
+    }
+
+    private fun isLegacyClientRecreatePending(): Boolean = synchronized(legacyClientLock) {
+        recreateLegacyClientOnClose
+    }
+
+    /** Runs after the old client released its database lease, in the update handler's finally block. */
+    private fun onLegacyClientClosed() {
+        val recreate = synchronized(legacyClientLock) {
+            if (recreateLegacyClientOnClose) {
+                recreateLegacyClientOnClose = false
+                true
+            } else {
+                false
+            }
+        }
+        if (!recreate) return
+        // Leave the update thread before opening a new TDLib client. The lease was released above, so the
+        // recreation is allowed; doing it asynchronously also keeps the old callback from re-entering TDLib.
+        authScope.launch {
+            try {
+                client = createLegacyClient()
+                networkMonitor.start()
+                networkMonitor.reconnect()
+            } catch (error: Throwable) {
+                StructuredEventLog.shared.record(
+                    kind = EventKind.TDLIB,
+                    severity = Severity.WARNING,
+                    code = "tdlib_qr_restart_failed",
+                    message = "TDLib не перезапустился после отмены QR-входа",
+                    attrs = mapOf("cause" to error.javaClass.simpleName)
+                )
+                _authState.value = AuthState.Error(UiText.Res(R.string.err_auth_failed))
+            }
+        }
     }
 
     // The repository and this callback live for the process lifetime. One client owns the database.
     private val networkMonitor = TelegramNetworkMonitor(context.applicationContext, authScope) { type ->
-        client.send(TdApi.SetNetworkType(type), Client.ResultHandler { result ->
-            if (result is TdApi.Error) {
-                ConnectionEventLog.shared.record("SetNetworkType: ошибка ${result.code}")
-                StructuredEventLog.shared.record(
-                    kind = EventKind.NETWORK,
-                    severity = Severity.WARNING,
-                    code = "set_network_type_failed",
-                    message = "",
-                    attrs = mapOf("error_code" to result.code.toString())
-                )
-                if (BuildConfig.DEBUG) android.util.Log.w(TelegramNetworkMonitor.TAG, "SetNetworkType failed: ${result.code}")
+        if (nativeSecondary != null) {
+            // Each secondary TDLib client must follow Android Wi-Fi/cellular/VPN changes.
+            // Its route mutex prevents a network callback from reopening a suspended route.
+            authScope.launch {
+                try {
+                    nativeSecondary.onConnectivityChanged(type)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    ConnectionEventLog.shared.record("Secondary SetNetworkType: ${error.javaClass.simpleName}")
+                }
             }
-        })
+        } else {
+            client.send(TdApi.SetNetworkType(type), Client.ResultHandler { result ->
+                if (result is TdApi.Error) {
+                    ConnectionEventLog.shared.record("SetNetworkType: ошибка ${result.code}")
+                    StructuredEventLog.shared.record(
+                        kind = EventKind.NETWORK,
+                        severity = Severity.WARNING,
+                        code = "set_network_type_failed",
+                        message = "",
+                        attrs = mapOf("error_code" to result.code.toString())
+                    )
+                    if (BuildConfig.DEBUG) android.util.Log.w(TelegramNetworkMonitor.TAG, "SetNetworkType failed: ${result.code}")
+                }
+            })
+        }
     }.also { it.start() }
+
+    init {
+        // Reuse the already-authorized secondary native owner. It retains the
+        // only database lease and validated network route. Do NOT instantiate
+        // a second TDLib Client, release its lease or replay TDLib parameters.
+        nativeSecondary?.let { secondary ->
+            try {
+            // Establish the already-authorized state BEFORE replaying the
+            // pending updates or installing a live observer. Otherwise a new
+            // message can be processed before the repository is authorized.
+            val restoredReady = secondary.authPhase.value == TdAccountAuthPhase.READY &&
+                _authState.value != AuthState.Ready
+            if (restoredReady) handleAuthorizationState(TdApi.AuthorizationStateReady())
+            // The native dispatch/replay monitor makes the handoff atomic for
+            // this one account. Events before attachment are buffered.
+            secondary.observeFullUpdates(::handleUpdate)
+            } catch (error: Throwable) {
+                // If startup replay is corrupt/overflowed, this constructor
+                // can throw before an instance is returned to the coordinator.
+                // Close all children now rather than leaking half-built scopes.
+                disposeSecondaryRepository()
+                throw error
+            }
+        }
+    }
 
     // =========================================================================
     // Публичные методы репозитория
@@ -921,8 +1445,89 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         )
     }
 
+    override fun requestQrLogin() {
+        if (_authState.value == AuthState.Ready) return
+        authTimeoutJob?.cancel()
+        qrCancelled = false
+        // TDLib refreshes the token itself while authorizationStateWaitOtherDeviceConfirmation is active.
+        // Calling requestQrCodeAuthentication there is rejected as "unexpected", so an explicit refresh only
+        // republishes the newest link and restarts the staleness watchdog.
+        if (qrStateActive) {
+            val token = qrLinks.current()
+            if (token != null && !qrLinks.isRefreshOverdue()) {
+                _authState.value = AuthState.WaitingForQr(token.link)
+                startQrRefreshWatchdog()
+            } else {
+                // Re-publishing an overdue token would show an unusable QR again. Restart the unauthorized client and
+                // request a fresh token after it reopens; TDLib rejects a second QR request in this state.
+                qrRetryAfterReopen = true
+                resetLegacyQrClient(cancelled = false)
+            }
+            return
+        }
+        qrRequestInFlight = true
+        _authState.value = AuthState.Loading
+        startAuthTimeout()
+        client.send(
+            TdApi.RequestQrCodeAuthentication(longArrayOf()),
+            qrErrorHandler()
+        )
+    }
+
+    override fun cancelQrLogin() {
+        if (_authState.value == AuthState.Ready) return
+        authTimeoutJob?.cancel()
+        qrRefreshJob?.cancel()
+        qrRefreshJob = null
+        val hadQrRequest = qrStateActive || qrRequestInFlight || _authState.value is AuthState.WaitingForQr
+        if (!hadQrRequest) {
+            _authState.value = AuthState.WaitingForPhone
+            return
+        }
+        // TDLib has no cancel-authentication API. Close the still-unauthorized client instead of logging out:
+        // closing never destroys an authorized session. If the other device confirmed the QR at the same moment,
+        // the reopened client restores the now-authorized account; otherwise it starts again at WaitPhoneNumber.
+        qrRetryAfterReopen = false
+        resetLegacyQrClient(cancelled = true)
+    }
+
+    private fun resetLegacyQrClient(cancelled: Boolean) {
+        authTimeoutJob?.cancel()
+        qrRefreshJob?.cancel()
+        qrRefreshJob = null
+        qrStateActive = false
+        qrRequestInFlight = false
+        qrLinks.reset()
+        qrCancelled = cancelled
+        if (!isLegacyAccount) {
+            // Secondary clients belong to TdSecondaryNativeLogin; this screen only resets the legacy login.
+            _authState.value = AuthState.WaitingForPhone
+            return
+        }
+        // Keep the phone button disabled until the replacement client reaches WaitPhoneNumber (or restores Ready).
+        _authState.value = AuthState.Loading
+        synchronized(legacyClientLock) { recreateLegacyClientOnClose = true }
+        client.send(
+            TdApi.Close(),
+            Client.ResultHandler { result ->
+                if (result is TdApi.Error) {
+                    synchronized(legacyClientLock) { recreateLegacyClientOnClose = false }
+                    if (_authState.value != AuthState.Ready) {
+                        _authState.value = AuthState.Error(authErrorText(result.message))
+                    }
+                }
+            }
+        )
+    }
+
     override fun resetError() {
         authTimeoutJob?.cancel()
+        // A QR attempt can fail after TDLib has already entered WaitOtherDeviceConfirmation. Leaving that
+        // state locally would make the phone form unusable, so route through the real cancel path.
+        if (qrStateActive || qrRequestInFlight) {
+            cancelQrLogin()
+            return
+        }
         _authState.value = AuthState.WaitingForPhone
     }
 
@@ -935,6 +1540,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = messageHistory.observe(chatId)
+    override fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>> =
+        deletedMessages.computeIfAbsent(chatId) { MutableStateFlow(emptySet()) }
     override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> =
         topicStore(chatId, forumTopicId).observe(chatId)
 
@@ -1021,15 +1628,23 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     override suspend fun deleteVideoNoteLossTest(messageId: Long): Result<Unit> =
         videoNoteLossTransport.deleteOwnTest(messageId)
 
-    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
+    override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)
-        return conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId)
+        return conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
     }
 
-    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long): Result<Unit> {
+    override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)
-        return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities, forumTopicId)
+        return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
     }
+
+    override suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.scheduledMessages(chatId)
+    override suspend fun deleteScheduledMessage(chatId: Long, messageId: Long): Result<Unit> =
+        conversationActions.deleteScheduledMessage(chatId, messageId)
+    override suspend fun rescheduleMessage(chatId: Long, messageId: Long, atSeconds: Long): Result<Unit> =
+        conversationActions.rescheduleMessage(chatId, messageId, atSeconds)
+    override suspend fun sendScheduledNow(chatId: Long, messageId: Long): Result<Unit> =
+        conversationActions.sendScheduledNow(chatId, messageId)
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> =
         conversationActions.retryMessages(chatId, messageIds)
 
@@ -1055,6 +1670,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         val oldest = messageHistory.observe(chatId).value.messages.firstOrNull()?.id ?: 0L
         messageHistory.beginLoad(chatId)?.let { epoch -> requestHistory(chatId, oldest, remaining = 50, pagesLeft = 3, epoch = epoch) }
     }
+
+    override suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> =
+        conversationActions.newerMessages(chatId, forumTopicId, afterMessageId)
 
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
         val request = nextHistoryRequest(chatId)
@@ -1131,10 +1749,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             }
         }
 
-    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean): Result<Unit> {
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)
         conversationEffects.endActivity(chatId, ChatActivity.Typing)
-        return conversationActions.sendText(chatId, text, replyToMessageId, entities, forumTopicId, clearDraft)
+        return conversationActions.sendText(chatId, text, replyToMessageId, entities, forumTopicId, clearDraft, options)
     }
 
     // =========================================================================
@@ -1143,7 +1761,12 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
     private fun handleUpdate(update: TdApi.Object) {
         when (update) {
-            is TdApi.UpdateMessageIsPinned -> invalidatePins(update.chatId)
+            is TdApi.UpdateMessageIsPinned -> {
+                invalidatePins(update.chatId)
+                val transform: (ChatMessage) -> ChatMessage = { it.copy(isPinned = update.isPinned) }
+                messageHistory.update(update.chatId, update.messageId, transform)
+                updateForumMessage(update.chatId, update.messageId, transform)
+            }
             is TdApi.UpdateMessageContent -> invalidatePins(update.chatId)
             is TdApi.UpdateDeleteMessages -> if (update.isPermanent) invalidatePins(update.chatId)
         }
@@ -1187,6 +1810,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadCount = update.unreadCount) }
                 publishChat(update.chatId)
             }
+            is TdApi.UpdateChatIsMarkedAsUnread -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(isMarkedAsUnread = update.isMarkedAsUnread) }
+                publishChat(update.chatId)
+            }
             is TdApi.UpdateChatReadOutbox -> {
                 messageHistory.readOutbox(update.chatId, update.lastReadOutboxMessageId)
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(lastReadOutboxMessageId = update.lastReadOutboxMessageId) }
@@ -1199,9 +1826,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     val rendered = (update.newContent as? TdApi.MessageCall)?.let {
                         serviceMessages.callText(it, message.isOutgoing)
                     } ?: service
-                    message.copy(text = rendered ?: contentText(update.newContent, attachment != null),
-                        serviceText = rendered, isCallEvent = update.newContent is TdApi.MessageCall,
-                        entities = messageFormattedText(update.newContent)?.domainEntities().orEmpty(), media = attachment)
+                    message.withUpdatedContent(update.newContent, attachment,
+                        contentText(update.newContent, attachment != null),
+                        messageFormattedText(update.newContent)?.domainEntities().orEmpty(), rendered,
+                        linkPreview = mediaMapper.linkPreview(update.newContent, isSecretChat(update.chatId)))
                 }
                 messageHistory.update(update.chatId, update.messageId, transform)
                 updateForumMessage(update.chatId, update.messageId, transform)
@@ -1226,14 +1854,23 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 updateForumMessage(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
             }
             is TdApi.UpdateMessageInteractionInfo -> {
-                messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
-                updateForumMessage(update.chatId, update.messageId) { it.copy(reactions = messageReactions(update.interactionInfo)) }
+                val replyCount = update.interactionInfo?.replyInfo?.replyCount
+                messageHistory.update(update.chatId, update.messageId) {
+                    it.copy(reactions = messageReactions(update.interactionInfo), replyCount = replyCount ?: it.replyCount)
+                }
+                updateForumMessage(update.chatId, update.messageId) {
+                    it.copy(reactions = messageReactions(update.interactionInfo), replyCount = replyCount ?: it.replyCount)
+                }
             }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
             is TdApi.UpdateSupergroup, is TdApi.UpdateBasicGroup -> chatCache.keys.toList().forEach(::refreshPostingRight)
             is TdApi.UpdateChatPermissions -> refreshPostingRight(update.chatId)
+            is TdApi.UpdateChatHasProtectedContent -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(hasProtectedContent = update.hasProtectedContent) }
+                publishChat(update.chatId)
+            }
             is TdApi.UpdateChatPhoto -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(photo = profiles.photo(update.photo)) }
                 publishChat(update.chatId)
@@ -1258,9 +1895,11 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 VideoNoteSendTracking.tracker.onSucceeded(update.message.chatId, update.oldMessageId)
                 reportBotChannel.onSendSucceeded(update)
                 cleanupSentUploads(update.message)
-                messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
-                putForumMessage(update.message, update.oldMessageId)
-                conversationActions.hydrateReply(update.message)
+                if (update.message.schedulingState == null) {
+                    messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+                    putForumMessage(update.message, update.oldMessageId)
+                    conversationActions.hydrateReply(update.message)
+                }
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateMessageSendFailed -> {
@@ -1276,8 +1915,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     severity = Severity.ERROR,
                     attrs = mapOf("content" to update.message.content.javaClass.simpleName, "error_code" to (sendError?.code ?: 0).toString())
                 )
-                messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
-                putForumMessage(update.message, update.oldMessageId)
+                if (update.message.schedulingState == null) {
+                    messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
+                    putForumMessage(update.message, update.oldMessageId)
+                }
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateDeleteMessages -> {
@@ -1285,6 +1926,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 if (update.isPermanent) {
                     messageHistory.delete(update.chatId, update.messageIds.toList())
                     topicStores.filterKeys { it.first == update.chatId }.values.forEach { it.delete(update.chatId, update.messageIds.toList()) }
+                    if (update.messageIds.isNotEmpty()) {
+                        deletedMessages[update.chatId]?.update { it + update.messageIds.toList() }
+                    }
                 }
             }
             is TdApi.UpdateConnectionState    -> {
@@ -1329,13 +1973,14 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 if (content !is TdApi.MessageVoiceNote && content !is TdApi.MessageVideoNote) {
                     val folder = generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }
                     // The mark keeps the file id, so the cache policy can tell TDLib that this copy is gone.
-                    markSentUpload(folder, tdFile.id)
+                    markSentUpload(folder, tdFile.id, accountId)
                     return@runCatching
                 }
                 if (content is TdApi.MessageVideoNote) {
                     // A session folder can hold segments that still wait to be sent, so only this segment's files and an emptied folder go.
                     file.delete()
-                    file.parentFile?.takeIf { it.listFiles().isNullOrEmpty() }?.delete()
+                    // The owner mark stays in the session folder until its last segment is sent, so an emptied folder holds only that mark.
+                    file.parentFile?.takeIf { it.parentFile == uploads }?.let { removeUploadFolderIfOnlyOwnerMarker(it) }
                 } else {
                     // A voice note has a folder of its own. Removing it also removes files TDLib does not report.
                     generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }.deleteRecursively()
@@ -1360,30 +2005,64 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     // ---- Авторизация ---------------------------------------------------------
 
     private fun handleAuthorizationState(state: TdApi.AuthorizationState) {
-        ConnectionEventLog.shared.record("Вход в аккаунт: ${state.logLabel()}")
+        ConnectionEventLog.shared.record("Вход в аккаунт: ${state.authLogLabel()}")
         StructuredEventLog.shared.record(
             kind = EventKind.TDLIB,
             severity = Severity.INFO,
             code = "tdlib_auth",
-            message = state.logLabel(),
-            attrs = mapOf("state" to state.wireState())
+            message = state.authLogLabel(),
+            attrs = mapOf("state" to state.authWireState())
         )
         if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "TDLib authorization: ${state.javaClass.simpleName}")
         authTimeoutJob?.cancel()
         when (state) {
             is TdApi.AuthorizationStateWaitTdlibParameters -> {
-                client.send(buildTdLibParameters(), errorHandler())
+                if (isLegacyAccount) client.send(buildTdLibParameters(), errorHandler())
+                // The secondary native owner itself configures TDLib parameters,
+                // proxy and listener while network is forced OFF.
             }
             is TdApi.AuthorizationStateWaitPhoneNumber -> {
+                if (!isLegacyAccount) secondaryAuthorizationLost = true
+                val restartQr = qrRetryAfterReopen
+                qrRetryAfterReopen = false
+                clearQrLoginState()
                 _authState.value = AuthState.WaitingForPhone
+                if (restartQr && isLegacyAccount) requestQrLogin()
+            }
+            is TdApi.AuthorizationStateWaitOtherDeviceConfirmation -> {
+                qrRequestInFlight = false
+                // A late link may arrive between the cancel action and the client closing.
+                // It must not pull the user back from the phone form.
+                if (qrCancelled) return
+                qrStateActive = true
+                when (val update = qrLinks.accept(state.link)) {
+                    is QrLoginLinkUpdate.Refreshed -> {
+                        _authState.value = qrAuthState(update.token.link)
+                        startQrRefreshWatchdog()
+                    }
+                    QrLoginLinkUpdate.Unchanged -> {
+                        // TDLib can repeat the same link; treat it as a refresh so the stale watchdog restarts.
+                        qrLinks.current()?.let {
+                            _authState.value = qrAuthState(it.link)
+                            startQrRefreshWatchdog()
+                        }
+                    }
+                    QrLoginLinkUpdate.Invalid -> {
+                        _authState.value = AuthState.Error(UiText.Res(R.string.err_auth_qr_link))
+                    }
+                }
             }
             is TdApi.AuthorizationStateWaitCode -> {
+                clearQrLoginState()
                 _authState.value = AuthState.WaitingForCode(submittedPhone)
             }
             is TdApi.AuthorizationStateWaitPassword -> {
+                clearQrLoginState()
                 _authState.value = AuthState.WaitingForPassword(state.passwordHint.orEmpty())
             }
             is TdApi.AuthorizationStateReady -> {
+                clearQrLoginState()
+                secondaryAuthorizationLost = false
                 _authState.value = AuthState.Ready
                 loadChatsWithNotificationScopes()
                 // Folder metadata can arrive while TDLib is still authorizing. Re-attempt
@@ -1395,14 +2074,28 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                     }
                 }
                 syncArchiveReturnSetting()
+                val analyticsGeneration = synchronized(analyticsAccountLock) {
+                    analyticsSessionGeneration++
+                    analyticsProfileJob?.cancel()
+                    analyticsSessionGeneration
+                }
                 profiles.refreshMe()
-                chatListScope.launch {
-                    // Telemetry only reports the own ID, so it waits for the profile instead of blocking Ready.
-                    // Wait for this refresh to finish: after a logout the old profile is still in the state until then.
+                val profileJob = chatListScope.launch {
                     val me = runCatching {
                         withTimeout(60_000) { profiles.me.first { !it.isLoading && it.error == null && it.info != null }.info }
                     }.getOrNull()
-                    AnalyticsSync.onAccountsChanged(listOfNotNull(me?.id?.takeIf { it > 0 }))
+                    synchronized(analyticsAccountLock) {
+                        // Authorization state can change on the TDLib thread while this suspends.
+                        // Serializing with logout means the old ID can never win after an empty list.
+                        if (isLegacyAccount && analyticsSessionGeneration == analyticsGeneration &&
+                            _authState.value == AuthState.Ready) {
+                            AnalyticsSync.onAccountsChanged(listOfNotNull(me?.id?.takeIf { it > 0 }))
+                        }
+                    }
+                }
+                synchronized(analyticsAccountLock) {
+                    if (analyticsSessionGeneration == analyticsGeneration) analyticsProfileJob = profileJob
+                    else profileJob.cancel()
                 }
                 conversationActions.initialize()
                 conversationEffects.authorized()
@@ -1411,21 +2104,44 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
-                AnalyticsSync.onAccountsChanged(emptyList())
+                if (!isLegacyAccount) secondaryAuthorizationLost = true
+                clearQrLoginState(resetCancellation = false)
+                synchronized(analyticsAccountLock) {
+                    analyticsSessionGeneration++
+                    analyticsProfileJob?.cancel()
+                    analyticsProfileJob = null
+                    if (isLegacyAccount) AnalyticsSync.onAccountsChanged(emptyList())
+                }
                 groupRequestGeneration.incrementAndGet()
                 groupCreationPrefs.edit().remove("unconfirmed").apply()
                 _groupCreation.value = GroupCreationState.Idle
                 clearFolderState()
                 messageDrafts.signedOut()
-                _authState.value = AuthState.WaitingForPhone
+                _authState.value = if (isLegacyAccount && isLegacyClientRecreatePending()) {
+                    AuthState.Loading
+                } else {
+                    AuthState.WaitingForPhone
+                }
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
             }
             is TdApi.AuthorizationStateClosed -> {
+                val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()
+                networkMonitor.stop()
+                clearQrLoginState(resetCancellation = false)
+                synchronized(analyticsAccountLock) {
+                    analyticsSessionGeneration++
+                    analyticsProfileJob?.cancel()
+                    analyticsProfileJob = null
+                    if (isLegacyAccount) AnalyticsSync.onAccountsChanged(emptyList())
+                }
                 clearFolderState()
-                _authState.value = AuthState.WaitingForPhone
+                // While the replacement client starts, the phone button must not send SetAuthenticationPhoneNumber
+                // to the closed client. WaitTdlibParameters -> WaitPhoneNumber will publish WaitingForPhone again.
+                _authState.value = if (reopeningLegacyClient) AuthState.Loading else AuthState.WaitingForPhone
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
+                if (!isLegacyAccount) disposeSecondaryRepository()
             }
             else -> Unit
         }
@@ -1553,7 +2269,7 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun syncArchiveReturnSetting() {
         chatListScope.launch {
             archiveReturnsOnNewMessage().onSuccess { returns ->
-                val store = ArchiveSettingsStore.get(appContext)
+                val store = ArchiveSettingsStore.get(appContext, accountId)
                 store.update(store.state.value.copy(returnOnNewMessage = returns))
             }
         }
@@ -1597,8 +2313,9 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         val existing = chatCache[chatId] ?: return
         val chat = profiles.chat(chatId) ?: return
         val canPost = profiles.canPost(chat)
-        if (canPost == existing.canPost) return
-        chatCache[chatId] = existing.copy(canPost = canPost)
+        val isChannelAdmin = profiles.isChannelAdministrator(chat)
+        if (canPost == existing.canPost && isChannelAdmin == existing.isChannelAdmin) return
+        chatCache[chatId] = existing.copy(canPost = canPost, isChannelAdmin = isChannelAdmin)
         publishChat(chatId)
     }
 
@@ -1671,14 +2388,17 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     }
 
     private fun handleNewMessage(message: TdApi.Message) {
-        messageHistory.put(message.toChatMessage())
-        putForumMessage(message)
-        conversationActions.hydrateReply(message)
+        // TDLib keeps scheduled messages in a separate queue; only delivered messages belong to the chat history.
+        if (message.schedulingState == null) {
+            messageHistory.put(message.toChatMessage())
+            putForumMessage(message)
+            conversationActions.hydrateReply(message)
+        }
         val chat = chatCache[message.chatId]
         // Muted archived chats stay in the archive, as they do in Telegram. Until the chat's notification settings are
         // known, it stays in the archive too: it may be muted.
         if (!message.isOutgoing && chat != null && chat.archiveOrder > 0L && muteState.isKnown(message.chatId) &&
-            !muteState.isMuted(message.chatId) && ArchiveSettingsStore.get(appContext).state.value.returnOnNewMessage
+            !muteState.isMuted(message.chatId) && ArchiveSettingsStore.get(appContext, accountId).state.value.returnOnNewMessage
         ) {
             returningFromArchive += message.chatId
             chatListScope.launch {
@@ -1692,18 +2412,20 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         val attachment = mediaMapper.media(content)
         val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
         val service = event?.text
+        val scheduledAt = (schedulingState as? TdApi.MessageSchedulingStateSendAtDate)?.sendDate?.takeIf { it > 0 }?.toLong()
         if (event != null) hydrateServiceMember(this, event.userId)
         return ChatMessage(
         id = id,
         chatId = chatId,
         text = service ?: contentText(content, attachment != null),
-        time = toTimeString(),
+        time = scheduledAt?.let { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it * 1000L)) } ?: toTimeString(),
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
         sendState = sendingState.toSendState(),
         media = attachment,
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
+        senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
         isEdited = editDate > 0,
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),
@@ -1712,12 +2434,45 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         isCallEvent = content is TdApi.MessageCall,
         serviceUserId = event?.userId ?: 0L,
         forumTopicId = forumId(this),
+        messageThreadId = (topicId as? TdApi.MessageTopicThread)?.messageThreadId ?: 0L,
+        isPinned = isPinned,
+        isChannelPost = isChannelPost,
+        replyCount = interactionInfo?.replyInfo?.replyCount ?: 0,
+        linkPreview = if (event == null) mediaMapper.linkPreview(content, isSecretChat(chatId)) else null,
+        scheduledAtSeconds = scheduledAt,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))
         }
     )
     }
+
+    /** Export projection avoids registering media files in MediaFileStore, so a huge history adds no UI state. */
+    private fun TdApi.Message.toExportMessage(): ChatExportMessage {
+        val media = content.toChatExportMedia()
+        val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
+        return ChatExportMessage(
+            id = id,
+            dateSeconds = date.toLong(),
+            isOutgoing = isOutgoing,
+            senderId = when (val sender = senderId) {
+                is TdApi.MessageSenderUser -> sender.userId.toLong()
+                is TdApi.MessageSenderChat -> sender.chatId
+                else -> 0L
+            },
+            senderName = profiles.senderName(senderId),
+            text = event?.text ?: contentText(content, media != null),
+            isEdited = editDate > 0,
+            serviceText = event?.text,
+            replyToMessageId = (replyTo as? TdApi.MessageReplyToMessage)?.messageId ?: 0L,
+            canBeSaved = canBeSaved,
+            media = media
+        )
+    }
+
+    /** The chat cache is normally warm; the stored TdApi.Chat covers a message that arrives first. */
+    private fun isSecretChat(chatId: Long): Boolean =
+        chatCache[chatId]?.isSecret == true || (profiles.chat(chatId)?.type is TdApi.ChatTypeSecret)
 
     /** Updates observers of this chat right away and queues the shared lists; other chats are not touched. */
     private fun publishChat(chatId: Long) {
@@ -1752,7 +2507,10 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             avatarColorArgb = id.stableColor(),
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,
+            isSecret = type.isSecretChatType(),
+            hasProtectedContent = hasProtectedContent,
             isSavedMessages = saved,
+            isMarkedAsUnread = isMarkedAsUnread,
             isPinned = mainPosition?.isPinned == true,
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,
@@ -1762,13 +2520,25 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             lastMessageSendState = lastMessage?.sendingState.toSendState(),
             lastReadOutboxMessageId = lastReadOutboxMessageId,
             canPost = profiles.canPost(this),
+            isChannelAdmin = profiles.isChannelAdministrator(this),
             photo = profiles.photo(photo),
             folderPositions = folderPositions
         )
     }
 
-    private fun contentText(content: TdApi.MessageContent, hasMedia: Boolean): String =
-        if (hasMedia) mediaMapper.caption(content) else (content as? TdApi.MessageText)?.text?.text.orEmpty()
+    private fun contentText(content: TdApi.MessageContent, hasMedia: Boolean): String = when {
+        content is TdApi.MessageContact -> content.contact.cardText()
+        hasMedia -> mediaMapper.caption(content)
+        else -> (content as? TdApi.MessageText)?.text?.text.orEmpty()
+    }
+
+    /** Contact messages are rendered as a text bubble: name and (when visible) the phone number. */
+    private fun TdApi.Contact.cardText(): String =
+        listOf(displayName(), phoneNumber.orEmpty()).filter { it.isNotBlank() }.distinct().joinToString("\n")
+
+    private fun TdApi.Contact.displayName(): String =
+        listOf(firstName.orEmpty(), lastName.orEmpty()).filter { it.isNotBlank() }.joinToString(" ")
+            .ifBlank { phoneNumber.orEmpty() }
 
     /** Текст ответа: цитата, подпись или текст; у медиа без подписи и у пустого текста — «Медиа». */
     private fun replyText(content: TdApi.MessageContent): UiText {
@@ -1788,6 +2558,8 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
     private fun previewText(c: TdApi.MessageContent): UiText =
         serviceMessages.text(c)?.let(UiText::Raw) ?: when (c) {
             is TdApi.MessageText      -> UiText.Raw(c.text.text)
+            is TdApi.MessageContact   -> c.contact.displayName().takeIf { it.isNotBlank() }?.let { UiText.Raw(it) }
+                ?: UiText.Res(R.string.message_title)
             is TdApi.MessagePhoto     -> UiText.Res(R.string.chat_preview_photo)
             is TdApi.MessageVideo     -> UiText.Res(R.string.chat_preview_video)
             is TdApi.MessageAudio     -> UiText.Res(R.string.chat_preview_audio)
@@ -1822,10 +2594,48 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
             }
         }
 
+    /** QR requests have their own cancellation gate so a late error cannot reopen the QR screen after Cancel. */
+    private fun qrErrorHandler(): Client.ResultHandler =
+        Client.ResultHandler { result ->
+            if (result is TdApi.Error) {
+                authTimeoutJob?.cancel()
+                qrRequestInFlight = false
+                if (!qrCancelled && _authState.value !is AuthState.WaitingForQr) {
+                    _authState.value = AuthState.Error(authErrorText(result.message))
+                }
+            }
+        }
+
+    /**
+     * Restarts the stale-token watchdog. TDLib refreshes the link automatically; if no update arrives for
+     * [QR_LOGIN_REFRESH_TIMEOUT_MS], the QR is no longer trustworthy and the user gets a retry action.
+     */
+    private fun startQrRefreshWatchdog() {
+        qrRefreshJob?.cancel()
+        qrRefreshJob = authScope.launch {
+            delay(QR_LOGIN_REFRESH_TIMEOUT_MS)
+            if (qrStateActive && _authState.value is AuthState.WaitingForQr &&
+                qrLinks.isRefreshOverdue(System.currentTimeMillis())) {
+                _authState.value = AuthState.Error(UiText.Res(R.string.err_auth_qr_stale))
+            }
+        }
+    }
+
+    private fun clearQrLoginState(resetCancellation: Boolean = true) {
+        qrRefreshJob?.cancel()
+        qrRefreshJob = null
+        qrStateActive = false
+        qrRequestInFlight = false
+        qrLinks.reset()
+        if (resetCancellation) qrCancelled = false
+    }
+
     /** Известные коды TDLib переводим в текст; остальные сообщения TDLib на экран не выводим. */
     private fun authErrorText(message: String?): UiText {
         val text = message.orEmpty()
         return when {
+            text.contains("requestQrCodeAuthentication") || text.contains("QR code authentication") ->
+                UiText.Res(R.string.err_auth_qr_failed)
             text.contains("PHONE_NUMBER_INVALID") -> UiText.Res(R.string.err_phone_invalid)
             text.contains("PHONE_CODE_INVALID") -> UiText.Res(R.string.err_auth_code_invalid)
             text.contains("PHONE_CODE_EXPIRED") -> UiText.Res(R.string.err_auth_code_expired)
@@ -1855,18 +2665,6 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
         else -> "other"
     }
 
-    /** Разрешённое значение этапа авторизации для структурированного отчёта. */
-    private fun TdApi.AuthorizationState.wireState(): String = when (this) {
-        is TdApi.AuthorizationStateWaitTdlibParameters -> "wait_parameters"
-        is TdApi.AuthorizationStateWaitPhoneNumber -> "wait_phone"
-        is TdApi.AuthorizationStateWaitCode -> "wait_code"
-        is TdApi.AuthorizationStateWaitPassword -> "wait_password"
-        is TdApi.AuthorizationStateReady -> "ready"
-        is TdApi.AuthorizationStateLoggingOut -> "logging_out"
-        is TdApi.AuthorizationStateClosed -> "closed"
-        else -> "other"
-    }
-
     companion object {
         private const val MIHOMO_PROXY_COMMENT = "BeyGram Mihomo"
         private const val USER_PROXY_COMMENT = "BeyGram"
@@ -1878,9 +2676,150 @@ class TdLibTelegramRepository private constructor(context: Context, policy: Inte
 
         fun getInstance(context: Context, policy: InteractionPolicy = InteractionPolicy.Standard): TdLibTelegramRepository =
             instance ?: synchronized(this) {
-                instance ?: TdLibTelegramRepository(context.applicationContext, policy).also { instance = it }
+                instance ?: TdLibTelegramRepository(context.applicationContext, policy).also {
+                    instance = it
+                    MultiAccountDiagnostics.milestone(
+                        code = "legacy_repository",
+                        stage = "created",
+                        accountId = "legacy"
+                    )
+                }
             }
+
+        /**
+         * A secondary's TDLib Client is already owned by TdAccountNativeClientOwner.
+         * Its single repository is cached on TdSecondaryNativeLogin, not globally.
+         * This method never opens, logs out, or migrates the original database.
+         */
+        internal fun forExistingSecondary(
+            context: Context,
+            native: TdSecondaryNativeLogin,
+            policy: InteractionPolicy = InteractionPolicy.Standard
+        ): TdLibTelegramRepository {
+            require(native.accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+            check(native.authPhase.value == TdAccountAuthPhase.READY && !native.routePaused.value)
+            return TdLibTelegramRepository(context.applicationContext, policy, native)
+        }
     }
+}
+
+internal const val GLOBAL_SEARCH_PEOPLE_MAX = 50
+
+/** A chat is already joined when TDLib reports any membership status except left/banned/restricted-without-membership. */
+private fun TdApi.ChatMemberStatus?.isJoinedChat(): Boolean = when (this) {
+    is TdApi.ChatMemberStatusMember,
+    is TdApi.ChatMemberStatusCreator,
+    is TdApi.ChatMemberStatusAdministrator -> true
+    is TdApi.ChatMemberStatusRestricted -> isMember
+    else -> false
+}
+
+/** JoinChat errors are user-facing: restricted groups must not look like a generic network failure. */
+private fun publicChatJoinError(error: Exception): UiText {
+    val text = error.message.orEmpty()
+    return when {
+        text.contains("FLOOD_WAIT") || text.contains("Too Many Requests") ->
+            UiText.Res(R.string.err_tdlib_flood_wait)
+        text.contains("CHANNEL_PRIVATE") || text.contains("CHANNEL_INVALID") ||
+            text.contains("CHAT_PRIVATE") || text.contains("CHAT_NOT_FOUND") ->
+            UiText.Res(R.string.global_search_public_open_failed)
+        text.contains("CHAT_RESTRICTED") || text.contains("CHANNEL_JOIN_TOO_MUCH") ||
+            text.contains("USERS_TOO_MUCH") || text.contains("CHAT_MEMBER_ADD_FAILED") ->
+            UiText.Res(R.string.global_search_public_join_declined)
+        else -> UiText.Res(R.string.global_search_public_open_failed)
+    }
+}
+
+private const val ADMIN_LOG_PAGE_SIZE = 50
+
+/** Maps one UI filter to the TDLib switches; unselected groups stay false so no unrelated events are fetched. */
+internal fun adminLogFilters(filter: ChannelEventFilter): TdApi.ChatEventLogFilters =
+    TdApi.ChatEventLogFilters().apply {
+        when (filter) {
+            ChannelEventFilter.All -> {
+                messageEdits = true; messageDeletions = true; messagePins = true
+                memberJoins = true; memberLeaves = true; memberInvites = true
+                memberPromotions = true; memberRestrictions = true; memberTagChanges = true
+                infoChanges = true; settingChanges = true; inviteLinkChanges = true
+                videoChatChanges = true; forumChanges = true; subscriptionExtensions = true
+            }
+            ChannelEventFilter.Messages -> {
+                messageEdits = true; messageDeletions = true; messagePins = true
+            }
+            ChannelEventFilter.Members -> {
+                memberJoins = true; memberLeaves = true; memberInvites = true
+                memberPromotions = true; memberRestrictions = true; memberTagChanges = true
+            }
+            ChannelEventFilter.Settings -> {
+                infoChanges = true; settingChanges = true; inviteLinkChanges = true
+                videoChatChanges = true; forumChanges = true; subscriptionExtensions = true
+            }
+        }
+    }
+
+/** Human-readable admin-log action. Unknown/new TDLib actions fall back to a neutral settings label. */
+private fun TdApi.ChatEventAction.adminText(context: Context, profiles: TdProfiles): String = when (this) {
+    is TdApi.ChatEventTitleChanged -> context.getString(R.string.channel_event_title_changed, newTitle)
+    is TdApi.ChatEventPhotoChanged -> context.getString(R.string.channel_event_photo_changed)
+    is TdApi.ChatEventDescriptionChanged -> context.getString(R.string.channel_event_description_changed)
+    is TdApi.ChatEventUsernameChanged -> context.getString(R.string.channel_event_username_changed, newUsername)
+    is TdApi.ChatEventMessageDeleted -> context.getString(R.string.channel_event_message_deleted)
+    is TdApi.ChatEventMessageEdited -> context.getString(R.string.channel_event_message_edited)
+    is TdApi.ChatEventMessagePinned -> context.getString(R.string.channel_event_message_pinned)
+    is TdApi.ChatEventMessageUnpinned -> context.getString(R.string.channel_event_message_unpinned)
+    is TdApi.ChatEventMemberJoined, is TdApi.ChatEventMemberJoinedByInviteLink,
+    is TdApi.ChatEventMemberJoinedByRequest -> context.getString(R.string.channel_event_member_joined)
+    is TdApi.ChatEventMemberLeft -> context.getString(R.string.channel_event_member_left)
+    is TdApi.ChatEventMemberInvited -> context.getString(
+        R.string.channel_event_member_invited,
+        profiles.senderName(TdApi.MessageSenderUser(userId))
+    )
+    is TdApi.ChatEventMemberPromoted -> context.getString(
+        R.string.channel_event_member_promoted,
+        profiles.senderName(TdApi.MessageSenderUser(userId))
+    )
+    is TdApi.ChatEventMemberRestricted -> context.getString(
+        R.string.channel_event_member_restricted,
+        profiles.senderName(memberId)
+    )
+    else -> context.getString(R.string.channel_event_settings_changed)
+}
+
+/** A manual unread marker can be cleared without a message; a plain empty chat has nothing to mark read. */
+internal fun canMarkChatRead(lastMessageId: Long?, markedAsUnread: Boolean): Boolean =
+    lastMessageId != null || markedAsUnread
+
+/** Отметить чат непрочитанным: счётчик не меняется, Telegram показывает маркер. */
+internal fun markChatUnreadRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnread(chatId, true)
+
+/** Снять маркер непрочитанного при открытии/прочтении чата. */
+internal fun markChatReadToggleRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnread(chatId, false)
+
+/**
+ * Only the fields exposed by the per-chat sheet are read; mute and story settings stay untouched. An inherited preview or
+ * mention setting takes the value of the chat's notification [scope], and its use-default flag is kept for saving.
+ */
+internal fun TdApi.ChatNotificationSettings.toChatNotificationPreferences(scope: TdApi.ScopeNotificationSettings) = ChatNotificationPreferences(
+    useDefaultSound = useDefaultSound,
+    soundId = soundId,
+    showPreview = if (useDefaultShowPreview) scope.showPreview else showPreview,
+    useDefaultShowPreview = useDefaultShowPreview,
+    disableMentionNotifications = if (useDefaultDisableMentionNotifications) scope.disableMentionNotifications else disableMentionNotifications,
+    useDefaultDisableMentionNotifications = useDefaultDisableMentionNotifications
+)
+
+/**
+ * Writes the fields the sheet owns. A preview or mention setting that is still inherited stays inherited: its explicit
+ * value is not written, so changing another setting never turns the inherited one into an override. Mute and story
+ * settings are not touched.
+ */
+internal fun TdApi.ChatNotificationSettings.withChatNotificationPreferences(preferences: ChatNotificationPreferences): TdApi.ChatNotificationSettings = apply {
+    useDefaultSound = preferences.useDefaultSound
+    soundId = preferences.soundId
+    useDefaultShowPreview = preferences.useDefaultShowPreview
+    if (!preferences.useDefaultShowPreview) showPreview = preferences.showPreview
+    useDefaultDisableMentionNotifications = preferences.useDefaultDisableMentionNotifications
+    if (!preferences.useDefaultDisableMentionNotifications) disableMentionNotifications = preferences.disableMentionNotifications
 }
 
 // ---- Строковые утилиты ------------------------------------------------------
@@ -1911,15 +2850,4 @@ private fun TdApi.ConnectionState.logLabel(): String = when (this) {
     is TdApi.ConnectionStateUpdating -> "обновление"
     is TdApi.ConnectionStateReady -> "подключено"
     else -> "неизвестно"
-}
-
-private fun TdApi.AuthorizationState.logLabel(): String = when (this) {
-    is TdApi.AuthorizationStateWaitTdlibParameters -> "подготовка"
-    is TdApi.AuthorizationStateWaitPhoneNumber -> "ожидание номера"
-    is TdApi.AuthorizationStateWaitCode -> "ожидание кода"
-    is TdApi.AuthorizationStateWaitPassword -> "ожидание пароля"
-    is TdApi.AuthorizationStateReady -> "вход выполнен"
-    is TdApi.AuthorizationStateLoggingOut -> "выход"
-    is TdApi.AuthorizationStateClosed -> "закрыто"
-    else -> "другой этап"
 }

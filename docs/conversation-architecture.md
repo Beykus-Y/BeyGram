@@ -30,6 +30,16 @@ Edit and delete menus use `GetMessageProperties`, including protected-content co
 
 Native content/edit/delete updates patch visible history. In-flight history pages carry a revision captured before their request, so a late page cannot roll back a newer live edit or resurrect a permanently deleted/retired message. Temporary-to-server ID replacement remains authoritative.
 
+## Message entrance animations
+
+`ChatHistory.liveArrivals` is a bounded, sequenced log of messages inserted by live updates. Only a newly inserted message is recorded: history pages, edits, delivery/read updates and the `replaces` server-ID confirmation are not arrivals. The chat screen's `MessageArrivalTracker` seeds the current sequence on its first snapshot, so opening a chat, returning to it or recreating the screen does not replay animations. Each row then claims its arrival once; pending claims and the log are bounded. This keeps animation tied to message life cycle rather than recomposition or list key changes.
+
+`AppearanceConfig.messageAnimations` stores a linked shared direction plus preserved independent sent/received directions. Linking uses the shared record without rewriting the individual ones; unlinking restores the last independent choices. `ComposerLaunch` is outgoing-only and maps to `Flow` for incoming messages. The versioned storage format accepts the original PR #348 value, so existing users keep their presets and tuning.
+
+The settings preview and the chat list share `MessageAnimationFrame`; animated card thumbnails are static, while the selected preset and the composer scenario animate on demand. Compose's animation clock applies Android's animator duration scale.
+
+Composer Launch is a spatial overlay, not a row entrance. The composer field and the real bubble report `boundsInWindow`; the real row is hidden while `ComposerLaunchLayer` interpolates a synthetic but content-identical bubble from the field center to the measured bubble bounds. The launch is built from the same `boundTelegramText` payload that is sent to TDLib, so an over-limit draft matches the clipped message. `ChatHistory.recentReplacements` lets the launch follow the temporary-to-server ID confirmation. Field hiding is keyed to the send attempt, not to text equality, so a newly typed identical draft stays visible. A send failure, a missing visible destination or a six-second safety limit cancels the overlay and reveals the row/field. The TDLib send is never awaited by the visual transition. Media sends keep their regular entrance until a safe spatial implementation exists.
+
 ## Extending privacy behavior
 
 Future unread mode can deny `ReadHistory`; content receipts and online presence are separate decisions. `Typing` gates every chat activity shown to other members (typing, recording and uploading), and the sender rechecks it while an activity lasts. Any new presence, typing, draft-sync or read side effect must pass a domain policy boundary; never add a direct native call to a composable or history loader.

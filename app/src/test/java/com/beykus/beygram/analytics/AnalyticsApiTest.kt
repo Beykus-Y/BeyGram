@@ -94,9 +94,16 @@ class AnalyticsApiTest {
     }
 
     @Test
-    fun missingEndpointIsUnavailable() {
+    fun missingEndpointIsDistinguishedFromTemporaryOutage() {
         status = 404
-        assertIs<AnalyticsResult.Unavailable>(api().sync("c", "{}"))
+        assertIs<AnalyticsResult.NotFound>(api().sync("c", "{}"))
+        assertIs<AnalyticsResult.NotFound>(api().delete("70f6c087-fdc1-4e11-9a81-dca4b8a1bd20", "c"))
+    }
+
+    @Test
+    fun invalidDeletionCanBeConsideredTerminalByCoordinator() {
+        status = 422
+        assertIs<AnalyticsResult.Invalid>(api().delete("70f6c087-fdc1-4e11-9a81-dca4b8a1bd20", "c"))
     }
 
     @Test

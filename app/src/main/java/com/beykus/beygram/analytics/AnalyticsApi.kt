@@ -10,6 +10,9 @@ internal sealed interface AnalyticsResult {
     /** 200. Для sync `updated=false` — валидный идемпотентный успех. */
     data object Ok : AnalyticsResult
 
+    /** 404: удаляемой серверной записи уже нет; POST пока не поддерживается. */
+    data object NotFound : AnalyticsResult
+
     /** 401: credential или ID не совпадают с серверной записью. */
     data object Unauthorized : AnalyticsResult
 
@@ -19,7 +22,7 @@ internal sealed interface AnalyticsResult {
     /** Временный сбой: 429, 5xx, сеть или таймаут. [afterSeconds] из Retry-After, если сервер его прислал. */
     data class Retry(val afterSeconds: Long? = null) : AnalyticsResult
 
-    /** 404 до деплоя, 3xx или невалидный origin: повторы с большим интервалом. */
+    /** 3xx или невалидный origin: повторы с большим интервалом. */
     data object Unavailable : AnalyticsResult
 }
 
@@ -71,8 +74,9 @@ internal class AnalyticsApi(
         return when {
             status == 200 -> AnalyticsResult.Ok
             status == 401 -> AnalyticsResult.Unauthorized
+            status == 404 -> AnalyticsResult.NotFound
             status == 422 -> AnalyticsResult.Invalid
-            status == 404 || status in 300..399 -> AnalyticsResult.Unavailable
+            status in 300..399 -> AnalyticsResult.Unavailable
             status == 429 || status >= 500 -> AnalyticsResult.Retry(retryAfter)
             else -> AnalyticsResult.Invalid
         }

@@ -1,13 +1,24 @@
 package com.beykus.beygram.notifications
 
 import android.content.Context
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 data class NotificationPreferences(val enabled: Boolean = true, val background: Boolean = true, val previews: Boolean = true)
 
-class NotificationPreferencesStore(context: Context) {
-    private val preferences = context.applicationContext.getSharedPreferences("notifications", Context.MODE_PRIVATE)
+internal fun notificationPreferencesName(accountId: String): String {
+    require(TdAccountStorageLayout.isValidAccountId(accountId))
+    return if (accountId == "legacy") "notifications" else "notifications_$accountId"
+}
+
+class NotificationPreferencesStore(
+    context: Context,
+    accountId: String = "legacy"
+) {
+    private val preferences = context.applicationContext.getSharedPreferences(
+        notificationPreferencesName(accountId), Context.MODE_PRIVATE
+    )
     private val _state = MutableStateFlow(read())
     val state = _state.asStateFlow()
     @Synchronized internal fun intentToken(): String = preferences.getString("intent_token", null) ?: java.util.UUID.randomUUID().toString().also { preferences.edit().putString("intent_token", it).apply() }
@@ -36,6 +47,14 @@ class NotificationPreferencesStore(context: Context) {
             }
             preferences.edit().putBoolean("authorized", value).apply()
         }
+    /** Synchronous write barrier before account data is physically removed.
+     * Flushes any earlier async apply() on the same SharedPreferences file. */
+    @Synchronized internal fun retireForRemoval() {
+        check(preferences.edit().clear().commit()) {
+            "Unable to flush notification session before deletion"
+        }
+    }
+
     fun handled(groupId: Int) = preferences.getInt("handled_$groupId", 0)
     fun handled(groupId: Int, maxId: Int) { if (maxId > handled(groupId)) preferences.edit().putInt("handled_$groupId", maxId).apply() }
     fun dismissed(groupId: Int) = preferences.getInt("dismissed_$groupId", 0)

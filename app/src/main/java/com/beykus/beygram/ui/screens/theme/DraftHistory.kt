@@ -20,6 +20,9 @@ internal class DraftHistory<T>(private val limit: Int = DEFAULT_LIMIT) {
     /** Removes the newest state and returns it, or returns null when there is none. */
     fun undo(): T? = if (steps.isEmpty()) null else steps.removeAt(steps.lastIndex)
 
+    /** Drops every step, for example when a draft becomes the saved choice. */
+    fun clear() = steps.clear()
+
     companion object {
         /** Enough steps for a long editing session. Each one is a small immutable config. */
         const val DEFAULT_LIMIT = 50

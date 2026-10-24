@@ -3,6 +3,8 @@ package com.beykus.beygram.data.tdlib
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.LiveMessageArrival
+import com.beykus.beygram.domain.model.MessageIdReplacement
 import com.beykus.beygram.domain.model.MessageSendState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +17,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     private val retiredIds = mutableMapOf<Long, MutableSet<Long>>()
     private val lock = Any()
     private var revision = 0L
+    private var liveArrivalSequence = 0L
     // Only messages changed while their chat loads are recorded, so an older snapshot cannot overwrite them.
     private val changed = mutableMapOf<Long, MutableMap<Long, Long>>()
     private val openedChats = mutableSetOf<Long>()
@@ -26,7 +29,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
 
     /** Файлы медиа, которые показывают сообщения открытых и загруженных чатов: их локальные копии нужны ленте и просмотрщику. */
     fun mediaFileIds(): Set<Int> = synchronized(lock) {
-        (cachedChats + openedChats).flatMap { chatId -> states[chatId]?.value?.messages.orEmpty() }
+        (cachedChats + openedChats).flatMap { chatId -> states[chatId]?.value?.let { it.messages + it.outsideWindowMessages }.orEmpty() }
             .flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }
             .filter { it != 0 }.toSet()
     }
@@ -50,7 +53,22 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         val state = flow(message.chatId)
         // A jump window does not reach the newest messages, so an incoming message would leave a gap; it shows once they load.
         if (state.value.hasNewerMessages && replaces == null && message.sendState == MessageSendState.Sent && state.value.messages.none { it.id == message.id }) return@synchronized
-        state.value = state.value.copy(messages = merge(message.chatId, state.value.messages, listOf(message)))
+        val history = state.value
+        val replacedWasVisible = replaces != null && history.messages.any { it.id == replaces }
+        val inserted = history.messages.none { it.id == message.id }
+        // A confirmed send replaces the temporary bubble the user already saw, so the server id is not a new arrival.
+        val arrival = if (inserted && !replacedWasVisible) LiveMessageArrival(++liveArrivalSequence, message.id) else null
+        val arrivals = if (arrival == null) history.liveArrivals else (history.liveArrivals + arrival).takeLast(MAX_LIVE_ARRIVALS)
+        val replacements = if (replaces != null && replaces != message.id) {
+            (history.recentReplacements + MessageIdReplacement(replaces, message.id)).takeLast(MAX_ID_REPLACEMENTS)
+        } else history.recentReplacements
+        state.value = history.copy(
+            messages = merge(message.chatId, history.messages, listOf(message)),
+            liveArrivals = arrivals,
+            liveArrivalSequence = arrival?.sequence ?: history.liveArrivalSequence,
+            recentReplacements = replacements,
+            outsideWindowMessages = history.outsideWindowMessages.map { if (it.id == message.id) message else it }
+        )
         keepCached(message.chatId)
     }
 
@@ -103,9 +121,19 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     fun finishLoad(chatId: Long, messages: List<ChatMessage>, hasOlder: Boolean, continueLoading: Boolean = false, requestVersion: Long? = null, epoch: Long? = null): Boolean = synchronized(lock) {
         if (epoch != null && epoch != epochOf(chatId)) return@synchronized false
         val state = flow(chatId)
+        val history = state.value
         val changes = changed[chatId].orEmpty()
-        state.value = state.value.copy(
-            messages = merge(chatId, state.value.messages, messages.filter { requestVersion == null || (changes[it.id] ?: 0L) <= requestVersion }),
+        // A page copy older than an update that arrived while the page was in flight is replaced: a message the window
+        // holds already has the update, and one kept only outside the window takes its kept copy, so no gap is left.
+        val incoming = messages.mapNotNull { message ->
+            when {
+                requestVersion == null || (changes[message.id] ?: 0L) <= requestVersion -> message
+                history.messages.any { it.id == message.id } -> null
+                else -> history.outsideWindowMessages.firstOrNull { it.id == message.id }
+            }
+        }
+        state.value = history.copy(
+            messages = merge(chatId, history.messages, incoming),
             isLoading = continueLoading,
             hasOlderMessages = hasOlder,
             error = null
@@ -115,11 +143,33 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         true
     }
 
+    /**
+     * Keeps messages loaded outside the window, such as older thread comments, so later updates and deletions still reach
+     * them. A copy already kept wins: a page may be older than an update that arrived after its request was sent.
+     */
+    fun recordOutsideWindow(chatId: Long, messages: List<ChatMessage>) = synchronized(lock) {
+        val state = flow(chatId)
+        val history = state.value
+        val known = history.outsideWindowMessages.mapTo(HashSet<Long>()) { it.id }
+        val retired = retiredIds[chatId].orEmpty()
+        val added = messages.filter { it.id !in known && it.id !in retired }.distinctBy { it.id }
+        if (added.isEmpty()) return@synchronized
+        state.value = history.copy(outsideWindowMessages = history.outsideWindowMessages + added)
+        keepCached(chatId)
+    }
+
     fun update(chatId: Long, messageId: Long, transform: (ChatMessage) -> ChatMessage) = synchronized(lock) {
         val state = flow(chatId)
-        if (state.value.messages.none { it.id == messageId }) return@synchronized
+        val history = state.value
+        val inWindow = history.messages.any { it.id == messageId }
+        val outside = history.outsideWindowMessages.any { it.id == messageId }
+        if (!inWindow && !outside) return@synchronized
+        // Marked in both lists: a page in flight keeps this copy instead of its older one, see finishLoad.
         markChanged(chatId, messageId)
-        state.value = state.value.copy(messages = state.value.messages.map { if (it.id == messageId) transform(it) else it })
+        state.value = history.copy(
+            messages = history.messages.map { if (it.id == messageId) transform(it) else it },
+            outsideWindowMessages = history.outsideWindowMessages.map { if (it.id == messageId) transform(it) else it }
+        )
     }
 
     fun readInbox(chatId: Long, messageId: Long) = synchronized(lock) {
@@ -142,7 +192,10 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     fun delete(chatId: Long, ids: Collection<Long>) = synchronized(lock) {
         retire(chatId, ids)
         val state = flow(chatId)
-        state.value = state.value.copy(messages = state.value.messages.filterNot { it.id in ids })
+        state.value = state.value.copy(
+            messages = state.value.messages.filterNot { it.id in ids },
+            outsideWindowMessages = state.value.outsideWindowMessages.filterNot { it.id in ids }
+        )
     }
 
     private fun markChanged(chatId: Long, messageId: Long) {
@@ -172,7 +225,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     private fun keepCached(chatId: Long) {
         cachedChats.remove(chatId)
         // A chat without messages holds no memory, so it takes no slot.
-        if (flow(chatId).value.messages.isEmpty()) return
+        val history = flow(chatId).value
+        if (history.messages.isEmpty() && history.outsideWindowMessages.isEmpty()) return
         cachedChats.add(chatId)
         val candidates = cachedChats.iterator()
         while (cachedChats.size > maxCachedChats && candidates.hasNext()) {
@@ -196,5 +250,9 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
 
     private companion object {
         const val MAX_RETIRED_IDS_PER_CHAT = 256
+        /** Enough to cover a burst of messages delivered while the chat is composing, without growing without bound. */
+        const val MAX_LIVE_ARRIVALS = 64
+        /** Composer Launch follows an id across its temporary-to-server confirmation. */
+        const val MAX_ID_REPLACEMENTS = 64
     }
 }

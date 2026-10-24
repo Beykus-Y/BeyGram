@@ -3,6 +3,7 @@ package com.beykus.beygram.data.media
 import android.content.Context
 import androidx.annotation.StringRes
 import com.beykus.beygram.R
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.repository.TelegramRepository
 import java.io.File
@@ -100,21 +101,37 @@ private fun syntheticFpsVerdict(context: Context, target: Int, source: Double?, 
  */
 internal class VideoNoteLossDiagnostics(
     private val context: Context,
-    private val repository: TelegramRepository
+    private val repository: TelegramRepository,
+    private val accountId: String = "legacy"
 ) {
-    private val root = File(context.noBackupFilesDir, "video-note-loss")
+    private val root = if (accountId == "legacy") File(context.noBackupFilesDir, "video-note-loss")
+        else File(context.noBackupFilesDir, "video-note-loss-$accountId")
     private val workScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var activeJob: Job? = null
 
     companion object {
-        // Survives navigation and Activity recreation; repository identity prevents using
-        // another account's test state for deletion.
-        @Volatile private var instance: VideoNoteLossDiagnostics? = null
-        @Synchronized fun getInstance(context: Context, repository: TelegramRepository): VideoNoteLossDiagnostics {
-            val old = instance
-            if (old != null && old.repository === repository) return old
-            return VideoNoteLossDiagnostics(context.applicationContext, repository).also { instance = it }
+        // Keep each repository's diagnostic sender and sentMessageId alive while switching
+        // UI accounts. Identity keys prevent a different TDLib session claiming the result.
+        private val instances = java.util.IdentityHashMap<TelegramRepository, VideoNoteLossDiagnostics>()
+        @Synchronized fun releaseRepository(repository: TelegramRepository) {
+            instances.remove(repository)?.dispose()
         }
+
+        @Synchronized fun getInstance(context: Context, repository: TelegramRepository, accountId: String = "legacy"): VideoNoteLossDiagnostics {
+            require(TdAccountStorageLayout.isValidAccountId(accountId))
+            val existing = instances[repository]
+            if (existing != null) {
+                check(existing.accountId == accountId) { "Mismatched diagnostic account owner" }
+                return existing
+            }
+            return VideoNoteLossDiagnostics(context.applicationContext, repository, accountId)
+                .also { instances[repository] = it }
+        }
+    }
+
+    private fun dispose() {
+        activeJob?.cancel()
+        workScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
     }
 
     @Synchronized fun start(fps: Int = VideoNoteSyntheticSource.FPS_30): Boolean {

@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.analytics.AnalyticsSync
+import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.diagnostics.connectionDiagnosticsText
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -87,6 +88,8 @@ fun DiagnosticsScreen(
         ) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
                 AnalyticsSwitchRow()
+                HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+                MultiAccountTraceSwitchRow()
                 HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
                 DiagnosticsLink(
                     icon = Icons.Rounded.BugReport,
@@ -156,6 +159,37 @@ fun DiagnosticsScreen(
             confirmButton = {
                 TextButton(onClick = { viewingData = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
             }
+        )
+    }
+}
+
+@Composable
+private fun MultiAccountTraceSwitchRow() {
+    val context = LocalContext.current
+    val palette = beyGramPalette()
+    var enabled by remember { mutableStateOf(MultiAccountDiagnostics.isVerbose()) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 13.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.diagnostics_account_trace_title),
+                color = palette.textPrimary,
+                fontSize = 16.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Switch(
+                checked = enabled,
+                onCheckedChange = {
+                    enabled = it
+                    MultiAccountDiagnostics.setVerbose(context, it)
+                }
+            )
+        }
+        Text(
+            stringResource(R.string.diagnostics_account_trace_description),
+            color = palette.textSecondary,
+            fontSize = 13.sp,
+            lineHeight = 17.sp,
+            modifier = Modifier.padding(top = 6.dp)
         )
     }
 }

@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.beykus.beygram.R
 import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
@@ -22,7 +23,25 @@ import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.text.resolve
 import java.util.concurrent.ConcurrentHashMap
 
-internal class AndroidNotificationRenderer(private val context: Context, private val preferences: NotificationPreferencesStore) {
+/** Stable across restarts; Android tags must never collide across TDLib clients. */
+internal fun accountNotificationTag(accountId: String, groupId: Int): String {
+    require(TdAccountStorageLayout.isValidAccountId(accountId))
+    return if (accountId == "legacy") "beygram_message_$groupId"
+    else "beygram_message_${accountId}_$groupId"
+}
+
+internal class AndroidNotificationRenderer(
+    private val context: Context,
+    private val preferences: NotificationPreferencesStore,
+    private val accountId: String = "legacy"
+) {
+    @Volatile private var accountDisplayName: String = ""
+    fun updateAccountDisplayName(name: String) {
+        accountDisplayName = name.trim().take(80)
+    }
+    private val ownTagPrefix = if (accountId == "legacy") "beygram_message_"
+        else "beygram_message_${accountId}_"
+    private fun tag(id: Int) = accountNotificationTag(accountId, id)
     // Re-read the selected locale at render time, not only at service creation.
     private val localizedContext get() = AppLocale.context(context)
     private val manager = context.getSystemService(NotificationManager::class.java)
@@ -49,7 +68,7 @@ internal class AndroidNotificationRenderer(private val context: Context, private
             }
         }
         val shown = mutableSetOf<String>()
-        val archiveSound = ArchiveSettingsStore.get(context).state.value.archiveSound
+        val archiveSound = ArchiveSettingsStore.get(context, accountId).state.value.archiveSound
         for (group in state.groups) {
             val tag = tag(group.id)
             val maxId = group.notices.maxOfOrNull { it.id } ?: 0
@@ -77,11 +96,19 @@ internal class AndroidNotificationRenderer(private val context: Context, private
                 .setContentText(if (config.previews && latest.previewAllowed && !hideContent) latest.text.resolve(localizedContext) else localizedContext.getString(R.string.notif_new_message))
                 .setStyle(style).setCategory(NotificationCompat.CATEGORY_MESSAGE).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
                 .setWhen(latest.dateSeconds * 1000).setShowWhen(true).setNumber(group.totalCount).setAutoCancel(true)
-                .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId, latest.topicId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId))
+                .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId, latest.topicId, accountId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId, accountId))
                 .setSilent(!fresh || (group.archived && !archiveSound)).setOnlyAlertOnce(!fresh).setPriority(NotificationCompat.PRIORITY_HIGH)
             // A reply needs a visible chat title and a chat the user can write to, so other groups get no reply action.
-            if (!hideContent && group.replyable) builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId, latest.topicId))
-            if (failedReplies.containsKey(group.id)) builder.setSubText(localizedContext.getString(R.string.notif_reply_failed))
+            // Quick replies carry the native account's independently signed token.
+            if (!hideContent && group.replyable)
+                builder.addAction(replyAction(group.chatId, group.id, maxId, latest.messageId, latest.topicId))
+            val accountSubtitle = if (accountId == "legacy") null else
+                localizedContext.getString(R.string.multi_notification_account,
+                    accountDisplayName.ifBlank { localizedContext.getString(R.string.secondary_accounts_others) })
+            val replyFailed = if (failedReplies.containsKey(group.id))
+                localizedContext.getString(R.string.notif_reply_failed) else null
+            val subtitle = listOfNotNull(accountSubtitle, replyFailed).joinToString(" · ")
+            if (subtitle.isNotBlank()) builder.setSubText(subtitle)
             val notification = builder.build()
             try {
                 compat.notify(tag, 0, notification)
@@ -100,14 +127,23 @@ internal class AndroidNotificationRenderer(private val context: Context, private
         }
         if (state.snapshot) {
             postedTags.retainAll(shown)
-            manager.activeNotifications.filter { it.tag?.startsWith(TAG_PREFIX) == true && it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
+            manager.activeNotifications.filter { it.tag?.startsWith(ownTagPrefix) == true &&
+                (accountId != "legacy" || it.tag?.removePrefix(ownTagPrefix)?.toIntOrNull() != null) &&
+                it.tag !in shown }.forEach { manager.cancel(it.tag, it.id) }
             // A failure note belongs to its group; once the group is gone, a reused group ID must not inherit the note.
             failedReplies.keys.filter { id -> state.groups.none { it.id == id } }.forEach { failedReplies.remove(it) }
         }
     }
     fun cancelGroup(id: Int) { manager.cancel(tag(id), 0); failedReplies.remove(id) }
+    fun cancelAllOwned() {
+        manager.activeNotifications.filter { it.tag?.startsWith(ownTagPrefix) == true &&
+            (accountId != "legacy" || it.tag?.removePrefix(ownTagPrefix)?.toIntOrNull() != null)
+        }.forEach { manager.cancel(it.tag, it.id) }
+        postedTags.clear()
+        failedReplies.clear()
+    }
     fun markReplyFailed(id: Int, maxId: Int) { failedReplies[id] = maxId }
-    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, localizedContext.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId, topicId))
+    private fun replyAction(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): NotificationCompat.Action = NotificationCompat.Action.Builder(0, localizedContext.getString(R.string.notif_action_reply), NotificationIntents.reply(context, chatId, groupId, maxId, replyToMessageId, topicId, accountId))
         .addRemoteInput(RemoteInput.Builder(NotificationIntents.REPLY_TEXT).setLabel(localizedContext.getString(R.string.notif_reply_hint)).build())
         .setAllowGeneratedReplies(false)
         .build()
@@ -122,8 +158,6 @@ internal class AndroidNotificationRenderer(private val context: Context, private
         const val CONNECTION = "background_connection_v1"
         const val PROXY = "beygram-mihomo-proxy"
         const val SERVICE_ID = 900_001
-        private const val TAG_PREFIX = "beygram_message_"
-        private fun tag(id: Int) = "$TAG_PREFIX$id"
         fun canNotify(context: Context): Boolean = (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) && NotificationManagerCompat.from(context).areNotificationsEnabled()
         /** Android can switch a channel off; notify() then posts nothing and throws nothing. */
         fun channelBlocked(context: Context, channelId: String): Boolean =

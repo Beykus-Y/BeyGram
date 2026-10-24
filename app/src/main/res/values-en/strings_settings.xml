@@ -2,11 +2,11 @@
 <resources>
     <string name="settings_last_seen_exact_detail">Always show the date and time, such as seen 12/03/26 at 10:00.</string>
     <string name="settings_last_seen_exact_title">Exact time</string>
-    <string name="settings_last_seen_footnote">Telegram still controls Online, Last seen recently and Last seen this week statuses.</string>
+    <string name="settings_last_seen_footnote">Telegram still controls Online, Last seen recently and Last seen this week statuses. Who can see your last seen time is configured under Privacy and security.</string>
     <string name="settings_last_seen_intro">Choose how the last seen time of a contact is displayed.</string>
     <string name="settings_last_seen_relative_detail">Seen 5 minutes ago or yesterday at 14:30. Older than a day: show the date.</string>
     <string name="settings_last_seen_relative_title">Relative time</string>
-    <string name="settings_last_seen_title">Last seen</string>
+    <string name="settings_last_seen_title">Last seen display</string>
     <string name="settings_storage_title">Storage and cache</string>
     <string name="settings_video_audio_bitrate">Target audio bitrate</string>
     <string name="settings_video_bitrate">Target video bitrate</string>

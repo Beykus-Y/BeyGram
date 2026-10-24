@@ -59,4 +59,11 @@ class VideoNotePendingTest {
         assertEquals(emptyList<PendingVideoNote>(), pendingVideoNotesFor(7L, processing, results, topicId = 12L))
         assertEquals(listOf("a", "b"), pendingVideoNotesFor(7L, processing, results, topicId = 11L).map { it.sessionName })
     }
+    @Test fun accountSpecificNotesNeverAppearInSameIdForeignChat() {
+        val processing = listOf(PendingVideoNote(7L, "b-process", true, accountId = "B"))
+        val results = listOf(VideoNoteExportResult(7L, listOf(media("b")), false, "b-export", accountId = "B"))
+        assertEquals(emptyList<PendingVideoNote>(), pendingVideoNotesFor(7L, processing, results, accountId = "A"))
+        assertEquals(listOf("b-process", "b-export"),
+            pendingVideoNotesFor(7L, processing, results, accountId = "B").map { it.sessionName })
+    }
 }
