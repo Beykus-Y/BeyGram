@@ -102,6 +102,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
@@ -533,6 +534,9 @@ private fun BeyGramAppContent(
     }
     val translationSettings = remember(context, selectedAccountId) {
         TranslationSettingsStore(context.applicationContext, selectedAccountId)
+    }
+    val chatOverrides = remember(context, selectedAccountId) {
+        ChatOverridesStore(context.applicationContext, selectedAccountId)
     }
     val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
     val archiveSettingsScope = rememberCoroutineScope()
@@ -1184,7 +1188,8 @@ private fun BeyGramAppContent(
                         onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
                         focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L },
                         messageAnimations = appearance.messageAnimations,
-                        translationSettings = translationSettings
+                        translationSettings = translationSettings,
+                        chatOverrides = chatOverrides
                     )
                 }
             }

@@ -54,7 +54,9 @@ import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.InteractionPolicy
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
+import com.beykus.beygram.domain.model.ChatNotificationPreferences
 import com.beykus.beygram.domain.model.NotificationPresentation
+import com.beykus.beygram.domain.model.NotificationSoundOption
 import com.beykus.beygram.domain.model.SavedTelegramProxy
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.TelegramRoute
@@ -536,6 +538,28 @@ class TdLibTelegramRepository private constructor(
         settings.muteFor = if (muted) Int.MAX_VALUE else 0
         tdRequests(TdApi.SetChatNotificationSettings(chatId, settings))
         Unit
+    }
+
+    override suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences> = requestResult {
+        tdRequests(TdApi.GetChat(chatId)).notificationSettings.toChatNotificationPreferences()
+    }
+
+    override suspend fun setChatNotificationPreferences(chatId: Long, preferences: ChatNotificationPreferences): Result<Unit> = requestResult {
+        val settings = tdRequests(TdApi.GetChat(chatId)).notificationSettings
+        settings.useDefaultSound = preferences.useDefaultSound
+        settings.soundId = preferences.soundId
+        settings.useDefaultShowPreview = false
+        settings.showPreview = preferences.showPreview
+        settings.useDefaultDisableMentionNotifications = false
+        settings.disableMentionNotifications = preferences.disableMentionNotifications
+        tdRequests(TdApi.SetChatNotificationSettings(chatId, settings))
+        Unit
+    }
+
+    override suspend fun savedNotificationSounds(): Result<List<NotificationSoundOption>> = requestResult {
+        tdRequests(TdApi.GetSavedNotificationSounds()).sounds.orEmpty().mapNotNull { sound ->
+            sound.title?.takeIf { it.isNotBlank() }?.let { NotificationSoundOption(sound.id, it) }
+        }
     }
 
     override suspend fun deleteChatForSelf(chatId: Long): Result<Unit> = requestResult {
@@ -2318,6 +2342,14 @@ internal fun markChatUnreadRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnr
 
 /** Снять маркер непрочитанного при открытии/прочтении чата. */
 internal fun markChatReadToggleRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnread(chatId, false)
+
+/** Only the fields exposed by the per-chat sheet are read; mute and story settings stay untouched. */
+internal fun TdApi.ChatNotificationSettings.toChatNotificationPreferences() = ChatNotificationPreferences(
+    useDefaultSound = useDefaultSound,
+    soundId = soundId,
+    showPreview = useDefaultShowPreview || showPreview,
+    disableMentionNotifications = !useDefaultDisableMentionNotifications && disableMentionNotifications
+)
 
 // ---- Строковые утилиты ------------------------------------------------------
 
