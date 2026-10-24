@@ -237,7 +237,7 @@ internal object MultiAccountDiagnostics {
             val durationMs = ((System.nanoTime() - startedAtNanos) / 1_000_000).coerceAtLeast(0)
             val merged = initialAttrs + sanitizeAttributes(attrs)
             val line = buildString {
-                append("Accounts code=").append(code)
+                append("Accounts operation=").append(code)
                 append(" op=").append(id)
                 append(" account=").append(accountId)
                 append(" stage=").append(stage)
@@ -255,10 +255,14 @@ internal object MultiAccountDiagnostics {
                 ConnectionEventLog.shared.record(line)
             }
             if (verbose || severity == Severity.WARNING || severity == Severity.ERROR) {
-                when (severity) {
-                    Severity.ERROR, Severity.CRITICAL -> Log.e(TAG, line)
-                    Severity.WARNING -> Log.w(TAG, line)
-                    else -> Log.i(TAG, line)
+                // android.util.Log is a stub in JVM unit tests; never let a
+                // missing Android runtime break account state transitions.
+                runCatching {
+                    when (severity) {
+                        Severity.ERROR, Severity.CRITICAL -> Log.e(TAG, line)
+                        Severity.WARNING -> Log.w(TAG, line)
+                        else -> Log.i(TAG, line)
+                    }
                 }
             }
             if (structured) {

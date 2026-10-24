@@ -48,8 +48,12 @@ class MultiAccountDiagnosticsTest {
         assertEquals("account", MultiAccountDiagnostics.sanitizeAccountId("123456789"))
     }
 
-    @Test fun failuresAreClassifiedWithoutThrowableMessages() {
-        assertEquals(
+    @Test fun exportedOperationNamesSurviveTheGlobalRedactor() {
+        val line = "Accounts operation=tdlib_start op=op-1 account=a-1 stage=parameters_await"
+        assertEquals(line, DiagnosticsRedactor.redact(line))
+    }
+
+    @Test fun failuresAreClassifiedWithoutThrowableMessages() {        assertEquals(
             "route_unavailable:LISTENER_NOT_READY",
             MultiAccountDiagnostics.errorCategory(
                 TdSecondaryRouteUnavailableException(TdSecondaryRouteBlock.LISTENER_NOT_READY)
