@@ -99,6 +99,12 @@ class MessageThreadPolicyTest {
         assertTrue(merged.single().isEdited)
     }
 
+    @Test fun `cached older comments never open a gap before the newest page`() {
+        val current = listOf(threadComment(150L))
+        val history = ChatHistory(outsideWindowMessages = listOf(threadComment(1L), threadComment(50L)))
+        assertEquals(listOf(150L), mergeThreadHistory(current, history, chatId = -100777L, threadId = 5L).map { it.id })
+    }
+
     @Test fun `other threads and the thread root never join the comment list`() {
         val history = ChatHistory(
             messages = listOf(threadComment(5L), threadComment(8L, threadId = 9L), threadComment(12L))
