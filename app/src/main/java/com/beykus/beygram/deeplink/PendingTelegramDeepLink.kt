@@ -7,7 +7,7 @@ import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
  * A link that arrived before its account was ready. [accountId] is filled once the app knows which signed-in
  * account will handle it. A null account is still unbound and defaults to the currently chosen account.
  */
-internal data class PendingTelegramDeepLink(
+data class PendingTelegramDeepLink(
     val raw: String,
     val token: Long,
     val accountId: String? = null
