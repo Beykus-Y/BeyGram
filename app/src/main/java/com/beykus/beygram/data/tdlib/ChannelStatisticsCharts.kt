@@ -5,6 +5,7 @@ import com.beykus.beygram.domain.model.ChannelChartKind
 import com.beykus.beygram.domain.model.ChannelChartPoint
 import com.beykus.beygram.domain.model.ChannelChartSeries
 import com.beykus.beygram.domain.model.ChannelStatisticsChart
+import com.beykus.beygram.domain.model.ChannelTopPost
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToLong
