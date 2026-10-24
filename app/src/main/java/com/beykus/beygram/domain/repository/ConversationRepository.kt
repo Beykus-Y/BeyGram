@@ -42,6 +42,8 @@ interface ConversationRepository {
         entities: List<MessageTextEntity> = emptyList(),
         replyToMessageId: Long? = null
     ): Result<ChatMessage>
+    /** Permanent deletions observed in a chat; history windows alone cannot distinguish deleted vs unloaded rows. */
+    fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>>
     fun openChat(chatId: Long)
     fun closeChat(chatId: Long)
     fun loadOlderMessages(chatId: Long)

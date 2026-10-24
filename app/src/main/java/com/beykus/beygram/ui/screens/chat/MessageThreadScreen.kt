@@ -174,6 +174,13 @@ internal fun MessageThreadScreen(
                         }
                     }
                 }
+                launch {
+                    conversation.observeDeletedMessages(chatId).collect { deleted ->
+                        if (deleted.isNotEmpty()) {
+                            messages = messages.filterNot { it.chatId == chatId && it.id in deleted }
+                        }
+                    }
+                }
                 // Read receipts go through the existing privacy-aware gateway and only for genuinely visible rows.
                 // Restarting on RESUMED re-reports the same viewport after the app returns from background.
                 lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {

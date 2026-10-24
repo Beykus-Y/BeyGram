@@ -205,9 +205,18 @@ fun ChatScreen(
     // A channel's linked discussion group is stable for the visit; no per-post request is needed to show the chip.
     var linkedDiscussionChatId by remember(chat.id) { mutableLongStateOf(0L) }
     LaunchedEffect(chat.id, chat.isChannel, conversation) {
-        linkedDiscussionChatId = if (chat.isChannel) {
-            conversation.linkedDiscussionChatId(chat.id).getOrDefault(0L)
-        } else 0L
+        if (!chat.isChannel) {
+            linkedDiscussionChatId = 0L
+            return@LaunchedEffect
+        }
+        // A transient failure must not look like "no discussion group": retry with a bounded backoff while open.
+        var attempt = 0
+        while (true) {
+            conversation.linkedDiscussionChatId(chat.id)
+                .onSuccess { linkedDiscussionChatId = it; return@LaunchedEffect }
+            delay((5_000L * (1 shl attempt.coerceAtMost(4))).coerceAtMost(60_000L))
+            attempt++
+        }
     }
     var error by remember { mutableStateOf<String?>(null) }
     var reactionOptions by remember(chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }

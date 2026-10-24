@@ -322,6 +322,7 @@ class TdLibTelegramRepository private constructor(
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
+    private val deletedMessages = ConcurrentHashMap<Long, MutableStateFlow<Set<Long>>>()
     // A forum topic is a separate history even though all of its messages have the parent chatId.
     private val topicStores = ConcurrentHashMap<Pair<Long, Long>, MessageHistoryStore>()
     private fun topicStore(chatId: Long, topicId: Long): MessageHistoryStore =
@@ -1414,6 +1415,8 @@ class TdLibTelegramRepository private constructor(
     }
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = messageHistory.observe(chatId)
+    override fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>> =
+        deletedMessages.computeIfAbsent(chatId) { MutableStateFlow(emptySet()) }
     override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> =
         topicStore(chatId, forumTopicId).observe(chatId)
 
@@ -1794,6 +1797,9 @@ class TdLibTelegramRepository private constructor(
                 if (update.isPermanent) {
                     messageHistory.delete(update.chatId, update.messageIds.toList())
                     topicStores.filterKeys { it.first == update.chatId }.values.forEach { it.delete(update.chatId, update.messageIds.toList()) }
+                    if (update.messageIds.isNotEmpty()) {
+                        deletedMessages[update.chatId]?.update { it + update.messageIds.toList() }
+                    }
                 }
             }
             is TdApi.UpdateConnectionState    -> {

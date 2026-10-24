@@ -64,6 +64,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class UnavailableTelegramRepository : TelegramRepository {
     private val noChats = MutableStateFlow<List<ChatPreview>>(emptyList()).asStateFlow()
     private val noHistory = MutableStateFlow(ChatHistory()).asStateFlow()
+    private val noDeletions = MutableStateFlow<Set<Long>>(emptySet()).asStateFlow()
     private val noProfile = MutableStateFlow(ProfileState()).asStateFlow()
     private val noTyping = MutableStateFlow<List<String>>(emptyList()).asStateFlow()
 
@@ -189,6 +190,7 @@ class UnavailableTelegramRepository : TelegramRepository {
         transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft
     ) {}
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = noHistory
+    override fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>> = noDeletions
     override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> = noHistory
     override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {}
     override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {}
