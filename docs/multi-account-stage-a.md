@@ -35,8 +35,11 @@ phone numbers, passwords or tokens go into registry metadata.
 ### Backup & rollback
 
 The registry is under `filesDir` alongside the future secondary TDLib account
-directories. Both must stay consistent in Android backup/device transfers.
-Never manually restore a registry without its matching account databases.
+directories. Android cloud backup and device transfer deliberately exclude
+`filesDir/tdlib` and `filesDir/tdlib-accounts`, so a new installation must
+re-authorize Telegram instead of restoring a session. A manually restored
+app-data backup must still keep the registry and its account databases
+consistent. Never restore a registry without its matching account databases.
 
 To roll back **before the multi-client stages are implemented**, do NOT
 uninstall the app or clear its data. Previous versions ignore registry metadata
