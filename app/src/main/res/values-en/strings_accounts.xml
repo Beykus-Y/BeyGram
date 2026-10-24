@@ -46,6 +46,7 @@
     <string name="account_switcher_auth_continue_title">Continue sign-in</string>
     <string name="account_switcher_auth_later">Later</string>
     <string name="account_switcher_auth_preparing">Preparing session…</string>
+    <string name="account_switcher_auth_prepare_failed">Could not create the session</string>
     <string name="account_switcher_auth_switch_progress">Signing in…</string>
     <string name="account_switcher_auth_closed">The session closed. Connect the account again.</string>
     <string name="account_switcher_auth_unsupported">Telegram requested a sign-in method that is not supported yet. Delete the unfinished sign-in and try another account.</string>

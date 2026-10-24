@@ -48,19 +48,24 @@ internal fun safeMessageUrl(value: String): String? {
 }
 
 @Composable
-internal fun FormattedMessageText(message: ChatMessage, modifier: Modifier = Modifier) {
+internal fun FormattedMessageText(message: ChatMessage, modifier: Modifier = Modifier) =
+    FormattedMessageText(message.text, message.entities, message.id, modifier)
+
+/** Used for inline translations, whose text and entities are not fields of the original [ChatMessage]. */
+@Composable
+internal fun FormattedMessageText(text: String, entities: List<MessageTextEntity>, messageId: Long, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
-    val parts = remember(message.text, message.entities) { splitMessageText(message.text, message.entities) }
+    val parts = remember(text, entities) { splitMessageText(text, entities) }
     if (parts.size == 1 && parts.single().block == null) {
-        RichTextPart(message.id, parts.single(), modifier)
+        RichTextPart(messageId, parts.single(), modifier)
         return
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         parts.forEachIndexed { index, part ->
-            key(message.id, index, part.text) {
+            key(messageId, index, part.text) {
                 when (part.block) {
                     TextStyleKind.Quote -> Box(Modifier.clip(RoundedCornerShape(6.dp)).background(palette.accent.copy(alpha = 0.12f))) {
-                        Row(Modifier.padding(start = 11.dp, end = 25.dp, top = 6.dp, bottom = 6.dp)) { RichTextPart(message.id, part) }
+                        Row(Modifier.padding(start = 11.dp, end = 25.dp, top = 6.dp, bottom = 6.dp)) { RichTextPart(messageId, part) }
                         Box(Modifier.matchParentSize().drawWithContent {
                             drawRect(palette.accent, size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height))
                         })
@@ -68,9 +73,9 @@ internal fun FormattedMessageText(message: ChatMessage, modifier: Modifier = Mod
                             modifier = Modifier.align(Alignment.TopEnd).padding(end = 5.dp, top = 1.dp))
                     }
                     TextStyleKind.Pre -> Box(Modifier.clip(RoundedCornerShape(6.dp)).background(palette.textSecondary.copy(alpha = 0.09f)).padding(8.dp)) {
-                        RichTextPart(message.id, part)
+                        RichTextPart(messageId, part)
                     }
-                    else -> RichTextPart(message.id, part)
+                    else -> RichTextPart(messageId, part)
                 }
             }
         }

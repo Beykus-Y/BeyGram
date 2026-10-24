@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="message_action_translate">Translate</string>
+    <string name="translation_settings_title">Translation</string>
+    <string name="translation_target_title">Translate to</string>
+    <string name="translation_translating">Translating…</string>
+    <string name="translation_translated_to">Translated to %1$s</string>
+    <string name="translation_dismiss">Hide translation</string>
+    <string name="translation_auto_title">Translate automatically</string>
+    <string name="translation_auto_hint">Manual translation is always available. This version does not start automatic translations.</string>
+    <string name="translation_language_en">English</string>
+    <string name="translation_language_ru">Russian</string>
+    <string name="translation_language_uk">Ukrainian</string>
+    <string name="translation_language_de">German</string>
+    <string name="translation_language_fr">French</string>
+    <string name="translation_language_es">Spanish</string>
+    <string name="translation_language_it">Italian</string>
+    <string name="translation_language_tr">Turkish</string>
+    <string name="translation_language_zh">Chinese</string>
+    <string name="translation_language_ar">Arabic</string>
+    <string name="err_translation_failed">Unable to translate the message</string>
+    <string name="err_translation_secret_chat">Translation is not available in secret chats</string>
+    <string name="transcription_action">Transcribe</string>
+    <string name="transcription_pending">Transcribing…</string>
+    <string name="transcription_rate_good">Good transcription</string>
+    <string name="transcription_rate_bad">Poor transcription</string>
+    <string name="err_transcription_failed">Unable to transcribe the message</string>
+    <string name="err_transcription_secret_chat">Transcription is not available in secret chats</string>
+</resources>

@@ -10,6 +10,7 @@ import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import com.beykus.beygram.data.vpn.VpnBackend
+import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.notifications.TelegramNotificationService
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.share.DirectShareShortcuts
@@ -36,6 +37,7 @@ class BeyGramApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        MultiAccountDiagnostics.initialize(this)
         // Stage A of multi-account: metadata-only zero-copy migration. The existing
         // TDLib client continues to use filesDir/tdlib exactly as before. If
         // disk/metadata is corrupt, leave TDLib untouched and report the failure;

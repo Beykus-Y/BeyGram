@@ -903,7 +903,7 @@ private val AccountSwitcherRow.canContinueMenu: Boolean
         (status == AccountSwitcherStatus.ERROR && canSelect)
 
 @Composable
-private fun AccountAuthContent(
+internal fun AccountAuthContent(
     addMode: Boolean,
     accountTitle: String?,
     step: AccountAuthStep,
@@ -955,18 +955,35 @@ private fun AccountAuthContent(
         }
         when (step) {
             AccountAuthStep.PREPARING -> {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-                Text(
-                    stringResource(R.string.account_switcher_auth_preparing),
-                    color = palette.textSecondary,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(top = 12.dp)
-                )
-                if (!busy && errorText != null) {
-                    Button(
-                        onClick = onRetryConnect,
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
-                    ) { Text(stringResource(R.string.account_switcher_auth_retry_connect)) }
+                if (busy) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(
+                        stringResource(R.string.account_switcher_auth_preparing),
+                        color = palette.textSecondary,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                } else {
+                    Text(
+                        stringResource(
+                            if (errorText != null) R.string.account_switcher_auth_prepare_failed
+                            else R.string.account_switcher_auth_preparing
+                        ),
+                        color = if (errorText != null) palette.danger else palette.textSecondary,
+                        fontSize = 14.sp
+                    )
+                    if (errorText != null) {
+                        Text(
+                            errorText,
+                            color = palette.danger,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                        Button(
+                            onClick = onRetryConnect,
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                        ) { Text(stringResource(R.string.account_switcher_auth_retry_connect)) }
+                    }
                 }
             }
             AccountAuthStep.PHONE -> {
@@ -1072,7 +1089,7 @@ private fun AccountAuthContent(
                 }
             }
         }
-        if (errorText != null) {
+        if (errorText != null && step != AccountAuthStep.PREPARING) {
             Text(
                 errorText,
                 color = palette.danger,

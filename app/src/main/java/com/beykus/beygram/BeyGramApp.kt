@@ -41,6 +41,7 @@ import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
 import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
+import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ArchiveSettings
@@ -101,6 +102,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
@@ -397,6 +399,12 @@ private fun BeyGramAppContent(
                 globalSearchSession.reset("")
             }
             selectedAccountId = state.activeAccountId
+            MultiAccountDiagnostics.milestone(
+                code = "account_selection_restore",
+                stage = "loaded",
+                accountId = state.activeAccountId,
+                attrs = mapOf("count" to state.accountIds.size.toString())
+            )
             secondaryAccountController.coordinator.refresh()
         } catch (_: Exception) {
             accountRegistryError = true
@@ -419,6 +427,11 @@ private fun BeyGramAppContent(
     }
     val accountSwitchScope = rememberCoroutineScope()
     val applyAccountSelection: suspend (String) -> Result<Unit> = { target ->
+        val operation = MultiAccountDiagnostics.begin(
+            "active_account_switch",
+            target,
+            mapOf("source" to selectedAccountId)
+        )
         try {
             // Re-selecting the account already on screen must not reconnect it
             // or discard its chat position.
@@ -430,13 +443,17 @@ private fun BeyGramAppContent(
                     // restore the exact native session and prove that its full
                     // repository attaches before committing the selection.
                     withContext(Dispatchers.IO) {
+                        operation.trace("ensure_native_ready")
                         secondaryAccountController.ensureReady(target)
-                        secondaryAccountController.coordinator.fullRepository(
-                            target, context.applicationContext
-                        )
+                        operation.trace("native_ready")
+                        secondaryAccountController.readyRepository(target, context.applicationContext)
+                        operation.trace("repository_ready")
                     }
                 }
-                withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
+                withContext(Dispatchers.IO) {
+                    operation.trace("registry_select")
+                    accountRegistry.selectAccount(target)
+                }
                 resetAccountScopedState()
                 recoveryError = null
                 selectedAccountId = target
@@ -451,11 +468,22 @@ private fun BeyGramAppContent(
                     // empty chat list: Start owns the retry/sign-in entry point.
                     else -> AppRoute.Start.name
                 }
+                operation.success(
+                    "switched",
+                    attrs = mapOf(
+                        "route" to routeName,
+                        "ready" to if (repositorySelection != null) "yes" else "no"
+                    )
+                )
+            } else {
+                operation.success("already_selected")
             }
             Result.success(Unit)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            operation.failure("switch_cancelled", cancelled)
             throw cancelled
         } catch (failure: Throwable) {
+            operation.failure("switch", failure)
             Result.failure(failure)
         }
     }
@@ -502,6 +530,9 @@ private fun BeyGramAppContent(
     }
     val archiveSettingsStore = remember(context, selectedAccountId) {
         ArchiveSettingsStore.get(context, selectedAccountId)
+    }
+    val translationSettings = remember(context, selectedAccountId) {
+        TranslationSettingsStore(context.applicationContext, selectedAccountId)
     }
     val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
     val archiveSettingsScope = rememberCoroutineScope()
@@ -583,6 +614,7 @@ private fun BeyGramAppContent(
             // Never reinterpret a secondary account notification's bare chat ID
             // as a legacy chat. Select the exact durable account source first.
             val target = request.accountId
+            val operation = MultiAccountDiagnostics.begin("notification_account_open", target)
             try {
                 check(request.chatId != null && request.chatId != 0L)
                 val registryState = withContext(Dispatchers.IO) { accountRegistry.loadOrCreate() }
@@ -591,21 +623,25 @@ private fun BeyGramAppContent(
                 // account's full repository exists; otherwise its bare chat ID
                 // could be rendered by a different source.
                 withContext(Dispatchers.IO) {
+                    operation.trace("ensure_native_ready")
                     secondaryAccountController.ensureReady(target)
-                    secondaryAccountController.coordinator.fullRepository(
-                        target, context.applicationContext
-                    )
+                    operation.trace("native_ready")
+                    secondaryAccountController.readyRepository(target, context.applicationContext)
+                    operation.trace("repository_ready")
+                    accountRegistry.selectAccount(target)
                 }
-                withContext(Dispatchers.IO) { accountRegistry.selectAccount(target) }
                 resetAccountScopedState()
                 notificationSecondaryChatId = request.chatId
                 notificationSecondaryChatToken = request.token
                 notificationSecondaryTopicId = request.topicId
                 selectedAccountId = target
                 routeName = AppRoute.Chats.name
+                operation.success("notification_switched")
             } catch (cancelled: CancellationException) {
+                operation.failure("notification_switch_cancelled", cancelled)
                 throw cancelled
             } catch (failure: Exception) {
+                operation.failure("notification_switch", failure)
                 noticeError = UiText.Raw(
                     context.getString(
                         accountSwitcherErrorResource(accountSwitcherErrorReason(failure))
@@ -1147,7 +1183,8 @@ private fun BeyGramAppContent(
                         topicUnreadCount = selectedTopic?.unreadCount ?: 0,
                         onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
                         focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L },
-                        messageAnimations = appearance.messageAnimations
+                        messageAnimations = appearance.messageAnimations,
+                        translationSettings = translationSettings
                     )
                 }
             }
@@ -1425,7 +1462,7 @@ private fun BeyGramAppContent(
                         onSecondaryAccounts = { accountSwitcherVisible = true }
                     )
                 }
-                AppRoute.Language -> LanguageScreen(onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.Language -> LanguageScreen(translationSettings, onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.AccountPicker, AppRoute.SecondaryAccounts, AppRoute.SecondaryChats ->
                     LaunchedEffect(Unit) {
                         // Old saved navigation from the experimental account
