@@ -10,6 +10,7 @@ import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.ContactPreview
@@ -21,12 +22,19 @@ import com.beykus.beygram.domain.model.PrivacySettingState
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.ReactionOption
+import com.beykus.beygram.domain.model.StoryDetail
+import com.beykus.beygram.domain.model.StoryPostEvent
+import com.beykus.beygram.domain.model.StoryPostPermission
+import com.beykus.beygram.domain.model.StoryPostTicket
+import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.SavedTelegramProxy
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.repository.ReportBotChannel
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
 interface TelegramRepository : ConversationRepository, NotificationRepository, ReportBotChannel, StorageRepository {
@@ -54,6 +62,37 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun saveFolderDraft(draft: com.beykus.beygram.domain.model.TelegramFolderDraft): Result<Int>
     suspend fun deleteServerFolder(folderId: Int): Result<Unit>
     suspend fun reorderServerFolders(ids: List<Int>, mainPosition: Int): Result<Unit>
+
+    /** Active stories from the main story list, already filtered for secret chats and blocked senders. */
+    val activeStories: StateFlow<List<ChatStories>>
+    /** Asks TDLib for the main story list again; updates then arrive through [activeStories]. */
+    fun refreshActiveStories()
+    /** Terminal results of PostStory, including the later upload success/failure update. */
+    val storyPostEvents: SharedFlow<StoryPostEvent>
+    /** Full story content is requested only when the viewer opens it. */
+    suspend fun loadStory(posterChatId: Long, storyId: Int): Result<StoryDetail>
+    /** Informs TDLib that the story is being viewed; the unread marker is updated optimistically. */
+    suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit>
+    suspend fun closeStory(posterChatId: Long, storyId: Int): Result<Unit>
+    suspend fun storyReactions(): Result<List<ReactionOption>>
+    /** Pass null to remove the current reaction. */
+    suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?): Result<Unit>
+    /** Sends a normal chat message that quotes the story, as Telegram clients do. */
+    suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit>
+    suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit>
+    /** Expired stories of the signed-in user, newest first. */
+    suspend fun storyArchive(): Result<List<StoryDetail>>
+    suspend fun storyPostPermission(): Result<StoryPostPermission>
+    suspend fun storyCaptionLimit(): Result<Int>
+    suspend fun publishStory(
+        media: OutgoingMedia,
+        caption: String,
+        privacy: StoryPrivacy,
+        selectedUserIds: List<Long> = emptyList(),
+        activePeriodSeconds: Int,
+        protectContent: Boolean,
+        keepInProfile: Boolean
+    ): Result<StoryPostTicket>
 
     val connectionState: StateFlow<TelegramConnectionState>
     val myProfile: StateFlow<ProfileState>
@@ -224,4 +263,6 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     fun observeFile(fileId: Int): StateFlow<MediaFileState>
     fun downloadFile(fileId: Int)
+    /** Stops a download that was only needed by a closed screen; completed files stay available. */
+    fun cancelFileDownload(fileId: Int)
 }

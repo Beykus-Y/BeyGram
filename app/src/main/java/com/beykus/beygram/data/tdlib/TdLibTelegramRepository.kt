@@ -55,6 +55,12 @@ import com.beykus.beygram.domain.model.ChannelEventFilter
 import com.beykus.beygram.domain.model.ChannelStatisticsPerson
 import com.beykus.beygram.domain.model.ChannelStatisticsSummary
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ChatStories
+import com.beykus.beygram.domain.model.StoryDetail
+import com.beykus.beygram.domain.model.StoryPostEvent
+import com.beykus.beygram.domain.model.StoryPostPermission
+import com.beykus.beygram.domain.model.StoryPostTicket
+import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
@@ -98,6 +104,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -395,6 +402,7 @@ class TdLibTelegramRepository private constructor(
         })
     }
     private val profiles = TdProfiles({ client }, mediaFiles)
+    private val stories = TdStories({ client }, profiles, mediaFiles)
     private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
     private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
@@ -514,6 +522,31 @@ class TdLibTelegramRepository private constructor(
         tdRequests(TdApi.ReorderChatFolders(ids.toIntArray(), mainPosition))
         Unit
     }
+
+    override val activeStories: StateFlow<List<ChatStories>> = stories.items
+    override fun refreshActiveStories() = stories.refreshActive()
+    override val storyPostEvents: SharedFlow<StoryPostEvent> = stories.postEvents
+    override suspend fun loadStory(posterChatId: Long, storyId: Int) = stories.story(posterChatId, storyId)
+    override suspend fun openStory(posterChatId: Long, storyId: Int) = stories.openStory(posterChatId, storyId)
+    override suspend fun closeStory(posterChatId: Long, storyId: Int) = stories.closeStory(posterChatId, storyId)
+    override suspend fun storyReactions() = stories.availableReactions()
+    override suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?) =
+        stories.setReaction(posterChatId, storyId, reaction)
+    override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String) =
+        stories.replyToStory(posterChatId, storyId, text)
+    override suspend fun deleteStory(posterChatId: Long, storyId: Int) = stories.deleteStory(posterChatId, storyId)
+    override suspend fun storyArchive() = stories.archive()
+    override suspend fun storyPostPermission() = stories.postPermission()
+    override suspend fun storyCaptionLimit() = stories.captionLimit()
+    override suspend fun publishStory(
+        media: OutgoingMedia,
+        caption: String,
+        privacy: StoryPrivacy,
+        selectedUserIds: List<Long>,
+        activePeriodSeconds: Int,
+        protectContent: Boolean,
+        keepInProfile: Boolean
+    ) = stories.publishStory(media, caption, privacy, selectedUserIds, activePeriodSeconds, protectContent, keepInProfile)
 
     /** TDLib is the cursor owner: each LoadChats call fetches the next server-backed page. */
     override suspend fun loadMoreFolderChats(folderId: Int): Result<Unit> = requestResult {
@@ -1624,6 +1657,10 @@ class TdLibTelegramRepository private constructor(
         conversationEffects.contentOpened(chatId, messageId)
     }
 
+    override fun cancelFileDownload(fileId: Int) {
+        client.send(TdApi.CancelDownloadFile(fileId, false), errorHandler())
+    }
+
     override suspend fun sendVideoNoteLossTest(media: OutgoingMedia, remoteCopy: File): Result<com.beykus.beygram.domain.model.VideoNoteLossRemoteResult> =
         requestResult { videoNoteLossTransport.sendAndFetchOwnTest(media, remoteCopy) }
 
@@ -1773,6 +1810,7 @@ class TdLibTelegramRepository private constructor(
             is TdApi.UpdateDeleteMessages -> if (update.isPermanent) invalidatePins(update.chatId)
         }
         profiles.handle(update)
+        stories.handle(update)
         notificationFeed.handle(update)
         when (update) {
             is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
@@ -2101,6 +2139,7 @@ class TdLibTelegramRepository private constructor(
                 conversationActions.initialize()
                 conversationEffects.authorized()
                 notificationFeed.initialize()
+                stories.authorized()
                 cacheMaintenance.authorized()
                 messageDrafts.connectionReady()
             }
@@ -2118,6 +2157,7 @@ class TdLibTelegramRepository private constructor(
                 _groupCreation.value = GroupCreationState.Idle
                 clearFolderState()
                 messageDrafts.signedOut()
+                stories.signedOut()
                 _authState.value = if (isLegacyAccount && isLegacyClientRecreatePending()) {
                     AuthState.Loading
                 } else {
@@ -2142,6 +2182,7 @@ class TdLibTelegramRepository private constructor(
                 _authState.value = if (reopeningLegacyClient) AuthState.Loading else AuthState.WaitingForPhone
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
+                stories.signedOut()
                 if (!isLegacyAccount) disposeSecondaryRepository()
             }
             else -> Unit
