@@ -59,8 +59,9 @@ internal object DirectShareShortcuts {
                 when {
                     // Ready can arrive before the chat list loads; an empty set then means "still loading", so it keeps the last one.
                     auth == AuthState.Ready -> pickTargets(chats).map { it.id to it.title }.toSet().takeIf { it.isNotEmpty() }
-                    // Only a sign-out clears shortcuts. Idle, loading, timeouts and errors keep the last published set.
-                    auth is AuthState.WaitingForPhone || auth is AuthState.WaitingForCode ||
+                    // Only a sign-out (or an in-progress QR login) clears shortcuts. Idle, loading, timeouts and errors keep the last published set.
+                    auth is AuthState.WaitingForPhone || auth is AuthState.WaitingForQr ||
+                        auth is AuthState.WaitingForCode ||
                         auth is AuthState.WaitingForPassword -> emptySet()
                     else -> null
                 }

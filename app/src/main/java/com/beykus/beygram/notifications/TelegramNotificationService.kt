@@ -111,7 +111,8 @@ class TelegramNotificationService : Service() {
                     if (connection == TelegramConnectionState.Connected) {
                         connectionReady = true; startupWakeLock.releaseIfHeld(); reportConnectedOnce()
                     }
-                    if (!config.enabled || !config.background || auth == AuthState.WaitingForPhone) {
+                    if (!config.enabled || !config.background || auth == AuthState.WaitingForPhone ||
+                        auth == AuthState.WaitingForQr) {
                         scope.launch {
                             if (!withContext(Dispatchers.IO) {
                                 shouldRun(this@TelegramNotificationService)

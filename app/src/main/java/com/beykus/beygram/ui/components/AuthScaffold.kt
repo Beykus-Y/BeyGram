@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Icon
@@ -43,6 +45,7 @@ fun AuthScaffold(
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(horizontal = 24.dp)
             .imePadding()
+            .verticalScroll(rememberScrollState())
     ) {
         IconButton(
             onClick = onBack,

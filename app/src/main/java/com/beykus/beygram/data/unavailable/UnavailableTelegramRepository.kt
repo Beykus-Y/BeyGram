@@ -124,6 +124,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun submitCode(code: String) {}
     override fun resendCode() {}
     override fun submitPassword(password: String) {}
+    override fun requestQrLogin() {}
+    override fun cancelQrLogin() {}
     override fun resetError() {}
     override fun reconnect() {}
 

@@ -443,6 +443,7 @@ private fun BeyGramAppContent(
                 routeName = when {
                     target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> AppRoute.Chats.name
                     legacyRepository.authState.value is AuthState.WaitingForPhone -> AppRoute.LoginPhone.name
+                    legacyRepository.authState.value is AuthState.WaitingForQr -> AppRoute.LoginPhone.name
                     legacyRepository.authState.value is AuthState.WaitingForCode -> AppRoute.LoginCode.name
                     legacyRepository.authState.value is AuthState.WaitingForPassword -> AppRoute.LoginPassword.name
                     legacyRepository.authState.value == AuthState.Ready -> AppRoute.Chats.name
@@ -659,6 +660,7 @@ private fun BeyGramAppContent(
         mutableStateOf(incomingShare?.targetChatId != 0L)
     }
     val shareLegacyFinalLogout = legacyAuthState is AuthState.WaitingForPhone ||
+        legacyAuthState is AuthState.WaitingForQr ||
         legacyAuthState is AuthState.WaitingForCode ||
         legacyAuthState is AuthState.WaitingForPassword
     if (incomingShare != null && shareLegacyShortcut &&
@@ -861,6 +863,14 @@ private fun BeyGramAppContent(
             is AuthState.WaitingForPhone -> {
                 // Попадаем сюда только если были на начальном экране или пришли из ошибки
                 if (currentRoute == AppRoute.Start || currentRoute == AppRoute.LoginPhone) {
+                    routeName = AppRoute.LoginPhone.name
+                }
+            }
+            is AuthState.WaitingForQr -> {
+                // QR is rendered inside the phone login screen; don't leave it on the start/code/password screen.
+                if (currentRoute in listOf(
+                        AppRoute.Start, AppRoute.LoginPhone, AppRoute.LoginCode, AppRoute.LoginPassword
+                    )) {
                     routeName = AppRoute.LoginPhone.name
                 }
             }
@@ -1296,7 +1306,9 @@ private fun BeyGramAppContent(
                         phone = submittedPhone
                         repository.submitPhoneNumber(submittedPhone)
                         // Навигация произойдёт через LaunchedEffect(authState) при WaitingForCode
-                    }
+                    },
+                    onQrLogin = repository::requestQrLogin,
+                    onCancelQrLogin = repository::cancelQrLogin
                 )
 
                 AppRoute.LoginCode -> LoginCodeScreen(

@@ -123,6 +123,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Отправляет облачный пароль (2FA); результат придёт через [authState]. */
     fun submitPassword(password: String)
 
+    /** Запрашивает вход по QR-коду; ссылка придёт через [authState] как [AuthState.WaitingForQr]. */
+    fun requestQrLogin()
+
+    /** Отменяет вход по QR-коду и возвращает экран ввода телефона. */
+    fun cancelQrLogin()
+
     /** Сбрасывает ошибку обратно в [AuthState.WaitingForPhone]. */
     fun resetError()
 
