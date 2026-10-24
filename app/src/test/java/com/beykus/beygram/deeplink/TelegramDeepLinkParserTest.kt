@@ -138,6 +138,11 @@ class TelegramDeepLinkParserTest {
         assertEquals(TelegramProxyKind.SOCKS5, socks.draft.kind)
         assertEquals("name", socks.draft.username)
         assertEquals("secret", socks.draft.password)
+
+        val utf8 = TelegramDeepLinkParser.parse(
+            "tg://socks?server=127.0.0.1&port=1080&user=test&pass=%C3%A9"
+        ) as TelegramDeepLink.Proxy
+        assertEquals("é", utf8.draft.password)
     }
 
     @Test

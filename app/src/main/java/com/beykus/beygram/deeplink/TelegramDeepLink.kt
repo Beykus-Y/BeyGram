@@ -278,7 +278,7 @@ internal object TelegramDeepLinkParser {
     }
 
     private fun percentDecode(value: String): String? {
-        val result = StringBuilder(value.length)
+        val bytes = java.io.ByteArrayOutputStream(value.length)
         var index = 0
         while (index < value.length) {
             val char = value[index]
@@ -286,14 +286,15 @@ internal object TelegramDeepLinkParser {
                 if (index + 2 >= value.length) return null
                 val high = value[index + 1].digitToIntOrNull(16) ?: return null
                 val low = value[index + 2].digitToIntOrNull(16) ?: return null
-                result.append(((high shl 4) or low).toChar())
+                bytes.write((high shl 4) or low)
                 index += 3
             } else {
-                result.append(char)
+                // Non-ASCII literals and escaped bytes must be decoded together as UTF-8.
+                bytes.write(char.toString().toByteArray(Charsets.UTF_8))
                 index++
             }
         }
-        return result.toString()
+        return bytes.toByteArray().toString(Charsets.UTF_8)
     }
 
     private fun normalizePhone(value: String): String? {

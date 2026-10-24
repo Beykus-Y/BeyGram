@@ -1883,7 +1883,7 @@ private fun BeyGramAppContent(
                                         noticeError = (error as? UserMessageException)?.text
                                             ?: UiText.Res(R.string.err_app_open_chat_failed)
                                     }
-                                deepLinkInvite = null
+                                if (deepLinkInvite?.token == prompt.token) deepLinkInvite = null
                                 onDeepLinkHandled(prompt.token)
                             } finally {
                                 deepLinkBusy = false
@@ -1932,13 +1932,16 @@ private fun BeyGramAppContent(
                         deepLinkBusy = true
                         deepLinkScope.launch {
                             try {
-                                val result = repository.addProxy(prompt.draft, enable = true)
+                                // Coordinate with subscription/auto-activation state just like the manual proxy screen.
+                                val result = vpnBackend.selectNonSubscriptionRoute {
+                                    repository.addProxy(prompt.draft, enable = true)
+                                }
                                 if (selectedAccountId != prompt.accountId) return@launch
                                 result.onFailure { error ->
                                     noticeError = (error as? UserMessageException)?.text
                                         ?: UiText.Res(R.string.proxy_connect_add_failed)
                                 }
-                                deepLinkProxy = null
+                                if (deepLinkProxy?.token == prompt.token) deepLinkProxy = null
                                 onDeepLinkHandled(prompt.token)
                             } finally {
                                 deepLinkBusy = false
