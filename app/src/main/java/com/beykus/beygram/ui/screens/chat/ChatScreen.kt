@@ -1110,6 +1110,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 }
                             }
                             if (hasText) FormattedMessageText(message)
+                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile) }
                         }
                     }
                 },

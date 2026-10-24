@@ -2,6 +2,7 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageLinkPreview
 import com.beykus.beygram.domain.model.MessageMedia
 import org.drinkless.tdlib.TdApi
 
@@ -68,6 +69,12 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
         }
         else -> null
     }
+
+    /** Registers only the selected small cover photo, so the card never downloads the page's original image. */
+    fun linkPreview(content: TdApi.MessageContent, isSecretChat: Boolean): MessageLinkPreview? =
+        visibleLinkPreview(content, isSecretChat)
+            ?.toMessageLinkPreview(::register)
+            ?.takeIf { it.hasContent }
 
     fun caption(content: TdApi.MessageContent): String = when (content) {
         is TdApi.MessagePhoto -> content.caption?.text.orEmpty()
