@@ -99,10 +99,12 @@ internal class TdStorage(
                 val sent = File(folder, SENT_UPLOAD_MARKER).exists()
                 // Метка без id осталась от прежней сборки: TDLib может держать файл скачанным, и без id его не забыть. Такую папку не трогаем.
                 val ids = sentUploadFileIds(folder, accountId)
-                SentUpload(folder, bytes = files.sumOf { it.length() }, lastUsedMillis = lastUsed, inUse = inUse || !sent || ids.isEmpty(), fileIds = ids)
+                // A folder that holds only its owner mark has no copy to keep or to forget: an abandoned session, not an unsent draft.
+                val abandoned = uploadFolderHasOnlyOwnerMarker(folder)
+                SentUpload(folder, bytes = files.sumOf { it.length() }, lastUsedMillis = lastUsed, inUse = inUse || (!abandoned && (!sent || ids.isEmpty())), fileIds = ids, abandoned = abandoned)
             }
             val candidates = folders.filter { !it.inUse }.sortedBy { it.lastUsedMillis }
-            val expired = candidates.filter { maxAgeSeconds != null && now - it.lastUsedMillis > maxAgeSeconds * 1000L }
+            val expired = candidates.filter { it.abandoned || (maxAgeSeconds != null && now - it.lastUsedMillis > maxAgeSeconds * 1000L) }
             val removed = mutableListOf<SentUpload>().apply { addAll(expired) }
             val limit = policy.maxBytes
             if (limit != null) {
@@ -185,8 +187,11 @@ internal class TdStorage(
     }
 }
 
-/** Папка копий отправленных файлов: [bytes] — её размер, [lastUsedMillis] — последнее изменение файлов, [fileIds] — id из метки. */
-private class SentUpload(val folder: File, val bytes: Long, val lastUsedMillis: Long, val inUse: Boolean, val fileIds: Set<Int>)
+/**
+ * Папка копий отправленных файлов: [bytes] — её размер, [lastUsedMillis] — последнее изменение файлов, [fileIds] — id из метки.
+ * [abandoned] — в папке осталась только метка владельца; такую папку убирают независимо от политики.
+ */
+private class SentUpload(val folder: File, val bytes: Long, val lastUsedMillis: Long, val inUse: Boolean, val fileIds: Set<Int>, val abandoned: Boolean)
 
 /**
  * Метка в папке копий: её ставит отправка, которую TDLib подтвердила. Без метки папка — черновик или отправка, которая
@@ -238,6 +243,25 @@ internal fun uploadFolderBelongsToAccount(folder: File, accountId: String): Bool
     else accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID
 }
 
+
+/**
+ * True when [folder] holds nothing but its owner mark, so no copy is left to send or to forget. A video-note session
+ * keeps its owner mark until its last segment is gone, which leaves the folder in this state.
+ */
+internal fun uploadFolderHasOnlyOwnerMarker(folder: File): Boolean {
+    if (!folder.isDirectory || java.nio.file.Files.isSymbolicLink(folder.toPath())) return false
+    return folder.listFiles().orEmpty().all { it.name == STAGED_UPLOAD_OWNER_MARKER && it.isFile }
+}
+
+/**
+ * Deletes [folder] when [uploadFolderHasOnlyOwnerMarker] holds and returns whether it was deleted. Any other entry,
+ * such as a segment that still waits to be sent or a subfolder, keeps the folder.
+ */
+internal fun removeUploadFolderIfOnlyOwnerMarker(folder: File): Boolean {
+    if (!uploadFolderHasOnlyOwnerMarker(folder)) return false
+    File(folder, STAGED_UPLOAD_OWNER_MARKER).delete()
+    return folder.delete()
+}
 
 /** Keep the legacy on-disk marker format intact for upgrades. Reject mixed-account folders. */
 internal fun markSentUpload(
