@@ -29,8 +29,14 @@ data class ChatMessage(
     val serviceUserId: Long = 0L,
     /** TDLib forum topic id for opening a global search hit in its original topic. */
     val forumTopicId: Long = 0L,
+    /** TDLib MessageTopicThread id for a channel-post comment; zero for ordinary/forum messages. */
+    val messageThreadId: Long = 0L,
     /** The message is pinned in its chat (TDLib's Message.isPinned). */
     val isPinned: Boolean = false,
+    /** TDLib's Message.isChannelPost: true only for an original post in a broadcast channel. */
+    val isChannelPost: Boolean = false,
+    /** TDLib's MessageInteractionInfo.replyInfo.replyCount: comments or replies under this message. */
+    val replyCount: Int = 0,
     /** Web-page metadata for a text message link; never populated in secret chats. */
     val linkPreview: MessageLinkPreview? = null,
     /** Unix timestamp when a scheduled message will be sent; null for a normal message. */

@@ -360,4 +360,16 @@
     <string name="a11y_state_loading">Loading</string>
     <string name="a11y_message_actions">Message actions</string>
     <string name="a11y_open_attachment">Open attachment</string>
+    <string name="chat_comments_button">Comments · %1$d</string>
+    <string name="thread_comments_title">Comments · %1$d</string>
+    <string name="thread_comments_empty">No comments yet</string>
+    <string name="thread_comments_load_earlier">Load earlier comments</string>
+    <string name="thread_comments_load_failed">Unable to load comments</string>
+    <string name="thread_comments_send_failed">Unable to send the comment</string>
+    <string name="thread_comments_closed">Comments are closed for this post</string>
+    <string name="thread_comments_hidden">Comments are hidden or unavailable</string>
+    <string name="thread_comments_unavailable">Comments are unavailable</string>
+    <string name="thread_read_only">You cannot write in this discussion group</string>
+    <string name="thread_reply_placeholder">Comment</string>
+    <string name="thread_reply_not_loaded">The comment is not loaded</string>
 </resources>
