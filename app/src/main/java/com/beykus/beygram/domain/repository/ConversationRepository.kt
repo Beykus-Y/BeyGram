@@ -109,6 +109,21 @@ interface ConversationRepository {
      */
     suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter): Result<GlobalMessagePage>
     /**
+     * Local and server chat-title search. TDLib has no offset here, so [limit] grows for the next page
+     * and callers merge rows by chat id. Only chats already known to TDLib are returned.
+     */
+    suspend fun searchGlobalChats(query: String, limit: Int): Result<GlobalSearchPage<ChatPreview>>
+    /** Address-book contacts matching [query], with TDLib's total count for the "show more" limit. */
+    suspend fun searchGlobalContacts(query: String, limit: Int): Result<GlobalSearchPage<ContactPreview>>
+    /** Public chats matching [query]. Results are not joined until the user taps one. */
+    suspend fun searchGlobalPublicChats(query: String): Result<GlobalSearchPage<ChatPreview>>
+    /**
+     * Resolves a public search result only after the user taps it. Channels open in preview; public
+     * groups join when needed. A join request that needs approval is returned, never sent silently
+     * while the query is being typed.
+     */
+    suspend fun openPublicChat(chatId: Long): Result<PublicChatOpenResult>
+    /**
      * Messages with an attachment of [kind] for the chat profile tabs and the chat media viewer, newest first. Same paging as
      * [searchMessages]. With [newer], the page holds messages newer than [fromMessageId] instead.
      */
