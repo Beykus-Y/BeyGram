@@ -331,6 +331,9 @@ internal class TdStories(
         if (activePeriodSeconds !in STORY_ACTIVE_PERIODS) {
             throw UserMessageException(UiText.Res(R.string.stories_period_invalid))
         }
+        if (privacy == StoryPrivacy.SelectedUsers && selectedUserIds.none { it > 0L }) {
+            throw UserMessageException(UiText.Res(R.string.stories_selected_empty))
+        }
         val chatId = ensureSelfChatId()
         val permission = requests(TdApi.CanPostStory(chatId)).toPermission()
         if (permission is StoryPostPermission.Denied) {

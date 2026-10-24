@@ -1659,6 +1659,7 @@ class TdLibTelegramRepository private constructor(
 
     override fun cancelFileDownload(fileId: Int) {
         client.send(TdApi.CancelDownloadFile(fileId, false), errorHandler())
+        mediaFiles.cancel(fileId)
     }
 
     override suspend fun sendVideoNoteLossTest(media: OutgoingMedia, remoteCopy: File): Result<com.beykus.beygram.domain.model.VideoNoteLossRemoteResult> =

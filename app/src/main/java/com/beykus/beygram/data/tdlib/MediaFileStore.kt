@@ -36,4 +36,10 @@ internal class MediaFileStore {
         val state = flow(id)
         state.value = state.value.copy(isDownloading = false, error = message)
     }
+
+    /** A viewer that closes cancels its in-flight files; a later open must be able to download them again. */
+    fun cancel(id: Int) = synchronized(lock) {
+        val state = flow(id)
+        if (state.value.localPath == null) state.value = state.value.copy(isDownloading = false)
+    }
 }
