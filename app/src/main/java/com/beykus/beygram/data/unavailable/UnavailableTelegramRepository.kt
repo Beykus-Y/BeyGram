@@ -148,7 +148,7 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override suspend fun restrictGroupMember(chatId: Long, userId: Long): Result<Unit> = unavailable()
 
-    override suspend fun unrestrictGroupMember(chatId: Long, userId: Long): Result<Unit> = unavailable()
+    override suspend fun unrestrictGroupMember(chatId: Long, userId: Long, keepMembership: Boolean): Result<Unit> = unavailable()
 
     override suspend fun setGroupMemberRights(
         chatId: Long,

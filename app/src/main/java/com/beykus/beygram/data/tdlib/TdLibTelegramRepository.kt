@@ -1254,8 +1254,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun restrictGroupMember(chatId: Long, userId: Long): Result<Unit> =
         groupResult { groupAdministration.restrictMember(chatId, userId) }
 
-    override suspend fun unrestrictGroupMember(chatId: Long, userId: Long): Result<Unit> =
-        groupResult { groupAdministration.unrestrictMember(chatId, userId) }
+    override suspend fun unrestrictGroupMember(chatId: Long, userId: Long, keepMembership: Boolean): Result<Unit> =
+        groupResult { groupAdministration.unrestrictMember(chatId, userId, keepMembership) }
 
     override suspend fun setGroupMemberRights(
         chatId: Long,

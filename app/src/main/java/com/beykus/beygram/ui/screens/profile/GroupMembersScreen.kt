@@ -166,7 +166,7 @@ internal fun GroupMembersScreen(
                 GroupMemberAction.Ban -> repository.banGroupMember(chatId, member.userId)
                 GroupMemberAction.Unban -> repository.unbanGroupMember(chatId, member.userId)
                 GroupMemberAction.Restrict -> repository.restrictGroupMember(chatId, member.userId)
-                GroupMemberAction.Unrestrict -> repository.unrestrictGroupMember(chatId, member.userId)
+                GroupMemberAction.Unrestrict -> repository.unrestrictGroupMember(chatId, member.userId, member.isMember)
                 GroupMemberAction.Demote -> repository.demoteGroupMember(chatId, member.userId)
                 GroupMemberAction.Promote, GroupMemberAction.EditRights ->
                     repository.setGroupMemberRights(chatId, member.userId, adminRights ?: defaultAdministratorRights(info.kind))

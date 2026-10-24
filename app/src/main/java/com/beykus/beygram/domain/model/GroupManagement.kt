@@ -65,6 +65,8 @@ data class GroupMemberEntry(
     val userId: Long,
     val name: String,
     val status: GroupMemberStatus,
+    /** Для Restricted: остался ли пользователь в чате; false — ограничен, но уже не участник. */
+    val isMember: Boolean = true,
     val online: Boolean,
     val isBot: Boolean,
     val tag: String,

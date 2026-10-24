@@ -101,6 +101,7 @@ internal class TdGroupAdministration(
                 userId = userId,
                 name = user.displayName(),
                 status = status,
+                isMember = member.isMember(),
                 online = user.isOnline(),
                 isBot = user.type is TdApi.UserTypeBot,
                 tag = member.tag.orEmpty(),
@@ -163,8 +164,11 @@ internal class TdGroupAdministration(
         )
     }
 
-    suspend fun unrestrictMember(chatId: Long, userId: Long) {
-        requests(TdApi.SetChatMemberStatus(chatId, TdApi.MessageSenderUser(userId), TdApi.ChatMemberStatusMember(0)))
+    suspend fun unrestrictMember(chatId: Long, userId: Long, keepMembership: Boolean) {
+        // Ограниченный, но уже вышедший пользователь должен остаться вне чата: Left снимает
+        // ограничение, не добавляя его заново.
+        val status = if (keepMembership) TdApi.ChatMemberStatusMember(0) else TdApi.ChatMemberStatusLeft()
+        requests(TdApi.SetChatMemberStatus(chatId, TdApi.MessageSenderUser(userId), status))
     }
 
     suspend fun setAdministratorRights(chatId: Long, userId: Long, rights: GroupAdministratorRights) {
@@ -198,21 +202,28 @@ internal class TdGroupAdministration(
         }
         val links = mutableListOf<TdApi.ChatInviteLink>()
         for (creatorId in creators.distinct()) {
-            var offsetDate = 0
-            var offsetLink = ""
-            var pages = 0
-            var fetched = 0
-            while (pages++ < MAX_INVITE_PAGES) {
-                val page = requests(TdApi.GetChatInviteLinks(chatId, creatorId, false, offsetDate, offsetLink, PAGE_SIZE))
-                val batch = page.inviteLinks.orEmpty().filterNotNull()
-                links += batch
-                fetched += batch.size
-                if (batch.size < PAGE_SIZE || fetched >= page.totalCount) break
-                val last = batch.last()
-                // Защита от сервера, который повторяет ту же страницу.
-                if (last.date == offsetDate && last.inviteLink == offsetLink) break
-                offsetDate = last.date
-                offsetLink = last.inviteLink
+            try {
+                var offsetDate = 0
+                var offsetLink = ""
+                var pages = 0
+                var fetched = 0
+                while (pages++ < MAX_INVITE_PAGES) {
+                    val page = requests(TdApi.GetChatInviteLinks(chatId, creatorId, false, offsetDate, offsetLink, PAGE_SIZE))
+                    val batch = page.inviteLinks.orEmpty().filterNotNull()
+                    links += batch
+                    fetched += batch.size
+                    if (batch.size < PAGE_SIZE || fetched >= page.totalCount) break
+                    val last = batch.last()
+                    // Защита от сервера, который повторяет ту же страницу.
+                    if (last.date == offsetDate && last.inviteLink == offsetLink) break
+                    offsetDate = last.date
+                    offsetLink = last.inviteLink
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Чужая устаревшая запись не должна скрывать доступные ссылки; свои ошибки показываем.
+                if (creatorId == myId) throw error
             }
         }
         return links.distinctBy { it.inviteLink }
@@ -350,6 +361,13 @@ private fun TdApi.User.isOnline(): Boolean =
 private fun TdApi.ChatMember.isAnonymous(): Boolean = when (val status = this.status) {
     is TdApi.ChatMemberStatusCreator -> status.isAnonymous
     is TdApi.ChatMemberStatusAdministrator -> status.rights.isAnonymous
+    else -> false
+}
+
+private fun TdApi.ChatMember.isMember(): Boolean = when (val status = this.status) {
+    is TdApi.ChatMemberStatusCreator -> status.isMember
+    is TdApi.ChatMemberStatusRestricted -> status.isMember
+    is TdApi.ChatMemberStatusMember, is TdApi.ChatMemberStatusAdministrator -> true
     else -> false
 }
 

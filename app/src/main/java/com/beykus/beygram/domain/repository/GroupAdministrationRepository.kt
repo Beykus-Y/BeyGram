@@ -34,7 +34,8 @@ interface GroupAdministrationRepository {
     suspend fun banGroupMember(chatId: Long, userId: Long): Result<Unit>
     suspend fun unbanGroupMember(chatId: Long, userId: Long): Result<Unit>
     suspend fun restrictGroupMember(chatId: Long, userId: Long): Result<Unit>
-    suspend fun unrestrictGroupMember(chatId: Long, userId: Long): Result<Unit>
+    /** [keepMembership] false снимает ограничение с уже вышедшего пользователя, не добавляя его обратно. */
+    suspend fun unrestrictGroupMember(chatId: Long, userId: Long, keepMembership: Boolean = true): Result<Unit>
 
     /** Повышение и изменение прав администратора; сервер проверит can_promote_members. */
     suspend fun setGroupMemberRights(chatId: Long, userId: Long, rights: GroupAdministratorRights): Result<Unit>
