@@ -40,6 +40,9 @@ import com.beykus.beygram.domain.model.QrLoginLinkUpdate
 import com.beykus.beygram.domain.model.QR_LOGIN_REFRESH_TIMEOUT_MS
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ChatInvitePreview
+import com.beykus.beygram.domain.model.InviteJoinOutcome
+import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.FolderChatPosition
 import com.beykus.beygram.domain.model.TelegramChatFolders
 import com.beykus.beygram.domain.model.TelegramFolderDraft
@@ -769,6 +772,56 @@ class TdLibTelegramRepository private constructor(
         val chat = TdRequests { client }(TdApi.CreatePrivateChat(userId, false))
         handleNewChat(chat)
         chat.id
+    }
+
+    override suspend fun resolvePublicChat(username: String): Result<Long> = requestResult {
+        val cleaned = username.trim().removePrefix("@")
+        require(cleaned.isNotEmpty()) { "Empty public username" }
+        val chat = tdRequests(TdApi.SearchPublicChat(cleaned))
+        handleNewChat(chat)
+        chat.id
+    }
+
+    override suspend fun resolvePhoneNumber(phone: String): Result<Long> = requestResult {
+        val normalized = phone.trim().let { if (it.startsWith("+")) it else "+$it" }
+        require(normalized.length > 1) { "Empty phone number" }
+        val user = tdRequests(TdApi.SearchUserByPhoneNumber(normalized, false))
+        val chat = tdRequests(TdApi.CreatePrivateChat(user.id, false))
+        handleNewChat(chat)
+        chat.id
+    }
+
+    override suspend fun checkInviteLink(url: String): Result<ChatInvitePreview> = requestResult {
+        val info = tdRequests(TdApi.CheckChatInviteLink(url))
+        ChatInvitePreview(
+            title = info.title,
+            memberCount = info.memberCount,
+            createsJoinRequest = info.createsJoinRequest,
+            isPublic = info.isPublic
+        )
+    }
+
+    override suspend fun joinInviteLink(url: String): Result<InviteJoinOutcome> = requestResult {
+        when (val result = tdRequests(TdApi.JoinChatByInviteLink(url))) {
+            is TdApi.ChatJoinResultSuccess -> {
+                handleNewChat(tdRequests(TdApi.GetChat(result.chatId)))
+                InviteJoinOutcome.Joined(result.chatId)
+            }
+            is TdApi.ChatJoinResultRequestSent -> InviteJoinOutcome.RequestSent
+            else -> throw UserMessageException(UiText.Res(R.string.err_app_open_chat_failed))
+        }
+    }
+
+    override suspend fun resolveMessageLink(url: String): Result<MessageLinkTarget> = requestResult {
+        val info = tdRequests(TdApi.GetMessageLinkInfo(url))
+        val message = info.message
+            ?: throw UserMessageException(UiText.Res(R.string.chat_message_open_failed))
+        handleNewChat(tdRequests(TdApi.GetChat(info.chatId)))
+        val forumTopicId = when (val topic = info.topicId) {
+            is TdApi.MessageTopicForum -> topic.forumTopicId.toLong()
+            else -> 0L
+        }
+        MessageLinkTarget(info.chatId, message.id, forumTopicId)
     }
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
