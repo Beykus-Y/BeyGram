@@ -165,7 +165,8 @@ internal fun MessageThreadScreen(
                 launch {
                     conversation.observeChatHistory(chatId).collect { history ->
                         // The thread root is the group's automatic copy of the post: it is already shown at the top.
-                        val fresh = history.messages.filter {
+                        // Comments loaded outside the window come from the same store, so their edits and reactions arrive too.
+                        val fresh = (history.messages + history.outsideWindowMessages).filter {
                             it.messageThreadId == currentThreadId && !it.isChannelPost && it.id != currentThreadId
                         }
                         if (fresh.isNotEmpty()) {

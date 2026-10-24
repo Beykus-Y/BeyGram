@@ -122,6 +122,8 @@ internal class TdConversationActions(
             .filterNot { it.isChannelPost || it.id == info.messageThreadId }
             .sortedBy { it.id }
             .map(map)
+        // These comments can lie outside the discussion chat's newest window; keeping them lets later edits and reactions reach the thread.
+        history.recordOutsideWindow(info.chatId, initialMessages)
         // A page may be shorter than the reply count even when no older page remains, but a full page is not proof of
         // the end either; the next history call is the only authoritative check.
         val hasOlderMessages = initialMessages.isNotEmpty()
@@ -152,6 +154,7 @@ internal class TdConversationActions(
             .filter { it.id != fromMessageId && it.id != threadId && !it.isChannelPost }
             .sortedBy { it.id }
             .map(map)
+        history.recordOutsideWindow(discussionChatId, messages)
         val nextFromMessageId = messages.firstOrNull()?.id ?: 0L
         MessageThreadPage(
             messages = messages,

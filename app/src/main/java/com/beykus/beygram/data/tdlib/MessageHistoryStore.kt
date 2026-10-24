@@ -29,7 +29,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
 
     /** Файлы медиа, которые показывают сообщения открытых и загруженных чатов: их локальные копии нужны ленте и просмотрщику. */
     fun mediaFileIds(): Set<Int> = synchronized(lock) {
-        (cachedChats + openedChats).flatMap { chatId -> states[chatId]?.value?.messages.orEmpty() }
+        (cachedChats + openedChats).flatMap { chatId -> states[chatId]?.value?.let { it.messages + it.outsideWindowMessages }.orEmpty() }
             .flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }
             .filter { it != 0 }.toSet()
     }
@@ -66,7 +66,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
             messages = merge(message.chatId, history.messages, listOf(message)),
             liveArrivals = arrivals,
             liveArrivalSequence = arrival?.sequence ?: history.liveArrivalSequence,
-            recentReplacements = replacements
+            recentReplacements = replacements,
+            outsideWindowMessages = history.outsideWindowMessages.map { if (it.id == message.id) message else it }
         )
         keepCached(message.chatId)
     }
@@ -132,11 +133,33 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         true
     }
 
+    /**
+     * Keeps messages loaded outside the window, such as older thread comments, so later updates and deletions still reach
+     * them. A copy already kept wins: a page may be older than an update that arrived after its request was sent.
+     */
+    fun recordOutsideWindow(chatId: Long, messages: List<ChatMessage>) = synchronized(lock) {
+        val state = flow(chatId)
+        val history = state.value
+        val known = history.outsideWindowMessages.mapTo(HashSet<Long>()) { it.id }
+        val retired = retiredIds[chatId].orEmpty()
+        val added = messages.filter { it.id !in known && it.id !in retired }.distinctBy { it.id }
+        if (added.isEmpty()) return@synchronized
+        state.value = history.copy(outsideWindowMessages = history.outsideWindowMessages + added)
+        keepCached(chatId)
+    }
+
     fun update(chatId: Long, messageId: Long, transform: (ChatMessage) -> ChatMessage) = synchronized(lock) {
         val state = flow(chatId)
-        if (state.value.messages.none { it.id == messageId }) return@synchronized
-        markChanged(chatId, messageId)
-        state.value = state.value.copy(messages = state.value.messages.map { if (it.id == messageId) transform(it) else it })
+        val history = state.value
+        val inWindow = history.messages.any { it.id == messageId }
+        val outside = history.outsideWindowMessages.any { it.id == messageId }
+        if (!inWindow && !outside) return@synchronized
+        // An outside-only message is not marked changed: a window page holding it would drop its copy and leave a gap.
+        if (inWindow) markChanged(chatId, messageId)
+        state.value = history.copy(
+            messages = history.messages.map { if (it.id == messageId) transform(it) else it },
+            outsideWindowMessages = history.outsideWindowMessages.map { if (it.id == messageId) transform(it) else it }
+        )
     }
 
     fun readInbox(chatId: Long, messageId: Long) = synchronized(lock) {
@@ -159,7 +182,10 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     fun delete(chatId: Long, ids: Collection<Long>) = synchronized(lock) {
         retire(chatId, ids)
         val state = flow(chatId)
-        state.value = state.value.copy(messages = state.value.messages.filterNot { it.id in ids })
+        state.value = state.value.copy(
+            messages = state.value.messages.filterNot { it.id in ids },
+            outsideWindowMessages = state.value.outsideWindowMessages.filterNot { it.id in ids }
+        )
     }
 
     private fun markChanged(chatId: Long, messageId: Long) {
@@ -189,7 +215,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     private fun keepCached(chatId: Long) {
         cachedChats.remove(chatId)
         // A chat without messages holds no memory, so it takes no slot.
-        if (flow(chatId).value.messages.isEmpty()) return
+        val history = flow(chatId).value
+        if (history.messages.isEmpty() && history.outsideWindowMessages.isEmpty()) return
         cachedChats.add(chatId)
         val candidates = cachedChats.iterator()
         while (cachedChats.size > maxCachedChats && candidates.hasNext()) {
