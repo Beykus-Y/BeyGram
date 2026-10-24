@@ -57,6 +57,12 @@ interface ConversationRepository {
     /** Retries failed outgoing messages regardless of their content type. */
     suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit>
     suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities>
+    /** Per-chat notification preferences from TDLib; no local copy is created. */
+    suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences>
+    /** Updates only sound/preview/mentions; mute and unrelated TDLib settings are preserved. */
+    suspend fun setChatNotificationPreferences(chatId: Long, preferences: ChatNotificationPreferences): Result<Unit>
+    /** Notification sounds already saved in this Telegram account. */
+    suspend fun savedNotificationSounds(): Result<List<NotificationSoundOption>>
     /** Translates a message with TDLib, preserving its formatting entities. Secret chats are refused locally. */
     suspend fun translateMessage(chatId: Long, messageId: Long, toLanguageCode: String): Result<MessageTranslation>
     /** Starts server-side speech recognition; the result arrives through UpdateMessageContent. Never automatic. */
