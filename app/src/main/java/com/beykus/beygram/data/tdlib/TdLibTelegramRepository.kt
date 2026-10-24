@@ -566,17 +566,15 @@ class TdLibTelegramRepository private constructor(
     }
 
     override suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences> = requestResult {
-        tdRequests(TdApi.GetChat(chatId)).notificationSettings.toChatNotificationPreferences()
+        val chat = tdRequests(TdApi.GetChat(chatId))
+        // An inherited preview or mention setting shows what the chat's notification scope currently uses.
+        val scopeSettings = tdRequests(TdApi.GetScopeNotificationSettings(NotificationScope.ofChat(chat.type).toTd()))
+        chat.notificationSettings.toChatNotificationPreferences(scopeSettings)
     }
 
     override suspend fun setChatNotificationPreferences(chatId: Long, preferences: ChatNotificationPreferences): Result<Unit> = requestResult {
-        val settings = tdRequests(TdApi.GetChat(chatId)).notificationSettings
-        settings.useDefaultSound = preferences.useDefaultSound
-        settings.soundId = preferences.soundId
-        settings.useDefaultShowPreview = false
-        settings.showPreview = preferences.showPreview
-        settings.useDefaultDisableMentionNotifications = false
-        settings.disableMentionNotifications = preferences.disableMentionNotifications
+        // Only the fields the user changed become explicit; the others keep following the scope.
+        val settings = tdRequests(TdApi.GetChat(chatId)).notificationSettings.withChatNotificationPreferences(preferences)
         tdRequests(TdApi.SetChatNotificationSettings(chatId, settings))
         Unit
     }
@@ -2796,13 +2794,32 @@ internal fun markChatUnreadRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnr
 /** Снять маркер непрочитанного при открытии/прочтении чата. */
 internal fun markChatReadToggleRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnread(chatId, false)
 
-/** Only the fields exposed by the per-chat sheet are read; mute and story settings stay untouched. */
-internal fun TdApi.ChatNotificationSettings.toChatNotificationPreferences() = ChatNotificationPreferences(
+/**
+ * Only the fields exposed by the per-chat sheet are read; mute and story settings stay untouched. An inherited preview or
+ * mention setting takes the value of the chat's notification [scope], and its use-default flag is kept for saving.
+ */
+internal fun TdApi.ChatNotificationSettings.toChatNotificationPreferences(scope: TdApi.ScopeNotificationSettings) = ChatNotificationPreferences(
     useDefaultSound = useDefaultSound,
     soundId = soundId,
-    showPreview = useDefaultShowPreview || showPreview,
-    disableMentionNotifications = !useDefaultDisableMentionNotifications && disableMentionNotifications
+    showPreview = if (useDefaultShowPreview) scope.showPreview else showPreview,
+    useDefaultShowPreview = useDefaultShowPreview,
+    disableMentionNotifications = if (useDefaultDisableMentionNotifications) scope.disableMentionNotifications else disableMentionNotifications,
+    useDefaultDisableMentionNotifications = useDefaultDisableMentionNotifications
 )
+
+/**
+ * Writes the fields the sheet owns. A preview or mention setting that is still inherited stays inherited: its explicit
+ * value is not written, so changing another setting never turns the inherited one into an override. Mute and story
+ * settings are not touched.
+ */
+internal fun TdApi.ChatNotificationSettings.withChatNotificationPreferences(preferences: ChatNotificationPreferences): TdApi.ChatNotificationSettings = apply {
+    useDefaultSound = preferences.useDefaultSound
+    soundId = preferences.soundId
+    useDefaultShowPreview = preferences.useDefaultShowPreview
+    if (!preferences.useDefaultShowPreview) showPreview = preferences.showPreview
+    useDefaultDisableMentionNotifications = preferences.useDefaultDisableMentionNotifications
+    if (!preferences.useDefaultDisableMentionNotifications) disableMentionNotifications = preferences.disableMentionNotifications
+}
 
 // ---- Строковые утилиты ------------------------------------------------------
 
