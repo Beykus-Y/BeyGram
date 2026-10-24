@@ -82,6 +82,8 @@ data class ProfileInfo(
     val memberPreview: List<ProfileMember> = emptyList(),
     /** TDLib разрешает получать список участников: у каналов это часто запрещено. */
     val canListMembers: Boolean = false,
+    /** Что текущий аккаунт может менять в этой группе или канале; null для личных чатов. */
+    val groupAdmin: GroupAdminRights? = null,
     val isSelf: Boolean = false,
     val isPremium: Boolean = false,
     val isVerified: Boolean = false,
