@@ -36,19 +36,19 @@ class MessageMarkupTest {
     }
 
     @Test fun `inline custom emoji keeps the original alternate text and offsets`() {
-        val text = "hi 😀 wow ✨"
+        val text = "hi 😀 wow 🎉"
         val happy = text.indexOf("😀")
-        val sparkle = text.indexOf("✨")
+        val party = text.indexOf("🎉")
         val entities = listOf(
             MessageTextEntity(0, text.length, TextStyleKind.Bold),
             MessageTextEntity(happy, 2, TextStyleKind.CustomEmoji, "7"),
-            MessageTextEntity(sparkle, 2, TextStyleKind.CustomEmoji, "8")
+            MessageTextEntity(party, 2, TextStyleKind.CustomEmoji, "8")
         )
 
         val runs = inlineCustomEmojiRuns(text, entities, enabled = true)
 
-        assertEquals(listOf(happy, sparkle), runs.map { it.offset })
-        assertEquals(listOf("😀", "✨"), runs.map { it.alternate })
+        assertEquals(listOf(happy, party), runs.map { it.offset })
+        assertEquals(listOf("😀", "🎉"), runs.map { it.alternate })
         assertEquals(2, runs.first().length)
         // The alternate text is the original substring, so replacing each run keeps every annotated offset stable.
         val rebuilt = StringBuilder(text)
