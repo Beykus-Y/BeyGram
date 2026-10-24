@@ -64,7 +64,7 @@ internal class TdStories(
     private val _items = MutableStateFlow<List<ChatStories>>(emptyList())
     val items: StateFlow<List<ChatStories>> = _items.asStateFlow()
 
-    private val _postEvents = MutableSharedFlow<StoryPostEvent>(replay = 1, extraBufferCapacity = 8)
+    private val _postEvents = MutableSharedFlow<StoryPostEvent>(replay = 16, extraBufferCapacity = 8)
     val postEvents: SharedFlow<StoryPostEvent> = _postEvents.asSharedFlow()
 
     fun authorized() {
@@ -224,7 +224,7 @@ internal class TdStories(
                 chatId = raw.chatId,
                 title = title,
                 initials = initialsOf(title),
-                avatarColorArgb = if (isSelf) (selfId.stableColor()) else raw.chatId.stableColor(),
+                avatarColorArgb = if (isSelf) (me?.id ?: selfId).stableColor() else raw.chatId.stableColor(),
                 photo = if (isSelf) me?.photo else chat.photo?.let { profiles.photo(it) },
                 isSelf = isSelf,
                 order = raw.order,
@@ -402,7 +402,7 @@ internal class TdStories(
             thumbnailFileId = video.thumbnail?.file?.let(::register),
             width = video.width,
             height = video.height,
-            durationSeconds = video.duration,
+            durationSeconds = video.duration.toInt(),
             minithumbnail = video.minithumbnail?.data
         )
         else -> null

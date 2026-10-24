@@ -51,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,7 +93,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withFrameNanos
 import java.text.DateFormat
 import java.util.Date
 
@@ -151,9 +151,10 @@ fun StoryViewerScreen(
             .onFailure { loadError = it.userMessage(context, R.string.stories_unavailable) }
     }
 
-    // The current story is open only while it is on screen; leaving it sends CloseStory.
-    LaunchedEffect(posterChatId, current?.storyId) {
+    // The current story is open only after its content loads; leaving it sends CloseStory.
+    LaunchedEffect(posterChatId, current?.storyId, detail != null) {
         val storyId = current?.storyId ?: return@LaunchedEffect
+        if (detail == null) return@LaunchedEffect
         repository.openStory(posterChatId, storyId)
         try {
             awaitCancellation()
