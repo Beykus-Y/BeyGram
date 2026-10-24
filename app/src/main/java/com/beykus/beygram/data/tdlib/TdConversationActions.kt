@@ -108,15 +108,17 @@ internal class TdConversationActions(
         val isMember = status !is TdApi.ChatMemberStatusLeft && status !is TdApi.ChatMemberStatusBanned
         // MessageThreadInfo.messages is only the thread prefix. The history call is the authoritative newest page,
         // and it keeps the initial scroll at the latest comments on a busy post.
+        // Do not hide a failed first history request behind the thread prefix: that prefix is filtered out below,
+        // which would turn a transient failure into a permanent empty discussion with no retry action.
         val firstPage = try {
             request(messageThreadHistoryRequest(info.chatId, info.messageThreadId, 0L))
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: TdRequestError) {
-            null
+        } catch (error: TdRequestError) {
+            throw UserMessageException(UiText.Res(R.string.thread_comments_load_failed), error)
         }
-        val pageMessages = firstPage?.messages.orEmpty().filterNotNull()
-        val initialMessages = (pageMessages.ifEmpty { info.messages.orEmpty().filterNotNull() })
+        val pageMessages = firstPage.messages.orEmpty().filterNotNull()
+        val initialMessages = pageMessages
             .filterNot { it.isChannelPost || it.id == info.messageThreadId }
             .sortedBy { it.id }
             .map(map)

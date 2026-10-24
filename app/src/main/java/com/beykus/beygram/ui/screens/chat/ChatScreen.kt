@@ -641,10 +641,10 @@ fun ChatScreen(
     }
 
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
-    LaunchedEffect(chat.id, lifecycle, conversation) {
+    LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             snapshotFlow {
-                if (!window.isWindowFocused || searching || !scrollPosition.readBoundaryChecked) emptyList() else {
+                if (!window.isWindowFocused || searching || threadOpen || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
                     val eligible = currentMessages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id }
                     layout.visibleItemsInfo.filter { item ->

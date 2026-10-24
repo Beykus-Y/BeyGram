@@ -467,6 +467,12 @@ internal fun MessageThreadScreen(
 
     val mediaMessages = (messages + listOfNotNull(post)).filter { it.media != null }
     val viewed = mediaMessages.firstOrNull { it.id == selectedMediaId }
+    var viewerCanSave by remember(selectedMediaId) { mutableStateOf(false) }
+    LaunchedEffect(selectedMediaId, viewed?.chatId) {
+        viewerCanSave = if (selectedMediaId != null && viewed != null) {
+            conversation.messageCapabilities(viewed.chatId, viewed.id).getOrNull()?.canSave == true
+        } else false
+    }
     if (viewed?.media != null) {
         MediaViewer(
             pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it) } },
@@ -477,7 +483,11 @@ internal fun MessageThreadScreen(
             onViewed = { id -> conversation.openMessageContent(viewed.chatId, id) },
             onClose = { selectedMediaId = null },
             title = viewed.senderName.ifBlank { channelTitle },
-            subtitle = viewed.time
+            subtitle = viewed.time,
+            canExport = viewerCanSave,
+            confirmExport = { id ->
+                conversation.messageCapabilities(viewed.chatId, id).getOrNull()?.canSave == true
+            }
         )
     }
 }
