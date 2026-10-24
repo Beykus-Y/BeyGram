@@ -3,7 +3,9 @@ package com.beykus.beygram.data.tdlib
 import android.content.Context
 import com.beykus.beygram.BeyGramApplication
 import com.beykus.beygram.data.vpn.MihomoProxyService
+import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.model.TelegramRoute
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.notifications.NotificationPreferencesStore
 import com.beykus.beygram.notifications.notificationPreferencesName
@@ -110,29 +112,74 @@ internal class TdSecondaryAccountController private constructor(
         restoreStore.setStoredRoute(accountId, preference)
 
     /**
+     * Attaches and proves the account's complete TelegramRepository. Account
+     * selection must use this instead of treating native READY as UI-ready.
+     */
+    suspend fun readyRepository(accountId: String, context: Context): TelegramRepository {
+        requireSecondary(accountId)
+        val operation = MultiAccountDiagnostics.begin("repository_attach", accountId)
+        operation.trace("full_repository_request")
+        return try {
+            val repository = coordinator.fullRepository(accountId, context)
+            operation.success(
+                "repository_ready",
+                attrs = mapOf("phase" to (rowOf(accountId)?.phase?.name ?: "none"))
+            )
+            repository
+        } catch (failure: Throwable) {
+            operation.failure(
+                "full_repository",
+                failure,
+                attrs = mapOf("phase" to (rowOf(accountId)?.phase?.name ?: "none"))
+            )
+            throw failure
+        }
+    }
+
+    /**
      * One-tap selection of a known account: reopen a stopped/restored session
      * when needed and wait until its full repository is usable. Never switches
      * to legacy data on failure.
      */
     suspend fun ensureReady(accountId: String) = restoreMutex.withLock {
         requireSecondary(accountId)
-        var row = rowOf(accountId) ?: throw TdAccountSwitchFailure.Disconnected()
-        if (row.networkSuspended && row.connectedInThisProcess &&
-            row.phase != TdAccountAuthPhase.CLOSED
-        ) {
-            throw TdAccountSwitchFailure.RoutePaused()
-        }
-        if (!row.connectedInThisProcess || row.phase == TdAccountAuthPhase.CLOSED) {
-            if (!restoreStore.isAuthorized(accountId)) throw TdAccountSwitchFailure.NotAuthorized()
-            openSecondary(accountId, preferredRoute(accountId))
-        }
-        row = awaitPhase(accountId) ?: throw TdAccountSwitchFailure.Disconnected()
-        when {
-            row.phase == TdAccountAuthPhase.READY && !row.networkSuspended -> Unit
-            row.phase?.let { it in AUTH_WAITING_PHASES } == true ->
-                throw TdAccountSwitchFailure.NotAuthorized()
-            row.networkSuspended -> throw TdAccountSwitchFailure.RoutePaused()
-            else -> throw TdAccountSwitchFailure.Disconnected()
+        val operation = MultiAccountDiagnostics.begin("ensure_ready", accountId)
+        try {
+            operation.trace("snapshot")
+            var row = rowOf(accountId) ?: throw TdAccountSwitchFailure.Disconnected()
+            operation.trace(
+                "snapshot_state",
+                attrs = mapOf(
+                    "phase" to (row.phase?.name ?: "none"),
+                    "previous_phase" to if (row.connectedInThisProcess) "connected" else "closed"
+                )
+            )
+            if (row.networkSuspended && row.connectedInThisProcess &&
+                row.phase != TdAccountAuthPhase.CLOSED
+            ) {
+                throw TdAccountSwitchFailure.RoutePaused()
+            }
+            if (!row.connectedInThisProcess || row.phase == TdAccountAuthPhase.CLOSED) {
+                if (!restoreStore.isAuthorized(accountId)) {
+                    throw TdAccountSwitchFailure.NotAuthorized()
+                }
+                operation.trace("reopen_required")
+                openSecondary(accountId, preferredRoute(accountId))
+            }
+            row = awaitPhase(accountId, operation) ?: throw TdAccountSwitchFailure.Disconnected()
+            when {
+                row.phase == TdAccountAuthPhase.READY && !row.networkSuspended -> {
+                    operation.success("ready")
+                    Unit
+                }
+                row.phase?.let { it in AUTH_WAITING_PHASES } == true ->
+                    throw TdAccountSwitchFailure.NotAuthorized()
+                row.networkSuspended -> throw TdAccountSwitchFailure.RoutePaused()
+                else -> throw TdAccountSwitchFailure.Disconnected()
+            }
+        } catch (failure: Throwable) {
+            operation.failure("ensure_ready", failure)
+            throw failure
         }
     }
 
@@ -145,10 +192,24 @@ internal class TdSecondaryAccountController private constructor(
         preference: TdSecondaryRoutePreference = preferredRoute(accountId)
     ) = restoreMutex.withLock {
         requireSecondary(accountId)
+        val operation = MultiAccountDiagnostics.begin(
+            "sign_in_connect",
+            accountId,
+            mapOf("preference" to preference.name)
+        )
         restoreStore.setStoredRoute(accountId, preference)
         val row = rowOf(accountId)
-        if (row?.connectedInThisProcess == true && row.phase != TdAccountAuthPhase.CLOSED) return@withLock
-        openSecondary(accountId, preference)
+        if (row?.connectedInThisProcess == true && row.phase != TdAccountAuthPhase.CLOSED) {
+            operation.success("already_connected", attrs = mapOf("phase" to (row.phase?.name ?: "none")))
+            return@withLock
+        }
+        try {
+            openSecondary(accountId, preference)
+            operation.success("sign_in_session_started")
+        } catch (failure: Throwable) {
+            operation.failure("sign_in_connect", failure)
+            throw failure
+        }
     }
 
     /**
@@ -162,20 +223,45 @@ internal class TdSecondaryAccountController private constructor(
     suspend fun useRoute(accountId: String, preference: TdSecondaryRoutePreference) =
         restoreMutex.withLock {
             requireSecondary(accountId)
+            val operation = MultiAccountDiagnostics.begin(
+                "route_apply",
+                accountId,
+                mapOf("preference" to preference.name)
+            )
             restoreStore.setStoredRoute(accountId, preference)
             val row = rowOf(accountId)
-            when {
-                row != null && row.connectedInThisProcess &&
-                    row.phase != TdAccountAuthPhase.CLOSED ->
-                    reconnectLocked(accountId, preference)
-                else -> Unit
+            try {
+                when {
+                    row != null && row.connectedInThisProcess &&
+                        row.phase != TdAccountAuthPhase.CLOSED -> {
+                        operation.trace("live_reconnect")
+                        reconnectLocked(accountId, preference)
+                    }
+                    else -> {
+                        operation.trace(
+                            "route_stored_only",
+                            attrs = mapOf("phase" to (row?.phase?.name ?: "none"))
+                        )
+                    }
+                }
+                operation.success(
+                    "route_applied",
+                    attrs = mapOf("phase" to (rowOf(accountId)?.phase?.name ?: "none"))
+                )
+            } catch (failure: Throwable) {
+                operation.failure("route_apply", failure)
+                throw failure
             }
         }
 
     /** Removes only a slot whose native login never reached READY. */
     suspend fun discardIncompleteAccount(accountId: String) {
         requireSecondary(accountId)
-        if (restoreStore.isAuthorized(accountId)) throw TdAccountSwitchFailure.NotAuthorized()
+        val operation = MultiAccountDiagnostics.begin("discard_data", accountId)
+        if (restoreStore.isAuthorized(accountId)) {
+            operation.failure("discard_precheck", TdAccountSwitchFailure.NotAuthorized())
+            throw TdAccountSwitchFailure.NotAuthorized()
+        }
         restoreStore.markDeletionPending(accountId)
         try {
             coordinator.discardIncompleteAccount(accountId)
@@ -191,19 +277,29 @@ internal class TdSecondaryAccountController private constructor(
                     }
                 }
             }
+            operation.failure("discard_cancelled", cancelled)
             throw cancelled
         } catch (failure: Throwable) {
             if (accountId in registry.loadOrCreate().accountIds) {
                 restoreStore.clearDeletionPending(accountId)
+                operation.failure("discard", failure)
                 throw failure
             }
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 cleanupUnregisteredAccount(accountId)
             }
+            operation.success("discard_completed")
             return
         }
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            cleanupUnregisteredAccount(accountId)
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                operation.trace("file_cleanup_start")
+                cleanupUnregisteredAccount(accountId)
+            }
+            operation.success("discard_completed")
+        } catch (failure: Throwable) {
+            operation.failure("file_cleanup", failure)
+            throw failure
         }
     }
 
@@ -220,32 +316,57 @@ internal class TdSecondaryAccountController private constructor(
         accountId: String,
         preference: TdSecondaryRoutePreference
     ) {
+        val operation = MultiAccountDiagnostics.begin(
+            "tdlib_open",
+            accountId,
+            mapOf("preference" to preference.name)
+        )
+        operation.trace("connect_start")
         try {
             withTimeout(60_000) { coordinator.connect(accountId, preference) }
-        } catch (_: TimeoutCancellationException) {
+            operation.success(
+                "tdlib_opened",
+                attrs = mapOf("phase" to (rowOf(accountId)?.phase?.name ?: "none"))
+            )
+        } catch (timeout: TimeoutCancellationException) {
+            operation.failure("tdlib_open", timeout)
             throw TdAccountSwitchFailure.Timeout()
         } catch (failure: TdSecondaryRouteUnavailableException) {
+            operation.failure("tdlib_open", failure)
             throw TdAccountSwitchFailure.RouteUnavailable(failure.reason)
-        } catch (_: TdSecondarySessionLimitException) {
+        } catch (limit: TdSecondarySessionLimitException) {
+            operation.failure("tdlib_open", limit)
             throw TdAccountSwitchFailure.SessionLimit()
-        } catch (_: TdAccountLimitException) {
+        } catch (limit: TdAccountLimitException) {
+            operation.failure("tdlib_open", limit)
             throw TdAccountSwitchFailure.AccountLimit()
         } catch (cancelled: CancellationException) {
+            operation.failure("tdlib_open", cancelled)
             throw cancelled
         }
     }
 
     /** Wait until TDLib either becomes ready, closes, or asks for sign-in data. */
-    private suspend fun awaitPhase(accountId: String): TdSecondaryAccountRow? =
-        withTimeoutOrNull(45_000) {
+    private suspend fun awaitPhase(
+        accountId: String,
+        operation: MultiAccountDiagnostics.Operation? = null
+    ): TdSecondaryAccountRow? {
+        operation?.trace("phase_wait")
+        val row = withTimeoutOrNull(45_000) {
             coordinator.snapshot
                 .mapNotNull { snapshot -> snapshot.accounts.firstOrNull { it.accountId == accountId } }
-                .first { row ->
-                    row.phase == TdAccountAuthPhase.READY ||
-                        row.phase == TdAccountAuthPhase.CLOSED ||
-                        row.phase?.let { it in AUTH_WAITING_PHASES } == true
+                .first { current ->
+                    current.phase == TdAccountAuthPhase.READY ||
+                        current.phase == TdAccountAuthPhase.CLOSED ||
+                        current.phase?.let { it in AUTH_WAITING_PHASES } == true
                 }
         } ?: throw TdAccountSwitchFailure.Timeout()
+        operation?.trace(
+            "phase_reached",
+            attrs = mapOf("phase" to (row.phase?.name ?: "none"))
+        )
+        return row
+    }
 
     /**
      * Can run after process restart: only accounts for which native TDLib
@@ -253,17 +374,39 @@ internal class TdSecondaryAccountController private constructor(
      * Proxy failure blocks startup; a later listener change can retry.
      */
     suspend fun restoreRemembered() = restoreMutex.withLock {
+        val operation = MultiAccountDiagnostics.begin("restore_all")
         coordinator.refresh()
         val registered = registry.loadOrCreate()
+        var eligible = 0
         for ((accountId, preference) in restoreStore.candidates(registered)) {
             if (restoreStore.deletionPending(accountId) ||
-                backgroundRestoreOnly && !allowBackgroundRestore(accountId)) continue
+                backgroundRestoreOnly && !allowBackgroundRestore(accountId)) {
+                operation.trace(
+                    "restore_skipped",
+                    attrs = mapOf(
+                        "account" to accountId,
+                        "reason" to if (restoreStore.deletionPending(accountId)) "deletion" else "background_policy"
+                    )
+                )
+                continue
+            }
             val row = coordinator.snapshot.value.accounts.firstOrNull { it.accountId == accountId }
             if (row?.connectedInThisProcess == true) continue
+            eligible++
+            val accountOperation = MultiAccountDiagnostics.begin(
+                "restore_account",
+                accountId,
+                mapOf("preference" to preference.name)
+            )
             // If the last generation is still closing, connect refuses to
             // reopen its database. Never force-unlock TDLib in that case.
             runCatching { coordinator.connect(accountId, preference) }
+                .onSuccess { accountOperation.milestone("restore_connect_started") }
+                .onFailure { failure ->
+                    accountOperation.failure("restore_connect", failure)
+                }
         }
+        operation.success("restore_completed", attrs = mapOf("count" to eligible.toString()))
     }
 
     init {
@@ -355,25 +498,38 @@ internal class TdSecondaryAccountController private constructor(
     suspend fun logoutAndDelete(accountId: String) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
             accountId.matches(Regex("[a-zA-Z0-9_-]{1,64}")))
+        val operation = MultiAccountDiagnostics.begin("logout_delete", accountId)
         restoreStore.markDeletionPending(accountId)
         // A native logout failure must not unregister or delete an active DB.
         try {
+            operation.trace("coordinator_logout_start")
             coordinator.logoutSecondary(accountId)
+            operation.trace("coordinator_logout_done")
         } catch (error: Throwable) {
             if (accountId in registry.loadOrCreate().accountIds) {
                 restoreStore.clearDeletionPending(accountId)
+                operation.failure("logout", error)
                 throw error
             }
             // The native session was already committed out of the registry,
             // but secondary preference cleanup failed. Finish the durable
             // tombstone now instead of orphaning a deleted account.
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                operation.trace("file_cleanup_start")
                 cleanupUnregisteredAccount(accountId)
             }
+            operation.success("logout_completed")
             return
         }
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            cleanupUnregisteredAccount(accountId)
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                operation.trace("file_cleanup_start")
+                cleanupUnregisteredAccount(accountId)
+            }
+            operation.success("logout_completed")
+        } catch (failure: Throwable) {
+            operation.failure("file_cleanup", failure)
+            throw failure
         }
     }
 
@@ -448,21 +604,48 @@ internal class TdSecondaryAccountController private constructor(
         accountId: String,
         preference: TdSecondaryRoutePreference
     ) {
+        val operation = MultiAccountDiagnostics.begin(
+            "route_reconnect",
+            accountId,
+            mapOf("preference" to preference.name)
+        )
+        operation.trace("coordinator_reconnect")
         try {
             withTimeout(120_000) {
                 coordinator.reconnectWithRoute(accountId, preference) { route ->
                     val decision = preflight.decide(primaryRoute(), route)
+                    MultiAccountDiagnostics.milestone(
+                        code = "route_decision",
+                        stage = if (decision is TdSecondaryRouteDecision.Blocked) "blocked" else "allowed",
+                        accountId = accountId,
+                        attrs = mapOf(
+                            "preference" to route.name,
+                            "decision" to when (decision) {
+                                TdSecondaryRouteDecision.Direct -> "direct"
+                                TdSecondaryRouteDecision.SharedMihomo -> "shared_mihomo"
+                                is TdSecondaryRouteDecision.Blocked -> "blocked"
+                            },
+                            "route_reason" to ((decision as? TdSecondaryRouteDecision.Blocked)?.reason?.name ?: "none")
+                        )
+                    )
                     if (decision is TdSecondaryRouteDecision.Blocked) {
                         throw TdSecondaryRouteUnavailableException(decision.reason)
                     }
                 }
             }
-        } catch (_: TimeoutCancellationException) {
+            operation.success("reconnected")
+        } catch (timeout: TimeoutCancellationException) {
+            operation.failure("reconnect_timeout", timeout)
             throw TdAccountSwitchFailure.Timeout()
         } catch (failure: TdSecondaryRouteUnavailableException) {
+            operation.failure("reconnect_route", failure)
             throw TdAccountSwitchFailure.RouteUnavailable(failure.reason)
         } catch (cancelled: CancellationException) {
+            operation.failure("reconnect_cancelled", cancelled)
             throw cancelled
+        } catch (failure: Throwable) {
+            operation.failure("reconnect", failure)
+            throw failure
         }
     }
 

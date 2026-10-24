@@ -13,7 +13,7 @@ data class ChatPreview(
     val isGroup: Boolean = false,
     /** Broadcast channels are supergroups in TDLib but need a distinct search label. */
     val isChannel: Boolean = false,
-    /** TDLib ChatTypeSecret: message text must never leave the device for translation or link preview. */
+    /** TDLib ChatTypeSecret: no translation, scheduling or server-side link-preview metadata. */
     val isSecret: Boolean = false,
     /** Чат «Избранное»: личный чат аккаунта с самим собой. Его название и значок задаёт интерфейс. */
     val isSavedMessages: Boolean = false,

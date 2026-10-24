@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
+import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
@@ -70,7 +71,7 @@ internal class AttachmentState(
     private val scope: CoroutineScope,
     private val pendingState: MutableState<ArrayList<OutgoingMedia>>,
     private val errorState: MutableState<String?>,
-    private val sendMedia: suspend (List<OutgoingMedia>, String) -> Result<Unit>
+    private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>
 ) {
     var menuOpen by mutableStateOf(false)
     var importing by mutableStateOf(false)
@@ -120,7 +121,7 @@ internal class AttachmentState(
         scope.launch { discarded.forEach { importer.discard(it) } }
     }
 
-    fun send(caption: String, onCaptionChange: (String) -> Unit) {
+    fun send(caption: String, options: MessageSendOptions, onCaptionChange: (String) -> Unit) {
         if (sending || importing || pending.isEmpty()) return
         scope.launch {
             sending = true
@@ -130,7 +131,7 @@ internal class AttachmentState(
                 val items = pending.toList()
                 val batches = if (items.size in 2..10 && items.all { it.kind == com.beykus.beygram.domain.model.MediaKind.Photo || it.kind == com.beykus.beygram.domain.model.MediaKind.Video }) listOf(items) else items.map { listOf(it) }
                 for (batch in batches) {
-                    val result = sendMedia(batch, nextCaption)
+                    val result = sendMedia(batch, nextCaption, options)
                     if (result.isFailure) { errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed); break }
                     pendingState.value = ArrayList(pending.filterNot { item -> batch.any { it.path == item.path } })
                     nextCaption = ""
@@ -146,7 +147,7 @@ internal class AttachmentState(
 @Composable
 internal fun rememberAttachmentState(
     chatId: Long,
-    sendMedia: suspend (List<OutgoingMedia>, String) -> Result<Unit>
+    sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>
 ): AttachmentState {
     val context = LocalContext.current
     val accountId = com.beykus.beygram.playback.LocalPlaybackAccountId.current
@@ -155,7 +156,7 @@ internal fun rememberAttachmentState(
     val pending = rememberSaveable(accountId, chatId) { mutableStateOf(arrayListOf<OutgoingMedia>()) }
     val error = rememberSaveable(accountId, chatId) { mutableStateOf<String?>(null) }
     val currentSend by androidx.compose.runtime.rememberUpdatedState(sendMedia)
-    val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error) { media, caption -> currentSend(media, caption) } }
+    val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error) { media, caption, options -> currentSend(media, caption, options) } }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
     state.pickPhotos = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }

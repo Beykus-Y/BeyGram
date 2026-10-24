@@ -172,6 +172,8 @@ fun ChatScreen(
     var searchError by remember(chat.id) { mutableStateOf<String?>(null) }
     fun closeSearch() { searching = false; searchQuery = "" }
     var sending by remember { mutableStateOf(false) }
+    var sendOptionsOpen by remember(chat.id) { mutableStateOf(false) }
+    var scheduledMessagesOpen by remember(chat.id) { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var reactionOptions by remember(chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
@@ -270,9 +272,9 @@ fun ChatScreen(
         if (previewFirst) recordingRecovery.showPreview(listOf(media))
         else sendRecordedMedia(listOf(media))
     }
-    val attachments = rememberAttachmentState(chat.id) { media, caption ->
-        val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = forumTopicId)
-        else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = forumTopicId)
+    val attachments = rememberAttachmentState(chat.id) { media, caption, options ->
+        val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
+        else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
         if (result.isSuccess) clearReply()
         result
     }
@@ -864,6 +866,63 @@ fun ChatScreen(
         onFocusHandled()
     }
 
+    /**
+     * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
+     * the choice applies to this send only and is not kept for the next one.
+     */
+    fun sendCurrentDraft(options: MessageSendOptions) {
+        if (editId != null) return
+        if (attachments.active) {
+            attachments.send(draft, options) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
+            return
+        }
+        val outgoingAnimation = messageAnimations.direction(outgoing = true)
+        val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
+        // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
+        val launch = if (options.scheduledAtSeconds == null && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
+            composerFieldBounds?.let { source ->
+                composerLaunchCounter += 1
+                ComposerLaunch(
+                    key = composerLaunchCounter,
+                    text = outgoing.text,
+                    entities = outgoing.entities,
+                    replyToMessageId = replyId,
+                    sourceBounds = source,
+                    baselineSequence = history.liveArrivalSequence,
+                    speed = outgoingAnimation.tuning.speed
+                ).also {
+                    composerDraftLaunchKey = it.key
+                    composerLaunches += it
+                    while (composerLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) composerLaunches.removeAt(0)
+                }
+            }
+        } else null
+        sending = true; error = null
+        scope.launch {
+            var delivered = false
+            try {
+                val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId, options = options)
+                if (result.isSuccess) {
+                    delivered = true
+                    updateDraft { MessageDraft() }
+                    launch?.awaitingSend = false
+                    if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                    botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
+                    if (options.scheduledAtSeconds != null) {
+                        Toast.makeText(context, context.getString(R.string.chat_schedule_success), Toast.LENGTH_SHORT).show()
+                    }
+                } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
+            } finally {
+                launch?.awaitingSend = false
+                if (!delivered) {
+                    launch?.let(composerLaunches::remove)
+                    if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                }
+                sending = false
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (actionMessage != null) MessageActionsBar(
@@ -907,7 +966,8 @@ fun ChatScreen(
                         .onFailure { error = it.userMessage(context, R.string.err_chat_mark_unread_failed) }
                 }
             },
-            onJumpUnread = ::jumpToFirstUnread
+            onJumpUnread = ::jumpToFirstUnread,
+            onScheduled = { scheduledMessagesOpen = true }
         )
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
@@ -1146,9 +1206,13 @@ fun ChatScreen(
             else Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f))
                 // A tap must not move focus off the text field, or the keyboard closes.
                 .focusProperties { canFocus = false }
-                .clickable(enabled = canSend) {
-                    when {
-                        editing -> scope.launch {
+                .combinedClickable(
+                    enabled = canSend,
+                    onLongClickLabel = if (!editing) stringResource(R.string.chat_send_options) else null,
+                    onLongClick = if (editing) null else { { sendOptionsOpen = true } }
+                ) {
+                    if (editing) {
+                        scope.launch {
                             val target = editMessage ?: return@launch
                             editBusy = true; editError = null
                             try {
@@ -1156,50 +1220,8 @@ fun ChatScreen(
                                 if (result.isSuccess) closeEdit() else editError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_edit_failed)
                             } finally { editBusy = false }
                         }
-                        attachments.active -> attachments.send(draft) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
-                        else -> {
-                            val outgoingAnimation = messageAnimations.direction(outgoing = true)
-                            val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
-                            val launch = if (messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
-                                composerFieldBounds?.let { source ->
-                                    composerLaunchCounter += 1
-                                    ComposerLaunch(
-                                        key = composerLaunchCounter,
-                                        text = outgoing.text,
-                                        entities = outgoing.entities,
-                                        replyToMessageId = replyId,
-                                        sourceBounds = source,
-                                        baselineSequence = history.liveArrivalSequence,
-                                        speed = outgoingAnimation.tuning.speed
-                                    ).also {
-                                        composerDraftLaunchKey = it.key
-                                        composerLaunches += it
-                                        while (composerLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) composerLaunches.removeAt(0)
-                                    }
-                                }
-                            } else null
-                            sending = true; error = null
-                            scope.launch {
-                                var delivered = false
-                                try {
-                                    val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId)
-                                    if (result.isSuccess) {
-                                        delivered = true
-                                        updateDraft { com.beykus.beygram.domain.model.MessageDraft() }
-                                        launch?.awaitingSend = false
-                                        if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
-                                        botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
-                                    } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
-                                } finally {
-                                    launch?.awaitingSend = false
-                                    if (!delivered) {
-                                        launch?.let(composerLaunches::remove)
-                                        if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
-                                    }
-                                    sending = false
-                                }
-                            }
-                        }
+                    } else {
+                        sendCurrentDraft(MessageSendOptions())
                     }
                 }, contentAlignment = Alignment.Center) {
                 if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
@@ -1309,6 +1331,18 @@ fun ChatScreen(
         },
         dismissButton = { TextButton(onClick = { pinConfirm = false }) { Text(stringResource(R.string.common_cancel)) } }
     )
+    if (sendOptionsOpen) SendOptionsDialog(
+        canSchedule = !chat.isSecret,
+        onDismiss = { sendOptionsOpen = false },
+        onSendNow = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions()) },
+        onSendSilently = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(disableNotification = true)) },
+        onSchedule = { at -> sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(scheduledAtSeconds = at)) }
+    )
+    if (scheduledMessagesOpen) ScheduledMessagesDialog(
+        chatId = chat.id,
+        conversation = conversation,
+        onClose = { scheduledMessagesOpen = false }
+    )
 }
 
 @Composable
@@ -1323,7 +1357,8 @@ private fun ReadOnlyChatBar() {
 private fun ChatTopBar(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
-    hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {}
+    hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
+    onScheduled: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
     var menuOpen by remember { mutableStateOf(false) }
@@ -1338,6 +1373,7 @@ private fun ChatTopBar(
                 Text(forumTopicTitle ?: chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(chatPresenceLine(chat, info, lastSeenStyle, now).resolve(), color = palette.textSecondary, fontSize = 13.sp)
             }
+            if (!chat.isSecret) IconButton(onClick = onScheduled) { Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_scheduled_title), tint = palette.textSecondary) }
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
             Box {
                 IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary) }

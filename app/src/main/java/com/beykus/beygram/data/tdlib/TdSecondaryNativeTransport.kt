@@ -2,6 +2,7 @@ package com.beykus.beygram.data.tdlib
 
 import android.os.Build
 import com.beykus.beygram.data.vpn.MihomoProxyClient
+import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import org.drinkless.tdlib.TdApi
 
 /**
@@ -18,7 +19,8 @@ internal class TdSecondaryNativeTransport(
     private val awaitParameters: suspend () -> Unit,
     private val revalidate: suspend () -> TdSecondaryRouteDecision,
     private val proxyEndpoint: () -> TdApi.Proxy,
-    private val systemVersion: () -> String = { Build.VERSION.RELEASE }
+    private val systemVersion: () -> String = { Build.VERSION.RELEASE },
+    private val diagnostics: MultiAccountDiagnostics.Operation? = null
 ) {
     suspend fun initialize(config: TdLibConfig, planned: TdSecondaryRouteDecision) {
         require(planned !is TdSecondaryRouteDecision.Blocked) { "Secondary account route is blocked" }
@@ -26,28 +28,39 @@ internal class TdSecondaryNativeTransport(
 
         // TDLib can accept this request before authorization, and cannot
         // establish a Telegram connection before receiving its parameters.
+        diagnostics?.trace("network_disabled_before_parameters")
         perform(TdApi.SetNetworkType(TdApi.NetworkTypeNone()))
+        diagnostics?.trace("parameters_await")
         awaitParameters()
+        diagnostics?.trace("parameters_received")
         perform(TdApi.SetTdlibParameters(
             false, config.databaseDirectory, config.filesDirectory, ByteArray(0),
             true, true, config.useMessageDatabase, config.useSecretChats,
             config.apiId, config.apiHash, config.systemLanguageCode,
             config.deviceModel, systemVersion(), config.applicationVersion
         ))
+        diagnostics?.trace("parameters_applied")
 
         when (planned) {
-            TdSecondaryRouteDecision.Direct -> perform(TdApi.DisableProxy())
+            TdSecondaryRouteDecision.Direct -> {
+                diagnostics?.trace("route_direct_proxy_disabled")
+                perform(TdApi.DisableProxy())
+            }
             TdSecondaryRouteDecision.SharedMihomo -> {
                 // An existing secondary DB may have a stale/proxy entry. Enable
                 // the exact authenticated process-owned listener instead.
+                diagnostics?.trace("route_shared_mihomo_add_proxy")
                 val added = perform(TdApi.AddProxy(proxyEndpoint(), false, "BeyGram Mihomo"))
                 require(added is TdApi.AddedProxy) { "TDLib did not return a local proxy ID" }
                 perform(TdApi.EnableProxy(added.id))
+                diagnostics?.trace("route_shared_mihomo_proxy_enabled")
             }
             is TdSecondaryRouteDecision.Blocked -> error("Unreachable: blocked route")
         }
+        diagnostics?.trace("route_revalidate")
         check(revalidate() == planned) { "Secondary network policy changed during initialization" }
         perform(TdApi.SetNetworkType(TdApi.NetworkTypeOther()))
+        diagnostics?.milestone("network_enabled")
     }
 
     private suspend fun perform(function: TdApi.Function<*>): TdApi.Object {

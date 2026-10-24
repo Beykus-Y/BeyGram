@@ -108,6 +108,43 @@ Account isolation from PR #355 is unchanged: each selected account uses its own
 `TelegramRepository`, TDLib database, drafts, archive state, media, notification
 preferences and playback identity.
 
+## Diagnostics
+
+Account lifecycle events feed the existing shareable diagnostics buffers; there
+is no second logging system. `MultiAccountDiagnostics` records:
+
+- slot creation and the bounded registry state;
+- DB lease/client creation, TDLib parameters and network enablement;
+- every authorization transition, including READY and CLOSED;
+- route preflight decisions and Mihomo/SOCKS5 enablement;
+- `TelegramRepository` attachment, including the READY-but-not-attached gap;
+- session stop/reconnect/restore, active-account switch and failures;
+- logout, unfinished-slot removal and file cleanup;
+- retries, timeouts, durations, operation IDs and classified errors.
+
+Stage-level traces are enabled by default in DEV and can be enabled for Stable
+in Settings → Diagnostics → «Подробный журнал аккаунтов». Milestones and
+failures are always kept, so a production report still includes the final
+result. Each failure carries `last_ok`, so a timeout identifies the stage that
+did not finish. Phone numbers, codes, passwords, tokens, TDLib messages, proxy
+endpoints and message contents are never recorded; attribute keys and account
+IDs are filtered, and values pass through the existing redactor.
+
+For `«Добавить аккаунт» → «Создаём сессию…» → timeout`, inspect the events in
+this order:
+
+1. `account_slot_create` — whether the slot was reserved;
+2. `tdlib_start` / `tdlib_connect` — `route_preflight_done`, `owner_create`,
+   `parameters_await`, `parameters_applied`;
+3. `tdlib_request_timeout` — which TDLib function timed out;
+4. `auth_*` — the last native authorization phase;
+5. `repository_attach` / `repository_not_ready` — whether TDLib became READY
+   but its full repository could not attach.
+
+The same text is available through Settings → Diagnostics → «Поделиться
+логами» (or «Посмотреть данные»). In a connected DEV build, `adb logcat -s
+BeyGramAccounts` shows the same lines.
+
 ## Validation
 
 - `AccountSwitcherModelTest` covers selected/connected/auth-phase transitions,

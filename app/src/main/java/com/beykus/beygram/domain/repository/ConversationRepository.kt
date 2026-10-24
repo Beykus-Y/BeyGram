@@ -34,7 +34,7 @@ interface ConversationRepository {
     suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>>
     fun loadLatestMessages(chatId: Long)
     /** [clearDraft] false оставляет черновик чата нетронутым: нужно для текста из других приложений. */
-    suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit>
+    suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     suspend fun isForumChat(chatId: Long): Result<Boolean>
     /** Темы группы с темами; null, если чат не группа с темами. Берётся первая страница, до 100 тем. */
     suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit = {}): Result<List<ForumTopic>?>
@@ -44,8 +44,16 @@ interface ConversationRepository {
     suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit>
     suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit>
     suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit>
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit>
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /** Scheduled queue straight from TDLib; no local scheduled-message cache is created. */
+    suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>>
+    /** Cancels one queued message in TDLib. */
+    suspend fun deleteScheduledMessage(chatId: Long, messageId: Long): Result<Unit>
+    /** Moves a queued message to [atSeconds]; albums are moved together by TDLib. */
+    suspend fun rescheduleMessage(chatId: Long, messageId: Long, atSeconds: Long): Result<Unit>
+    /** Delivers a queued message immediately through TDLib. */
+    suspend fun sendScheduledNow(chatId: Long, messageId: Long): Result<Unit>
     /** Retries failed outgoing messages regardless of their content type. */
     suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit>
     suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities>

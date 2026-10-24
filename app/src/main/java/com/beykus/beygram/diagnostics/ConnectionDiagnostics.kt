@@ -103,6 +103,7 @@ internal fun buildDiagnosticsReport(
     appendLine("[Приложение]")
     appendLine("applicationId: ${BuildConfig.APPLICATION_ID}")
     appendLine("версия: ${BuildConfig.VERSION_NAME}, сборка ${BuildConfig.BUILD_TYPE}, вариант ${BuildConfig.FLAVOR}")
+    appendLine("подробный журнал аккаунтов: ${yesNo(MultiAccountDiagnostics.isVerbose())}")
     appendLine()
     appendLine("[Устройство]")
     appendLine("производитель: ${Build.MANUFACTURER}")
