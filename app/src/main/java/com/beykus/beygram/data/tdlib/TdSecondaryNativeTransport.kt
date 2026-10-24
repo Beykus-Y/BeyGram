@@ -16,6 +16,7 @@ import org.drinkless.tdlib.TdApi
  */
 internal class TdSecondaryNativeTransport(
     private val request: suspend (TdApi.Function<*>) -> TdApi.Object,
+    private val sendWithoutResult: (TdApi.Function<*>) -> Unit,
     private val awaitParameters: suspend () -> Unit,
     private val revalidate: suspend () -> TdSecondaryRouteDecision,
     private val proxyEndpoint: () -> TdApi.Proxy,
@@ -26,10 +27,12 @@ internal class TdSecondaryNativeTransport(
         require(planned !is TdSecondaryRouteDecision.Blocked) { "Secondary account route is blocked" }
         require(config.hasApiCredentials) { "Missing Telegram API credentials" }
 
-        // TDLib can accept this request before authorization, and cannot
-        // establish a Telegram connection before receiving its parameters.
+        // TDLib cannot connect before SetTdlibParameters. Dispatch the isolation
+        // request without awaiting its result: on real devices TDLib at
+        // WAIT_PARAMETERS does not acknowledge SetNetworkType until parameters
+        // arrive, which previously blocked startup until the 20-second timeout.
         diagnostics?.trace("network_disabled_before_parameters")
-        perform(TdApi.SetNetworkType(TdApi.NetworkTypeNone()))
+        sendWithoutResult(TdApi.SetNetworkType(TdApi.NetworkTypeNone()))
         diagnostics?.trace("parameters_await")
         awaitParameters()
         diagnostics?.trace("parameters_received")
@@ -40,6 +43,12 @@ internal class TdSecondaryNativeTransport(
             config.deviceModel, systemVersion(), config.applicationVersion
         ))
         diagnostics?.trace("parameters_applied")
+
+        // Confirm isolation only after TDLib is initialized. The pre-parameter
+        // request is dispatched best-effort; this awaited call guarantees the
+        // network stays disabled while the route/proxy is configured.
+        diagnostics?.trace("network_disabled_after_parameters")
+        perform(TdApi.SetNetworkType(TdApi.NetworkTypeNone()))
 
         when (planned) {
             TdSecondaryRouteDecision.Direct -> {
