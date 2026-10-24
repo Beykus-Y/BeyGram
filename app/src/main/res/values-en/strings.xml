@@ -363,7 +363,8 @@
     <string name="a11y_state_loading">Loading</string>
     <string name="a11y_message_actions">Message actions</string>
     <string name="a11y_open_attachment">Open attachment</string>
-    <string name="chat_comments_button">Comments · %1$d</string>
+    <string name="chat_comments_leave">Leave a comment</string>
+    <plurals name="chat_comments_count"><item quantity="one">%d comment</item><item quantity="other">%d comments</item></plurals>
     <string name="thread_comments_title">Comments · %1$d</string>
     <string name="thread_comments_empty">No comments yet</string>
     <string name="thread_comments_load_earlier">Load earlier comments</string>
