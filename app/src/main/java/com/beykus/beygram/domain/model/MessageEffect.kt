@@ -29,9 +29,11 @@ data class MessageEffect(
     val isPremium: Boolean = false,
     val animation: MessageEffectSticker? = null,
     val selectAnimation: MessageEffectSticker? = null,
-    val staticIcon: MessageEffectSticker? = null
+    val staticIcon: MessageEffectSticker? = null,
+    /** A premium sticker's ordinary artwork, shown when its dedicated premium effect file is unavailable. */
+    val fallbackSticker: MessageEffectSticker? = null
 ) {
     /** The best file to show on screen: the animated effect first, then its emoji selection, then the static icon. */
     val primarySticker: MessageEffectSticker?
-        get() = animation ?: selectAnimation ?: staticIcon
+        get() = animation ?: selectAnimation ?: staticIcon ?: fallbackSticker
 }

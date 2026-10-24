@@ -168,7 +168,11 @@ private fun EffectSticker(
     progress: Float,
     modifier: Modifier
 ) {
-    val sticker = effect.primarySticker
+    val preferred = effect.primarySticker
+    // A premium effect can keep its ordinary sticker as a fallback; prefer any supported file over WebM.
+    val sticker = preferred?.takeIf { it.mimeType != WEBM_MIME }
+        ?: effect.fallbackSticker?.takeIf { it.mimeType != WEBM_MIME }
+        ?: preferred
     if (sticker == null) {
         EffectFallback(effect, progress, modifier)
         return

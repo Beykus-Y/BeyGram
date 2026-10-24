@@ -49,19 +49,36 @@ class TdMessageEffectsTest {
     }
 
     @Test
-    fun premiumStickerUsesItsStickerAndKeepsTheStaticIconFallback() {
+    fun premiumStickerUsesTheDedicatedEffectAnimationAndKeepsItsArtworkAsFallback() {
+        val premiumSticker = sticker(21, "⭐", TdApi.StickerFormatTgs()).apply {
+            fullType = TdApi.StickerFullTypeRegular(TdApi.File().apply { id = 31 })
+        }
         val effect = TdApi.MessageEffect().apply {
             emoji = "⭐"
-            type = TdApi.MessageEffectTypePremiumSticker(sticker(21, "⭐", TdApi.StickerFormatWebm()))
+            type = TdApi.MessageEffectTypePremiumSticker(premiumSticker)
             staticIcon = sticker(22, "⭐", TdApi.StickerFormatWebp())
         }
 
         val mapped = effect.toMessageEffect(7L)
 
         assertEquals(MessageEffectKind.PremiumSticker, mapped.kind)
-        assertEquals(21, mapped.animation?.fileId)
-        assertEquals("video/webm", mapped.animation?.mimeType)
+        assertEquals(31, mapped.animation?.fileId)
+        assertEquals("application/x-tgsticker", mapped.animation?.mimeType)
+        assertEquals(21, mapped.fallbackSticker?.fileId)
         assertEquals(22, mapped.staticIcon?.fileId)
+    }
+
+    @Test
+    fun premiumStickerWithoutDedicatedAnimationFallsBackToTheStickerItself() {
+        val effect = TdApi.MessageEffect().apply {
+            emoji = "⭐"
+            type = TdApi.MessageEffectTypePremiumSticker(sticker(21, "⭐", TdApi.StickerFormatTgs()))
+        }
+
+        val mapped = effect.toMessageEffect(7L)
+
+        assertEquals(21, mapped.animation?.fileId)
+        assertEquals(null, mapped.fallbackSticker)
     }
 
     @Test

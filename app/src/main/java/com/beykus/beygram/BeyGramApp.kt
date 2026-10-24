@@ -73,6 +73,8 @@ import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
 import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
 import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
+import com.beykus.beygram.ui.accessibility.LocalSystemReducedMotion
+import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.screens.chat.ChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.ChatScreen
 import com.beykus.beygram.ui.screens.chat.LocalChatAnimationPreferences
@@ -601,6 +603,8 @@ private fun BeyGramAppContent(
             messageEffects = chatAnimationSettings.messageEffects
         )
     }
+    // One observer for the whole app; every emoji/effect reads LocalSystemReducedMotion instead of polling the system.
+    val reducedMotion = rememberSystemReducedMotion()
     val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
     val archiveSettingsScope = rememberCoroutineScope()
     val onArchiveSettingsChange: (ArchiveSettings) -> Unit = { next ->
@@ -1534,7 +1538,8 @@ private fun BeyGramAppContent(
 
     CompositionLocalProvider(
         LocalPlaybackAccountId provides selectedAccountId,
-        LocalChatAnimationPreferences provides chatAnimationPreferences
+        LocalChatAnimationPreferences provides chatAnimationPreferences,
+        LocalSystemReducedMotion provides reducedMotion
     ) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {

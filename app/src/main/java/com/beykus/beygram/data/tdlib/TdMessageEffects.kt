@@ -71,12 +71,17 @@ private suspend fun lookupMessageEffect(requests: TdRequests, effectId: Long): M
  */
 internal fun TdApi.MessageEffect.toMessageEffect(effectId: Long): MessageEffect {
     val effectType = type
+    val premium = effectType as? TdApi.MessageEffectTypePremiumSticker
+    val regularPremiumSticker = premium?.sticker?.toEffectSticker()
+    // A premium sticker's ordinary artwork is not its full-screen effect: TDLib keeps the dedicated
+    // effect animation in fullType.premiumAnimation. Fall back to the sticker itself only when it is absent.
+    val premiumAnimation = premium?.sticker?.toPremiumAnimationSticker() ?: regularPremiumSticker
     val animation = when (effectType) {
-        is TdApi.MessageEffectTypeEmojiReaction -> effectType.effectAnimation
-        is TdApi.MessageEffectTypePremiumSticker -> effectType.sticker
+        is TdApi.MessageEffectTypeEmojiReaction -> effectType.effectAnimation.toEffectSticker()
+        is TdApi.MessageEffectTypePremiumSticker -> premiumAnimation
         else -> null
     }
-    val select = (effectType as? TdApi.MessageEffectTypeEmojiReaction)?.selectAnimation
+    val select = (effectType as? TdApi.MessageEffectTypeEmojiReaction)?.selectAnimation?.toEffectSticker()
     return MessageEffect(
         effectId = effectId,
         emoji = emoji.orEmpty(),
@@ -86,19 +91,22 @@ internal fun TdApi.MessageEffect.toMessageEffect(effectId: Long): MessageEffect 
             else -> MessageEffectKind.Unknown
         },
         isPremium = isPremium,
-        animation = animation?.toEffectSticker(),
-        selectAnimation = select?.toEffectSticker(),
-        staticIcon = staticIcon?.toEffectSticker()
+        animation = animation,
+        selectAnimation = select,
+        staticIcon = staticIcon?.toEffectSticker(),
+        fallbackSticker = regularPremiumSticker?.takeIf { it.fileId != animation?.fileId }
     )
 }
 
-private fun TdApi.Sticker.toEffectSticker(): MessageEffectSticker? {
-    val file = sticker ?: return null
-    return MessageEffectSticker(
-        fileId = file.id,
-        emoji = emoji.orEmpty(),
-        mimeType = stickerMimeType(format),
-        width = width,
-        height = height
-    )
-}
+private fun TdApi.Sticker.toPremiumAnimationSticker(): MessageEffectSticker? =
+    ((fullType as? TdApi.StickerFullTypeRegular)?.premiumAnimation)?.let(::effectSticker)
+
+private fun TdApi.Sticker.toEffectSticker(): MessageEffectSticker? = sticker?.let(::effectSticker)
+
+private fun TdApi.Sticker.effectSticker(file: TdApi.File) = MessageEffectSticker(
+    fileId = file.id,
+    emoji = emoji.orEmpty(),
+    mimeType = stickerMimeType(format),
+    width = width,
+    height = height
+)
