@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_auto_download_title">Автозагрузка медиа</string>
+    <string name="auto_download_intro">Выберите, что приложение может скачивать само в каждой сети. Ручная загрузка работает всегда.</string>
+    <string name="auto_download_network_wifi">Wi-Fi</string>
+    <string name="auto_download_network_mobile">Мобильная сеть</string>
+    <string name="auto_download_network_roaming">Роуминг</string>
+    <string name="auto_download_network_other">Другая сеть</string>
+    <string name="auto_download_limit_title">Лимит размера</string>
+    <string name="auto_download_limit_mb">%1$d МБ</string>
+    <string name="auto_download_limit_unlimited">Без ограничения</string>
+    <string name="auto_download_data_saver">Экономить трафик</string>
+    <string name="auto_download_data_saver_detail">В мобильной сети и роуминге автоматическая загрузка отключается полностью. Кнопка «Загрузить» продолжает работать.</string>
+    <string name="auto_download_secret_note">Секретные чаты, исчезающие фото и вложения со спойлером не загружаются автоматически.</string>
+    <string name="auto_download_manual_note">Кнопка «Загрузить» на вложении загружает файл в любом случае, даже сверх лимита.</string>
+    <string name="auto_download_streaming_note">Видео с быстрым стартом может играть во время загрузки. Если индекс файла находится в конце, видео откроется после полной загрузки.</string>
+    <string name="auto_download_save_failed">Не удалось сохранить настройки</string>
+</resources>

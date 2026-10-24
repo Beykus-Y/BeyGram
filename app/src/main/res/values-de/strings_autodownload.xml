@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_auto_download_title">Medien-Autodownload</string>
+    <string name="auto_download_intro">Legen Sie fest, was die App in jedem Netz automatisch lädt. Manuelle Downloads funktionieren immer.</string>
+    <string name="auto_download_network_wifi">WLAN</string>
+    <string name="auto_download_network_mobile">Mobile Daten</string>
+    <string name="auto_download_network_roaming">Roaming</string>
+    <string name="auto_download_network_other">Anderes Netz</string>
+    <string name="auto_download_limit_title">Größenlimit</string>
+    <string name="auto_download_limit_mb">%1$d MB</string>
+    <string name="auto_download_limit_unlimited">Kein Limit</string>
+    <string name="auto_download_data_saver">Daten sparen</string>
+    <string name="auto_download_data_saver_detail">Deaktiviert alle automatischen Downloads in mobilen Netzen und im Roaming. Die Schaltfläche „Herunterladen“ funktioniert weiterhin.</string>
+    <string name="auto_download_secret_note">Geheime Chats, selbstlöschende Fotos und Spoiler-Anhänge werden nie automatisch geladen.</string>
+    <string name="auto_download_manual_note">Die Schaltfläche „Herunterladen“ lädt einen Anhang immer, auch über dem Limit.</string>
+    <string name="auto_download_streaming_note">Fast-Start-Videos können während des Downloads abspielen. Liegt der Dateiindex am Ende, öffnet sich das Video erst nach dem vollständigen Download.</string>
+    <string name="auto_download_save_failed">Einstellungen konnten nicht gespeichert werden</string>
+</resources>
