@@ -34,7 +34,13 @@ enum class PrivacyRuleChoice { Everyone, Contacts, Nobody }
 data class PrivacyRules(
     val choice: PrivacyRuleChoice,
     val alwaysAllowUserIds: List<Long> = emptyList(),
-    val neverAllowUserIds: List<Long> = emptyList()
+    val neverAllowUserIds: List<Long> = emptyList(),
+    /**
+     * False when Telegram returned a rule BeyGram cannot faithfully round-trip (restricted
+     * contacts, premium users, chat members, bots...). Such a setting is shown read-only:
+     * saving a compacted approximation could grant access to people the account denied.
+     */
+    val isEditable: Boolean = true
 ) {
     /**
      * Removes duplicate/invalid ids and exceptions that are already implied by the base
@@ -59,7 +65,8 @@ data class PrivacyRules(
     }
 
     /** Changes the base audience while preserving exceptions that the new choice supports. */
-    fun withChoice(choice: PrivacyRuleChoice): PrivacyRules = copy(choice = choice).normalized()
+    fun withChoice(choice: PrivacyRuleChoice): PrivacyRules =
+        if (isEditable) copy(choice = choice).normalized() else this
 }
 
 /** Current server rules plus resolved names for exception rows that BeyGram could load. */

@@ -10,12 +10,15 @@
     <string name="privacy_setting_bio">Описание профиля</string>
     <string name="privacy_setting_forwarded">Ссылка при пересылке</string>
     <string name="privacy_setting_calls">Звонки</string>
-    <string name="privacy_setting_messages">Сообщения</string>
+    <string name="privacy_setting_messages">Сообщения без оплаты</string>
+    <string name="privacy_setting_messages_hint">Исключения разрешают писать без оплаты. Наличие платных сообщений зависит от аккаунта.</string>
     <string name="privacy_setting_groups">Группы и каналы</string>
     <string name="privacy_setting_find_by_phone">Поиск по номеру</string>
     <string name="privacy_audience_everyone">Все</string>
     <string name="privacy_audience_contacts">Мои контакты</string>
     <string name="privacy_audience_nobody">Никто</string>
+    <string name="privacy_audience_custom">Особые правила Telegram</string>
+    <string name="privacy_managed_elsewhere">Настроено в Telegram. Редактирование здесь отключено, чтобы не потерять сложные правила.</string>
     <string name="privacy_exceptions_always">Всегда разрешено: %1$d</string>
     <string name="privacy_exceptions_never">Никогда не разрешено: %1$d</string>
     <string name="privacy_exceptions_manage">Исключения…</string>

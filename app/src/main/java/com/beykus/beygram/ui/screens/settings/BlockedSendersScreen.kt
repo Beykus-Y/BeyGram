@@ -94,32 +94,38 @@ fun BlockedSendersScreen(
     var reportTarget by remember { mutableStateOf<BlockedSender?>(null) }
     var reportsBusy by remember { mutableStateOf(false) }
     var refresh by rememberSaveable { mutableIntStateOf(0) }
+    // A refresh invalidates in-flight pagination; its stale page must not repopulate the reset list.
+    var pageGeneration by remember { mutableIntStateOf(0) }
 
     suspend fun loadNext() {
+        val requestGeneration = pageGeneration
         if (loading || total?.let { nextOffset >= it } == true) return
         loading = true
         error = null
         try {
             loadPage(nextOffset, BLOCKED_PAGE_SIZE).fold(
                 { page ->
+                    if (requestGeneration != pageGeneration) return@fold
                     senders = senders + page.senders
                     nextOffset += page.fetched
                     // An empty page, or a page whose senders were all unsupported types,
                     // means no progress: stop rather than requesting the same offset forever.
                     total = if (page.fetched == 0 || page.senders.isEmpty()) nextOffset else page.totalCount
                 },
-                { error = it.userMessage(context, R.string.blocked_load_failed) }
+                { if (requestGeneration == pageGeneration) error = it.userMessage(context, R.string.blocked_load_failed) }
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            error = failure.userMessage(context, R.string.blocked_load_failed)
+            if (requestGeneration == pageGeneration) error = failure.userMessage(context, R.string.blocked_load_failed)
         } finally {
-            loading = false
+            if (requestGeneration == pageGeneration) loading = false
         }
     }
 
     LaunchedEffect(refresh) {
+        pageGeneration++
+        loading = false
         senders = emptyList()
         nextOffset = 0
         total = null

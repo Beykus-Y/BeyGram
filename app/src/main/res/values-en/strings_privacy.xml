@@ -10,12 +10,15 @@
     <string name="privacy_setting_bio">Bio</string>
     <string name="privacy_setting_forwarded">Forwarded messages</string>
     <string name="privacy_setting_calls">Calls</string>
-    <string name="privacy_setting_messages">Messages</string>
+    <string name="privacy_setting_messages">Messages without payment</string>
+    <string name="privacy_setting_messages_hint">Exceptions allow messaging without payment. Whether paid messages are available is a separate account setting.</string>
     <string name="privacy_setting_groups">Groups and channels</string>
     <string name="privacy_setting_find_by_phone">Finding by phone number</string>
     <string name="privacy_audience_everyone">Everybody</string>
     <string name="privacy_audience_contacts">My contacts</string>
     <string name="privacy_audience_nobody">Nobody</string>
+    <string name="privacy_audience_custom">Custom Telegram rules</string>
+    <string name="privacy_managed_elsewhere">Managed in Telegram. Editing is disabled here so complex rules are not lost.</string>
     <string name="privacy_exceptions_always">Always allowed: %1$d</string>
     <string name="privacy_exceptions_never">Never allowed: %1$d</string>
     <string name="privacy_exceptions_manage">Exceptions…</string>

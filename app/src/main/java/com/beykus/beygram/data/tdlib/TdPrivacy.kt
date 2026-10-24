@@ -32,8 +32,12 @@ internal fun PrivacySetting.toTdSetting(): TdApi.UserPrivacySetting = when (this
 internal fun privacyRulesRequest(setting: PrivacySetting): TdApi.GetUserPrivacySettingRules =
     TdApi.GetUserPrivacySettingRules(setting.toTdSetting())
 
-internal fun privacyRulesRequest(setting: PrivacySetting, rules: PrivacyRules): TdApi.SetUserPrivacySettingRules =
-    TdApi.SetUserPrivacySettingRules(setting.toTdSetting(), rules.toTdRules())
+internal fun privacyRulesRequest(setting: PrivacySetting, rules: PrivacyRules): TdApi.SetUserPrivacySettingRules {
+    // Fail closed if a caller bypasses the read-only UI: replacing unsupported server rules
+    // with a compact approximation can grant access to users the account explicitly denied.
+    require(rules.isEditable) { "Unsupported privacy rules are read-only" }
+    return TdApi.SetUserPrivacySettingRules(setting.toTdSetting(), rules.toTdRules())
+}
 
 /** TDLib rules are ordered: the first matching rule wins, so exceptions precede the base rule. */
 internal fun PrivacyRules.toTdRules(): TdApi.UserPrivacySettingRules {
@@ -62,6 +66,7 @@ internal fun PrivacyRules.toTdRules(): TdApi.UserPrivacySettingRules {
  */
 internal fun TdApi.UserPrivacySettingRules.toPrivacyRules(): PrivacyRules {
     var choice: PrivacyRuleChoice? = null
+    var editable = true
     val always = linkedSetOf<Long>()
     val never = linkedSetOf<Long>()
     for (rule in rules.orEmpty()) {
@@ -69,12 +74,11 @@ internal fun TdApi.UserPrivacySettingRules.toPrivacyRules(): PrivacyRules {
             is TdApi.UserPrivacySettingRuleAllowAll -> if (choice == null) choice = PrivacyRuleChoice.Everyone
             is TdApi.UserPrivacySettingRuleAllowContacts -> if (choice == null) choice = PrivacyRuleChoice.Contacts
             is TdApi.UserPrivacySettingRuleRestrictAll -> if (choice == null) choice = PrivacyRuleChoice.Nobody
-            // "Everyone except contacts" has no exact compact equivalent; showing Everybody
-            // preserves the broadest part of the server rule instead of silently hiding it.
-            is TdApi.UserPrivacySettingRuleRestrictContacts -> if (choice == null) choice = PrivacyRuleChoice.Everyone
             is TdApi.UserPrivacySettingRuleAllowUsers -> rule.userIds?.toList()?.let { always += it }
             is TdApi.UserPrivacySettingRuleRestrictUsers -> rule.userIds?.toList()?.let { never += it }
-            else -> Unit
+            // RestrictContacts, premium/member/bot rules and future rule types cannot be
+            // represented without changing their meaning, so the whole setting stays read-only.
+            else -> editable = false
         }
     }
     val fallback = when {
@@ -82,7 +86,7 @@ internal fun TdApi.UserPrivacySettingRules.toPrivacyRules(): PrivacyRules {
         never.isNotEmpty() && always.isEmpty() -> PrivacyRuleChoice.Everyone
         else -> PrivacyRuleChoice.Nobody
     }
-    return PrivacyRules(choice ?: fallback, always.toList(), never.toList()).normalized()
+    return PrivacyRules(choice ?: fallback, always.toList(), never.toList(), editable).normalized()
 }
 
 internal fun blockedSendersRequest(offset: Int, limit: Int = BLOCKED_SENDERS_PAGE_SIZE): TdApi.GetBlockedMessageSenders {

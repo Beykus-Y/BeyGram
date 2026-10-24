@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -149,7 +150,8 @@ fun PrivacySettingsScreen(
     }
 
     fun saveChoice(state: PrivacySettingState, choice: PrivacyRuleChoice) {
-        if (saving != null) return
+        if (saving != null || !state.rules.isEditable) return
+        if (state.setting == PrivacySetting.FindByPhoneNumber && choice == PrivacyRuleChoice.Nobody) return
         val rules = state.rules.withChoice(choice)
         if (rules == state.rules) return
         val previous = states
@@ -177,7 +179,9 @@ fun PrivacySettingsScreen(
     }
 
     fun saveExceptions(draft: PrivacyExceptionsDraft) {
-        if (saving != null) return
+        if (saving != null || draft.setting == PrivacySetting.FindByPhoneNumber) return
+        val current = states.firstOrNull { it.setting == draft.setting }
+        if (current?.rules?.isEditable == false) return
         val rules = PrivacyRules(
             choice = draft.choice,
             alwaysAllowUserIds = draft.always.map { it.userId },
@@ -303,16 +307,38 @@ private fun PrivacySettingRow(
     onManageExceptions: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val editable = state.rules.isEditable
+    val supportsExceptions = editable && state.setting != PrivacySetting.FindByPhoneNumber
+    val choices = if (state.setting == PrivacySetting.FindByPhoneNumber) {
+        listOf(PrivacyRuleChoice.Everyone, PrivacyRuleChoice.Contacts)
+    } else {
+        PrivacyRuleChoice.entries
+    }
     var expanded by remember { mutableStateOf(false) }
     Box {
         Row(
-            Modifier.fillMaxWidth().clickable(enabled = !saving) { expanded = true }
+            Modifier.fillMaxWidth().clickable(enabled = editable && !saving) { expanded = true }
                 .padding(horizontal = 16.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
                 Text(settingTitle(state.setting), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                Text(audienceLabel(state.rules.choice), color = palette.accentInk, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+                Text(
+                    if (editable) audienceLabel(state.rules.choice) else stringResource(R.string.privacy_audience_custom),
+                    color = palette.accentInk, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp)
+                )
+                if (!editable) {
+                    Text(
+                        stringResource(R.string.privacy_managed_elsewhere),
+                        color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                if (state.setting == PrivacySetting.Messages) {
+                    Text(
+                        stringResource(R.string.privacy_setting_messages_hint),
+                        color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
                 if (state.rules.alwaysAllowUserIds.isNotEmpty()) {
                     Text(
                         stringResource(R.string.privacy_exceptions_always, state.rules.alwaysAllowUserIds.size),
@@ -326,11 +352,14 @@ private fun PrivacySettingRow(
                     )
                 }
             }
-            if (saving) CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
-            else Icon(Icons.Rounded.ExpandMore, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+            when {
+                saving -> CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
+                !editable -> Icon(Icons.Rounded.Lock, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
+                else -> Icon(Icons.Rounded.ExpandMore, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+            }
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            PrivacyRuleChoice.entries.forEach { choice ->
+        if (editable) DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            choices.forEach { choice ->
                 DropdownMenuItem(
                     text = { Text(audienceLabel(choice)) },
                     leadingIcon = if (choice == state.rules.choice) {
@@ -342,11 +371,13 @@ private fun PrivacySettingRow(
                     }
                 )
             }
-            HorizontalDivider(color = palette.divider)
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.privacy_exceptions_manage)) },
-                onClick = { expanded = false; onManageExceptions() }
-            )
+            if (supportsExceptions) {
+                HorizontalDivider(color = palette.divider)
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.privacy_exceptions_manage)) },
+                    onClick = { expanded = false; onManageExceptions() }
+                )
+            }
         }
     }
 }

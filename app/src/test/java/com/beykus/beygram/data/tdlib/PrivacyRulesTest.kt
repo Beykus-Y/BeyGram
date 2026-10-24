@@ -6,6 +6,7 @@ import com.beykus.beygram.domain.model.PrivacyRules
 import com.beykus.beygram.domain.model.PrivacySetting
 import org.drinkless.tdlib.TdApi
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -118,6 +119,38 @@ class PrivacyRulesTest {
     @Test
     fun `empty TDLib rules mean nobody because no rule matches`() {
         assertEquals(PrivacyRuleChoice.Nobody, TdApi.UserPrivacySettingRules().toPrivacyRules().choice)
+    }
+
+    @Test
+    fun `unsupported restricted-contacts rules are read-only and never rewritten as everyone`() {
+        val parsed = TdApi.UserPrivacySettingRules(
+            arrayOf<TdApi.UserPrivacySettingRule>(
+                TdApi.UserPrivacySettingRuleRestrictContacts(),
+                TdApi.UserPrivacySettingRuleAllowAll()
+            )
+        ).toPrivacyRules()
+
+        assertFalse(parsed.isEditable)
+        assertEquals(parsed, parsed.withChoice(PrivacyRuleChoice.Nobody))
+    }
+
+    @Test
+    fun `premium and member rules also keep the setting read-only`() {
+        val premium = TdApi.UserPrivacySettingRules(
+            arrayOf<TdApi.UserPrivacySettingRule>(
+                TdApi.UserPrivacySettingRuleAllowPremiumUsers(),
+                TdApi.UserPrivacySettingRuleAllowAll()
+            )
+        ).toPrivacyRules()
+        assertFalse(premium.isEditable)
+
+        val members = TdApi.UserPrivacySettingRules(
+            arrayOf<TdApi.UserPrivacySettingRule>(
+                TdApi.UserPrivacySettingRuleAllowChatMembers(),
+                TdApi.UserPrivacySettingRuleRestrictAll()
+            )
+        ).toPrivacyRules()
+        assertFalse(members.isEditable)
     }
 
     @Test
