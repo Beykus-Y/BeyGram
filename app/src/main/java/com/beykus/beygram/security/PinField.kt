@@ -35,7 +35,7 @@ internal fun PinField(
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = imeAction),
-        keyboardActions = KeyboardActions(onDone = onDone),
+        keyboardActions = KeyboardActions(onDone = { onDone() }),
         shape = RoundedCornerShape(14.dp),
         colors = beyGramTextFieldColors(),
     )
