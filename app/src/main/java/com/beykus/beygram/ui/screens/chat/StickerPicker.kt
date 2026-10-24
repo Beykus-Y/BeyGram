@@ -422,7 +422,7 @@ private fun StickerArtwork(
     val palette = beyGramPalette()
     val motion = systemMotionEnabled()
     val file by remember(item.fileId) { observeFile(item.fileId) }.collectAsStateWithLifecycle()
-    val thumbnail by rememberOptionalFile(item.thumbnailFileId, observeFile)
+    val thumbnail = rememberOptionalFile(item.thumbnailFileId, observeFile)
     LaunchedEffect(item.fileId, item.thumbnailFileId, item.format) {
         item.thumbnailFileId?.let(downloadFile)
         // WebM stickers cannot be drawn by the picker; their still thumbnail is enough and avoids a video decoder.
