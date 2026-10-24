@@ -81,6 +81,7 @@ internal class TdStorage(
      * Копии отправленных файлов живут как кэш: их убирают по сроку и по лимиту. Трогаем только папки с меткой отправки
      * ([SENT_UPLOAD_MARKER]). Папку не трогаем, пока её файл показывает загруженный чат, и пока она не старше
      * [IN_USE_GRACE_MILLIS].
+     * Папку, в которой осталась только метка владельца, убирают, когда метка старше [ABANDONED_SESSION_GRACE_MILLIS].
      * Срок отсчитывается от последнего изменения файлов. Лимит считается отдельно от кэша TDLib.
      */
     private suspend fun removeSentUploads(policy: CachePolicy): Long {
@@ -100,7 +101,8 @@ internal class TdStorage(
                 // Метка без id осталась от прежней сборки: TDLib может держать файл скачанным, и без id его не забыть. Такую папку не трогаем.
                 val ids = sentUploadFileIds(folder, accountId)
                 // A folder that holds only its owner mark has no copy to keep or to forget: an abandoned session, not an unsent draft.
-                val abandoned = uploadFolderHasOnlyOwnerMarker(folder)
+                // The mark must also be older than the grace period, so a session that is still writing its first segment is kept.
+                val abandoned = uploadFolderHasOnlyOwnerMarker(folder) && now - lastUsed > ABANDONED_SESSION_GRACE_MILLIS
                 SentUpload(folder, bytes = files.sumOf { it.length() }, lastUsedMillis = lastUsed, inUse = inUse || (!abandoned && (!sent || ids.isEmpty())), fileIds = ids, abandoned = abandoned)
             }
             val candidates = folders.filter { !it.inUse }.sortedBy { it.lastUsedMillis }
@@ -184,12 +186,18 @@ internal class TdStorage(
 
         /** Папка моложе этого срока может принадлежать отправке, которая ещё идёт, и не трогается. */
         const val IN_USE_GRACE_MILLIS = 10 * 60_000L
+
+        /**
+         * A folder that holds only its owner mark is removed once the mark is this old. A video-note session creates
+         * that folder before it writes its first segment, so a shorter period could remove a session still in progress.
+         */
+        const val ABANDONED_SESSION_GRACE_MILLIS = 24 * 60 * 60_000L
     }
 }
 
 /**
  * Папка копий отправленных файлов: [bytes] — её размер, [lastUsedMillis] — последнее изменение файлов, [fileIds] — id из метки.
- * [abandoned] — в папке осталась только метка владельца; такую папку убирают независимо от политики.
+ * [abandoned] — в папке только метка владельца, и она старше [ABANDONED_SESSION_GRACE_MILLIS]; такую папку убирают независимо от политики.
  */
 private class SentUpload(val folder: File, val bytes: Long, val lastUsedMillis: Long, val inUse: Boolean, val fileIds: Set<Int>, val abandoned: Boolean)
 
@@ -245,12 +253,14 @@ internal fun uploadFolderBelongsToAccount(folder: File, accountId: String): Bool
 
 
 /**
- * True when [folder] holds nothing but its owner mark, so no copy is left to send or to forget. A video-note session
- * keeps its owner mark until its last segment is gone, which leaves the folder in this state.
+ * True when [folder] holds its owner mark and nothing else, so no copy is left to send or to forget. A video-note session
+ * keeps its owner mark until its last segment is gone, which leaves the folder in this state. An empty folder does not
+ * count, since it has no owner mark.
  */
 internal fun uploadFolderHasOnlyOwnerMarker(folder: File): Boolean {
     if (!folder.isDirectory || java.nio.file.Files.isSymbolicLink(folder.toPath())) return false
-    return folder.listFiles().orEmpty().all { it.name == STAGED_UPLOAD_OWNER_MARKER && it.isFile }
+    val entries = folder.listFiles().orEmpty()
+    return entries.isNotEmpty() && entries.all { it.name == STAGED_UPLOAD_OWNER_MARKER && it.isFile }
 }
 
 /**

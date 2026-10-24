@@ -63,4 +63,11 @@ class AccountUploadOwnershipTest {
         assertTrue(removeUploadFolderIfOnlyOwnerMarker(session))
         assertFalse(session.exists())
     }
+
+    @Test fun emptyFolderWithoutOwnerMarkIsNotOwnerOnly() {
+        val empty = folder.newFolder("empty-upload")
+        assertFalse(uploadFolderHasOnlyOwnerMarker(empty))
+        assertFalse(removeUploadFolderIfOnlyOwnerMarker(empty))
+        assertTrue(empty.exists())
+    }
 }
