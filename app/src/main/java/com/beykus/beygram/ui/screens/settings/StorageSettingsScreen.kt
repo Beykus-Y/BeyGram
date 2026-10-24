@@ -67,9 +67,13 @@ private enum class ClearScope { Selected, All }
 
 /** Память и кэш: сколько места занимают файлы, очистка выбранного и лимиты, которые приложение держит само. */
 @Composable
-fun StorageSettingsScreen(repository: StorageRepository, onBack: () -> Unit) {
+fun StorageSettingsScreen(
+    repository: StorageRepository,
+    onBack: () -> Unit,
+    accountId: String = "legacy"
+) {
     val context = LocalContext.current
-    val model: StorageSettingsViewModel = viewModel(factory = viewModelFactory {
+    val model: StorageSettingsViewModel = viewModel(key = "storage-settings:$accountId", factory = viewModelFactory {
         initializer { StorageSettingsViewModel(repository, StorageSettingsStore.getInstance(context.applicationContext)) }
     })
     val palette = beyGramPalette()

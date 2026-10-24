@@ -89,6 +89,38 @@ class VideoNoteCameraSurveyPolicyTest {
         assertEquals(VideoNoteFpsCause.CAMERA_RANGE_FALLBACK, decision.cause)
     }
 
+
+    /** CameraPipe may expose a high-speed range not usable by normal Preview + VideoCapture. */
+    @Test fun cameraPipeHighSpeedOnly60MustNotBeRequestedForNormalRecording() {
+        val decision = safeVideoNoteFpsSelection(
+            55..60,
+            listOf(15..30, 60..60),
+            listOf(15..30),
+            encoderSupports60 = true,
+            streamSupports60 = true
+        )
+        assertEquals(15..30, decision.selected)
+        assertEquals(VideoNoteFpsCause.NO_NORMAL_60, decision.cause)
+        assertFalse(decision.attemptedHighFrameRate)
+    }
+
+    /** A real normal AE range, H.264 support and stream support allow attempting 60 FPS. */
+    @Test fun cameraPipeNormal60OnlyAttemptsHighFpsWhenEncoderAndStreamPermitIt() {
+        val ranges = listOf(15..30, 30..60)
+        val allowed = safeVideoNoteFpsSelection(
+            55..60, ranges, ranges, encoderSupports60 = true, streamSupports60 = true
+        )
+        val rejected = safeVideoNoteFpsSelection(
+            55..60, ranges, ranges, encoderSupports60 = true, streamSupports60 = false
+        )
+        assertEquals(30..60, allowed.selected)
+        assertEquals(VideoNoteFpsCause.AS_REQUESTED, allowed.cause)
+        assertTrue(allowed.attemptedHighFrameRate)
+        assertEquals(15..30, rejected.selected)
+        assertEquals(VideoNoteFpsCause.STREAM_REJECTS_60, rejected.cause)
+        assertFalse(rejected.attemptedHighFrameRate)
+    }
+
     @Test fun missingCompatibleRangeReportsUncertainty() {
         val decision = safeVideoNoteFpsSelection(55..60, emptyList(), emptyList(), null)
         assertNull(decision.selected)

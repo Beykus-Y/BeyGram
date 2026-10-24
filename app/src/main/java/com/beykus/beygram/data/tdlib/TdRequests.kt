@@ -41,12 +41,38 @@ internal suspend fun <T> conversationResult(timeoutMessage: UiText = MESSAGE_TIM
             error.message?.contains("MESSAGE_EDIT_TIME_EXPIRED") == true -> UiText.Res(R.string.err_tdlib_message_edit_expired)
             error.message?.contains("MESSAGE_ID_INVALID") == true || (error as? TdRequestError)?.code == 404 -> UiText.Res(R.string.err_tdlib_message_unavailable)
             error.message?.contains("MESSAGE_DELETE_FORBIDDEN") == true -> UiText.Res(R.string.err_tdlib_message_delete_forbidden)
+            error.message?.contains("SCHEDULE_DATE") == true -> UiText.Res(R.string.err_tdlib_schedule_date)
+            error.message?.contains("SCHEDULE_TOO_MUCH") == true -> UiText.Res(R.string.err_tdlib_schedule_too_much)
+            error.message?.contains("SCHEDULE_") == true -> UiText.Res(R.string.err_tdlib_schedule_failed)
+            error.message?.contains("SCHEDUL", ignoreCase = true) == true -> UiText.Res(R.string.err_tdlib_schedule_failed)
             else -> requestErrorText(error)
         }
     }
 
 /** Контакты, звонки и чаты: сообщений здесь нет, поэтому 404 не значит удалённое сообщение. */
 internal suspend fun <T> requestResult(block: suspend () -> T): Result<T> = telegramResult(REQUEST_TIMEOUT, block, ::requestErrorText)
+
+/** Translation and recognition have their own friendly errors; a secret-chat refusal is never a generic failure. */
+internal suspend fun <T> translationResult(block: suspend () -> T): Result<T> =
+    telegramResult(UiText.Res(R.string.err_translation_failed), block) { error ->
+        when {
+            error.isSecretChatError() -> UiText.Res(R.string.err_translation_secret_chat)
+            error.isFloodWait() -> UiText.Res(R.string.err_tdlib_flood_wait)
+            else -> UiText.Res(R.string.err_translation_failed)
+        }
+    }
+
+internal suspend fun <T> speechRecognitionResult(block: suspend () -> T): Result<T> =
+    telegramResult(UiText.Res(R.string.err_transcription_failed), block) { error ->
+        when {
+            error.isSecretChatError() -> UiText.Res(R.string.err_transcription_secret_chat)
+            error.isFloodWait() -> UiText.Res(R.string.err_tdlib_flood_wait)
+            else -> UiText.Res(R.string.err_transcription_failed)
+        }
+    }
+
+private fun Exception.isSecretChatError(): Boolean =
+    message?.contains("SECRET", ignoreCase = true) == true || message?.contains("CHAT_TYPE_INVALID") == true
 
 /** Локальные операции с файлами: таймаут значит медленный диск, а не сеть, поэтому в диагностику соединения он не попадает. */
 internal suspend fun <T> storageResult(block: suspend () -> T): Result<T> = try { Result.success(block()) }

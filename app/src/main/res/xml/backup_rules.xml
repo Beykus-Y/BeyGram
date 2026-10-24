@@ -1,14 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <exclude domain="sharedpref" path="vpn-settings.xml" />
-    <!-- Private and possibly unsynced message drafts must not enter Android backup. -->
-    <exclude domain="sharedpref" path="chat_message_drafts.xml" />
-    <!-- The loopback SOCKS credentials are per installation; a restored copy would share them with another device. -->
-    <exclude domain="sharedpref" path="mihomo-loopback.xml" />
-    <!-- Analytics identity is per installation; restoring it elsewhere would merge two devices into one record. -->
-    <exclude domain="sharedpref" path="analytics.xml" />
+    <!-- TDLib keeps an authorized session in files/tdlib and per-account copies in files/tdlib-accounts. -->
+    <exclude domain="file" path="tdlib" />
+    <exclude domain="file" path="tdlib-accounts" />
+
     <!-- The diagnostics report draft is session-local; restoring it on another device makes no sense. -->
     <exclude domain="file" path="diagnostics-report" />
     <!-- Pending sends only: RAW video notes live in no_backup, restored queue files would be orphans. -->
     <exclude domain="file" path="uploads" />
+
+    <!-- SharedPreferences paths are exact filenames and do not support wildcards. An <include>
+         allowlist is therefore authoritative for this domain: session-bearing files and
+         secondary-account files with a dynamic suffix (chat_message_drafts_<accountId>,
+         chats_<accountId>, notifications_<accountId>, pending_group_creation_<accountId>,
+         mihomo_tdlib_proxy_<accountId>) are excluded by omission.
+         notifications.xml is excluded too: it holds the session's reply and intent tokens.
+         Only settings that are safe to carry to another installation are listed below. -->
+    <include domain="file" path="." />
+    <include domain="database" path="." />
+    <include domain="external" path="." />
+    <include domain="sharedpref" path="analytics-consent.xml" />
+    <include domain="sharedpref" path="appearance.xml" />
+    <include domain="sharedpref" path="beygram-app-locale.xml" />
+    <include domain="sharedpref" path="chat-overrides.xml" />
+    <include domain="sharedpref" path="chats.xml" />
+    <include domain="sharedpref" path="last-seen-settings.xml" />
+    <include domain="sharedpref" path="mihomo-selection.xml" />
+    <include domain="sharedpref" path="navigation.xml" />
+    <include domain="sharedpref" path="storage-settings.xml" />
+    <include domain="sharedpref" path="translation-settings.xml" />
+    <include domain="sharedpref" path="video-message-settings.xml" />
 </full-backup-content>

@@ -7,6 +7,12 @@ class AppLocaleSelectionTest {
     @Test fun respectsSystemLanguageChangedOutsideApp() {
         assertEquals("en", resolveAppLanguage("en-US", "ru"))
         assertEquals("ru", resolveAppLanguage("ru-RU", "en"))
+        assertEquals("de", resolveAppLanguage("de-DE", "en"))
+    }
+
+    @Test fun germanIsSupportedOnOlderAndNewerDevices() {
+        assertEquals("de", resolveAppLanguage("de", "ru"))
+        assertEquals("de", resolveAppLanguage(null, "de"))
     }
 
     @Test fun explicitFollowSystemOverridesStalePreference() {

@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="secondary_accounts_title">Аккаунты Telegram</string>
+    <string name="secondary_accounts_primary">Основной аккаунт</string>
+    <string name="secondary_accounts_others">Дополнительный аккаунт</string>
+    <string name="secondary_accounts_account_label">Дополнительный аккаунт %1$d</string>
+    <string name="secondary_accounts_registry_error">Невозможно открыть реестр Telegram-аккаунтов. Данные не изменены. Проверьте хранилище приложения.</string>
+
+    <string name="account_switcher_title">Аккаунты</string>
+    <string name="account_switcher_add">Добавить аккаунт</string>
+    <string name="account_switcher_add_note">Отдельная сессия Telegram. Чаты, настройки и уведомления не смешиваются.</string>
+    <string name="account_switcher_menu_description">Действия с аккаунтом %1$s</string>
+    <string name="account_switcher_current_description">Текущий аккаунт</string>
+    <string name="account_switcher_identifier_username">\@%1$s</string>
+    <string name="account_switcher_status_current">Выбран</string>
+    <string name="account_switcher_status_ready">Подключён</string>
+    <string name="account_switcher_status_switching">Выполняется…</string>
+    <string name="account_switcher_status_connecting">Подключается…</string>
+    <string name="account_switcher_status_offline">Нет сети</string>
+    <string name="account_switcher_status_route_paused">Маршрут недоступен</string>
+    <string name="account_switcher_status_phone">Ожидает номер телефона</string>
+    <string name="account_switcher_status_code">Ожидает код</string>
+    <string name="account_switcher_status_password">Ожидает пароль</string>
+    <string name="account_switcher_status_disconnected">Вход сохранён · сессия остановлена</string>
+    <string name="account_switcher_status_not_connected">Не подключён</string>
+    <string name="account_switcher_status_unsigned">Вход не завершён</string>
+    <string name="account_switcher_status_logging_out">Выходим…</string>
+    <string name="account_switcher_status_unsupported">Требуется другой способ входа</string>
+    <string name="account_switcher_status_primary_signed_out">Требуется вход</string>
+
+    <string name="account_switcher_continue">Продолжить вход</string>
+    <string name="account_switcher_configure">Настроить подключение</string>
+    <string name="account_switcher_retry">Повторить</string>
+    <string name="account_switcher_disconnect">Остановить сессию</string>
+    <string name="account_switcher_disconnect_title">Остановить сессию?</string>
+    <string name="account_switcher_disconnect_message">Аккаунт останется в BeyGram, вход в Telegram сохранится. Сессию можно подключить снова в любой момент.</string>
+    <string name="account_switcher_disconnect_unsigned_message">Незавершённый вход будет остановлен. Слот останется в списке — вход можно продолжить позже.</string>
+    <string name="account_switcher_disconnect_confirm">Остановить</string>
+    <string name="account_switcher_logout">Выйти и удалить данные</string>
+    <string name="account_switcher_delete_incomplete">Удалить незавершённый вход</string>
+    <string name="account_switcher_delete_title">Удалить незавершённый вход?</string>
+    <string name="account_switcher_delete_message">Незавершённая локальная сессия будет удалена. Авторизованные аккаунты не изменятся.</string>
+    <string name="account_switcher_delete_confirm">Удалить</string>
+
+    <string name="account_switcher_auth_add_title">Добавить аккаунт</string>
+    <string name="account_switcher_auth_continue_title">Продолжить вход</string>
+    <string name="account_switcher_auth_later">Позже</string>
+    <string name="account_switcher_auth_preparing">Создаём сессию…</string>
+    <string name="account_switcher_auth_prepare_failed">Не удалось создать сессию</string>
+    <string name="account_switcher_auth_switch_progress">Входим в аккаунт…</string>
+    <string name="account_switcher_auth_closed">Сессия закрыта. Подключите аккаунт ещё раз.</string>
+    <string name="account_switcher_auth_unsupported">Telegram запросил способ входа, который пока не поддерживается. Удалите незавершённый вход и попробуйте другой аккаунт.</string>
+    <string name="account_switcher_auth_retry_connect">Подключиться снова</string>
+    <string name="account_switcher_auth_phone_hint">Код придёт в Telegram.</string>
+    <string name="account_switcher_auth_code_hint">Введите код из Telegram.</string>
+    <string name="account_switcher_auth_password_hint">Введите облачный пароль Telegram.</string>
+
+    <string name="account_switcher_route_title">Подключение аккаунта</string>
+    <string name="account_switcher_route_message">По умолчанию аккаунт использует тот же безопасный маршрут, что и основной. Изменяйте его только при проблемах с подключением.</string>
+    <string name="account_switcher_route_apply">Применить</string>
+    <string name="account_switcher_route_saved">Маршрут сохранён. Он будет использован при следующем подключении.</string>
+
+    <string name="account_switcher_error_route">Маршрут подключения недоступен. Проверьте прокси или выберите другой маршрут.</string>
+    <string name="account_switcher_error_route_paused">Соединение приостановлено: маршрут больше не соответствует настройкам основного аккаунта.</string>
+    <string name="account_switcher_error_session_limit">Одновременно можно подключить не более двух дополнительных аккаунтов. Остановите сессию одного из них.</string>
+    <string name="account_switcher_error_account_limit">Достигнут лимит аккаунтов BeyGram.</string>
+    <string name="account_switcher_error_timeout">Telegram не ответил вовремя. Проверьте сеть и повторите.</string>
+    <string name="account_switcher_error_not_authorized">Сначала завершите вход в этот аккаунт.</string>
+    <string name="account_switcher_error_auth_phone">Проверьте номер телефона и попробуйте снова.</string>
+    <string name="account_switcher_error_auth_code">Неверный код. Проверьте его и попробуйте снова.</string>
+    <string name="account_switcher_error_auth_code_expired">Код истёк. Запросите новый.</string>
+    <string name="account_switcher_error_auth_password">Неверный облачный пароль. Попробуйте снова.</string>
+    <string name="account_switcher_error_auth_flood">Слишком много попыток. Подождите и попробуйте снова.</string>
+    <string name="account_switcher_error_auth_failed">Telegram отклонил вход. Проверьте данные и попробуйте снова.</string>
+    <string name="account_switcher_error_generic">Не удалось выполнить действие. Другие аккаунты не затронуты.</string>
+
+    <string name="account_recovery_title">Аккаунт недоступен</string>
+    <string name="account_recovery_message">Сессия Telegram для выбранного аккаунта не запущена. Повторите подключение, выберите другой аккаунт или настройте маршрут.</string>
+    <string name="account_recovery_retry">Повторить подключение</string>
+    <string name="account_recovery_choose">Выбрать аккаунт</string>
+    <string name="account_recovery_configure">Настроить подключение</string>
+    <string name="account_recovery_primary">Перейти к основному аккаунту</string>
+    <string name="account_recovery_busy">Подключаем аккаунт…</string>
+</resources>

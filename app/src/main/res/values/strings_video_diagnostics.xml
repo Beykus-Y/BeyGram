@@ -248,6 +248,11 @@
     <string name="diag_full_report_highspeed">=== Скоростная съёмка ===</string>
     <string name="hs_running">Идёт проверка скоростной съёмки…</string>
     <string name="vn_entry_av_unreadable">Звуковая дорожка в файле есть, но прочитать её отсчёты не удалось: это ограничение проверки, а не доказательство, что звука нет.</string>
+    <string name="vn_entry_usecase_geometry">CameraX %1$s: %2$s</string>
+    <string name="vn_entry_usecase_geometry_unknown">фактические размеры и cropRect недоступны после привязки</string>
+    <string name="vn_entry_fov_capture_aspect_four_three">Источник HD: предпочтение соотношения сторон 4:3 для квадратной обрезки; фактические параметры см. в CameraX Preview/VideoCapture.</string>
+    <string name="vn_entry_fov_capture_aspect_default">Источник: стандартный выбор соотношения сторон CameraX; фактические параметры см. в CameraX Preview/VideoCapture.</string>
+    <string name="vn_entry_fov_capture_aspect_fallback">HD 4:3 не удалось привязать к камере; использован стандартный выбор CameraX. Запись продолжена с исходными настройками.</string>
     <string name="vn_entry_fov_viewport">FOV: PreviewView FILL_CENTER, общий ViewPort 1:1 для Preview и VideoCapture. Квадратная обрезка ожидаема; её нельзя считать цифровым зумом без сравнения кадров.</string>
     <string name="vn_entry_fov_observed">FOV Camera2 (начало → конец): crop %1$s → %3$s, zoom %2$s → %4$s; изменения: %5$s. SCALER_CROP_REGION не отражает всю обрезку CameraX ViewPort; сравните превью, RAW и отправленный файл.</string>
     <string name="vn_entry_fov_changed">есть</string>

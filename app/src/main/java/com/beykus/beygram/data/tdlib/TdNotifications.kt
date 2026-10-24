@@ -26,6 +26,8 @@ internal class TdNotifications(
     private val _state = MutableStateFlow(TelegramNotifications())
     val state = _state.asStateFlow()
 
+    fun dispose() { scope.coroutineContext[kotlinx.coroutines.Job]?.cancel() }
+
     fun initialize() { scope.launch {
         conversationResult {
             request(TdApi.SetOption("notification_group_size_max", TdApi.OptionValueInteger(10)))

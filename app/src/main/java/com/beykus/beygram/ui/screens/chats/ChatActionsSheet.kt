@@ -10,6 +10,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
@@ -22,6 +23,7 @@ internal fun ChatActionsSheet(
     onClose: () -> Unit,
     setPinned: suspend (Boolean) -> Result<Unit>,
     setMuted: suspend (Boolean) -> Result<Unit>,
+    setUnread: suspend () -> Result<Unit>,
     delete: suspend () -> Result<Unit>
 ) {
     val palette = beyGramPalette()
@@ -47,10 +49,15 @@ internal fun ChatActionsSheet(
         TextButton(onClick = { perform { setMuted(!chat.isMuted) } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(if (chat.isMuted) R.string.feature_unmute_chat else R.string.feature_mute_chat))
         }
+        if (!chat.isMarkedAsUnread && chat.unreadCount == 0) {
+            TextButton(onClick = { perform(setUnread) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.chat_mark_unread))
+            }
+        }
         TextButton(onClick = { confirmDelete = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.feature_delete_chat), color = palette.danger)
         }
-        error?.let { Text(it, color = palette.danger, modifier = Modifier.padding(horizontal = 20.dp)) }
+        error?.let { Text(it, color = palette.danger, modifier = Modifier.padding(horizontal = 20.dp).errorAnnouncement()) }
         Spacer(Modifier.height(20.dp))
     }
     if (confirmDelete) AlertDialog(

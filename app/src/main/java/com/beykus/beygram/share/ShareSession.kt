@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
  * Один запрос «Поделиться» с файлами. Копирование и отправка идут в общем scope приложения, а не в композиции,
  * поэтому поворот экрана не прерывает их и не даёт отправить второй раз.
  */
-internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDraft: String) {
+internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDraft: String, val accountId: String = "legacy") {
     var draft by mutableStateOf(initialDraft)
     var staged by mutableStateOf<List<OutgoingMedia>>(emptyList())
     var staging by mutableStateOf(uris.isNotEmpty())
@@ -44,7 +44,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     fun startStaging(context: Context, scope: CoroutineScope) {
         if (started || uris.isEmpty()) return
         started = true
-        val staging = OutgoingMediaImporter(context)
+        val staging = OutgoingMediaImporter(context, accountId)
         importer = staging
         scope.launch { stage(staging, context, scope) }
     }
@@ -182,11 +182,11 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
 internal object ShareSessions {
     private var current: ShareSession? = null
 
-    fun of(context: Context, requestId: Long, uris: List<Uri>, text: String): ShareSession {
-        current?.takeIf { it.requestId == requestId }?.let { return it }
+    fun of(context: Context, requestId: Long, uris: List<Uri>, text: String, accountId: String = "legacy"): ShareSession {
+        current?.takeIf { it.requestId == requestId && it.accountId == accountId }?.let { return it }
         // Пришёл новый запрос: копии старого, если он не отправлен, больше не нужны.
         current?.release(context.applicationContext, scopeOf(context))
-        return ShareSession(requestId, uris, text).also { current = it }
+        return ShareSession(requestId, uris, text, accountId).also { current = it }
     }
 
     fun release(context: Context, requestId: Long) {

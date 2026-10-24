@@ -6,6 +6,30 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import com.beykus.beygram.MainActivity
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
+
+/**
+ * Stable PendingIntent URI identity: the same numeric Telegram chat/group IDs
+ * in two native accounts must never share the Android PendingIntent.
+ */
+internal fun notificationChatPath(
+    accountId: String,
+    chatId: Long,
+    groupId: Int,
+    maxId: Int,
+    topicId: Long
+): String {
+    require(TdAccountStorageLayout.isValidAccountId(accountId))
+    return if (accountId == "legacy") "chat/$chatId/$groupId/$maxId/$topicId"
+        else "account/$accountId/chat/$chatId/$groupId/$maxId/$topicId"
+}
+
+/** URI ownership must be part of the PendingIntent identity. */
+internal fun notificationReplyPath(accountId: String, groupId: Int): String {
+    require(TdAccountStorageLayout.isValidAccountId(accountId))
+    require(groupId > 0)
+    return if (accountId == "legacy") "reply/$groupId" else "account/$accountId/reply/$groupId"
+}
 
 internal object NotificationIntents {
     const val OPEN_CHAT = "com.beykus.beygram.OPEN_NOTIFICATION_CHAT"
@@ -14,6 +38,7 @@ internal object NotificationIntents {
     const val DISMISS = "com.beykus.beygram.DISMISS_NOTIFICATION"
     const val REPLY = "com.beykus.beygram.REPLY_NOTIFICATION"
     const val CHAT_ID = "notification_chat_id"
+    const val ACCOUNT_ID = "notification_account_id"
     const val GROUP_ID = "notification_group_id"
     const val MAX_ID = "notification_max_id"
     const val REPLY_TEXT = "notification_reply_text"
@@ -27,28 +52,105 @@ internal object NotificationIntents {
         val routing = replyRoutingToken(session, intent.getLongExtra(CHAT_ID, 0L), intent.getIntExtra(GROUP_ID, 0), intent.getIntExtra(MAX_ID, 0), intent.getLongExtra(REPLY_TO, 0L), intent.getLongExtra(TOPIC, 0L))
         return session.takeIf { intent.getStringExtra(TOKEN) == routing }
     }
-    fun chat(context: Context, chatId: Long, groupId: Int, maxId: Int, topicId: Long = 0L): PendingIntent = PendingIntent.getActivity(context, 0,
-        Intent(context, MainActivity::class.java).setAction(OPEN_CHAT).setData(Uri.parse("beygram://${context.packageName}/chat/$chatId/$groupId/$maxId/$topicId"))
-            .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(TOPIC, topicId).putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    /** Require the account embedded in the PendingIntent URI to match the signed
+     * session whose HMAC covers the reply's chat/message/group routing. */
+    fun replyAccount(intent: Intent): String? {
+        val accountId = intent.getStringExtra(ACCOUNT_ID) ?: "legacy"
+        if (!TdAccountStorageLayout.isValidAccountId(accountId)) return null
+        val groupId = intent.getIntExtra(GROUP_ID, 0)
+        val chatId = intent.getLongExtra(CHAT_ID, 0L)
+        if (groupId <= 0 || chatId == 0L) return null
+        val path = notificationReplyPath(accountId, groupId)
+        return accountId.takeIf { intent.data?.path?.trimStart('/') == path }
+    }
+
+    fun replySessionForAccount(context: Context, intent: Intent, accountId: String): String? {
+        if (replyAccount(intent) != accountId) return null
+        val prefs = NotificationRuntime.get(context).preferencesForAccount(accountId)
+        if (!prefs.authorized) return null
+        val session = prefs.replyToken()
+        val routing = replyRoutingToken(session, intent.getLongExtra(CHAT_ID, 0L),
+            intent.getIntExtra(GROUP_ID, 0), intent.getIntExtra(MAX_ID, 0),
+            intent.getLongExtra(REPLY_TO, 0L), intent.getLongExtra(TOPIC, 0L))
+        return session.takeIf { intent.getStringExtra(TOKEN) == routing }
+    }
+
+    fun chat(
+        context: Context, chatId: Long, groupId: Int, maxId: Int, topicId: Long = 0L,
+        accountId: String = "legacy"
+    ): PendingIntent {
+        require(TdAccountStorageLayout.isValidAccountId(accountId)) {
+            "Invalid notification account"
+        }
+        val path = notificationChatPath(accountId, chatId, groupId, maxId, topicId)
+        return PendingIntent.getActivity(context, 0,
+            Intent(context, MainActivity::class.java).setAction(OPEN_CHAT)
+                .setData(Uri.parse("beygram://${context.packageName}/$path"))
+                .putExtra(CHAT_ID, chatId).putExtra(ACCOUNT_ID, accountId)
+                .putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId)
+                .putExtra(TOPIC, topicId)
+                .putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken())
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    /** Prevent a forged/mutated account extra from rerouting an existing link. */
+    fun accountForChatIntent(intent: Intent): String? {
+        val accountId = intent.getStringExtra(ACCOUNT_ID) ?: "legacy"
+        if (!TdAccountStorageLayout.isValidAccountId(accountId)) return null
+        val chatId = intent.getLongExtra(CHAT_ID, 0L)
+        val groupId = intent.getIntExtra(GROUP_ID, 0)
+        val maxId = intent.getIntExtra(MAX_ID, 0)
+        val topicId = intent.getLongExtra(TOPIC, 0L)
+        val expected = notificationChatPath(accountId, chatId, groupId, maxId, topicId)
+        return accountId.takeIf { intent.data?.path?.trimStart('/') == expected }
+    }
     fun settings(context: Context): PendingIntent = PendingIntent.getActivity(context, 0,
         Intent(context, MainActivity::class.java).setAction(OPEN_SETTINGS).setData(Uri.parse("beygram://${context.packageName}/notification-settings"))
             .putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     fun proxy(context: Context): PendingIntent = PendingIntent.getActivity(context, 0,
         Intent(context, MainActivity::class.java).setAction(OPEN_PROXY).setData(Uri.parse("beygram://${context.packageName}/proxy"))
             .putExtra(TOKEN, NotificationRuntime.get(context).preferences.intentToken()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    fun dismiss(context: Context, groupId: Int, maxId: Int): PendingIntent = PendingIntent.getBroadcast(context, 0,
-        Intent(context, NotificationDismissReceiver::class.java).setAction(DISMISS).setData(Uri.parse("beygram://${context.packageName}/dismiss/$groupId/$maxId"))
-            .putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    fun dismiss(context: Context, groupId: Int, maxId: Int, accountId: String = "legacy"): PendingIntent {
+        require(TdAccountStorageLayout.isValidAccountId(accountId))
+        val path = if (accountId == "legacy") "dismiss/$groupId/$maxId"
+            else "account/$accountId/dismiss/$groupId/$maxId"
+        return PendingIntent.getBroadcast(context, 0,
+            Intent(context, NotificationDismissReceiver::class.java)
+                .setAction(DISMISS)
+                .setData(Uri.parse("beygram://${context.packageName}/$path"))
+                .putExtra(ACCOUNT_ID, accountId)
+                .putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    fun accountForDismissIntent(intent: Intent): String? {
+        val account = intent.getStringExtra(ACCOUNT_ID) ?: "legacy"
+        if (!TdAccountStorageLayout.isValidAccountId(account)) return null
+        val group = intent.getIntExtra(GROUP_ID, 0)
+        val newest = intent.getIntExtra(MAX_ID, 0)
+        if (group <= 0 || newest <= 0) return null
+        val expected = if (account == "legacy") "dismiss/$group/$newest"
+            else "account/$account/dismiss/$group/$newest"
+        return account.takeIf { intent.data?.path?.trimStart('/') == expected }
+    }
     /**
      * Mutable because Android attaches the typed text to the intent, and one-shot so a listener that kept it can send only once.
      * One identity per group: a re-post updates the live action instead of leaving older ones behind. The receiver is not exported and still checks the token, which covers the routing extras.
      */
-    fun reply(context: Context, chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long): PendingIntent = PendingIntent.getBroadcast(context, 0,
-        Intent(context, NotificationReplyReceiver::class.java).setAction(REPLY).setData(Uri.parse("beygram://${context.packageName}/reply/$groupId"))
-            .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId).putExtra(REPLY_TO, replyToMessageId).putExtra(TOPIC, topicId)
-            .putExtra(TOKEN, replyRoutingToken(NotificationRuntime.get(context).preferences.replyToken(), chatId, groupId, maxId, replyToMessageId, topicId)),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_ONE_SHOT or mutability())
+    fun reply(context: Context, chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long, accountId: String = "legacy"): PendingIntent {
+        require(TdAccountStorageLayout.isValidAccountId(accountId))
+        val path = notificationReplyPath(accountId, groupId)
+        val session = NotificationRuntime.get(context).preferencesForAccount(accountId).replyToken()
+        return PendingIntent.getBroadcast(context, 0,
+            Intent(context, NotificationReplyReceiver::class.java).setAction(REPLY)
+                .setData(Uri.parse("beygram://${context.packageName}/$path"))
+                .putExtra(ACCOUNT_ID, accountId)
+                .putExtra(CHAT_ID, chatId).putExtra(GROUP_ID, groupId).putExtra(MAX_ID, maxId)
+                .putExtra(REPLY_TO, replyToMessageId).putExtra(TOPIC, topicId)
+                .putExtra(TOKEN, replyRoutingToken(session, chatId, groupId, maxId, replyToMessageId, topicId)),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_ONE_SHOT or mutability())
+    }
     // FLAG_MUTABLE exists only from Android 12; older systems create mutable PendingIntents by default.
     private fun mutability(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
 }

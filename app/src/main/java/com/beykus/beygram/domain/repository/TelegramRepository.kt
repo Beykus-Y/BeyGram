@@ -2,11 +2,22 @@ package com.beykus.beygram.domain.repository
 
 import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.ChannelAdminEventPage
+import com.beykus.beygram.domain.model.ChannelEventFilter
+import com.beykus.beygram.domain.model.ChannelStatisticsSummary
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.InviteJoinOutcome
+import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.BlockedSenderKind
+import com.beykus.beygram.domain.model.BlockedSendersPage
+import com.beykus.beygram.domain.model.PrivacyRules
+import com.beykus.beygram.domain.model.PrivacySetting
+import com.beykus.beygram.domain.model.PrivacySettingState
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.OutgoingMedia
@@ -71,6 +82,20 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun deleteChatForSelf(chatId: Long): Result<Unit>
     /** Block the other user from a private conversation. Refuses group/channel and self. */
     suspend fun blockPrivateChat(chatId: Long): Result<Unit>
+    /** Block or unblock the other user in a private conversation; the block list is account-wide. */
+    suspend fun setPrivateChatBlocked(chatId: Long, blocked: Boolean): Result<Unit>
+    /** Telegram privacy rules are stored on the server and shared by every signed-in device. */
+    suspend fun loadPrivacySettings(): Result<List<PrivacySettingState>>
+    /** Replaces one privacy setting; exceptions are sent as TDLib allow/restrict user rules. */
+    suspend fun setPrivacySetting(setting: PrivacySetting, rules: PrivacyRules): Result<Unit>
+    /** A page of TDLib's main block list, including users and chats returned by the server. */
+    suspend fun loadBlockedSenders(offset: Int, limit: Int = 50): Result<BlockedSendersPage>
+    /** Changes the account block list for a user or chat sender. Never deletes a contact. */
+    suspend fun setSenderBlocked(kind: BlockedSenderKind, senderId: Long, blocked: Boolean): Result<Unit>
+    /** Reports a private chat for spam using Telegram's required report option flow. */
+    suspend fun reportSpam(chatId: Long): Result<Unit>
+    /** Resolves a blocked user's private chat and reports it for spam without opening it. */
+    suspend fun reportSpamForUser(userId: Long): Result<Unit>
     /** Create a Telegram broadcast channel; returns its new chat ID. */
     suspend fun createChannel(title: String, description: String): Result<Long>
     /** Create a basic Telegram group with explicitly selected contact IDs. */
@@ -95,14 +120,45 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Отмечает прочитанными все сообщения чата, в том числе у архивных чатов. */
     suspend fun markChatRead(chatId: Long): Result<Unit>
 
+
     /** Контакты из адресной книги Telegram, по имени. */
     suspend fun loadContacts(): Result<List<ContactPreview>>
 
     /** Добавляет контакт по номеру телефона; номер должен быть зарегистрирован в Telegram. */
     suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit>
 
+    /** Изменяет имя и телефон существующего контакта в адресной книге Telegram. */
+    suspend fun updateContact(userId: Long, firstName: String, lastName: String, phone: String): Result<Unit>
+
+    /** Удаляет контакт из адресной книги; чат и блокировка не затрагиваются. */
+    suspend fun deleteContact(userId: Long): Result<Unit>
+
+    /** Отправляет контакт в чат сообщением TDLib с карточкой и vCard. */
+    suspend fun sendContact(chatId: Long, userId: Long): Result<Unit>
+
     /** Открывает личный чат с пользователем и возвращает идентификатор чата. */
     suspend fun openPrivateChat(userId: Long): Result<Long>
+
+    /** Resolve a validated public username or bot through TDLib and return its chat ID. */
+    suspend fun resolvePublicChat(username: String): Result<Long>
+
+    /** Resolve a validated phone number through TDLib and return the private chat ID. */
+    suspend fun resolvePhoneNumber(phone: String): Result<Long>
+
+    /** Inspect an invite link without joining it. The UI must ask for confirmation before [joinInviteLink]. */
+    suspend fun checkInviteLink(url: String): Result<ChatInvitePreview>
+
+    /** Join an invite link only after an explicit user confirmation. */
+    suspend fun joinInviteLink(url: String): Result<InviteJoinOutcome>
+
+    /** Resolve a t.me message link (including /c/ links) and its forum topic without sending any action. */
+    suspend fun resolveMessageLink(url: String): Result<MessageLinkTarget>
+
+    /** Channel statistics for an administrator; TDLib rejects the request for ordinary members. */
+    suspend fun channelStatistics(chatId: Long): Result<ChannelStatisticsSummary>
+
+    /** Admin log page, newest first. Pass 0 for the first page, then [ChannelAdminEventPage.nextFromEventId]. */
+    suspend fun channelAdminEvents(chatId: Long, fromEventId: Long, filter: ChannelEventFilter): Result<ChannelAdminEventPage>
 
     /** Страница истории звонков. Первая страница запрашивается с пустым [offset], дальше — с [CallHistoryPage.nextOffset]. */
     suspend fun loadCallHistory(offset: String): Result<CallHistoryPage>
@@ -121,6 +177,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Отправляет облачный пароль (2FA); результат придёт через [authState]. */
     fun submitPassword(password: String)
+
+    /** Запрашивает вход по QR-коду; ссылка придёт через [authState] как [AuthState.WaitingForQr]. */
+    fun requestQrLogin()
+
+    /** Отменяет вход по QR-коду и возвращает экран ввода телефона. */
+    fun cancelQrLogin()
 
     /** Сбрасывает ошибку обратно в [AuthState.WaitingForPhone]. */
     fun resetError()

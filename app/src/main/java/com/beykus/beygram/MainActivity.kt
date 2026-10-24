@@ -20,6 +20,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
+import com.beykus.beygram.deeplink.PendingDeepLinkInbox
+import com.beykus.beygram.deeplink.PendingTelegramDeepLink
+import com.beykus.beygram.deeplink.SharedPreferencesPendingDeepLinkStorage
 import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationIntents
 import com.beykus.beygram.notifications.NotificationRuntime
@@ -46,11 +50,17 @@ class MainActivity : ComponentActivity() {
     }
     private var notificationRequest by mutableStateOf<NotificationOpenRequest?>(null)
     private var incomingShare by mutableStateOf<IncomingShare?>(null)
+    private val deepLinkInbox by lazy {
+        PendingDeepLinkInbox(SharedPreferencesPendingDeepLinkStorage(this))
+    }
+    private var pendingDeepLink by mutableStateOf<PendingTelegramDeepLink?>(null)
+    private var lastDeepLinkIntentData: String? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null) {
             if (savedInstanceState.getBoolean("notification_pending")) notificationRequest = NotificationOpenRequest(savedInstanceState.getLong("notification_token"),
-                savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"), savedInstanceState.getLong("notification_topic"))
+                savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"), savedInstanceState.getLong("notification_topic"),
+                savedInstanceState.getString("notification_account") ?: "legacy")
             val restoredText = savedInstanceState.getString("share_text").orEmpty()
             val restoredFiles = restoredUris(savedInstanceState)
             // После фильтра файлов запрос может остаться пустым: тогда пустой диалог не показываем.
@@ -61,6 +71,17 @@ class MainActivity : ComponentActivity() {
             acceptNotificationIntent(intent)
             acceptShareIntent(intent)
         }
+        // A configuration change keeps the same intent; only a genuinely new VIEW data string is accepted again.
+        lastDeepLinkIntentData = savedInstanceState?.getString("deeplink_intent_data") ?: lastDeepLinkIntentData
+        val incomingLinkData = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString
+        val savedLinkData = savedInstanceState?.getString("deeplink_intent_data")
+        // A task relaunched from Recents re-delivers its original VIEW intent with this flag. That link was already handled.
+        val launchedFromHistory = ((intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        if (!launchedFromHistory && (savedInstanceState == null || (incomingLinkData != null && incomingLinkData != savedLinkData))) {
+            acceptDeepLinkIntent(intent)
+        }
+        // The link is persisted before login, so it is also restored after process death or Activity recreation.
+        pendingDeepLink = deepLinkInbox.restore()
         enableEdgeToEdge()
 
         setContent {
@@ -98,6 +119,20 @@ class MainActivity : ComponentActivity() {
                             onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
                             incomingShare = incomingShare,
                             onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null; ShareSessions.release(this, it) },
+                            pendingDeepLink = pendingDeepLink,
+                            onDeepLinkBound = { token, accountId ->
+                                pendingDeepLink = deepLinkInbox.bind(token, accountId) ?: pendingDeepLink
+                            },
+                            onDeepLinkHandled = { token ->
+                                val current = pendingDeepLink?.takeIf { it.token == token }
+                                if (current != null) {
+                                    deepLinkInbox.take(
+                                        token,
+                                        current.accountId ?: TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+                                    )
+                                    pendingDeepLink = deepLinkInbox.restore()
+                                }
+                            },
                             appearance = config,
                             onAppearanceChange = appearance::save
                         )
@@ -106,13 +141,34 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptNotificationIntent(intent); acceptShareIntent(intent) }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        acceptNotificationIntent(intent)
+        acceptShareIntent(intent)
+        acceptDeepLinkIntent(intent)
+        pendingDeepLink = deepLinkInbox.restore()
+    }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
-        notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId) }
+        notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId); outState.putString("notification_account", it.accountId) }
         incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text); outState.putParcelableArrayList("share_uris", ArrayList(it.uris)); outState.putLong("share_chat_id", it.targetChatId) }
+        outState.putString("deeplink_intent_data", lastDeepLinkIntentData)
         super.onSaveInstanceState(outState)
     }
+    /**
+     * External t.me/telegram.me/tg link. Only the parser decides whether it is known; nothing is opened here, because
+     * the account may still be signed out. The pending link is applied after AuthState.Ready.
+     */
+    private fun acceptDeepLinkIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        // A Direct Share shortcut is handled as a chat target, never as an external Telegram link.
+        if (intent.hasExtra(DirectShareShortcuts.LAUNCH_CHAT)) return
+        val data = intent.dataString ?: return
+        lastDeepLinkIntentData = data
+        pendingDeepLink = deepLinkInbox.offer(data, SystemClock.elapsedRealtimeNanos()) ?: pendingDeepLink
+    }
+
     /** Текст и файлы из другого приложения: сохраняем до выбора чата; отправка начнётся только после подтверждения на экране. */
     private fun acceptShareIntent(intent: Intent?) {
         // The same dynamic shortcut also appears in some launcher long-press menus:
@@ -172,9 +228,18 @@ class MainActivity : ComponentActivity() {
         when (intent?.action) {
             NotificationIntents.OPEN_CHAT -> {
                 val chatId = intent.getLongExtra(NotificationIntents.CHAT_ID, 0L)
-                if (chatId != 0L) {
-                    NotificationRuntime.get(this).dismiss(intent.getIntExtra(NotificationIntents.GROUP_ID, 0), intent.getIntExtra(NotificationIntents.MAX_ID, 0))
-                    notificationRequest = NotificationOpenRequest(SystemClock.elapsedRealtimeNanos(), chatId, topicId = intent.getLongExtra(NotificationIntents.TOPIC, 0L))
+                val source = NotificationIntents.accountForChatIntent(intent)
+                if (chatId != 0L && source != null) {
+                    val runtime = NotificationRuntime.get(this)
+                    val group = intent.getIntExtra(NotificationIntents.GROUP_ID, 0)
+                    val newest = intent.getIntExtra(NotificationIntents.MAX_ID, 0)
+                    if (source == "legacy") runtime.dismiss(group, newest)
+                    else runtime.dismissSecondary(source, group, newest)
+                    notificationRequest = NotificationOpenRequest(
+                        SystemClock.elapsedRealtimeNanos(), chatId,
+                        topicId = intent.getLongExtra(NotificationIntents.TOPIC, 0L),
+                        accountId = source
+                    )
                 }
             }
             NotificationIntents.OPEN_SETTINGS -> notificationRequest = NotificationOpenRequest(SystemClock.elapsedRealtimeNanos(), settings = true)

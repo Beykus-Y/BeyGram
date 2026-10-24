@@ -23,6 +23,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -74,7 +75,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
             HorizontalDivider(color = palette.divider)
             when {
                 error != null -> Column(Modifier.padding(24.dp)) {
-                    Text(error.orEmpty(), color = palette.warningText)
+                    Text(error.orEmpty(), color = palette.warningText, modifier = Modifier.errorAnnouncement())
                     TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.common_retry), color = palette.accent) }
                 }
                 context == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }

@@ -65,6 +65,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -100,6 +104,7 @@ import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -149,7 +154,7 @@ private object DecodedImageCache {
 }
 
 @Composable
-internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: Boolean = false, maxDimension: Int = 1024) {
+internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: Boolean = false, maxDimension: Int = 1024, contentDescriptionText: String? = null) {
     var failed by remember(path) { mutableStateOf(false) }
     val context = LocalContext.current
     val cacheKey = "$path#$maxDimension"
@@ -176,8 +181,9 @@ internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: B
     Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
         when {
             drawable != null -> AndroidView(
-                factory = { ImageView(it).apply { contentDescription = context.getString(R.string.media_image_description) } },
+                factory = { ImageView(it).apply { contentDescription = contentDescriptionText } },
                 update = { view ->
+                    view.contentDescription = contentDescriptionText
                     view.scaleType = if (fit) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
                     if (view.drawable !== drawable) view.setImageDrawable(drawable)
                 }, modifier = Modifier.fillMaxSize()
@@ -207,9 +213,15 @@ private fun BlurredMediaPreview(media: MessageMedia, thumbnailPath: String?, mod
 
 /** Кнопка загрузки поверх заглушки; пока файл грузится, вместо стрелки крутится индикатор. */
 @Composable
-private fun DownloadBadge(downloading: Boolean, onClick: () -> Unit) {
+private fun DownloadBadge(downloading: Boolean, contentDescription: String, onClick: () -> Unit) {
+    val loadingLabel = stringResource(R.string.a11y_state_loading)
     Box(
-        Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).clickable(enabled = !downloading, onClick = onClick),
+        Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape)
+            .clickable(enabled = !downloading, role = Role.Button, onClick = onClick)
+            .semantics {
+                this.contentDescription = contentDescription
+                if (downloading) stateDescription = loadingLabel
+            },
         contentAlignment = Alignment.Center
     ) {
         if (downloading) CircularProgressIndicator(Modifier.size(26.dp), color = Color.White, strokeWidth = 2.dp)
@@ -233,7 +245,12 @@ internal fun MediaPreview(
     onOpen: () -> Unit,
     onLongPress: (() -> Unit)? = null,
     onPlayed: () -> Unit = {},
-    origin: PlaybackOrigin? = null
+    origin: PlaybackOrigin? = null,
+    transcriptionRequestPending: Boolean = false,
+    transcriptionRequestError: String? = null,
+    transcriptionRated: Boolean = false,
+    onTranscribe: (() -> Unit)? = null,
+    onRateTranscription: ((Boolean) -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -293,11 +310,21 @@ internal fun MediaPreview(
         onDispose { if (pendingPlaybackRow.value === row) pendingPlaybackRow.value = null }
     }
     if (media.kind == MediaKind.Voice) {
-        VoiceBubble(media, file, downloadFile, onPlayed, onLongPress, origin)
+        VoiceBubble(media, file, downloadFile, onPlayed, onLongPress, origin,
+            transcriptionRequestPending = transcriptionRequestPending,
+            transcriptionRequestError = transcriptionRequestError,
+            transcriptionRated = transcriptionRated,
+            onTranscribe = onTranscribe,
+            onRateTranscription = onRateTranscription)
         return
     }
     if (media.kind == MediaKind.VideoNote) {
-        VideoNoteBubble(media, observeFile, downloadFile, onPlayed, onLongPress, origin = origin)
+        VideoNoteBubble(media, observeFile, downloadFile, onPlayed, onLongPress, origin = origin,
+            transcriptionRequestPending = transcriptionRequestPending,
+            transcriptionRequestError = transcriptionRequestError,
+            transcriptionRated = transcriptionRated,
+            onTranscribe = onTranscribe,
+            onRateTranscription = onRateTranscription)
         return
     }
     if (media.kind == MediaKind.Sticker) {
@@ -306,18 +333,28 @@ internal fun MediaPreview(
     }
     if (isVisual) {
         val ratio = if (media.width > 0 && media.height > 0) media.width.toFloat() / media.height else 1.5f
+        val mediaLabel = media.kind.label(context)
+        val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
+        val downloadLabel = stringResource(R.string.a11y_media_download, mediaLabel)
+        val spoilerLabel = stringResource(R.string.media_spoiler_hint)
+        val longPressLabel = stringResource(R.string.a11y_message_actions)
         // Полного файла ещё нет: вместо растянутой миниатюры показываем размытую заглушку и кнопку загрузки.
         val awaitingFile = revealed && !media.isSecret && file.localPath == null
         Box(
             Modifier.width(244.dp).height((244 / ratio).coerceIn(120f, 280f).dp)
                 .background(palette.disabled)
-                .combinedClickable(onClick = { if (!revealed) revealed = true else onOpen() }, onLongClick = onLongPress),
+                .combinedClickable(
+                    onClickLabel = if (revealed) openLabel else spoilerLabel,
+                    onLongClickLabel = longPressLabel,
+                    onClick = { if (!revealed) revealed = true else onOpen() },
+                    onLongClick = onLongPress
+                ),
             contentAlignment = Alignment.Center
         ) {
             if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
             else if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize())
-            if (!revealed) Text(stringResource(R.string.media_spoiler_hint), color = palette.textPrimary, modifier = Modifier.padding(16.dp))
-            else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, onClick = { downloadFile(media.fileId) })
+            if (!revealed) Text(spoilerLabel, color = palette.textPrimary, modifier = Modifier.padding(16.dp))
+            else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
             else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
                 val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
                 Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
@@ -340,9 +377,11 @@ internal fun MediaPreview(
         val musicPlaying by playingFlow.collectAsStateWithLifecycle(initialValue = false)
         val title = media.title.ifBlank { media.fileName.ifBlank { stringResource(R.string.media_kind_audio) } }
         val cover = if (thumbId != media.fileId) thumb.localPath else null
+        val playLabel = stringResource(if (musicPlaying) R.string.common_pause else R.string.common_play)
+        val longPressLabel = stringResource(R.string.a11y_message_actions)
         Row(
             Modifier.width(280.dp).clip(RoundedCornerShape(12.dp))
-                .combinedClickable(onClick = { playAudio() }, onLongClick = onLongPress)
+                .combinedClickable(onClickLabel = playLabel, onLongClickLabel = longPressLabel, onClick = { playAudio() }, onLongClick = onLongPress)
                 .padding(top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -363,7 +402,7 @@ internal fun MediaPreview(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
                 }
             }
-            IconButton(onClick = { playAudio() }, modifier = Modifier.size(42.dp)) {
+            IconButton(onClick = { playAudio() }, modifier = Modifier.size(48.dp)) {
                 if (file.isDownloading || waitingForAudio) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = palette.accent)
                 } else {
@@ -372,12 +411,17 @@ internal fun MediaPreview(
                         tint = palette.accentInk)
                 }
             }
-            IconButton(onClick = onOpen, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = onOpen, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = palette.textSecondary)
             }
         }
     } else {
-        Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp)).combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        val mediaLabel = media.kind.label(context)
+        val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
+        val longPressLabel = stringResource(R.string.a11y_message_actions)
+        Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp))
+            .combinedClickable(onClickLabel = openLabel, onLongClickLabel = longPressLabel, onClick = onOpen, onLongClick = onLongPress)
+            .padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
                 modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(10.dp))
             Spacer(Modifier.width(12.dp))
@@ -551,8 +595,8 @@ internal fun MediaViewer(
                 if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
                 if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
             }
-            externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp)) }
-            fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+            externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
+            fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).errorAnnouncement()) }
             extraFooter?.invoke()
         }
     }
@@ -566,6 +610,7 @@ private fun MediaViewerPage(
     onDismiss: () -> Unit, onToggleControls: () -> Unit, controlsVisible: Boolean
 ) {
     val media = item.media
+    val context = LocalContext.current
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val tgs = media.mimeType == "application/x-tgsticker"
     val previewId = media.thumbnailFileId
@@ -592,7 +637,7 @@ private fun MediaViewerPage(
         val path = file.localPath
         when {
             spoilerHidden -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 16.sp,
-                modifier = Modifier.padding(16.dp).clickable(onClick = onReveal))
+                modifier = Modifier.padding(16.dp).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onReveal))
             concealed -> Unit
             tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 val preview: @Composable () -> Unit = {
@@ -629,7 +674,8 @@ private fun MediaViewerPage(
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
                 if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
-            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = controlsVisible && active)
+            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = controlsVisible && active,
+                contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
             media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, if (previewId != null) thumb.localPath else null, active) { currentOnViewed(item.messageId) }
@@ -659,7 +705,7 @@ private fun PhotoPreview(file: MediaFileState, thumbnailPath: String?, onDownloa
 
 @Composable
 private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color(0xFFCFC4FF), onClick: () -> Unit) {
-    Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
         Spacer(Modifier.height(4.dp))
         Text(label, color = tint, fontSize = 12.sp)
@@ -667,7 +713,7 @@ private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color(0
 }
 
 @Composable
-private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls: () -> Unit, showZoomControls: Boolean) {
+private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls: () -> Unit, showZoomControls: Boolean, contentDescription: String?) {
     var scale by remember(path) { mutableFloatStateOf(1f) }
     var offset by remember(path) { mutableStateOf(Offset.Zero) }
     // Протяжка вниз при масштабе 1 двигает картинку за пальцем; отпущенная дальше четверти высоты закрывает просмотр.
@@ -706,7 +752,8 @@ private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls:
                 )
             }
         ) {
-            LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y + dismissY }, fit = true, maxDimension = 4096)
+            LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y + dismissY }, fit = true, maxDimension = 4096,
+                contentDescriptionText = contentDescription)
         }
         // Кнопки стоят поверх картинки, а не внутри её жестов: тап по кнопке не должен переключать панели или сдвигать фото.
         // Внизу по центру, чтобы на низком окне не наезжать на кнопки листания у краёв.

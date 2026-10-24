@@ -66,12 +66,13 @@ import java.util.Date
 fun CallsScreen(
     loadCalls: suspend (offset: String) -> Result<CallHistoryPage>,
     observeFile: (Int) -> StateFlow<MediaFileState>,
-    downloadFile: (Int) -> Unit
+    downloadFile: (Int) -> Unit,
+    accountId: String = "legacy"
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val state: CallsScreenState = viewModel()
+    val state: CallsScreenState = viewModel(key = "calls:$accountId")
     val calls = state.calls
     val nextOffset = state.nextOffset
     var loading by remember { mutableStateOf(true) }

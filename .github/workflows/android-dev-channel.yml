@@ -152,7 +152,7 @@ jobs:
             fi
             # A force-push to DEV can drop the previous build's commit from history: then list the latest commits.
             if [ -n "$prev_sha" ] && git merge-base --is-ancestor "$prev_sha" "$GITHUB_SHA" 2>/dev/null; then
-              git log --no-merges --format='- %s' "$prev_sha..$GITHUB_SHA" | head -n 100
+              git log --no-merges --format='- %s' -n 100 "$prev_sha..$GITHUB_SHA"
             else
               git log --no-merges --format='- %s' -n 30 "$GITHUB_SHA"
             fi

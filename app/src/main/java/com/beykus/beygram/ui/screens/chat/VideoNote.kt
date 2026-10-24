@@ -34,6 +34,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +50,7 @@ import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.PlaybackSpeedMenu
 import kotlinx.coroutines.delay
@@ -93,7 +97,7 @@ internal fun PendingVideoNoteBubble(pending: PendingVideoNote) {
     // Время фиксируется при появлении кружка и не меняется, пока он переходит от обработки к отправке.
     val time = remember(pending.sessionName) { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date()) }
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-        Column(horizontalAlignment = Alignment.End) {
+        Column(horizontalAlignment = Alignment.End, modifier = Modifier.errorAnnouncement()) {
             Box(Modifier.size(IDLE_SIZE).clip(CircleShape).background(VideoNoteBackground), contentAlignment = Alignment.Center) {
                 pending.previewPath?.let { LocalMediaImage(it, Modifier.fillMaxSize()) }
                 Spacer(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
@@ -127,7 +131,12 @@ internal fun VideoNoteBubble(
     statusDescription: String? = null,
     unseen: Boolean = false,
     highlighted: Boolean = false,
-    origin: PlaybackOrigin? = null
+    origin: PlaybackOrigin? = null,
+    transcriptionRequestPending: Boolean = false,
+    transcriptionRequestError: String? = null,
+    transcriptionRated: Boolean = false,
+    onTranscribe: (() -> Unit)? = null,
+    onRateTranscription: ((Boolean) -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
@@ -196,11 +205,21 @@ internal fun VideoNoteBubble(
     }
     // Во время проигрывания показывается оставшееся время, как в оригинальном клиенте.
     val shownSeconds = if (circle != null && showing && circle.durationMs > 0L) ((circle.durationMs - circle.positionMs + 500L) / 1000L).toInt() else media.durationSeconds
+    val playbackStateLabel = when {
+        showing -> stringResource(if (playing) R.string.a11y_state_playing else R.string.a11y_state_paused)
+        path == null && (waitingForCircle || file.isDownloading) -> stringResource(R.string.a11y_state_loading)
+        else -> null
+    }
+    val circleDescription = stringResource(R.string.a11y_video_note_message, duration(shownSeconds))
     Column(horizontalAlignment = Alignment.End) {
         Box(Modifier.size(size).then(if (highlighted) Modifier.border(2.dp, palette.accent, CircleShape) else Modifier)) {
             Box(
                 Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
-                    .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress),
+                    .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress)
+                    .semantics {
+                        contentDescription = circleDescription
+                        playbackStateLabel?.let { stateDescription = it }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 val thumbnailPath = thumbnail.localPath
@@ -244,5 +263,15 @@ internal fun VideoNoteBubble(
                 Icon(statusIcon, contentDescription = statusDescription, tint = if (statusIcon == Icons.Rounded.Schedule) palette.messageTime else palette.accent, modifier = Modifier.size(14.dp))
             }
         }
+        TranscriptionSection(
+            media = media,
+            requestPending = transcriptionRequestPending,
+            requestError = transcriptionRequestError,
+            rated = transcriptionRated,
+            onRequest = onTranscribe,
+            onRate = onRateTranscription,
+            // Keep the note's circle alignment: a full-width section would push an incoming note to the right.
+            modifier = Modifier.width(size)
+        )
     }
 }

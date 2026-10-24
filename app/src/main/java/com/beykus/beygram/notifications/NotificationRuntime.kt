@@ -2,6 +2,7 @@ package com.beykus.beygram.notifications
 
 import android.content.Context
 import com.beykus.beygram.R
+import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.vpn.VpnBackend
@@ -27,6 +28,262 @@ class NotificationRuntime private constructor(private val context: Context) {
     private val renderer = AndroidNotificationRenderer(context, preferences)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var repository: TelegramRepository? = null
+
+    private data class SecondarySubscription(
+        val source: TelegramRepository,
+        val renderer: AndroidNotificationRenderer,
+        val preferences: NotificationPreferencesStore,
+        val job: Job
+    )
+    private val secondaries = ConcurrentHashMap<String, SecondarySubscription>()
+    private val secondaryPendingAccounts = ConcurrentHashMap.newKeySet<String>()
+    private val secondaryConnectedAccounts = ConcurrentHashMap.newKeySet<String>()
+    private val _secondaryPending = MutableStateFlow(false)
+    val secondaryPending = _secondaryPending.asStateFlow()
+    private val _secondaryConnected = MutableStateFlow(false)
+    val secondaryConnected = _secondaryConnected.asStateFlow()
+    @Synchronized private fun setSecondaryPending(accountId: String, active: Boolean) {
+        if (active) secondaryPendingAccounts.add(accountId) else secondaryPendingAccounts.remove(accountId)
+        _secondaryPending.value = secondaryPendingAccounts.isNotEmpty()
+    }
+    @Synchronized private fun setSecondaryConnected(accountId: String, active: Boolean) {
+        if (active) secondaryConnectedAccounts.add(accountId) else secondaryConnectedAccounts.remove(accountId)
+        _secondaryConnected.value = secondaryConnectedAccounts.isNotEmpty()
+    }
+    private val secondaryPreferences = ConcurrentHashMap<String, NotificationPreferencesStore>()
+    private val secondaryReplyOutboxes = ConcurrentHashMap<String, ReplyOutbox>()
+    private val secondaryRepliesInFlight = ConcurrentHashMap.newKeySet<String>()
+    private fun secondaryReplyOutbox(accountId: String): ReplyOutbox {
+        require(accountId != "legacy" && TdAccountStorageLayout.isValidAccountId(accountId))
+        return secondaryReplyOutboxes.computeIfAbsent(accountId) {
+            ReplyOutbox(File(context.noBackupFilesDir, "reply-outbox-secondary/$it"))
+        }
+    }
+
+    /** Settings and renderer must share the same live per-account StateFlow. */
+    fun preferencesForAccount(accountId: String): NotificationPreferencesStore =
+        if (accountId == "legacy") preferences else secondaryPreferences.computeIfAbsent(accountId) {
+            NotificationPreferencesStore(context, it)
+        }
+
+    /**
+     * Shared Android renderer, separate account-tag and watermark namespaces.
+     * Legacy retains its original process-wide outbox; secondary replies use
+     * independently authenticated per-account persistent outboxes.
+     */
+    @Synchronized fun attachSecondary(accountId: String, source: TelegramRepository) {
+        require(accountId != "legacy" && TdAccountStorageLayout.isValidAccountId(accountId))
+        check((source as? TdLibTelegramRepository)?.accountId == accountId) {
+            "Notification source must match the native secondary TDLib account"
+        }
+        val previous = secondaries[accountId]
+        if (previous?.source === source) return
+        previous?.job?.cancel()
+        val prefs = preferencesForAccount(accountId)
+        val scopedRenderer = AndroidNotificationRenderer(context, prefs, accountId)
+        val job = scope.launch {
+            launch {
+                source.myProfile.collect { profile ->
+                    scopedRenderer.updateAccountDisplayName(profile.info?.title.orEmpty())
+                    invalidations.update { it + 1 }
+                }
+            }
+            // The foreground service must hold the same bounded delivery wake
+            // lock for pending secondary TDLib notices as for the legacy client.
+            launch {
+                combine(source.notifications, source.authState) { notices, auth ->
+                    auth == AuthState.Ready && notices.hasPending
+                }.collect { setSecondaryPending(accountId, it) }
+            }
+            launch {
+                combine(source.connectionState, source.authState) { connection, auth ->
+                    auth == AuthState.Ready && connection == TelegramConnectionState.Connected
+                }.collect {
+                    setSecondaryConnected(accountId, it)
+                    if (it) flushSecondaryReplies(accountId)
+                }
+            }
+            launch {
+                source.authState.collect { state ->
+                    if (state == AuthState.Ready) {
+                        prefs.authorized = true
+                        flushSecondaryReplies(accountId)
+                        val pending = prefs.pendingDismissals()
+                        for ((group, newest) in pending) {
+                            if (source.dismissNotifications(group, newest).isSuccess)
+                                prefs.acknowledge(group, newest)
+                        }
+                    } else if (state == AuthState.WaitingForPhone &&
+                        (source as? TdLibTelegramRepository)?.hasSecondaryAuthorizationLoss == true) {
+                        // TDLib Close alone does not invalidate authorization: preserve dismissals
+                        // until an actual logout / phone-required transition.
+                        prefs.authorized = false
+                    }
+                }
+            }
+            combine(source.notifications, source.notificationPresentation,
+                source.authState, prefs.state, invalidations
+            ) { notices, presentation, auth, config, _ ->
+                if (config.background || presentation.foreground) {
+                    runCatching { scopedRenderer.render(notices, config, presentation, auth == AuthState.Ready) }
+                } else if (auth == AuthState.Ready) {
+                    notices.groups.forEach { group ->
+                        prefs.handled(group.id, group.notices.maxOfOrNull { it.id } ?: 0)
+                    }
+                }
+            }.collect()
+        }
+        secondaries[accountId] = SecondarySubscription(source, scopedRenderer, prefs, job)
+    }
+
+    /** Logout destroys ONLY this account's rendered alerts and authorization tokens. */
+    fun detachSecondary(accountId: String) {
+        // Do not hold NotificationRuntime's intrinsic monitor while awaiting
+        // a cancelled collector: its onCompletion may call @Synchronized
+        // setSecondaryConnected/Pending and deadlock with that monitor.
+        val previous = secondaries.remove(accountId)
+        previous?.job?.cancel()
+        // Await observer termination so no in-flight READY/LOGOUT callback can
+        // write account SharedPreferences after deletion has begun.
+        if (previous != null) kotlinx.coroutines.runBlocking { previous.job.join() }
+        setSecondaryPending(accountId, false)
+        setSecondaryConnected(accountId, false)
+        previous?.renderer?.cancelAllOwned()
+        preferencesForAccount(accountId).retireForRemoval()
+        secondaryPreferences.remove(accountId)
+        secondaryReplyOutboxes.remove(accountId)?.clear()
+        invalidations.update { it + 1 }
+    }
+
+    /**
+     * Each secondary reply is fsync'd into its OWN outbox before completing the
+     * broadcast. Only an exact live source account and matching session token
+     * can deliver it. No fallback to the primary TDLib repository is permitted.
+     */
+    fun replySecondary(
+        accountId: String, chatId: Long, groupId: Int, maxId: Int,
+        replyToMessageId: Long, topicId: Long, text: String, session: String,
+        finished: () -> Unit
+    ) {
+        scope.launch {
+            try {
+                if (chatId == 0L || groupId <= 0 || maxId <= 0 ||
+                    accountId == "legacy" ||
+                    !TdAccountStorageLayout.isValidAccountId(accountId)) return@launch
+                val prefs = preferencesForAccount(accountId)
+                if (!prefs.authorized || prefs.replyToken() != session || text.isBlank()) return@launch
+                val entry = try {
+                    withContext(Dispatchers.IO) {
+                        secondaryReplyOutbox(accountId).add(
+                            chatId, groupId, maxId, replyToMessageId, text,
+                            System.currentTimeMillis(), session, topicId
+                        )
+                    }
+                } catch (error: IOException) {
+                    recordAppEvent(EventKind.NOTIFICATION, "secondary_reply_store_failed",
+                        "Ответ вторичного аккаунта не сохранён", Severity.WARNING)
+                    return@launch
+                }
+                // Android may kill the process immediately after this broadcast;
+                // persistent outbox replay happens on the next account READY.
+                val deliver = launch { deliverSecondaryReply(accountId, entry) }
+                withTimeoutOrNull(REPLY_BROADCAST_MILLIS) { deliver.join() }
+                if (secondaries[accountId] == null)
+                    TelegramNotificationService.reconcileFromAllowedContext(context, "reply")
+            } finally {
+                finished()
+            }
+        }
+    }
+
+    private fun flushSecondaryReplies(accountId: String) {
+        val registered = secondaries[accountId] ?: return
+        if (registered.source.authState.value != AuthState.Ready) return
+        scope.launch {
+            val outbox = secondaryReplyOutbox(accountId)
+            val stored = withContext(Dispatchers.IO) {
+                outbox.discardExpired(System.currentTimeMillis(), REPLY_TTL_MILLIS)
+                outbox.entries()
+            }
+            stored.forEach { deliverSecondaryReply(accountId, it) }
+        }
+    }
+
+    private suspend fun deliverSecondaryReply(accountId: String, entry: ReplyOutbox.Entry) {
+        val id = "$accountId:${entry.id}"
+        if (!secondaryRepliesInFlight.add(id)) return
+        try {
+            val outbox = secondaryReplyOutbox(accountId)
+            if (!withContext(Dispatchers.IO) { outbox.isStored(entry.id) }) return
+            val prefs = preferencesForAccount(accountId)
+            if (!prefs.authorized || prefs.replyToken() != entry.session) {
+                withContext(Dispatchers.IO) { outbox.remove(entry.id) }
+                return
+            }
+            val registered = secondaries[accountId] ?: return
+            val source = registered.source as? TdLibTelegramRepository ?: return
+            if (source.accountId != accountId || source.authState.value != AuthState.Ready) return
+            val failed = try {
+                if (entry.text.codePointCount(0, entry.text.length) > source.messageLimits.value.text)
+                    throw IllegalArgumentException("Telegram reply text too long")
+                val replyTo = entry.replyToMessageId.takeIf { it > 0L }
+                val first = source.sendMessage(entry.chatId, entry.text, replyTo, forumTopicId = entry.topicId)
+                val result = if (replyTo != null && first.exceptionOrNull().isReplyRejected()) {
+                    // Never silently send a forum reply into General.
+                    if (entry.topicId > 0L)
+                        source.sendMessage(entry.chatId, entry.text, null, forumTopicId = entry.topicId)
+                    else if (source.isForumChat(entry.chatId).getOrDefault(true)) first
+                    else source.sendMessage(entry.chatId, entry.text, null)
+                } else first
+                result.exceptionOrNull()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) { error }
+            // Logout can occur while TDLib is sending. Verify the session again
+            // before acknowledging/removing a queued message or changing the tray.
+            if (prefs.replyToken() != entry.session || !prefs.authorized) {
+                withContext(Dispatchers.IO) { outbox.remove(entry.id) }
+                return
+            }
+            if (failed == null) {
+                withContext(Dispatchers.IO) { outbox.remove(entry.id) }
+                dismissSecondary(accountId, entry.groupId, entry.maxId)
+            } else {
+                val newest = source.notifications.value.groups.firstOrNull { it.id == entry.groupId }
+                    ?.notices?.maxOfOrNull { it.id } ?: entry.maxId
+                registered.renderer.markReplyFailed(entry.groupId, newest)
+                invalidations.update { it + 1 }
+                val maxAttempts = if (failed is IllegalArgumentException || failed.isPermanentReplyFailure())
+                    entry.attempts + 1 else MAX_REPLY_ATTEMPTS
+                val dropped = withContext(Dispatchers.IO) { outbox.recordFailure(entry, maxAttempts) }
+                if (!dropped) {
+                    scope.launch {
+                        delay(REPLY_RETRY_MILLIS)
+                        flushSecondaryReplies(accountId)
+                    }
+                }
+            }
+        } finally {
+            secondaryRepliesInFlight.remove(id)
+        }
+    }
+
+    fun dismissSecondary(accountId: String, groupId: Int, maxId: Int) {
+        if (accountId == "legacy" || !TdAccountStorageLayout.isValidAccountId(accountId) ||
+            groupId <= 0 || maxId <= 0) return
+        val registered = secondaries[accountId]
+        val scopedPrefs = registered?.preferences ?: preferencesForAccount(accountId)
+        scopedPrefs.dismiss(groupId, maxId)
+        registered?.renderer?.cancelGroup(groupId)
+        invalidations.update { it + 1 }
+        val source = registered?.source ?: return
+        scope.launch {
+            if (source.authState.value == AuthState.Ready &&
+                source.dismissNotifications(groupId, maxId).isSuccess) {
+                scopedPrefs.acknowledge(groupId, maxId)
+            }
+        }
+    }
     private val flushing = ConcurrentHashMap.newKeySet<Int>()
     private val dismissRetryRounds = ConcurrentHashMap<Int, Int>()
     private val dismissNotBefore = ConcurrentHashMap<Int, Long>()
@@ -62,7 +319,7 @@ class NotificationRuntime private constructor(private val context: Context) {
         scope.launch { source.authState.collect { auth ->
             when (auth) {
                 AuthState.Ready -> { preferences.authorized = true; reopenExhaustedDismissals(); flushDismissals(); flushReplies() }
-                AuthState.WaitingForPhone -> {
+                AuthState.WaitingForPhone, is AuthState.WaitingForQr -> {
                     // The sign-out replaces the session token before the outbox is cleared. A reply that the clear misses
                     // belongs to the old token, so it is never sent.
                     preferences.authorized = false
@@ -80,7 +337,7 @@ class NotificationRuntime private constructor(private val context: Context) {
     fun refresh() {
         repository?.authState?.value?.let { auth ->
             if (auth == AuthState.Ready) preferences.authorized = true
-            else if (auth == AuthState.WaitingForPhone) preferences.authorized = false
+            else if (auth == AuthState.WaitingForPhone || auth is AuthState.WaitingForQr) preferences.authorized = false
             _authorized.value = auth == AuthState.Ready
         }
         invalidations.update { it + 1 }
@@ -123,7 +380,8 @@ class NotificationRuntime private constructor(private val context: Context) {
      */
     private suspend fun storeReply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long, text: String, session: String): PendingReply {
         val now = System.currentTimeMillis()
-        val saved: ReplyOutbox.Entry? = if (repository?.authState?.value == AuthState.WaitingForPhone) null else try {
+        val saved: ReplyOutbox.Entry? = if (repository?.authState?.value == AuthState.WaitingForPhone ||
+            repository?.authState?.value is AuthState.WaitingForQr) null else try {
             outbox { add(chatId, groupId, maxId, replyToMessageId, text, now, session, topicId) }
         } catch (error: IOException) {
             recordAppEvent(EventKind.NOTIFICATION, "reply_not_stored", "Ответ из уведомления не удалось сохранить", Severity.WARNING, mapOf("cause" to error.javaClass.simpleName))
@@ -225,7 +483,10 @@ class NotificationRuntime private constructor(private val context: Context) {
         // The reply is sent only while it still belongs to the session that made it.
         if (!stillOwned(pending)) throw AccountChangedException()
         // A signed-out account cannot send, and a reply does not wait for another account to sign in.
-        if (source.authState.value == AuthState.WaitingForPhone) throw IllegalStateException("Telegram client is not authorized")
+        if (source.authState.value == AuthState.WaitingForPhone ||
+            source.authState.value is AuthState.WaitingForQr) {
+            throw IllegalStateException("Telegram client is not authorized")
+        }
         // A reply that starts the process can arrive before TDLib has authorized, and TDLib rejects requests until then.
         // Without authorization in time the reply is not sent, and the notification is marked as failed.
         withTimeoutOrNull(REPLY_READY_MILLIS) { source.authState.first { it == AuthState.Ready } }

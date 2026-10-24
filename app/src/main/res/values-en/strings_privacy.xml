@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="privacy_title">Privacy and security</string>
+    <string name="privacy_intro">These rules are stored in Telegram and apply to this account on every device. Last seen display only changes text in chats; it is not a privacy rule.</string>
+    <string name="privacy_group_visible">Who can see</string>
+    <string name="privacy_group_contact">Who can contact you</string>
+    <string name="privacy_setting_phone">Phone number</string>
+    <string name="privacy_setting_photo">Profile photo</string>
+    <string name="privacy_setting_last_seen">Last seen</string>
+    <string name="privacy_setting_bio">Bio</string>
+    <string name="privacy_setting_forwarded">Forwarded messages</string>
+    <string name="privacy_setting_calls">Calls</string>
+    <string name="privacy_setting_messages">Messages without payment</string>
+    <string name="privacy_setting_messages_hint">Exceptions allow messaging without payment. Whether paid messages are available is a separate account setting.</string>
+    <string name="privacy_setting_groups">Groups and channels</string>
+    <string name="privacy_setting_find_by_phone">Finding by phone number</string>
+    <string name="privacy_audience_everyone">Everybody</string>
+    <string name="privacy_audience_contacts">My contacts</string>
+    <string name="privacy_audience_nobody">Nobody</string>
+    <string name="privacy_audience_custom">Custom Telegram rules</string>
+    <string name="privacy_managed_elsewhere">Managed in Telegram. Editing is disabled here so complex rules are not lost.</string>
+    <string name="privacy_exceptions_always">Always allowed: %1$d</string>
+    <string name="privacy_exceptions_never">Never allowed: %1$d</string>
+    <string name="privacy_exceptions_manage">Exceptions…</string>
+    <string name="privacy_exceptions_always_title">Always allow</string>
+    <string name="privacy_exceptions_never_title">Never allow</string>
+    <string name="privacy_exceptions_empty">No exceptions</string>
+    <string name="privacy_exceptions_add_always">Add to always allow</string>
+    <string name="privacy_exceptions_add_never">Add to never allow</string>
+    <string name="privacy_exceptions_search">Search contacts</string>
+    <string name="privacy_exceptions_no_contacts">No matching contacts</string>
+    <string name="privacy_contacts_failed">Couldn\'t load contacts</string>
+    <string name="privacy_load_failed">Couldn\'t load privacy settings</string>
+    <string name="privacy_save_failed">Couldn\'t save the setting</string>
+    <string name="privacy_blocked_users_title">Blocked users</string>
+    <string name="privacy_blocked_users_detail">Manage the account block list</string>
+    <string name="privacy_last_seen_hint">How last seen is displayed in chats is a separate setting: Last seen display.</string>
+
+    <string name="blocked_title">Blocked users</string>
+    <string name="blocked_intro">Blocking stops messages and calls. It does not delete the contact or the chat history.</string>
+    <string name="blocked_count">Blocked: %1$d</string>
+    <string name="blocked_empty">No blocked users</string>
+    <string name="blocked_load_failed">Couldn\'t load the block list</string>
+    <string name="blocked_unblock">Unblock</string>
+    <string name="blocked_unblocked">User unblocked</string>
+    <string name="blocked_report_spam">Report spam</string>
+    <string name="blocked_report_spam_warning">Send a report to Telegram? The user won\'t know who reported them.</string>
+    <string name="blocked_report_sent">Report sent</string>
+    <string name="blocked_report_failed">Couldn\'t send the report</string>
+    <string name="blocked_user_type">User</string>
+    <string name="blocked_bot_type">Bot</string>
+    <string name="blocked_chat_type">Chat</string>
+
+    <string name="feature_unblock_user">Unblock user</string>
+    <string name="feature_unblock_warning">This user will be able to message and call you again. The contact and chat history are kept.</string>
+    <string name="feature_report_spam">Report spam</string>
+    <string name="feature_report_spam_warning">Send a report to Telegram? This won\'t delete the contact or change the chat history.</string>
+
+    <string name="err_report_spam_unavailable">Telegram didn\'t offer a spam report option.</string>
+    <string name="err_report_spam_requires_text">Telegram requires a report description. Please use the official client for this report.</string>
+    <string name="err_report_spam_requires_messages">Telegram requires selecting messages to report.</string>
+</resources>

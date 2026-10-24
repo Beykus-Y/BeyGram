@@ -14,6 +14,7 @@ import android.webkit.MimeTypeMap
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.data.tdlib.markUploadDirectoryOwner
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
 import kotlinx.coroutines.Dispatchers
@@ -25,12 +26,16 @@ import kotlin.coroutines.coroutineContext
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
-internal class OutgoingMediaImporter(context: Context) {
+internal class OutgoingMediaImporter(context: Context, private val accountId: String = "legacy") {
     private val app = context.applicationContext
     private val uploads = app.filesDir.resolve("uploads")
 
     suspend fun prepare(uri: Uri, asDocument: Boolean, squarePhoto: Boolean = false): OutgoingMedia = withContext(Dispatchers.IO) {
-        val directory = uploads.resolve(UUID.randomUUID().toString()).apply { if (!mkdirs()) throw UserMessageException(UiText.Res(R.string.err_media_directory_failed)) }
+        val directory = uploads.resolve(UUID.randomUUID().toString()).apply {
+            if (!mkdirs()) throw UserMessageException(UiText.Res(R.string.err_media_directory_failed))
+            try { markUploadDirectoryOwner(this, accountId) }
+            catch (error: Exception) { deleteRecursively(); throw error }
+        }
         try {
             val name = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null

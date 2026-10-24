@@ -38,7 +38,7 @@ internal fun SearchField(query: String, onChange: (String) -> Unit, placeholder:
         singleLine = true,
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.textPrimary),
         cursorBrush = SolidColor(palette.accent),
-        modifier = Modifier.fillMaxWidth().height(46.dp).clip(RoundedCornerShape(23.dp)).background(palette.surface2).padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(24.dp)).background(palette.surface2).padding(horizontal = 16.dp),
         decorationBox = { inner ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
@@ -49,7 +49,7 @@ internal fun SearchField(query: String, onChange: (String) -> Unit, placeholder:
                 }
                 if (query.isNotEmpty()) {
                     Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.components_clear_search), tint = palette.textSecondary,
-                        modifier = Modifier.size(32.dp).clip(CircleShape).clickable { onChange("") }.padding(5.dp))
+                        modifier = Modifier.size(48.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button) { onChange("") }.padding(12.dp))
                 }
             }
         }
