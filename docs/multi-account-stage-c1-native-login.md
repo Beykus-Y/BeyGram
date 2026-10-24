@@ -19,9 +19,13 @@ devices or Telegram accounts exercised by CI.
 4. The client is created with `TdAccountNativeClientOwner`, so it receives
    its own registered TDLib directories, process-wide database lease, and
    immutable account-scoped native callbacks.
-5. On startup the transport issues `SetNetworkType(NetworkTypeNone)` and
-   awaits TDLib's `AuthorizationStateWaitTdlibParameters`. Only then does it
-   send `SetTdlibParameters` **while offline**.
+5. On startup the transport dispatches `SetNetworkType(NetworkTypeNone)` without
+   waiting for an acknowledgement and awaits TDLib's
+   `AuthorizationStateWaitTdlibParameters`. TDLib at WAIT_PARAMETERS does not
+   acknowledge `SetNetworkType` on all devices, so blocking on it here would
+   deadlock startup. Only then does it send `SetTdlibParameters`; immediately
+   afterwards it confirms `NetworkTypeNone` with an awaited request and keeps
+   the client offline while the route/proxy is configured.
 6. For explicitly allowed DIRECT the transport disables any existing TDLib
    proxy; for the verified shared Mihomo route it installs/enables the precise
    local SOCKS entry using installation credentials. **No secondary listener**.
