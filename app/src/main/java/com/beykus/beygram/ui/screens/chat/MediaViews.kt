@@ -759,9 +759,11 @@ private fun MediaViewerPage(
             }
         )
     } else null
-    val videoLike = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
+        // Keep the already playing progressive source when TDLib completes the same file path.
+        // If TDLib reports a different final path, the normal completed-file source is used.
+        val streamSource = progressive?.takeIf { path == null || it.path == path }
         when {
             spoilerHidden -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 16.sp,
                 modifier = Modifier.padding(16.dp).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onReveal))
@@ -786,9 +788,9 @@ private fun MediaViewerPage(
                     if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
                 }
             }
-            videoLike && progressive != null -> LocalVideo(
-                progressive.path, loop = false, active = active,
-                onStarted = { currentOnViewed(item.messageId) }, progressive = progressive
+            streamSource != null -> LocalVideo(
+                streamSource.path, loop = false, active = active,
+                onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource
             )
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
             path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
