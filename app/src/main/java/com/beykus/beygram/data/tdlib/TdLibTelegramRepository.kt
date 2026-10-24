@@ -557,7 +557,7 @@ class TdLibTelegramRepository private constructor(
     }
 
     override suspend fun savedNotificationSounds(): Result<List<NotificationSoundOption>> = requestResult {
-        tdRequests(TdApi.GetSavedNotificationSounds()).sounds.orEmpty().mapNotNull { sound ->
+        tdRequests(TdApi.GetSavedNotificationSounds()).notificationSounds.orEmpty().mapNotNull { sound ->
             sound.title?.takeIf { it.isNotBlank() }?.let { NotificationSoundOption(sound.id, it) }
         }
     }
