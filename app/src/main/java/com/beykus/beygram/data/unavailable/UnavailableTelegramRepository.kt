@@ -7,6 +7,7 @@ import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
@@ -109,6 +110,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = unavailable()
     override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = unavailable()
     override suspend fun markChatRead(chatId: Long): Result<Unit> = unavailable()
+    override suspend fun markChatUnread(chatId: Long): Result<Unit> = unavailable()
     override suspend fun loadContacts(): Result<List<ContactPreview>> = Result.success(emptyList())
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> = unavailable()
     override suspend fun openPrivateChat(userId: Long): Result<Long> = unavailable()
@@ -198,6 +200,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = unavailable()
     override fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?> = MutableStateFlow<CustomEmoji?>(null).asStateFlow()
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> = unavailable()
+    override suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> = unavailable()
     override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long): Result<MessageSearchPage> = unavailable()

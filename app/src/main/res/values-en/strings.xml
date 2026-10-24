@@ -58,6 +58,10 @@
     <string name="chat_history_loading">Loading history…</string>
     <string name="chat_history_empty">No messages yet</string>
     <string name="chat_jump_to_latest">Latest messages</string>
+    <string name="chat_jump_to_unread">Jump to first unread</string>
+    <string name="chat_mark_unread">Mark as unread</string>
+    <string name="chat_mark_unread_done">Chat marked as unread</string>
+    <string name="err_chat_mark_unread_failed">Could not mark the chat as unread</string>
     <string name="chat_unread_separator">Unread messages</string>
     <string name="chat_pinned_title">Pinned messages</string>
     <string name="chat_pinned_retry">Retry</string>

@@ -141,6 +141,7 @@ fun ChatsScreen(
     onAccountPicker: () -> Unit = {},
     onArchiveClick: () -> Unit,
     onMarkRead: suspend (ChatPreview) -> Boolean,
+    onMarkUnread: suspend (ChatPreview) -> Result<Unit>,
     onArchive: suspend (ChatPreview) -> Boolean,
     onPinChat: suspend (Long, Boolean) -> Result<Unit>,
     onMuteChat: suspend (Long, Boolean) -> Result<Unit>,
@@ -181,7 +182,7 @@ fun ChatsScreen(
             val matchesQuery = query.isBlank() || chat.title.contains(query, true) || (chat.lastMessage as? UiText.Raw)?.text?.contains(query, true) == true
             val matchesFilter = when (selectedFilter) {
                 ChatFilter.All -> true
-                ChatFilter.Unread -> chat.unreadCount > 0
+                ChatFilter.Unread -> showsUnreadIndicator(chat)
                 ChatFilter.People -> !chat.isGroup
                 ChatFilter.Groups -> chat.isGroup
             }
@@ -347,7 +348,7 @@ fun ChatsScreen(
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { onChatClick(chat) },
                         onLongClick = { selectedActions = chat },
-                        read = readAction.copy(enabled = chat.unreadCount > 0),
+                        read = readAction.copy(enabled = showsUnreadIndicator(chat)),
                         primary = archiveAction
                     )
                 }
@@ -394,7 +395,7 @@ fun ChatsScreen(
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { onChatClick(chat) },
                         onLongClick = { selectedActions = chat },
-                        read = readAction.copy(enabled = chat.unreadCount > 0),
+                        read = readAction.copy(enabled = showsUnreadIndicator(chat)),
                         primary = archiveAction
                     )
                 }
@@ -435,6 +436,7 @@ fun ChatsScreen(
                 else onPinChat(selected.id, pinned)
             },
             setMuted = { onMuteChat(selected.id, it) },
+            setUnread = { onMarkUnread(selected) },
             delete = { onDeleteChat(selected.id) }
         )
     }
@@ -633,12 +635,15 @@ internal fun chatListDensityFor(density: ListDensity): ChatListDensity = when (d
     ListDensity.Spacious -> ChatListDensity(rowVerticalPadding = 14.dp)
 }
 
+/** Telegram shows a chat as unread either because of a server unread count or an explicit manual marker. */
+internal fun showsUnreadIndicator(chat: ChatPreview): Boolean = chat.unreadCount > 0 || chat.isMarkedAsUnread
+
 @Composable
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onClick: () -> Unit, onLongClick: (() -> Unit)? = null) {
     val palette = beyGramPalette()
     val listDensity = LocalChatListDensity.current
-    val unread = chat.unreadCount > 0
+    val unread = showsUnreadIndicator(chat)
     val emptyPreview = (chat.lastMessage as? UiText.Raw)?.text?.isBlank() == true
     Row(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -660,10 +665,14 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                 SendStatusIcon(chat)
                 if (unread) {
                     Spacer(Modifier.width(8.dp))
-                    // Чат без звука получает серый счётчик, как в Telegram.
+                    // Чат без звука получает серый счётчик, как в Telegram. Ручная отметка без сообщений — точка.
                     val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
-                    Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(11.dp)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
-                        Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    if (chat.unreadCount > 0) {
+                        Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(11.dp)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
+                            Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(badgeColor))
                     }
                 }
             }

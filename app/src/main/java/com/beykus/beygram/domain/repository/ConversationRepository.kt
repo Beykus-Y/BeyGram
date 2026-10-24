@@ -28,6 +28,8 @@ interface ConversationRepository {
     fun loadOlderMessages(chatId: Long)
     /** Replaces the loaded history with messages around [messageId]; newer messages load on [loadLatestMessages]. False when a newer jump or latest load superseded it. */
     suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean>
+    /** One page of messages newer than [afterMessageId], oldest first; used to walk toward the first unread target. */
+    suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>>
     fun loadLatestMessages(chatId: Long)
     /** [clearDraft] false оставляет черновик чата нетронутым: нужно для текста из других приложений. */
     suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit>
@@ -49,6 +51,8 @@ interface ConversationRepository {
     suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition>
     suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
     suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit>
+    /** Marks a chat unread without changing its read watermark; the chat list shows an unread marker. */
+    suspend fun markChatUnread(chatId: Long): Result<Unit>
     /**
      * Forwards a message. With [asCopy] the original sender is hidden, like Telegram's "Forward without author";
      * TDLib refuses either form when the message can't be forwarded.

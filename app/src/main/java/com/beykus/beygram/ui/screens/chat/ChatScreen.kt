@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WifiOff
@@ -81,9 +82,16 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** More than one transition can be in flight, but an accidental tap storm must not create an unbounded overlay. */
 private const val MAX_ACTIVE_COMPOSER_LAUNCHES = 4
+
+/** A zero-watermark jump walks history to its beginning; this guard keeps a huge chat from loading forever. */
+private const val MAX_UNREAD_HISTORY_PAGES = 50
+private const val UNREAD_HISTORY_PAGE_TIMEOUT_MS = 15_000L
+/** Bound on forward paging when outgoing messages separate the read boundary from the first unread incoming row. */
+private const val MAX_UNREAD_FORWARD_PAGES = 20
 
 @OptIn(FlowPreview::class)
 @Composable
@@ -657,6 +665,94 @@ fun ChatScreen(
         }
     }
     fun jumpToPinned(message: ChatMessage) = jumpToMessage(message.id, R.string.chat_pinned_failed)
+    suspend fun loadOlderUntilBeginning(): List<ChatMessage> {
+        val flow = if (forumTopicId > 0L) conversation.observeForumTopicHistory(chat.id, forumTopicId)
+        else conversation.observeChatHistory(chat.id)
+        var pages = 0
+        while (pages < MAX_UNREAD_HISTORY_PAGES && flow.value.hasOlderMessages && !flow.value.isLoading) {
+            val before = flow.value.messages.size
+            if (forumTopicId > 0L) conversation.loadOlderForumTopicMessages(chat.id, forumTopicId)
+            else conversation.loadOlderMessages(chat.id)
+            val next = withTimeoutOrNull(UNREAD_HISTORY_PAGE_TIMEOUT_MS) {
+                flow.first { it.messages.size != before || !it.hasOlderMessages || it.error != null }
+            } ?: break
+            if (next.error != null) break
+            pages++
+        }
+        return flow.value.messages
+    }
+    suspend fun findFirstUnreadAfter(boundary: Long): Long? {
+        var after = boundary
+        repeat(MAX_UNREAD_FORWARD_PAGES) {
+            val page = conversation.newerMessages(chat.id, forumTopicId, after).getOrElse { return null }
+            if (page.isEmpty()) return null
+            val items = groupTelegramMediaAlbums(page)
+            val index = firstUnreadItemIndex(items, boundary)
+            if (index >= 0) {
+                return items[index].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
+            }
+            val newest = page.maxOfOrNull { it.id } ?: return null
+            if (newest <= after) return null
+            after = newest
+        }
+        return null
+    }
+    fun jumpToFirstUnread() {
+        val boundary = history.lastReadInboxMessageId
+        // With no read watermark every incoming message is unread, so the target is the first incoming message in the
+        // whole chat. Otherwise the boundary page must be loaded, or the oldest loaded row is merely the oldest fetched
+        // unread message.
+        val unreadBoundary = boundary.coerceAtLeast(0L)
+        val readLoaded = boundary > 0L && rawMessageItems.any { item -> item.messages.any { it.id <= boundary } }
+        val firstUnread = firstUnreadItemIndex(rawMessageItems, unreadBoundary)
+        if (boundary <= 0L) {
+            if (!history.hasOlderMessages && firstUnread >= 0) {
+                val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing }?.id
+                scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
+            } else if (history.hasOlderMessages) {
+                scope.launch {
+                    val items = groupTelegramMediaAlbums(loadOlderUntilBeginning())
+                    val index = firstUnreadItemIndex(items, 0L)
+                    if (index >= 0) pendingJumpId = items[index].messages.firstOrNull { !it.isOutgoing }?.id
+                }
+            }
+            return
+        }
+        if (!needsUnreadWindow(readLoaded, firstUnread)) {
+            val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
+            scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
+            return
+        }
+        // A zero watermark has no message to anchor GetChatHistory; extend the oldest loaded page instead.
+        val anchor = boundary
+        // Request the boundary page. This also covers a window that is entirely older than the boundary: readLoaded is
+        // true there, but there is no unread row to scroll to. Resolve the target from the applied window itself, then
+        // let the existing pendingJumpId effect wait until that row is in the list.
+        scope.launch {
+            val loadedWindow = if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, anchor)
+            else conversation.loadMessagesAround(chat.id, anchor)
+            if (loadedWindow.isFailure) {
+                error = loadedWindow.exceptionOrNull().userMessage(context, R.string.err_chat_history_load_failed)
+                return@launch
+            }
+            if (loadedWindow.getOrDefault(false)) {
+                val loaded = if (forumTopicId > 0L) conversation.observeForumTopicHistory(chat.id, forumTopicId).value.messages
+                else conversation.observeChatHistory(chat.id).value.messages
+                val items = groupTelegramMediaAlbums(loaded)
+                val index = firstUnreadItemIndex(items, unreadBoundary)
+                if (index >= 0) {
+                    pendingJumpId = items[index].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
+                    return@launch
+                }
+                // The boundary window can contain only outgoing messages. Walk newer pages until an unread incoming
+                // message appears, then open its window so the jump target is present in the list.
+                val target = findFirstUnreadAfter(boundary) ?: return@launch
+                val targetWindow = if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, target)
+                else conversation.loadMessagesAround(chat.id, target)
+                if (targetWindow.getOrDefault(false)) pendingJumpId = target
+            }
+        }
+    }
     // Переход из профиля к вложению: чат открывается у сообщения один раз, после этого запрос сбрасывается.
     LaunchedEffect(focusMessageId) {
         if (focusMessageId == 0L) return@LaunchedEffect
@@ -687,7 +783,19 @@ fun ChatScreen(
             },
             onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
-        else ChatTopBar(chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true }, observeFile, onDownloadFile, forumTopicTitle)
+        else ChatTopBar(
+            chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true },
+            observeFile, onDownloadFile, forumTopicTitle,
+            hasUnread = (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0,
+            onMarkUnread = {
+                scope.launch {
+                    conversation.markChatUnread(chat.id)
+                        .onSuccess { Toast.makeText(context, context.getString(R.string.chat_mark_unread_done), Toast.LENGTH_SHORT).show(); onBack() }
+                        .onFailure { error = it.userMessage(context, R.string.err_chat_mark_unread_failed) }
+                }
+            },
+            onJumpUnread = ::jumpToFirstUnread
+        )
         reactionOwner?.takeIf { !deleting }?.let { owner ->
             MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
                 setReaction(owner.id, option, addToRecent = true)
@@ -1061,8 +1169,13 @@ private fun ReadOnlyChatBar() {
 }
 
 @Composable
-private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null) {
+private fun ChatTopBar(
+    chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
+    hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {}
+) {
     val palette = beyGramPalette()
+    var menuOpen by remember { mutableStateOf(false) }
     // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
     val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
@@ -1075,6 +1188,20 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
                 Text(chatPresenceLine(chat, info, lastSeenStyle, now).resolve(), color = palette.textSecondary, fontSize = 13.sp)
             }
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
+            Box {
+                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary) }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_jump_to_unread)) },
+                        enabled = hasUnread,
+                        onClick = { menuOpen = false; onJumpUnread() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_mark_unread)) },
+                        onClick = { menuOpen = false; onMarkUnread() }
+                    )
+                }
+            }
         }
         HorizontalDivider(color = palette.divider)
     }

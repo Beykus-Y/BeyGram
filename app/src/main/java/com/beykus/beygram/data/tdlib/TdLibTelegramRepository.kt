@@ -697,8 +697,18 @@ class TdLibTelegramRepository private constructor(
         TdRequests { client }(TdApi.SetArchiveChatListSettings(settings)); Unit
     }
     override suspend fun markChatRead(chatId: Long): Result<Unit> = conversationResult {
-        val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L } ?: throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
-        TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true)); Unit
+        val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L }
+        val markedAsUnread = chatCache[chatId]?.isMarkedAsUnread == true
+        // An empty chat can still be marked unread; clearing that marker must not require a message to view.
+        if (!canMarkChatRead(lastMessageId, markedAsUnread)) throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
+        if (lastMessageId != null) TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true))
+        // Opening a chat also clears an explicit "unread" marker, not only the server read watermark.
+        if (markedAsUnread) TdRequests { client }(markChatReadToggleRequest(chatId))
+        Unit
+    }
+
+    override suspend fun markChatUnread(chatId: Long): Result<Unit> = conversationResult {
+        TdRequests { client }(markChatUnreadRequest(chatId)); Unit
     }
     private val contactBook = TdContacts({ client }, profiles)
     private val callHistory = TdCallHistory({ client }, profiles)
@@ -1145,6 +1155,9 @@ class TdLibTelegramRepository private constructor(
         messageHistory.beginLoad(chatId)?.let { epoch -> requestHistory(chatId, oldest, remaining = 50, pagesLeft = 3, epoch = epoch) }
     }
 
+    override suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> =
+        conversationActions.newerMessages(chatId, forumTopicId, afterMessageId)
+
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
         val request = nextHistoryRequest(chatId)
         return conversationActions.window(chatId, messageId).map { messages ->
@@ -1274,6 +1287,10 @@ class TdLibTelegramRepository private constructor(
             is TdApi.UpdateChatReadInbox -> {
                 messageHistory.readInbox(update.chatId, update.lastReadInboxMessageId)
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(unreadCount = update.unreadCount) }
+                publishChat(update.chatId)
+            }
+            is TdApi.UpdateChatIsMarkedAsUnread -> {
+                chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(isMarkedAsUnread = update.isMarkedAsUnread) }
                 publishChat(update.chatId)
             }
             is TdApi.UpdateChatReadOutbox -> {
@@ -1880,6 +1897,7 @@ class TdLibTelegramRepository private constructor(
             isGroup = type is TdApi.ChatTypeBasicGroup || type is TdApi.ChatTypeSupergroup,
             isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,
             isSavedMessages = saved,
+            isMarkedAsUnread = isMarkedAsUnread,
             isSecret = type is TdApi.ChatTypeSecret,
             isPinned = mainPosition?.isPinned == true,
             order = mainPosition?.order ?: 0L,
@@ -2025,6 +2043,16 @@ class TdLibTelegramRepository private constructor(
         }
     }
 }
+
+/** A manual unread marker can be cleared without a message; a plain empty chat has nothing to mark read. */
+internal fun canMarkChatRead(lastMessageId: Long?, markedAsUnread: Boolean): Boolean =
+    lastMessageId != null || markedAsUnread
+
+/** Отметить чат непрочитанным: счётчик не меняется, Telegram показывает маркер. */
+internal fun markChatUnreadRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnread(chatId, true)
+
+/** Снять маркер непрочитанного при открытии/прочтении чата. */
+internal fun markChatReadToggleRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnread(chatId, false)
 
 // ---- Строковые утилиты ------------------------------------------------------
 

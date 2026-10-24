@@ -351,12 +351,38 @@ internal class TdConversationActions(
         return limit.coerceAtLeast(1)
     }
 
-    /** Messages around [messageId], newest last. TDLib may return fewer messages, so the target is fetched separately. */
+    /**
+     * One page newer than [afterMessageId]. Used when the boundary window contains only outgoing messages and the first
+     * unread incoming message is farther ahead.
+     */
+    suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> = conversationResult {
+        if (chatId == 0L || afterMessageId <= 0L) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
+        val page = if (forumTopicId > 0L) {
+            request(TdApi.GetForumTopicHistory().apply {
+                this.chatId = chatId
+                this.forumTopicId = forumTopicId.toInt()
+                fromMessageId = afterMessageId
+                offset = 1
+                limit = 50
+            })
+        } else request(TdApi.GetChatHistory(chatId, afterMessageId, 1, 50, false))
+        page.messages.orEmpty().filterNotNull().filter { it.id > afterMessageId }.sortedBy { it.id }.map(map)
+    }
+
+    /**
+     * Messages around [messageId], newest last. TDLib may return fewer messages, so the target is fetched separately.
+     * A read watermark can outlive its message: if the target was deleted, the surrounding page is still usable and is
+     * returned instead of failing the whole unread-boundary jump.
+     */
     suspend fun window(chatId: Long, messageId: Long): Result<List<TdApi.Message>> = conversationResult {
         if (chatId == 0L || messageId <= 0) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
-        val target = request(TdApi.GetMessage(chatId, messageId))
         val page = request(TdApi.GetChatHistory(chatId, messageId, -15, 40, false)).messages.orEmpty().filterNotNull()
-        (page + target).distinctBy { it.id }.sortedBy { it.id }
+        val target = try {
+            request(TdApi.GetMessage(chatId, messageId))
+        } catch (error: TdRequestError) {
+            if (error.code == 404) null else throw error
+        }
+        (page + listOfNotNull(target)).distinctBy { it.id }.sortedBy { it.id }
     }
 
     suspend fun context(chatId: Long, messageId: Long): Result<MessageContext> = conversationResult {

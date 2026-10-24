@@ -95,6 +95,7 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Отмечает прочитанными все сообщения чата, в том числе у архивных чатов. */
     suspend fun markChatRead(chatId: Long): Result<Unit>
 
+
     /** Контакты из адресной книги Telegram, по имени. */
     suspend fun loadContacts(): Result<List<ContactPreview>>
 

@@ -19,6 +19,8 @@ data class ChatPreview(
     val isSecret: Boolean = false,
     val isPinned: Boolean = false,
     val isMuted: Boolean = false,
+    /** The user explicitly marked a read chat as unread; it shows a dot even when Telegram's unread count is zero. */
+    val isMarkedAsUnread: Boolean = false,
     /** False when the user may not write here: a channel they do not administer, or a group that restricts them. */
     val canPost: Boolean = true,
     /** TDLib main-list position; zero means the chat is outside the main list. */
