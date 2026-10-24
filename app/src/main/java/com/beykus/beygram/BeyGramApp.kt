@@ -1722,6 +1722,9 @@ private fun BeyGramAppContent(
                     onNewGroup = { routeName = AppRoute.CreateGroup.name },
                     onNewChannel = { routeName = AppRoute.CreateChannel.name },
                     onAddContact = { openTab(MainTab.Contacts, AppRoute.NewChat) },
+                    resolvePublicChat = repository::resolvePublicChat,
+                    checkInviteLink = repository::checkInviteLink,
+                    joinInviteLink = repository::joinInviteLink,
                     onChatOpened = { chatId ->
                         selectedChatId = chatId
                         chatBackRouteName = AppRoute.Chats.name

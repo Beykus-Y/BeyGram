@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chats
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,6 +33,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.GroupAdd
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -62,8 +65,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.GroupCreationState
+import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
@@ -84,6 +89,9 @@ internal fun NewChatScreen(
     onNewGroup: () -> Unit,
     onNewChannel: () -> Unit,
     onAddContact: () -> Unit,
+    resolvePublicChat: suspend (String) -> Result<Long>,
+    checkInviteLink: suspend (String) -> Result<ChatInvitePreview>,
+    joinInviteLink: suspend (String) -> Result<InviteJoinOutcome>,
     onChatOpened: (Long) -> Unit
 ) {
     val palette = beyGramPalette()
@@ -96,6 +104,12 @@ internal fun NewChatScreen(
     var openingUser by remember { mutableStateOf<Long?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var refreshToken by remember { mutableStateOf(0) }
+    var discoveryQuery by rememberSaveable { mutableStateOf("") }
+    var discoveryBusy by remember { mutableStateOf(false) }
+    var discoveryError by remember { mutableStateOf<String?>(null) }
+    var invitePreview by remember { mutableStateOf<ChatInvitePreview?>(null) }
+    var inviteUrl by remember { mutableStateOf("") }
+    var inviteJoining by remember { mutableStateOf(false) }
 
     LaunchedEffect(refreshToken) {
         loading = true
@@ -108,6 +122,38 @@ internal fun NewChatScreen(
     }
 
     val visible = remember(contacts, query) { filterNewChatContacts(contacts, query) }
+
+    fun discoverPublicChat() {
+        if (discoveryBusy) return
+        val target = publicDiscoveryTarget(discoveryQuery)
+        if (target == null) {
+            discoveryError = context.getString(R.string.new_chat_public_invalid)
+            return
+        }
+        discoveryBusy = true
+        discoveryError = null
+        scope.launch {
+            try {
+                when (target) {
+                    is PublicDiscoveryTarget.Username -> resolvePublicChat(target.username)
+                        .onSuccess { onChatOpened(it) }
+                        .onFailure {
+                            discoveryError = it.userMessage(context, R.string.new_chat_public_lookup_failed)
+                        }
+                    is PublicDiscoveryTarget.Invite -> checkInviteLink(target.url)
+                        .onSuccess { preview ->
+                            inviteUrl = target.url
+                            invitePreview = preview
+                        }
+                        .onFailure {
+                            discoveryError = it.userMessage(context, R.string.new_chat_public_invite_failed)
+                        }
+                }
+            } finally {
+                discoveryBusy = false
+            }
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -137,6 +183,34 @@ internal fun NewChatScreen(
             icon = Icons.Rounded.Campaign,
             onClick = onNewChannel
         )
+        Text(
+            stringResource(R.string.new_chat_public_title),
+            color = palette.textSecondary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = discoveryQuery,
+                onValueChange = { discoveryQuery = it; discoveryError = null },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text(stringResource(R.string.new_chat_public_hint)) },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            IconButton(onClick = ::discoverPublicChat, enabled = !discoveryBusy && discoveryQuery.isNotBlank()) {
+                if (discoveryBusy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
+                else Icon(Icons.Rounded.Search, stringResource(R.string.new_chat_public_search), tint = palette.accent)
+            }
+        }
+        discoveryError?.let {
+            Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+        }
         HorizontalDivider(color = palette.divider, modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp))
         Text(
             stringResource(R.string.new_chat_contacts),
@@ -198,6 +272,69 @@ internal fun NewChatScreen(
                 }
             }
         }
+    }
+    invitePreview?.let { preview ->
+        AlertDialog(
+            onDismissRequest = { if (!inviteJoining) invitePreview = null },
+            title = { Text(preview.title.ifBlank { stringResource(R.string.new_chat_public_invite_title) }) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.new_chat_public_members, preview.memberCount))
+                    Text(
+                        stringResource(
+                            if (preview.createsJoinRequest) R.string.new_chat_public_request_hint
+                            else R.string.new_chat_public_join_hint
+                        ),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    Text(
+                        stringResource(R.string.new_chat_public_privacy_note),
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !inviteJoining,
+                    onClick = {
+                        if (inviteJoining) return@TextButton
+                        inviteJoining = true
+                        scope.launch {
+                            try {
+                                joinInviteLink(inviteUrl)
+                                    .onSuccess { outcome ->
+                                        invitePreview = null
+                                        when (outcome) {
+                                            is InviteJoinOutcome.Joined -> {
+                                                Toast.makeText(context, context.getString(R.string.new_chat_public_joined), Toast.LENGTH_SHORT).show()
+                                                onChatOpened(outcome.chatId)
+                                            }
+                                            InviteJoinOutcome.RequestSent -> {
+                                                Toast.makeText(context, context.getString(R.string.new_chat_public_request_sent), Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    }
+                                    .onFailure {
+                                        discoveryError = it.userMessage(context, R.string.new_chat_public_join_failed)
+                                        invitePreview = null
+                                    }
+                            } finally {
+                                inviteJoining = false
+                            }
+                        }
+                    }
+                ) { Text(stringResource(if (preview.createsJoinRequest) R.string.new_chat_public_request else R.string.new_chat_public_join)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { invitePreview = null }, enabled = !inviteJoining) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
     }
 }
 
