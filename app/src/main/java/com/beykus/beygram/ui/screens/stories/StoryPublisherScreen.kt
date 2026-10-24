@@ -820,6 +820,9 @@ private fun StoryArchiveDialog(repository: TelegramRepository, onDismiss: () -> 
                             .onSuccess {
                                 stories = stories.filterNot { it.storyId == story.storyId }
                                 totalCount = (totalCount - 1).coerceAtLeast(stories.size)
+                                if (nextFromStoryId == story.storyId) {
+                                    nextFromStoryId = stories.lastOrNull()?.storyId ?: 0
+                                }
                             }
                             .onFailure { error = it.userMessage(context, R.string.stories_delete_failed) }
                     }
