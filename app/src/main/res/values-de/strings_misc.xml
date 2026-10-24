@@ -40,6 +40,7 @@
     <string name="message_selection_selected">Ausgewählt</string>
     <string name="message_selection_not_selected">Nicht ausgewählt</string>
     <string name="message_selection_delete_title">Ausgewählte Nachrichten löschen?</string>
+    <string name="message_selection_limit">Sie können höchstens %1$d Nachrichten auswählen</string>
     <string name="message_selection_copy_empty">Die ausgewählten Nachrichten enthalten keinen Text</string>
     <string name="message_selection_copied">Kopierte Nachrichten: %1$d</string>
     <string name="message_selection_saved">Gespeicherte Dateien: %1$d</string>
@@ -47,6 +48,7 @@
     <string name="message_selection_save_none">Keine Anhänge zum Speichern vorhanden</string>
     <string name="message_selection_save_denied">Einige Anhänge können nicht gespeichert werden</string>
     <string name="message_selection_forwarded">Weitergeleitete Nachrichten: %1$d</string>
+    <string name="message_selection_forwarded_partial">Weitergeleitet: %1$d. Fehlgeschlagen: %2$d. Sie bleiben ausgewählt.</string>
     <string name="message_selection_deleted">Gelöschte Nachrichten: %1$d</string>
     <string name="forward_choose_topic">Thema in „%1$s“ auswählen</string>
     <string name="forward_topics_failed">Themen konnten nicht geladen werden</string>

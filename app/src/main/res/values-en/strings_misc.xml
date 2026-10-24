@@ -40,6 +40,7 @@
     <string name="message_selection_selected">Selected</string>
     <string name="message_selection_not_selected">Not selected</string>
     <string name="message_selection_delete_title">Delete selected messages?</string>
+    <string name="message_selection_limit">You can select up to %1$d messages</string>
     <string name="message_selection_copy_empty">The selected messages contain no text</string>
     <string name="message_selection_copied">Copied messages: %1$d</string>
     <string name="message_selection_saved">Saved files: %1$d</string>
@@ -47,6 +48,7 @@
     <string name="message_selection_save_none">No attachments can be saved</string>
     <string name="message_selection_save_denied">Some attachments cannot be saved</string>
     <string name="message_selection_forwarded">Forwarded messages: %1$d</string>
+    <string name="message_selection_forwarded_partial">Forwarded: %1$d. Failed: %2$d. They remain selected.</string>
     <string name="message_selection_deleted">Deleted messages: %1$d</string>
     <string name="forward_choose_topic">Choose a topic in “%1$s”</string>
     <string name="forward_topics_failed">Could not load topics</string>

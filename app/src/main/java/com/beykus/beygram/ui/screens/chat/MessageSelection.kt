@@ -30,25 +30,16 @@ internal fun selectionGroupIds(messages: List<ChatMessage>, messageId: Long): Se
 }
 
 /**
- * One ordered ID list for ForwardMessages. Album members are emitted together at the album's first selected position,
- * so TDLib sees a complete contiguous album even when another selected message sat between its members.
+ * One ordered ID list for ForwardMessages. IDs stay strictly increasing, as TDLib requires; real Telegram albums are
+ * contiguous in history, so every selected album remains a contiguous group in this list.
  */
-internal fun forwardIdsForSelection(messages: List<ChatMessage>, selected: Set<Long>): List<Long> {
-    if (selected.isEmpty()) return emptyList()
-    val chosen = messages.filter { it.id in selected }
-    val emittedAlbums = mutableSetOf<Long>()
-    val result = mutableListOf<Long>()
-    for (message in chosen) {
-        val albumId = message.mediaAlbumId.takeIf { it != 0L && message.media != null }
-        if (albumId == null) result += message.id
-        else if (emittedAlbums.add(albumId)) {
-            chosen.asSequence()
-                .filter { it.mediaAlbumId == albumId && it.media != null }
-                .mapTo(result) { it.id }
-        }
-    }
-    return result.distinct()
-}
+internal fun forwardIdsForSelection(messages: List<ChatMessage>, selected: Set<Long>): List<Long> =
+    messages.asSequence()
+        .filter { it.id in selected }
+        .map { it.id }
+        .distinct()
+        .sorted()
+        .toList()
 
 /** Text of the selected messages, oldest first, captions included; blank messages are skipped. */
 internal fun selectedText(messages: List<ChatMessage>, selected: Set<Long>): String =

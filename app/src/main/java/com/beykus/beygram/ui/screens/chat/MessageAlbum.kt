@@ -122,9 +122,9 @@ internal fun MessageAlbumBubble(
     Column(Modifier.fillMaxWidth().padding(horizontal = metrics.sideInset), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && captionMessage.sendState == MessageSendState.Sent, outgoing = latest.isOutgoing,
             onReply = { onReply?.invoke(captionMessage.id) }) { swipe ->
-            Box {
+            Box(swipe) {
                 BubbleLayout(
-                    swipe.widthIn(max = 292.dp).clip(shape)
+                    Modifier.widthIn(max = 292.dp).clip(shape)
                         .then(if (selected || highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                         .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (selectionMode) Modifier.combinedClickable(

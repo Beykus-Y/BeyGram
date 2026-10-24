@@ -36,6 +36,7 @@
     <string name="err_messages_cannot_forward">Einige ausgewählte Nachrichten können nicht weitergeleitet werden</string>
     <string name="err_messages_cannot_delete">Einige ausgewählte Nachrichten können nicht gelöscht werden</string>
     <string name="err_messages_cannot_copy">Einige ausgewählte Nachrichten können nicht kopiert werden</string>
+    <string name="err_messages_too_many">Es können höchstens %1$d Nachrichten gleichzeitig verarbeitet werden</string>
     <string name="err_message_cannot_reply">Sie können auf diese Nachricht nicht antworten</string>
     <string name="err_message_empty">Geben Sie eine Nachricht ein</string>
     <string name="err_message_original_unavailable">Originalnachricht nicht verfügbar</string>

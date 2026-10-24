@@ -36,6 +36,7 @@ import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.media.VideoNoteSendTracking
 import com.beykus.beygram.data.archive.ArchiveSettingsStore

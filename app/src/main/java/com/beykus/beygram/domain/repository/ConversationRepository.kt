@@ -109,8 +109,9 @@ interface ConversationRepository {
         options: MessageSendOptions = MessageSendOptions()
     ): Result<Unit>
     /**
-     * Forwards a whole selection with one ForwardMessages request. [messageIds] must keep album members adjacent so
-     * TDLib does not split the album. Each message is checked for forward rights before anything is sent.
+     * Forwards a whole selection with one ForwardMessages request (at most [MAX_MESSAGE_BATCH_SIZE] messages).
+     * [messageIds] must keep album members adjacent so TDLib does not split the album. Each message is checked for
+     * forward rights before anything is sent; a TDLib partial result leaves failed IDs for the caller to keep selected.
      */
     suspend fun forwardMessages(
         fromChatId: Long,
@@ -119,7 +120,7 @@ interface ConversationRepository {
         asCopy: Boolean = false,
         messageThreadId: Long? = null,
         options: MessageSendOptions = MessageSendOptions()
-    ): Result<Unit>
+    ): Result<ForwardedMessages>
     /** A t.me link to [messageId], or a Telegram error when the message has no shareable link. */
     suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean = false): Result<String>
     /**

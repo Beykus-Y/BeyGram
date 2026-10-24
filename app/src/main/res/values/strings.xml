@@ -410,6 +410,7 @@
     <string name="err_messages_cannot_forward">Некоторые выбранные сообщения нельзя переслать</string>
     <string name="err_messages_cannot_delete">Некоторые выбранные сообщения нельзя удалить</string>
     <string name="err_messages_cannot_copy">Некоторые выбранные сообщения нельзя копировать</string>
+    <string name="err_messages_too_many">За один раз можно обработать не более %1$d сообщений</string>
     <string name="err_message_pin_unavailable">Это сообщение нельзя закрепить</string>
     <string name="err_message_cannot_reply">На это сообщение нельзя ответить</string>
     <string name="err_message_empty">Введите сообщение</string>
@@ -545,6 +546,7 @@
     <string name="message_selection_selected">Выбрано</string>
     <string name="message_selection_not_selected">Не выбрано</string>
     <string name="message_selection_delete_title">Удалить выбранные сообщения?</string>
+    <string name="message_selection_limit">Можно выбрать не более %1$d сообщений</string>
     <string name="message_selection_copy_empty">В выбранных сообщениях нет текста</string>
     <string name="message_selection_copied">Скопировано сообщений: %1$d</string>
     <string name="message_selection_saved">Сохранено файлов: %1$d</string>
@@ -552,6 +554,7 @@
     <string name="message_selection_save_none">Нет вложений, которые можно сохранить</string>
     <string name="message_selection_save_denied">Некоторые вложения нельзя сохранить</string>
     <string name="message_selection_forwarded">Переслано сообщений: %1$d</string>
+    <string name="message_selection_forwarded_partial">Переслано: %1$d. Не удалось: %2$d. Они остались выбранными.</string>
     <string name="message_selection_deleted">Удалено сообщений: %1$d</string>
     <string name="forward_choose_topic">Выберите тему в «%1$s»</string>
     <string name="forward_topics_failed">Не удалось загрузить темы</string>

@@ -450,8 +450,11 @@ internal class TdConversationActions(
      * TDLib applies one revoke flag to the whole batch, so a mixed batch must not silently delete more or less than asked.
      */
     suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, deleteScope: DeleteMessageScope): Result<Unit> = conversationResult {
-        val ids = messageIds.distinct()
+        val ids = messageIds.distinct().sorted()
         require(ids.isNotEmpty()) { "Нет сообщений для удаления" }
+        if (ids.size > MAX_MESSAGE_BATCH_SIZE) throw UserMessageException(
+            UiText.Res(R.string.err_messages_too_many, listOf(MAX_MESSAGE_BATCH_SIZE))
+        )
         val blocked = ids.any { messageId ->
             val properties = request(TdApi.GetMessageProperties(chatId, messageId))
             if (deleteScope == DeleteMessageScope.ForEveryone) !properties.canBeDeletedForAllUsers
@@ -486,7 +489,7 @@ internal class TdConversationActions(
         asCopy: Boolean = false,
         messageThreadId: Long? = null,
         options: MessageSendOptions = MessageSendOptions()
-    ): Result<Unit> = forwardMessages(fromChatId, listOf(messageId), toChatId, asCopy, messageThreadId, options)
+    ): Result<Unit> = forwardMessages(fromChatId, listOf(messageId), toChatId, asCopy, messageThreadId, options).map { Unit }
 
     /**
      * One ForwardMessages request for a whole selection. Album members are kept next to each other by the caller, so
@@ -500,9 +503,13 @@ internal class TdConversationActions(
         asCopy: Boolean = false,
         messageThreadId: Long? = null,
         options: MessageSendOptions = MessageSendOptions()
-    ): Result<Unit> = conversationResult {
-        val ids = messageIds.distinct()
+    ): Result<ForwardedMessages> = conversationResult {
+        // TDLib requires strictly increasing IDs and caps one request at 100 messages.
+        val ids = messageIds.distinct().sorted()
         require(ids.isNotEmpty()) { "Нет сообщений для пересылки" }
+        if (ids.size > MAX_MESSAGE_BATCH_SIZE) throw UserMessageException(
+            UiText.Res(R.string.err_messages_too_many, listOf(MAX_MESSAGE_BATCH_SIZE))
+        )
         val blocked = ids.any { messageId ->
             !request(TdApi.GetMessageProperties(fromChatId, messageId)).canBeForwarded
         }
@@ -513,9 +520,12 @@ internal class TdConversationActions(
         val forwarded = request(
             forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(options))
         )
-        if (!forwarded.messages.orEmpty().any { it != null }) {
-            throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
-        }
+        val returned = forwarded.messages.orEmpty()
+        val forwardedIds = ids.filterIndexed { index, _ -> returned.getOrNull(index) != null }
+        val forwardedSet = forwardedIds.toSet()
+        val failedIds = ids.filterNot { it in forwardedSet }
+        if (forwardedIds.isEmpty()) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
+        ForwardedMessages(forwardedIds, failedIds)
     }
 
     /** A Telegram link to the message; comments in a thread need the thread form. */

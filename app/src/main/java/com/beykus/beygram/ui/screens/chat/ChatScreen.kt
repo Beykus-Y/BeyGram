@@ -552,7 +552,14 @@ fun ChatScreen(
         closeActions()
         selectionMode = true
         selectionError = null
-        if (message != null) selectionIds = selectionIds + selectionGroupIds(messages, message.id)
+        if (message != null) {
+            val group = selectionGroupIds(messages, message.id)
+            if (selectionIds.size + group.count { it !in selectionIds } > MAX_MESSAGE_BATCH_SIZE) {
+                selectionError = context.getString(R.string.message_selection_limit, MAX_MESSAGE_BATCH_SIZE)
+                return
+            }
+            selectionIds = selectionIds + group
+        }
     }
     fun exitSelection() {
         selectionMode = false
@@ -566,7 +573,12 @@ fun ChatScreen(
     }
     fun toggleSelection(message: ChatMessage) {
         val group = selectionGroupIds(messages, message.id)
-        selectionIds = if (group.all { it in selectionIds }) selectionIds - group else selectionIds + group
+        val removing = group.all { it in selectionIds }
+        if (!removing && selectionIds.size + group.count { it !in selectionIds } > MAX_MESSAGE_BATCH_SIZE) {
+            selectionError = context.getString(R.string.message_selection_limit, MAX_MESSAGE_BATCH_SIZE)
+            return
+        }
+        selectionIds = if (removing) selectionIds - group else selectionIds + group
         selectionError = null
     }
     fun copySelection() {
@@ -1430,7 +1442,7 @@ fun ChatScreen(
                     selectionDeleteBusy = true
                     selectionDeleteError = null
                     try {
-                        val ids = selectedMessages.map { it.id }
+                        val ids = selectedMessages.map { it.id }.sorted()
                         val deleteScope = if (selectionDeleteEveryone) DeleteMessageScope.ForEveryone else DeleteMessageScope.ForSelf
                         val result = conversation.deleteMessages(chat.id, ids, deleteScope)
                         if (result.isSuccess) {
@@ -1661,28 +1673,46 @@ fun ChatScreen(
                         conversation.forwardMessage(
                             chat.id, forwardIds.single(), target.id, asCopy = forwardAsCopy,
                             messageThreadId = topicId.takeIf { it > 0L }
-                        )
+                        ).map { ForwardedMessages(forwardedIds = forwardIds, failedIds = emptyList()) }
                     } else {
                         conversation.forwardMessages(
                             chat.id, forwardIds, target.id, asCopy = forwardAsCopy,
                             messageThreadId = topicId.takeIf { it > 0L }
                         )
                     }
-                    if (result.isSuccess) {
-                        val copied = forwardAsCopy
-                        val forwarded = forwardIds
-                        forwardId = null
-                        selectionForwardOpen = false
-                        forwardAsCopy = false
-                        forwardError = null
-                        if (selectionMode) exitSelection()
-                        Toast.makeText(
-                            context,
-                            if (forwarded.size > 1) context.getString(R.string.message_selection_forwarded, forwarded.size)
-                            else context.getString(if (copied) R.string.message_forwarded_without_author else R.string.chat_message_forwarded),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } else forwardError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                    result.onSuccess { outcome ->
+                        if (!outcome.isComplete) {
+                            // Keep only the messages TDLib refused selected, so a retry cannot duplicate the sent ones.
+                            selectionIds = outcome.failedIds.toSet()
+                            forwardId = null
+                            selectionForwardOpen = false
+                            forwardAsCopy = false
+                            forwardError = null
+                            val partial = context.getString(
+                                R.string.message_selection_forwarded_partial,
+                                outcome.forwardedIds.size,
+                                outcome.failedIds.size
+                            )
+                            Toast.makeText(context, partial, Toast.LENGTH_LONG).show()
+                            selectionError = partial
+                        } else {
+                            val copied = forwardAsCopy
+                            val forwarded = outcome.forwardedIds
+                            forwardId = null
+                            selectionForwardOpen = false
+                            forwardAsCopy = false
+                            forwardError = null
+                            if (selectionMode) exitSelection()
+                            Toast.makeText(
+                                context,
+                                if (forwarded.size > 1) context.getString(R.string.message_selection_forwarded, forwarded.size)
+                                else context.getString(if (copied) R.string.message_forwarded_without_author else R.string.chat_message_forwarded),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }.onFailure {
+                        forwardError = it.userMessage(context, R.string.chat_forward_failed)
+                    }
                 } finally { forwardBusy = false }
             }
         },
@@ -1881,9 +1911,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
         SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
             onReply = { onReply?.invoke(message.id) }) { swipe ->
             // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
-            Box {
+            Box(swipe) {
                 BubbleLayout(
-                    swipe.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
+                    Modifier.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
                         .then(if (message.media != null && !circle && !sticker)
                              Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
@@ -1907,7 +1937,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 .then(if (onSenderClick != null) Modifier.clickable { onSenderClick?.invoke() } else Modifier))
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
                         message.media?.let { media ->
-                            if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile, onPlayed, onActions,
+                            if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile,
+                                onPlayed = onPlayed,
+                                onLongPress = if (selectionMode) onToggleSelection else onActions,
                                 time = if (inCircle) message.time else "", statusIcon = if (inCircle) statusIcon else null,
                                 statusDescription = when {
                                     !message.isOutgoing -> null
@@ -1961,6 +1993,16 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 footer = inlineContent,
                 bottomBar = { if (!circle && !sticker) commentsBar?.invoke() }
             )
+                // Media previews own tap gestures (play, open, video note). In selection mode a transparent overlay
+                // makes the whole bubble selectable and keeps playback/download controls out of the way.
+                if (selectionMode && message.media != null) Box(
+                    Modifier.matchParentSize().combinedClickable(
+                        onClickLabel = selectionLabel,
+                        onLongClickLabel = selectionLabel,
+                        onClick = onToggleSelection,
+                        onLongClick = onToggleSelection
+                    )
+                )
                 if (selectionMode) SelectionCheckBadge(selected, Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
         }
