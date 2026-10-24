@@ -145,7 +145,7 @@ internal fun MessageAlbumBubble(
                         if (captions.isNotEmpty()) {
                             Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { onActions(captionMessage.id) })
                                 .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp)) {
-                                captions.forEach { FormattedMessageText(it) }
+                                captions.forEach { FormattedMessageText(it, observeCustomEmoji, observeFile, onDownloadFile) }
                             }
                         }
                     }

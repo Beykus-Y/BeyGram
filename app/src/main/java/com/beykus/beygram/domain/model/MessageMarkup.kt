@@ -77,6 +77,52 @@ data class BotCallbackAnswer(val text: String, val showAlert: Boolean, val url: 
 
 data class MessageTextPart(val text: String, val entities: List<MessageTextEntity>, val block: TextStyleKind? = null)
 
+/** A custom emoji entity that can be replaced by an inline sticker without changing any text offset. */
+data class InlineCustomEmojiRun(
+    val customEmojiId: Long,
+    val offset: Int,
+    val length: Int,
+    /** The original emoji glyph or cluster at [offset]; it stays the text fallback and the copyable alternate text. */
+    val alternate: String
+) {
+    val end: Int get() = offset + length
+}
+
+/** Upper bound on animated custom emoji in one text run, so a pathological message cannot compose dozens of Lotties. */
+const val MAX_INLINE_CUSTOM_EMOJI = 24
+
+/**
+ * Picks the custom emoji entities that may be drawn as inline stickers. The alternate text has exactly the same length
+ * as the original substring, so adding inline content to an [AnnotatedString] preserves every style, link and spoiler
+ * range. Overlapping or malformed ranges are dropped instead of producing a broken text layout.
+ */
+fun inlineCustomEmojiRuns(
+    text: String,
+    entities: List<MessageTextEntity>,
+    enabled: Boolean,
+    limit: Int = MAX_INLINE_CUSTOM_EMOJI
+): List<InlineCustomEmojiRun> {
+    if (!enabled || limit <= 0) return emptyList()
+    val result = mutableListOf<InlineCustomEmojiRun>()
+    var lastEnd = -1
+    validTextEntities(text, entities)
+        .asSequence()
+        .filter { it.kind == TextStyleKind.CustomEmoji }
+        .mapNotNull { entity ->
+            val customEmojiId = entity.argument.toLongOrNull()?.takeIf { it > 0L } ?: return@mapNotNull null
+            val end = entity.offset + entity.length
+            InlineCustomEmojiRun(customEmojiId, entity.offset, entity.length, text.substring(entity.offset, end))
+        }
+        .sortedBy { it.offset }
+        .forEach { run ->
+            if (run.offset >= lastEnd && result.size < limit) {
+                result += run
+                lastEnd = run.end
+            }
+        }
+    return result
+}
+
 /** Extract actual quote/code blocks while keeping nested styles relative to each fragment. */
 fun splitMessageText(text: String, source: List<MessageTextEntity>): List<MessageTextPart> {
     val entities = validTextEntities(text, source)
