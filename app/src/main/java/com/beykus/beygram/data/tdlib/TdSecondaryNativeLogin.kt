@@ -388,8 +388,11 @@ internal class TdSecondaryNativeLogin internal constructor(
         }
         if (authPhase.value != TdAccountAuthPhase.CLOSED) {
             requestCloseWithoutLogout("server_account_deleted")
-            awaitNativeClosed()
         }
+        // CLOSED is published before the native owner releases its database lease.
+        // Await even when the phase already reads CLOSED, otherwise the coordinator
+        // could erase the directory while finalization still owns it.
+        awaitNativeClosed()
     }
 
     /** Close keeps the TDLib database and user login. Do not call LogOut here. */

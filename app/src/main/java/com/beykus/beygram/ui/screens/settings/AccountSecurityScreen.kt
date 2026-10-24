@@ -77,7 +77,8 @@ private enum class AccountSecurityDialog {
  *
  * The screen never keeps a password in saved state, never logs it, and treats every destructive
  * operation as successful only after TDLib returns. Deleting the server account is separate from
- * deleting a local session: [onServerAccountDeleted] is called only after Telegram confirms it.
+ * deleting a local session: the app starts [requestAccountDeletion] in its process scope and performs local
+ * cleanup only after the reported successful server response.
  */
 @Composable
 fun AccountSecurityScreen(
@@ -85,10 +86,9 @@ fun AccountSecurityScreen(
     repository: AccountSecurityRepository,
     currentPhone: String,
     isPrimaryAccount: Boolean,
-    onServerAccountDeleted: (String) -> Unit,
+    requestAccountDeletion: (password: String, onResult: (Result<Unit>) -> Unit) -> Unit,
     onBack: () -> Unit
-) {
-    val palette = beyGramPalette()
+) {    val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var state by remember(accountId) { mutableStateOf<CloudPasswordState?>(null) }
@@ -254,31 +254,22 @@ fun AccountSecurityScreen(
         busy = true
         actionError = null
         notice = null
-        scope.launch {
-            try {
-                repository.deleteTelegramAccount(password).fold(
-                    {
-                        dialog = null
-                        deletedOnServer = true
-                        // The server operation is confirmed. Local cleanup and account
-                        // switching belong to the app; the primary TDLib database must
-                        // never be erased here.
-                        onServerAccountDeleted(accountId)
-                    },
-                    { failure ->
-                        actionError = failure.userMessage(
-                            context,
-                            R.string.account_security_action_failed
-                        )
-                    }
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                actionError = failure.userMessage(context, R.string.account_security_action_failed)
-            } finally {
-                busy = false
-            }
+        // The app owns this request in its process scope: an authorization update may
+        // dispose this screen before TDLib delivers the result, and cleanup must survive.
+        requestAccountDeletion(password) { result ->
+            result.fold(
+                {
+                    dialog = null
+                    deletedOnServer = true
+                },
+                { failure ->
+                    actionError = failure.userMessage(
+                        context,
+                        R.string.account_security_action_failed
+                    )
+                }
+            )
+            busy = false
         }
     }
 
