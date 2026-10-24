@@ -289,6 +289,8 @@ class TdLibTelegramRepository private constructor(
     @Volatile private var qrRequestInFlight = false
     /** Suppresses a late QR update that arrives after the user already asked for the phone form. */
     @Volatile private var qrCancelled = false
+    /** A stale token restarts the client; request a fresh QR once it is waiting for authorization again. */
+    @Volatile private var qrRetryAfterReopen = false
 
     // ---- Вспомогательные структуры -------------------------------------------
 
@@ -908,9 +910,9 @@ class TdLibTelegramRepository private constructor(
     @Volatile private var client: Client = nativeSecondary?.client ?: createLegacyClient()
 
     /**
-     * Reopens the legacy client after a QR cancellation. TDLib has no cancel-authentication API: the only way to
-     * leave authorizationStateWaitOtherDeviceConfirmation is to log out of the still-unauthorized session.
-     * The main login screen never has an authorized account at this point, so no active Telegram session is lost.
+     * Reopens the legacy client after a QR reset. TDLib has no cancel-authentication API, so the client is closed
+     * without logging out: a confirmation that races cancellation is then restored as a normal authorized session,
+     * while an unconfirmed attempt restarts at WaitPhoneNumber.
      */
     private fun createLegacyClient(): Client {
         val lifecycle = checkNotNull(legacyClientLifecycle) { "The legacy TDLib client is not owned here" }
@@ -1090,13 +1092,14 @@ class TdLibTelegramRepository private constructor(
         // republishes the newest link and restarts the staleness watchdog.
         if (qrStateActive) {
             val token = qrLinks.current()
-            if (token != null) {
+            if (token != null && !qrLinks.isRefreshOverdue()) {
                 _authState.value = AuthState.WaitingForQr(token.link)
                 startQrRefreshWatchdog()
             } else {
-                // No usable link has arrived yet. Keep the request alive and let the next TDLib update recover it.
-                _authState.value = AuthState.Loading
-                startAuthTimeout()
+                // Re-publishing an overdue token would show an unusable QR again. Restart the unauthorized client and
+                // request a fresh token after it reopens; TDLib rejects a second QR request in this state.
+                qrRetryAfterReopen = true
+                resetLegacyQrClient(cancelled = false)
             }
             return
         }
@@ -1114,58 +1117,36 @@ class TdLibTelegramRepository private constructor(
         authTimeoutJob?.cancel()
         qrRefreshJob?.cancel()
         qrRefreshJob = null
-        val requestWasInFlight = qrRequestInFlight
-        val hadQrRequest = qrStateActive || requestWasInFlight || _authState.value is AuthState.WaitingForQr
-        qrStateActive = false
-        qrRequestInFlight = false
-        qrLinks.reset()
-        qrCancelled = hadQrRequest
+        val hadQrRequest = qrStateActive || qrRequestInFlight || _authState.value is AuthState.WaitingForQr
         if (!hadQrRequest) {
             _authState.value = AuthState.WaitingForPhone
             return
         }
+        // TDLib has no cancel-authentication API. Close the still-unauthorized client instead of logging out:
+        // closing never destroys an authorized session. If the other device confirmed the QR at the same moment,
+        // the reopened client restores the now-authorized account; otherwise it starts again at WaitPhoneNumber.
+        qrRetryAfterReopen = false
+        resetLegacyQrClient(cancelled = true)
+    }
 
+    private fun resetLegacyQrClient(cancelled: Boolean) {
+        authTimeoutJob?.cancel()
+        qrRefreshJob?.cancel()
+        qrRefreshJob = null
+        qrStateActive = false
+        qrRequestInFlight = false
+        qrLinks.reset()
+        qrCancelled = cancelled
         if (!isLegacyAccount) {
-            // Secondary clients are owned by TdSecondaryNativeLogin and have their own lifecycle. This screen is
-            // only wired for the legacy account, so never close a secondary session from here.
+            // Secondary clients belong to TdSecondaryNativeLogin; this screen only resets the legacy login.
             _authState.value = AuthState.WaitingForPhone
             return
         }
-        // There is no TDLib cancel-authentication function. Logging out an unauthorized QR session is the documented
-        // way back to authorizationStateWaitPhoneNumber. A ready account is rejected above, so no active session is
-        // touched; the legacy client is recreated after AuthorizationStateClosed (see createLegacyClient).
-        // Keep the phone button disabled until the replacement client is waiting for a phone number again.
+        // Keep the phone button disabled until the replacement client reaches WaitPhoneNumber (or restores Ready).
         _authState.value = AuthState.Loading
-        if (requestWasInFlight) {
-            // The request may still turn into a QR state after this call, so it must be aborted even if
-            // GetAuthorizationState would still report WaitPhoneNumber.
-            startLegacyQrReset()
-            return
-        }
-        // Re-check TDLib's actual state before logging out. This prevents destroying a session that was confirmed
-        // on the other device between the last UI update and this click.
-        client.send(
-            TdApi.GetAuthorizationState(),
-            Client.ResultHandler { result ->
-                when (result) {
-                    is TdApi.AuthorizationStateWaitOtherDeviceConfirmation -> startLegacyQrReset()
-                    is TdApi.AuthorizationState -> handleAuthorizationState(result)
-                    is TdApi.Error -> {
-                        synchronized(legacyClientLock) { recreateLegacyClientOnClose = false }
-                        _authState.value = AuthState.Error(authErrorText(result.message))
-                    }
-                    else -> _authState.value = AuthState.WaitingForPhone
-                }
-            }
-        )
-    }
-
-    private fun startLegacyQrReset() {
-        // A confirmation update or a new QR attempt can win while GetAuthorizationState is in flight.
-        if (_authState.value == AuthState.Ready || !qrCancelled) return
         synchronized(legacyClientLock) { recreateLegacyClientOnClose = true }
         client.send(
-            TdApi.LogOut(),
+            TdApi.Close(),
             Client.ResultHandler { result ->
                 if (result is TdApi.Error) {
                     synchronized(legacyClientLock) { recreateLegacyClientOnClose = false }
@@ -1653,12 +1634,15 @@ class TdLibTelegramRepository private constructor(
             }
             is TdApi.AuthorizationStateWaitPhoneNumber -> {
                 if (!isLegacyAccount) secondaryAuthorizationLost = true
+                val restartQr = qrRetryAfterReopen
+                qrRetryAfterReopen = false
                 clearQrLoginState()
                 _authState.value = AuthState.WaitingForPhone
+                if (restartQr && isLegacyAccount) requestQrLogin()
             }
             is TdApi.AuthorizationStateWaitOtherDeviceConfirmation -> {
                 qrRequestInFlight = false
-                // A late link may arrive between the cancel action and TDLib's LoggingOut state.
+                // A late link may arrive between the cancel action and the client closing.
                 // It must not pull the user back from the phone form.
                 if (qrCancelled) return
                 qrStateActive = true
