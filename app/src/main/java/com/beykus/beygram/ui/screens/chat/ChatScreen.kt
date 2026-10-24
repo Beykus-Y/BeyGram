@@ -407,6 +407,8 @@ fun ChatScreen(
     // Live insertions are claimed before the lazy list composes its rows, so only genuinely new messages animate once.
     val animationTracker = remember(chat.id, forumTopicId) { MessageArrivalTracker() }
     remember(history) { animationTracker.observe(history) }
+    // Decorative effects are capped per chat, so a burst of arrivals cannot stack several Lottie overlays.
+    val effectLimiter = remember(chat.id, forumTopicId) { MessageEffectPlaybackLimiter() }
     // Composer Launch is a spatial overlay; the real row stays hidden until the overlay lands on it.
     val composerLaunches = remember(chat.id, forumTopicId) { mutableStateListOf<ComposerLaunch>() }
     var composerFieldBounds by remember { mutableStateOf<Rect?>(null) }
@@ -1111,19 +1113,30 @@ fun ChatScreen(
                 } else if (listItem.mediaAlbumId != 0L) {
                     val latest = listItem.messages.maxByOrNull { it.id }
                     val animateArrival = remember(listItem.key) { animationTracker.claim(listItem.messages.map { it.id }) }
+                    val effectMessage = listItem.messages.firstOrNull { it.effectId != 0L }
                     MessageAnimationFrame(animate = animateArrival, outgoing = latest?.isOutgoing == true, config = messageAnimations) {
-                        Column(Modifier.fillMaxWidth()) {
-                            val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
-                                ?: listItem.messages.firstOrNull()
-                            val albumComments = commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }
-                            MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
-                                isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
-                                highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
-                                onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
-                                onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
-                                commentsBar = albumComments?.let { post ->
-                                    { ChannelCommentsBar(listItem.messages.maxOfOrNull { it.replyCount } ?: 0) { onOpenComments(post) } }
-                                })
+                        MessageEffectFrame(
+                            effectId = effectMessage?.effectId ?: 0L,
+                            messageId = effectMessage?.id ?: latest?.id ?: 0L,
+                            animate = animateArrival,
+                            observeEffect = conversation::observeMessageEffect,
+                            observeFile = observeFile,
+                            downloadFile = onDownloadFile,
+                            limiter = effectLimiter
+                        ) {
+                            Column(Modifier.fillMaxWidth()) {
+                                val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
+                                    ?: listItem.messages.firstOrNull()
+                                val albumComments = commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }
+                                MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
+                                    isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
+                                    highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
+                                    onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                    onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
+                                    commentsBar = albumComments?.let { post ->
+                                        { ChannelCommentsBar(listItem.messages.maxOfOrNull { it.replyCount } ?: 0) { onOpenComments(post) } }
+                                    })
+                            }
                         }
                     }
                 } else {
@@ -1142,6 +1155,15 @@ fun ChatScreen(
                         }
                     }
                     MessageAnimationFrame(animate = animateArrival && launch == null, outgoing = message.isOutgoing, config = messageAnimations, modifier = launchModifier) {
+                        MessageEffectFrame(
+                            effectId = message.effectId,
+                            messageId = message.id,
+                            animate = animateArrival && launch == null,
+                            observeEffect = conversation::observeMessageEffect,
+                            observeFile = observeFile,
+                            downloadFile = onDownloadFile,
+                            limiter = effectLimiter
+                        ) {
                         Column(Modifier.fillMaxWidth()) {
                             val translationLanguage = translationLanguages[message.id]
                             val translationState = translationLanguage?.let { translationStates[message.id to it] }
@@ -1171,6 +1193,7 @@ fun ChatScreen(
                                 commentsBar = if (showsChannelComments(chat.isChannel, message.isChannelPost, linkedDiscussionChatId)) {
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
                                 } else null)
+                        }
                         }
                     }
                 }
@@ -1683,7 +1706,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 }
                             }
-                            if (hasText) FormattedMessageText(message)
+                            if (hasText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile)
                             message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile) }
                             translation?.let { state ->
                                 TranslationBlock(
@@ -1691,7 +1714,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     onRetry = { onTranslationRetry?.invoke() },
                                     onCancel = { onTranslationCancel?.invoke() },
                                     onDismiss = { onTranslationDismiss?.invoke() },
-                                    messageId = message.id
+                                    messageId = message.id,
+                                    observeCustomEmoji = observeCustomEmoji,
+                                    observeFile = observeFile,
+                                    downloadFile = onDownloadFile
                                 )
                             }
                         }

@@ -18,7 +18,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
@@ -28,6 +27,7 @@ import com.beykus.beygram.data.appearance.MessageAnimationMotionDirection
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.data.appearance.flowFallback
 import com.beykus.beygram.data.appearance.validated
+import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import kotlin.math.roundToInt
 
 /** The measurable part of one entrance, kept separate from Compose so presets can be tested on the JVM. */
@@ -177,20 +177,9 @@ internal fun messageAnimationPlan(
     motionEnabled: Boolean
 ): MessageAnimationPlan? = if (!motionEnabled) null else messageAnimationPlan(config, animate, outgoing)
 
-/** Reads Android's global animator duration scale at composition time. */
+/** Reads Android's animator duration scale and screen-reader state at composition time. */
 @Composable
-internal fun systemMotionEnabled(): Boolean {
-    val context = LocalContext.current
-    return remember(context) {
-        runCatching {
-            android.provider.Settings.Global.getFloat(
-                context.contentResolver,
-                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
-                1f
-            ) > 0f
-        }.getOrDefault(true)
-    }
-}
+internal fun systemMotionEnabled(): Boolean = !systemReducedMotion()
 
 private fun horizontalSign(outgoing: Boolean, direction: MessageAnimationMotionDirection): Float = when (direction) {
     MessageAnimationMotionDirection.Auto -> automaticHorizontalSign(outgoing)
