@@ -9,6 +9,9 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** Compose stores sRGB channels as 8-bit values, so an exact alpha comparison is not meaningful. */
+private const val AlphaDelta = 1f / 255f
+
 /** Rules behind the bottom-navigation press capsule: short, theme-aware and never a second selected pill. */
 class MainTabPressFeedbackTest {
 
@@ -28,7 +31,7 @@ class MainTabPressFeedbackTest {
             assertEquals(palette.accent.red, capsule.red, 0f)
             assertEquals(palette.accent.green, capsule.green, 0f)
             assertEquals(palette.accent.blue, capsule.blue, 0f)
-            assertEquals(TabPressAlpha, capsule.alpha, 0f)
+            assertEquals(TabPressAlpha, capsule.alpha, AlphaDelta)
         }
         // The three themes really do use different accents, so the capsule follows them.
         assertNotEquals(light.accent, dark.accent)
@@ -43,7 +46,7 @@ class MainTabPressFeedbackTest {
         assertEquals(
             TabPressSelectedAlpha,
             tabPressCapsuleColor(LightTokens.accent, selected = true, progress = 1f).alpha,
-            0f
+            AlphaDelta
         )
     }
 
@@ -52,11 +55,11 @@ class MainTabPressFeedbackTest {
         val accent = DarkTokens.accent
         assertEquals(0f, tabPressCapsuleColor(accent, selected = false, progress = 0f).alpha, 0f)
         assertEquals(0f, tabPressCapsuleColor(accent, selected = false, progress = -1f).alpha, 0f)
-        assertEquals(TabPressAlpha, tabPressCapsuleColor(accent, selected = false, progress = 2f).alpha, 0f)
+        assertEquals(TabPressAlpha, tabPressCapsuleColor(accent, selected = false, progress = 2f).alpha, AlphaDelta)
         assertEquals(
             TabPressAlpha * 0.5f,
             tabPressCapsuleColor(accent, selected = false, progress = 0.5f).alpha,
-            0.0001f
+            AlphaDelta
         )
     }
 
