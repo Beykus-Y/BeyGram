@@ -233,7 +233,7 @@ class GroupManagementRulesTest {
 
         assertEquals(GroupInviteLinkPermissions(canEdit = true, canRevoke = true), groupInviteLinkPermissions(admin, own))
         assertEquals(GroupInviteLinkPermissions(), groupInviteLinkPermissions(admin, foreign))
-        assertEquals(GroupInviteLinkPermissions(canEdit = false, canRevoke = true), groupInviteLinkPermissions(admin, primary))
+        assertEquals(GroupInviteLinkPermissions(canEdit = false, canRevoke = false), groupInviteLinkPermissions(admin, primary))
         val subscription = GroupInviteLink(
             link = "https://t.me/+subscription",
             creatorUserId = 1L,

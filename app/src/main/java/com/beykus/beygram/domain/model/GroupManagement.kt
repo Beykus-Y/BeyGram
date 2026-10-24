@@ -163,8 +163,8 @@ data class GroupInviteLinkDraft(
 enum class GroupInviteLinkProblem { NameTooLong, MemberLimitOutOfRange, LimitWithApproval }
 
 /**
- * Управление конкретной ссылкой. Основную ссылку нельзя редактировать, но администратор с правом
- * приглашать может её отозвать; чужие дополнительные ссылки меняет только владелец чата.
+ * Управление конкретной ссылкой. Основную ссылку нельзя редактировать; чужие ссылки, включая
+ * основную, меняет и отзывает только владелец чата. Платная подписка редактируется отдельно.
  */
 data class GroupInviteLinkPermissions(val canEdit: Boolean = false, val canRevoke: Boolean = false)
 
@@ -173,7 +173,7 @@ fun groupInviteLinkPermissions(rights: GroupAdminRights, link: GroupInviteLink):
     val ownOrOwner = rights.isOwner || link.creatorIsCurrentUser
     return GroupInviteLinkPermissions(
         canEdit = !link.isPrimary && !link.isSubscription && ownOrOwner,
-        canRevoke = link.isPrimary || ownOrOwner
+        canRevoke = ownOrOwner
     )
 }
 
