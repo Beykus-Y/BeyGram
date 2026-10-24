@@ -196,12 +196,12 @@ internal fun ChatSettingsSheet(
                         title = stringResource(R.string.chat_settings_preview),
                         checked = current.showPreview,
                         enabled = !busy
-                    ) { saveNotifications(current.copy(showPreview = it)) }
+                    ) { saveNotifications(current.copy(showPreview = it, useDefaultShowPreview = false)) }
                     SettingSwitch(
                         title = stringResource(R.string.chat_settings_mentions),
                         checked = !current.disableMentionNotifications,
                         enabled = !busy
-                    ) { saveNotifications(current.copy(disableMentionNotifications = !it)) }
+                    ) { saveNotifications(current.copy(disableMentionNotifications = !it, useDefaultDisableMentionNotifications = false)) }
                     TextButton(
                         onClick = {
                             chooseWallpaper(null)
