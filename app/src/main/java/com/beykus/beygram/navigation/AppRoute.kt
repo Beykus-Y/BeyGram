@@ -10,6 +10,7 @@ enum class AppRoute {
     Chat,
     MessageThread,
     ChatInfo,
+    ChannelStatistics,
     ChatMembers,
     MemberProfile,
     MyProfile,

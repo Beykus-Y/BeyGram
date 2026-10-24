@@ -5,6 +5,9 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.CallHistoryPage
+import com.beykus.beygram.domain.model.ChannelAdminEventPage
+import com.beykus.beygram.domain.model.ChannelEventFilter
+import com.beykus.beygram.domain.model.ChannelStatisticsSummary
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatExportProgress
 import com.beykus.beygram.domain.model.ChatExportRequest
@@ -136,6 +139,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun checkInviteLink(url: String): Result<com.beykus.beygram.domain.model.ChatInvitePreview> = unavailable()
     override suspend fun joinInviteLink(url: String): Result<com.beykus.beygram.domain.model.InviteJoinOutcome> = unavailable()
     override suspend fun resolveMessageLink(url: String): Result<com.beykus.beygram.domain.model.MessageLinkTarget> = unavailable()
+    override suspend fun channelStatistics(chatId: Long): Result<ChannelStatisticsSummary> = unavailable()
+    override suspend fun channelAdminEvents(chatId: Long, fromEventId: Long, filter: ChannelEventFilter): Result<ChannelAdminEventPage> = unavailable()
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = Result.success(CallHistoryPage(emptyList(), ""))
     override suspend fun storageUsage(): Result<StorageUsage> = unavailable()
     override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> = unavailable()
