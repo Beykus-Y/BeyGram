@@ -265,7 +265,7 @@
     <string name="gif_picker_recent">Недавние</string>
     <string name="gif_picker_saved">Сохранённые</string>
     <string name="gif_picker_search">Поиск GIF</string>
-    <string name="gif_picker_search_note">Поиск по GIF в ваших чатах</string>
+    <string name="gif_picker_search_note">Поиск по сообщениям с GIF в ваших чатах</string>
     <string name="gif_picker_title">GIF</string>
     <string name="sticker_picker_close">Закрыть стикеры</string>
     <string name="sticker_picker_empty">Недавних стикеров нет</string>

@@ -17,6 +17,8 @@ data class StickerItem(
     val stickerId: Long,
     val fileId: Int,
     val thumbnailFileId: Int? = null,
+    val thumbnailWidth: Int = 0,
+    val thumbnailHeight: Int = 0,
     /** True when the thumbnail can be rendered directly as an image; WebM/MPEG4 previews cannot. */
     val thumbnailIsStatic: Boolean = false,
     val width: Int = 0,
@@ -38,7 +40,9 @@ data class StickerItem(
         height = height,
         remoteFileId = fileId,
         // Telegram accepts WEBP/JPEG thumbnails for an input sticker and keeps the server-side one when omitted.
-        thumbnailRemoteFileId = if (thumbnailIsStatic) thumbnailFileId ?: 0 else 0,
+        thumbnailRemoteFileId = if (thumbnailIsStatic && thumbnailWidth > 0 && thumbnailHeight > 0) thumbnailFileId ?: 0 else 0,
+        thumbnailWidth = thumbnailWidth,
+        thumbnailHeight = thumbnailHeight,
         emoji = emoji
     )
 }

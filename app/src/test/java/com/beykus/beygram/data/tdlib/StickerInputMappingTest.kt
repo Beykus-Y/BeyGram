@@ -34,6 +34,8 @@ class StickerInputMappingTest {
             stickerId = 20,
             fileId = 77,
             thumbnailFileId = 78,
+            thumbnailWidth = 128,
+            thumbnailHeight = 96,
             thumbnailIsStatic = true,
             width = 512,
             height = 512,
@@ -49,6 +51,8 @@ class StickerInputMappingTest {
         assertEquals(512, content.height)
         assertEquals("😀", content.emoji)
         assertEquals(78, (content.thumbnail.thumbnail as TdApi.InputFileId).id)
+        assertEquals(128, content.thumbnail.width)
+        assertEquals(96, content.thumbnail.height)
     }
 
     @Test
@@ -118,6 +122,8 @@ class StickerInputMappingTest {
         assertEquals(5L, mapped.stickerId)
         assertEquals(9, mapped.fileId)
         assertEquals(8, mapped.thumbnailFileId)
+        assertEquals(128, mapped.thumbnailWidth)
+        assertEquals(96, mapped.thumbnailHeight)
         assertEquals(StickerFileFormat.Tgs, mapped.format)
         assertTrue(mapped.thumbnailIsStatic)
         assertTrue(mapped.premium)

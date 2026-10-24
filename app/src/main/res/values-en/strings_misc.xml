@@ -25,7 +25,7 @@
     <string name="gif_picker_recent">Recent</string>
     <string name="gif_picker_saved">Saved</string>
     <string name="gif_picker_search">Search GIFs</string>
-    <string name="gif_picker_search_note">Searching GIFs in your chats</string>
+    <string name="gif_picker_search_note">Searching messages with GIFs in your chats</string>
     <string name="gif_picker_title">GIF</string>
     <string name="sticker_picker_close">Close sticker picker</string>
     <string name="sticker_picker_empty">No recent stickers</string>

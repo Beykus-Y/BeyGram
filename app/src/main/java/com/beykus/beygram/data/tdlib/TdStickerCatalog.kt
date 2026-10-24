@@ -110,6 +110,7 @@ internal fun TdApi.Sticker.toStickerItem(register: (TdApi.File) -> Int): Sticker
     if (fullType is TdApi.StickerFullTypeCustomEmoji || fullType is TdApi.StickerFullTypeMask) return null
     val file = sticker ?: return null
     if (file.id <= 0) return null
+    val fileId = register(file)
     val thumbnail = thumbnail
     val thumbnailFile = thumbnail?.file
     val format = when (format) {
@@ -120,8 +121,10 @@ internal fun TdApi.Sticker.toStickerItem(register: (TdApi.File) -> Int): Sticker
     return StickerItem(
         setId = setId,
         stickerId = id,
-        fileId = file.id,
+        fileId = fileId,
         thumbnailFileId = thumbnailFile?.let(register),
+        thumbnailWidth = thumbnail?.width ?: 0,
+        thumbnailHeight = thumbnail?.height ?: 0,
         thumbnailIsStatic = thumbnail?.format.isStaticImage(),
         width = width,
         height = height,
@@ -152,10 +155,11 @@ internal fun TdApi.StickerSet.toStickerSetContent(register: (TdApi.File) -> Int)
 internal fun TdApi.Animation.toAnimationItem(register: (TdApi.File) -> Int): AnimationItem? {
     val file = animation ?: return null
     if (file.id <= 0) return null
+    val fileId = register(file)
     val thumb = thumbnail
     val thumbFile = thumb?.file
     return AnimationItem(
-        fileId = file.id,
+        fileId = fileId,
         uniqueId = file.remote?.uniqueId.orEmpty(),
         thumbnailFileId = thumbFile?.let(register),
         thumbnailWidth = thumb?.width ?: 0,
