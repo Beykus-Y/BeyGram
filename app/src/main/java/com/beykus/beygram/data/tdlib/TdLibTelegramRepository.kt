@@ -1265,6 +1265,8 @@ class TdLibTelegramRepository private constructor(
         autoDownloadNetworkMonitor.stop()
         autoDownloadSettingsJob?.cancel()
         autoDownloadSettingsJob = null
+        autoDownloads.clear()
+        cancelledAutoDownloads.clear()
         messageDrafts.dispose()
         notificationFeed.dispose()
         com.beykus.beygram.data.media.VideoNoteLossDiagnostics.releaseRepository(this)
@@ -2239,6 +2241,8 @@ class TdLibTelegramRepository private constructor(
             }
             is TdApi.AuthorizationStateLoggingOut -> {
                 if (!isLegacyAccount) secondaryAuthorizationLost = true
+                autoDownloads.clear()
+                cancelledAutoDownloads.clear()
                 clearQrLoginState(resetCancellation = false)
                 synchronized(analyticsAccountLock) {
                     analyticsSessionGeneration++
@@ -2263,6 +2267,8 @@ class TdLibTelegramRepository private constructor(
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()
                 networkMonitor.stop()
                 autoDownloadNetworkMonitor.stop()
+                autoDownloads.clear()
+                cancelledAutoDownloads.clear()
                 clearQrLoginState(resetCancellation = false)
                 synchronized(analyticsAccountLock) {
                     analyticsSessionGeneration++
