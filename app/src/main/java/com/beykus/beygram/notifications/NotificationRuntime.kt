@@ -318,7 +318,7 @@ class NotificationRuntime private constructor(private val context: Context) {
         scope.launch { source.authState.collect { auth ->
             when (auth) {
                 AuthState.Ready -> { preferences.authorized = true; reopenExhaustedDismissals(); flushDismissals(); flushReplies() }
-                AuthState.WaitingForPhone, AuthState.WaitingForQr -> {
+                AuthState.WaitingForPhone, is AuthState.WaitingForQr -> {
                     // The sign-out replaces the session token before the outbox is cleared. A reply that the clear misses
                     // belongs to the old token, so it is never sent.
                     preferences.authorized = false
@@ -336,7 +336,7 @@ class NotificationRuntime private constructor(private val context: Context) {
     fun refresh() {
         repository?.authState?.value?.let { auth ->
             if (auth == AuthState.Ready) preferences.authorized = true
-            else if (auth == AuthState.WaitingForPhone || auth == AuthState.WaitingForQr) preferences.authorized = false
+            else if (auth == AuthState.WaitingForPhone || auth is AuthState.WaitingForQr) preferences.authorized = false
             _authorized.value = auth == AuthState.Ready
         }
         invalidations.update { it + 1 }
@@ -380,7 +380,7 @@ class NotificationRuntime private constructor(private val context: Context) {
     private suspend fun storeReply(chatId: Long, groupId: Int, maxId: Int, replyToMessageId: Long, topicId: Long, text: String, session: String): PendingReply {
         val now = System.currentTimeMillis()
         val saved: ReplyOutbox.Entry? = if (repository?.authState?.value == AuthState.WaitingForPhone ||
-            repository?.authState?.value == AuthState.WaitingForQr) null else try {
+            repository?.authState?.value is AuthState.WaitingForQr) null else try {
             outbox { add(chatId, groupId, maxId, replyToMessageId, text, now, session, topicId) }
         } catch (error: IOException) {
             recordAppEvent(EventKind.NOTIFICATION, "reply_not_stored", "Ответ из уведомления не удалось сохранить", Severity.WARNING, mapOf("cause" to error.javaClass.simpleName))
@@ -483,7 +483,7 @@ class NotificationRuntime private constructor(private val context: Context) {
         if (!stillOwned(pending)) throw AccountChangedException()
         // A signed-out account cannot send, and a reply does not wait for another account to sign in.
         if (source.authState.value == AuthState.WaitingForPhone ||
-            source.authState.value == AuthState.WaitingForQr) {
+            source.authState.value is AuthState.WaitingForQr) {
             throw IllegalStateException("Telegram client is not authorized")
         }
         // A reply that starts the process can arrive before TDLib has authorized, and TDLib rejects requests until then.
