@@ -1236,7 +1236,10 @@ fun ChatScreen(
                         sendCurrentDraft(MessageSendOptions())
                     }
                 }
-                .semantics { contentDescription = sendLabel; stateDescription = sendState },
+                .semantics {
+                    contentDescription = sendLabel
+                    sendState?.let { stateDescription = it }
+                },
                 contentAlignment = Alignment.Center) {
                 Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f)), contentAlignment = Alignment.Center) {
                     if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)

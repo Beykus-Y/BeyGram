@@ -216,7 +216,10 @@ internal fun VideoNoteBubble(
             Box(
                 Modifier.fillMaxSize().clip(CircleShape).background(VideoNoteBackground)
                     .combinedClickable(onClick = ::togglePlay, onLongClick = onLongPress)
-                    .semantics { contentDescription = circleDescription; stateDescription = playbackStateLabel },
+                    .semantics {
+                        contentDescription = circleDescription
+                        playbackStateLabel?.let { stateDescription = it }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 val thumbnailPath = thumbnail.localPath
