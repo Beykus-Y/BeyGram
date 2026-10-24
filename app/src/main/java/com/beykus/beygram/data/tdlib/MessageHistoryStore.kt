@@ -121,9 +121,19 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     fun finishLoad(chatId: Long, messages: List<ChatMessage>, hasOlder: Boolean, continueLoading: Boolean = false, requestVersion: Long? = null, epoch: Long? = null): Boolean = synchronized(lock) {
         if (epoch != null && epoch != epochOf(chatId)) return@synchronized false
         val state = flow(chatId)
+        val history = state.value
         val changes = changed[chatId].orEmpty()
-        state.value = state.value.copy(
-            messages = merge(chatId, state.value.messages, messages.filter { requestVersion == null || (changes[it.id] ?: 0L) <= requestVersion }),
+        // A page copy older than an update that arrived while the page was in flight is replaced: a message the window
+        // holds already has the update, and one kept only outside the window takes its kept copy, so no gap is left.
+        val incoming = messages.mapNotNull { message ->
+            when {
+                requestVersion == null || (changes[message.id] ?: 0L) <= requestVersion -> message
+                history.messages.any { it.id == message.id } -> null
+                else -> history.outsideWindowMessages.firstOrNull { it.id == message.id }
+            }
+        }
+        state.value = history.copy(
+            messages = merge(chatId, history.messages, incoming),
             isLoading = continueLoading,
             hasOlderMessages = hasOlder,
             error = null
@@ -154,8 +164,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         val inWindow = history.messages.any { it.id == messageId }
         val outside = history.outsideWindowMessages.any { it.id == messageId }
         if (!inWindow && !outside) return@synchronized
-        // An outside-only message is not marked changed: a window page holding it would drop its copy and leave a gap.
-        if (inWindow) markChanged(chatId, messageId)
+        // Marked in both lists: a page in flight keeps this copy instead of its older one, see finishLoad.
+        markChanged(chatId, messageId)
         state.value = history.copy(
             messages = history.messages.map { if (it.id == messageId) transform(it) else it },
             outsideWindowMessages = history.outsideWindowMessages.map { if (it.id == messageId) transform(it) else it }

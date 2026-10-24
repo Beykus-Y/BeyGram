@@ -256,6 +256,19 @@ class MessageHistoryStoreTest {
         assertTrue(store.observe(1L).value.outsideWindowMessages.single().isEdited)
     }
 
+    @Test fun outsideCopyUpdatedWhileAPageIsInFlightIsNotRolledBackByThePage() {
+        val store = MessageHistoryStore()
+        store.recordOutsideWindow(1L, listOf(message(5L, 5L)))
+        store.beginLoad(1L)
+        val requestVersion = store.version()
+        store.update(1L, 5L) { it.copy(isEdited = true) }
+        store.finishLoad(1L, listOf(message(5L, 5L)), hasOlder = false, requestVersion = requestVersion)
+        val history = store.observe(1L).value
+        assertEquals(listOf(5L), history.messages.map { it.id })
+        assertTrue(history.messages.single().isEdited)
+        assertTrue(history.outsideWindowMessages.single().isEdited)
+    }
+
     @Test fun windowLoadsAndDeletionsLeaveOutsideWindowCommentsConsistent() {
         val store = MessageHistoryStore()
         store.recordOutsideWindow(1L, listOf(message(5L, 5L), message(6L, 6L)))
