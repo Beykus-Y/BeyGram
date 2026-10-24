@@ -194,6 +194,7 @@ internal class TdSecondaryNativeLoginLauncher(
                     fullRepositoryObservers, startupReplay, nativeLeaseClosed, operation
                 ).also { nativeToClose.set(it) }
             }
+        )
         } catch (failure: Throwable) {
             operation.failure("owner_create", failure)
             throw failure
