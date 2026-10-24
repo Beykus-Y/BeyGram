@@ -52,3 +52,19 @@ fun canWriteThreadComment(
  */
 fun mergeThreadMessages(current: List<ChatMessage>, page: List<ChatMessage>): List<ChatMessage> =
     (page + current).distinctBy { it.id }.sortedBy { it.id }
+
+/**
+ * Applies one snapshot of the discussion chat's history to a thread list. The comments of [threadId] from the window and
+ * from the loaded pages are merged in. A temporary comment is dropped once TDLib confirmed it under a server id that is
+ * present in the snapshot, so the list shows one bubble per comment instead of the temporary one next to the confirmed one.
+ */
+fun mergeThreadHistory(current: List<ChatMessage>, history: ChatHistory, chatId: Long, threadId: Long): List<ChatMessage> {
+    // The thread root is the group's automatic copy of the post: it is already shown at the top.
+    val fresh = (history.messages + history.outsideWindowMessages).filter {
+        it.messageThreadId == threadId && !it.isChannelPost && it.id != threadId
+    }
+    val freshIds = fresh.mapTo(HashSet<Long>()) { it.id }
+    val confirmed = history.recentReplacements.filter { it.newId in freshIds }.mapTo(HashSet<Long>()) { it.oldId }
+    val kept = if (confirmed.isEmpty()) current else current.filterNot { it.chatId == chatId && it.id in confirmed }
+    return mergeThreadMessages(kept, fresh)
+}
