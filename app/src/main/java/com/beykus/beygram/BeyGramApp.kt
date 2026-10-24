@@ -1217,6 +1217,8 @@ private fun BeyGramAppContent(
     }
     val chatRoute: @Composable () -> Unit = {
         val chats by repository.chats.collectAsStateWithLifecycle()
+        val myAccount by repository.myProfile.collectAsStateWithLifecycle()
+        val accountLabel = myAccount.info?.title?.takeIf { it.isNotBlank() } ?: myAccount.info?.phone.orEmpty()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
         val chat = selectedChat ?: chats.firstOrNull { it.id == selectedChatId }
         LaunchedEffect(authState, selectedChatId) {
@@ -1357,6 +1359,7 @@ private fun BeyGramAppContent(
                     ChatScreen(
                         chat = chat,
                         accountId = selectedAccountId,
+                        accountLabel = accountLabel,
                         info = chatInfo.info,
                         lastSeenStyle = lastSeenStyle,
                         history = history,

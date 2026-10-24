@@ -6,6 +6,10 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatActivity
+import com.beykus.beygram.domain.model.ChatExportProgress
+import com.beykus.beygram.domain.model.ChatExportRequest
+import com.beykus.beygram.domain.model.ChatExportSummary
+import com.beykus.beygram.domain.model.ChatExportTarget
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatSearchFilter
@@ -246,6 +250,12 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun searchGlobalPublicChats(query: String): Result<GlobalSearchPage<ChatPreview>> = unavailable()
     override suspend fun openPublicChat(chatId: Long): Result<PublicChatOpenResult> = unavailable()
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean): Result<MessageSearchPage> = unavailable()
+    override suspend fun exportChat(
+        chatId: Long,
+        target: ChatExportTarget,
+        request: ChatExportRequest,
+        onProgress: (ChatExportProgress) -> Unit
+    ): Result<ChatExportSummary> = unavailable()
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) {}
     override fun setAppForeground(foreground: Boolean) {}
     override fun refreshInteractionPolicy() {}
