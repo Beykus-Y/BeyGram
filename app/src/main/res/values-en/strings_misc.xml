@@ -69,4 +69,15 @@
     <string name="voice_recorder_start_description">Switch recording mode</string>
     <string name="voice_recorder_start_failed">Could not start voice recording</string>
     <string name="voice_recorder_too_short">Recording is too short</string>
+    <string name="deep_link_invite_title">Chat invitation</string>
+    <string name="deep_link_invite_message">Join “%1$s”?</string>
+    <string name="deep_link_invite_unknown_chat">this chat</string>
+    <string name="deep_link_invite_members">Members: %1$d</string>
+    <string name="deep_link_invite_request_note">An administrator must approve the join request.</string>
+    <string name="deep_link_invite_join">Join</string>
+    <string name="deep_link_join_request_sent">Join request sent</string>
+    <string name="deep_link_proxy_title">Proxy link</string>
+    <string name="deep_link_proxy_message">Add and enable proxy %1$s:%2$d?</string>
+    <string name="deep_link_proxy_note">Continue only if you trust this server.</string>
+    <string name="deep_link_proxy_connect">Add and enable</string>
 </resources>
