@@ -113,6 +113,8 @@ interface ConversationRepository {
     suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>>
     /** The custom emoji sticker behind [customEmojiId]. TDLib is asked on first use; the value stays null until it answers. */
     fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?>
+    /** The effect behind [effectId]. Only fresh-message overlays call this; the value stays null until TDLib answers. */
+    fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?>
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
     /**
      * Messages in one chat whose text matches [query] and whose sender/attachment type match [filter]. Pass 0 for the

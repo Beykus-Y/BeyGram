@@ -1072,6 +1072,7 @@ class TdLibTelegramRepository private constructor(
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })
     private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
+    private val messageEffects = TdMessageEffects(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
     // ---- Память и кэш --------------------------------------------------------
@@ -1139,6 +1140,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean) =
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
+    override fun observeMessageEffect(effectId: Long) = messageEffects.observe(effectId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
     override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
@@ -2441,6 +2443,7 @@ class TdLibTelegramRepository private constructor(
         replyCount = interactionInfo?.replyInfo?.replyCount ?: 0,
         linkPreview = if (event == null) mediaMapper.linkPreview(content, isSecretChat(chatId)) else null,
         scheduledAtSeconds = scheduledAt,
+        effectId = effectId,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))

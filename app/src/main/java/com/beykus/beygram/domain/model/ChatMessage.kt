@@ -40,7 +40,9 @@ data class ChatMessage(
     /** Web-page metadata for a text message link; never populated in secret chats. */
     val linkPreview: MessageLinkPreview? = null,
     /** Unix timestamp when a scheduled message will be sent; null for a normal message. */
-    val scheduledAtSeconds: Long? = null
+    val scheduledAtSeconds: Long? = null,
+    /** TDLib's Message.effectId: the effect chosen by the sender, or zero when the message has none. */
+    val effectId: Long = 0L
 )
 
 /**
