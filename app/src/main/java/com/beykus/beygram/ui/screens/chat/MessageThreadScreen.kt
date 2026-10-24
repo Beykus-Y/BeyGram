@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
@@ -95,8 +96,9 @@ internal fun MessageThreadScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     initialDraftText: String = "",
+    initialDraftEntities: List<MessageTextEntity> = emptyList(),
     initialReplyToId: Long = 0L,
-    onDraftChange: (String, Long) -> Unit = { _, _ -> },
+    onDraftChange: (String, List<MessageTextEntity>, Long) -> Unit = { _, _, _ -> },
     onBack: () -> Unit,
     onOpenProfile: (Long) -> Unit
 ) {
@@ -113,7 +115,7 @@ internal fun MessageThreadScreen(
     var loadingOlder by remember(channelChatId, postId) { mutableStateOf(false) }
     var hasOlder by remember(channelChatId, postId) { mutableStateOf(false) }
     var text by rememberSaveable(channelChatId, postId) { mutableStateOf(initialDraftText) }
-    var entities by remember(channelChatId, postId) { mutableStateOf<List<MessageTextEntity>>(emptyList()) }
+    var entities by rememberSaveable(channelChatId, postId) { mutableStateOf(initialDraftEntities) }
     var replyTarget by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
     var replyTargetId by rememberSaveable(channelChatId, postId) { mutableLongStateOf(initialReplyToId) }
     var focusRequest by remember(channelChatId, postId) { mutableIntStateOf(0) }
@@ -124,6 +126,7 @@ internal fun MessageThreadScreen(
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
     var selectedMediaChatId by remember { mutableStateOf(0L) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val messageLimits by conversation.messageLimits.collectAsStateWithLifecycle()
 
     BackHandler(onBack = onBack)
 
@@ -254,6 +257,10 @@ internal fun MessageThreadScreen(
     fun send() {
         val current = thread ?: return
         if (!current.canReply || sending || text.isBlank()) return
+        if (text.codePointCount(0, text.length) > messageLimits.text) {
+            sendError = context.getString(R.string.chat_truncated_notice, messageLimits.text)
+            return
+        }
         val outgoingText = text
         val outgoingEntities = entities
         val replyTo = replyTarget?.id ?: replyTargetId.takeIf { it > 0L }
@@ -269,7 +276,7 @@ internal fun MessageThreadScreen(
                         entities = emptyList()
                         replyTarget = null
                         replyTargetId = 0L
-                        onDraftChange("", 0L)
+                        onDraftChange("", emptyList(), 0L)
                         scope.launch { listState.animateScrollToItem(0) }
                     }
                     .onFailure { sendError = it.userMessage(context, R.string.thread_comments_send_failed) }
@@ -320,6 +327,7 @@ internal fun MessageThreadScreen(
                     observeFile = observeFile,
                     onDownloadFile = downloadFile,
                     onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId },
+                    onPlayed = { conversation.openMessageContent(channelChatId, root.id) },
                     onActions = { reactionTarget = channelChatId to root },
                     onReplyClick = ::jump,
                     onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
@@ -359,13 +367,14 @@ internal fun MessageThreadScreen(
                         onDownloadFile = downloadFile,
                         onOpenProfile = onOpenProfile,
                         onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId },
+                        onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
                         onActions = { reactionTarget = message.chatId to message },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {
                             { target: Long ->
                                 replyTarget = messages.firstOrNull { it.id == target }
                                 replyTargetId = target
-                                onDraftChange(text, target)
+                                onDraftChange(text, entities, target)
                                 focusRequest++
                             }
                         } else null,
@@ -435,7 +444,7 @@ internal fun MessageThreadScreen(
                                 )
                                 Text(target.summary(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            IconButton(onClick = { replyTarget = null; replyTargetId = 0L; onDraftChange(text, 0L) }) {
+                            IconButton(onClick = { replyTarget = null; replyTargetId = 0L; onDraftChange(text, entities, 0L) }) {
                                 Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary)
                             }
                         }
@@ -444,8 +453,8 @@ internal fun MessageThreadScreen(
                         FormattingTextField(
                             value = text,
                             entities = entities,
-                            onChange = { text = it; onDraftChange(it, replyTarget?.id ?: replyTargetId) },
-                            onEntitiesChange = { entities = it },
+                            onChange = { text = it; onDraftChange(it, entities, replyTarget?.id ?: replyTargetId) },
+                            onEntitiesChange = { entities = it; onDraftChange(text, it, replyTarget?.id ?: replyTargetId) },
                             placeholder = stringResource(R.string.thread_reply_placeholder),
                             locked = sending,
                             isError = false,
@@ -513,6 +522,7 @@ private fun ThreadCommentRow(
     onDownloadFile: (Int) -> Unit,
     onOpenProfile: (Long) -> Unit,
     onOpenMedia: () -> Unit,
+    onPlayed: () -> Unit,
     onActions: () -> Unit,
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)?,
@@ -546,6 +556,7 @@ private fun ThreadCommentRow(
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
                 onOpen = { onOpenMedia() },
+                onPlayed = onPlayed,
                 onActions = onActions,
                 onReplyClick = onReplyClick,
                 onReply = onReply,

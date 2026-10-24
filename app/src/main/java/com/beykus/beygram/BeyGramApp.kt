@@ -53,6 +53,7 @@ import com.beykus.beygram.domain.model.ArchiveSettings
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
+import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
@@ -313,6 +314,7 @@ private fun BeyGramAppContent(
     var threadPostId by rememberSaveable { mutableStateOf(0L) }
     // Inspecting a commenter temporarily leaves the thread overlay; keep the composer outside it.
     var threadDraftText by rememberSaveable { mutableStateOf("") }
+    var threadDraftEntities by rememberSaveable { mutableStateOf(ArrayList<MessageTextEntity>()) }
     var threadDraftReplyId by rememberSaveable { mutableStateOf(0L) }
     // The selected forum topic follows its parent chat. Other chats must never inherit the previous topic.
     var selectedTopicChatId by rememberSaveable { mutableStateOf(0L) }
@@ -1384,6 +1386,7 @@ private fun BeyGramAppContent(
                             threadChannelChatId = selectedChatId
                             threadPostId = post.id
                             threadDraftText = ""
+                            threadDraftEntities = ArrayList()
                             threadDraftReplyId = 0L
                             routeName = AppRoute.MessageThread.name
                         },
@@ -1405,9 +1408,11 @@ private fun BeyGramAppContent(
                             observeFile = repository::observeFile,
                             downloadFile = repository::downloadFile,
                             initialDraftText = threadDraftText,
+                            initialDraftEntities = threadDraftEntities,
                             initialReplyToId = threadDraftReplyId,
-                            onDraftChange = { text, replyId ->
+                            onDraftChange = { text, entities, replyId ->
                                 threadDraftText = text
+                                threadDraftEntities = ArrayList(entities)
                                 threadDraftReplyId = replyId
                             },
                             onBack = { routeName = AppRoute.Chat.name },
