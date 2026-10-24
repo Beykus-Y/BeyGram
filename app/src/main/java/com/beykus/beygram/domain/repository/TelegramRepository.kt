@@ -102,6 +102,15 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Добавляет контакт по номеру телефона; номер должен быть зарегистрирован в Telegram. */
     suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit>
 
+    /** Изменяет имя и телефон существующего контакта в адресной книге Telegram. */
+    suspend fun updateContact(userId: Long, firstName: String, lastName: String, phone: String): Result<Unit>
+
+    /** Удаляет контакт из адресной книги; чат и блокировка не затрагиваются. */
+    suspend fun deleteContact(userId: Long): Result<Unit>
+
+    /** Отправляет контакт в чат сообщением TDLib с карточкой и vCard. */
+    suspend fun sendContact(chatId: Long, userId: Long): Result<Unit>
+
     /** Открывает личный чат с пользователем и возвращает идентификатор чата. */
     suspend fun openPrivateChat(userId: Long): Result<Long>
 

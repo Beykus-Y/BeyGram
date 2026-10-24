@@ -1,12 +1,19 @@
 package com.beykus.beygram.domain.model
 
-/** Контакт из адресной книги Telegram. [subtitle] — @имя пользователя, а если его нет, номер телефона. */
+/**
+ * Контакт из адресной книги Telegram. [subtitle] — @имя пользователя, а если его нет, номер телефона.
+ * [firstName], [lastName] и [phone] — исходные поля TDLib для диалога редактирования; [title] остаётся
+ * готовой подписью строки и учитывает уже сохранённое на сервере имя.
+ */
 data class ContactPreview(
     val userId: Long,
     val title: String,
     val subtitle: String,
     val photo: AvatarPhoto?,
-    val avatarColorArgb: Long
+    val avatarColorArgb: Long,
+    val firstName: String = "",
+    val lastName: String = "",
+    val phone: String = ""
 ) {
     val initials: String get() = initialsOf(title)
 }

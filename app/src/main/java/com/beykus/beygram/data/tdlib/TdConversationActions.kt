@@ -196,6 +196,10 @@ internal class TdConversationActions(
         if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft }, replyId, forumTopicId, options)
     }.onFailure { recordSendFailure("text", it) }
+    /** Отправляет карточку контакта как TDLib InputMessageContact, а не как текст с vCard. */
+    suspend fun sendContact(chatId: Long, contact: TdApi.Contact): Result<Unit> = conversationResult<Unit> {
+        send(chatId, contactMessageContent(contact), null)
+    }.onFailure { recordSendFailure("contact", it) }
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         requireFutureSchedule(options)
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")

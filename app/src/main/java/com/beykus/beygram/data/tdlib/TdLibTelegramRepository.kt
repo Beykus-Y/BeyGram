@@ -757,6 +757,14 @@ class TdLibTelegramRepository private constructor(
     override suspend fun loadContacts(): Result<List<ContactPreview>> = requestResult { contactBook.load() }
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> =
         requestResult { contactBook.add(firstName, lastName, phone) }
+    override suspend fun updateContact(userId: Long, firstName: String, lastName: String, phone: String): Result<Unit> =
+        requestResult { contactBook.update(userId, firstName, lastName, phone) }
+    override suspend fun deleteContact(userId: Long): Result<Unit> =
+        requestResult { contactBook.delete(userId) }
+    override suspend fun sendContact(chatId: Long, userId: Long): Result<Unit> {
+        val card = requestResult { contactBook.shareCard(userId) }.getOrElse { return Result.failure(it) }
+        return conversationActions.sendContact(chatId, card)
+    }
     override suspend fun openPrivateChat(userId: Long): Result<Long> = requestResult {
         val chat = TdRequests { client }(TdApi.CreatePrivateChat(userId, false))
         handleNewChat(chat)
@@ -2169,8 +2177,19 @@ class TdLibTelegramRepository private constructor(
         )
     }
 
-    private fun contentText(content: TdApi.MessageContent, hasMedia: Boolean): String =
-        if (hasMedia) mediaMapper.caption(content) else (content as? TdApi.MessageText)?.text?.text.orEmpty()
+    private fun contentText(content: TdApi.MessageContent, hasMedia: Boolean): String = when {
+        content is TdApi.MessageContact -> content.contact.cardText()
+        hasMedia -> mediaMapper.caption(content)
+        else -> (content as? TdApi.MessageText)?.text?.text.orEmpty()
+    }
+
+    /** Contact messages are rendered as a text bubble: name and (when visible) the phone number. */
+    private fun TdApi.Contact.cardText(): String =
+        listOf(displayName(), phoneNumber.orEmpty()).filter { it.isNotBlank() }.distinct().joinToString("\n")
+
+    private fun TdApi.Contact.displayName(): String =
+        listOf(firstName.orEmpty(), lastName.orEmpty()).filter { it.isNotBlank() }.joinToString(" ")
+            .ifBlank { phoneNumber.orEmpty() }
 
     /** Текст ответа: цитата, подпись или текст; у медиа без подписи и у пустого текста — «Медиа». */
     private fun replyText(content: TdApi.MessageContent): UiText {
@@ -2190,6 +2209,8 @@ class TdLibTelegramRepository private constructor(
     private fun previewText(c: TdApi.MessageContent): UiText =
         serviceMessages.text(c)?.let(UiText::Raw) ?: when (c) {
             is TdApi.MessageText      -> UiText.Raw(c.text.text)
+            is TdApi.MessageContact   -> c.contact.displayName().takeIf { it.isNotBlank() }?.let { UiText.Raw(it) }
+                ?: UiText.Res(R.string.message_title)
             is TdApi.MessagePhoto     -> UiText.Res(R.string.chat_preview_photo)
             is TdApi.MessageVideo     -> UiText.Res(R.string.chat_preview_video)
             is TdApi.MessageAudio     -> UiText.Res(R.string.chat_preview_audio)
