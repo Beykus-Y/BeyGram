@@ -285,6 +285,8 @@ class TdLibTelegramRepository private constructor(
     private val pinnedVersions = ConcurrentHashMap<Long, MutableStateFlow<Long>>()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = pinnedVersions.getOrPut(chatId) { MutableStateFlow(0L) }.asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long) = conversationActions.pinnedMessages(chatId, fromMessageId, forumTopicId)
+    override suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean) =
+        conversationActions.pinMessage(chatId, messageId, pinned).onSuccess { invalidatePins(chatId) }
     override fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft> = messageDrafts.observe(chatId)
     override fun observeForumTopicDraft(chatId: Long, forumTopicId: Long): StateFlow<MessageDraft> = messageDrafts.observeTopic(chatId, forumTopicId)
     override fun updateForumTopicDraft(chatId: Long, forumTopicId: Long, transform: (MessageDraft) -> MessageDraft) =
@@ -1245,7 +1247,12 @@ class TdLibTelegramRepository private constructor(
 
     private fun handleUpdate(update: TdApi.Object) {
         when (update) {
-            is TdApi.UpdateMessageIsPinned -> invalidatePins(update.chatId)
+            is TdApi.UpdateMessageIsPinned -> {
+                invalidatePins(update.chatId)
+                val transform: (ChatMessage) -> ChatMessage = { it.copy(isPinned = update.isPinned) }
+                messageHistory.update(update.chatId, update.messageId, transform)
+                updateForumMessage(update.chatId, update.messageId, transform)
+            }
             is TdApi.UpdateMessageContent -> invalidatePins(update.chatId)
             is TdApi.UpdateDeleteMessages -> if (update.isPermanent) invalidatePins(update.chatId)
         }
@@ -1851,6 +1858,7 @@ class TdLibTelegramRepository private constructor(
         isCallEvent = content is TdApi.MessageCall,
         serviceUserId = event?.userId ?: 0L,
         forumTopicId = forumId(this),
+        isPinned = isPinned,
         linkPreview = if (event == null) mediaMapper.linkPreview(content, isSecretChat(chatId)) else null,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,

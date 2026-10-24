@@ -69,6 +69,12 @@
     <string name="chat_pinned_more">Load more</string>
     <string name="chat_pinned_failed">Could not load pinned messages</string>
     <string name="chat_pinned_position">Pinned %1$d of %2$d</string>
+    <string name="chat_pin_channel_title">Pin in this channel?</string>
+    <string name="chat_pin_channel_message">The message will be pinned for everyone who reads the channel.</string>
+    <string name="message_action_pin">Pin</string>
+    <string name="message_action_unpin">Unpin</string>
+    <string name="err_chat_pin_failed">Could not update the message pin</string>
+    <string name="err_message_pin_unavailable">This message cannot be pinned</string>
     <string name="feature_language">App language</string>
     <string name="feature_language_system">Follow system</string>
     <string name="feature_language_hint">Language changes immediately. Some untranslated labels are still shown in Russian.</string>

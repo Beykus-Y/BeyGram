@@ -27,6 +27,8 @@ data class ChatMessage(
     val serviceUserId: Long = 0L,
     /** TDLib forum topic id for opening a global search hit in its original topic. */
     val forumTopicId: Long = 0L,
+    /** The message is pinned in its chat (TDLib's Message.isPinned). */
+    val isPinned: Boolean = false,
     /** Web-page metadata for a text message link; never populated in secret chats. */
     val linkPreview: MessageLinkPreview? = null
 )
@@ -108,8 +110,16 @@ data class MessageCapabilities(
     val canForward: Boolean = false,
     val canSave: Boolean = false,
     /** TDLib can produce a Telegram link for this message; private or protected messages may refuse one. */
-    val canGetLink: Boolean = false
+    val canGetLink: Boolean = false,
+    /** TDLib's canBePinned: both pinning and unpinning need it. */
+    val canPin: Boolean = false
 )
+
+/**
+ * TDLib's canBePinned covers both pinning and unpinning. An existing pin must not be treated as standing permission:
+ * a channel subscriber or group member without pin-management rights cannot unpin either.
+ */
+fun canTogglePin(canPin: Boolean): Boolean = canPin
 enum class DeleteMessageScope { ForSelf, ForEveryone }
 data class MessageContext(val chatId: Long, val title: String, val targetId: Long, val messages: List<ChatMessage>)
 data class MessageSearchPage(val messages: List<ChatMessage>, val nextFromMessageId: Long)

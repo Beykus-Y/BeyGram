@@ -266,6 +266,7 @@
     <string name="err_caption_too_long">Подпись слишком длинная</string>
     <string name="err_chat_actions_load_failed">Не удалось загрузить действия с сообщением</string>
     <string name="err_chat_delete_failed">Не удалось удалить сообщение</string>
+    <string name="err_chat_pin_failed">Не удалось изменить закрепление сообщения</string>
     <string name="err_chat_edit_failed">Не удалось изменить сообщение</string>
     <string name="err_chat_history_load_failed">Не удалось загрузить историю</string>
     <string name="err_chat_no_messages">Нет сообщений для отметки</string>
@@ -282,6 +283,7 @@
     <string name="err_media_position_unknown">Не удалось определить место в чате</string>
     <string name="err_message_cannot_edit">Это сообщение нельзя редактировать</string>
     <string name="err_message_cannot_forward">Это сообщение нельзя переслать</string>
+    <string name="err_message_pin_unavailable">Это сообщение нельзя закрепить</string>
     <string name="err_message_cannot_reply">На это сообщение нельзя ответить</string>
     <string name="err_message_empty">Введите сообщение</string>
     <string name="err_message_original_unavailable">Оригинал недоступен</string>
@@ -408,7 +410,9 @@
     <string name="err_message_link_unavailable">У этого сообщения нет доступной ссылки</string>
     <string name="message_action_edit">Редактировать</string>
     <string name="message_action_edit_caption">Изменить подпись</string>
+    <string name="message_action_pin">Закрепить</string>
     <string name="message_action_reply">Ответить</string>
+    <string name="message_action_unpin">Открепить</string>
     <string name="message_context_subtitle">Сообщение и контекст</string>
     <string name="message_delete_for_all">У всех</string>
     <string name="message_delete_irreversible">Удаление нельзя отменить.</string>
@@ -799,6 +803,8 @@
     <string name="user_name_unknown">Пользователь</string>
     <string name="chat_message_open_failed">Не удалось открыть сообщение</string>
     <string name="chat_pinned_title">Закреплённые сообщения</string>
+    <string name="chat_pin_channel_title">Закрепить сообщение в канале?</string>
+    <string name="chat_pin_channel_message">Сообщение будет закреплено для всех читателей канала.</string>
     <string name="chat_pinned_position">Закреплённое · %1$d из %2$d</string>
     <string name="chat_pinned_list">Показать все закреплённые сообщения</string>
     <string name="chat_pinned_failed">Не удалось загрузить закреплённые сообщения</string>

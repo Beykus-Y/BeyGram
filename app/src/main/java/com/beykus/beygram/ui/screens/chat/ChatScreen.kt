@@ -132,6 +132,7 @@ fun ChatScreen(
     var deleteEveryone by remember { mutableStateOf(false) }
     var deleteBusy by remember { mutableStateOf(false) }
     var deleteError by remember { mutableStateOf<String?>(null) }
+    var pinConfirm by rememberSaveable(chat.id) { mutableStateOf(false) }
     var capabilities by remember { mutableStateOf<MessageCapabilities?>(null) }
     var capabilitiesError by remember { mutableStateOf<String?>(null) }
     var capabilitiesAttempt by remember { mutableIntStateOf(0) }
@@ -439,10 +440,10 @@ fun ChatScreen(
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
-    fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null }
+    fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     fun closeEdit() { editId = null; editText = ""; editError = null }
     LaunchedEffect(actionMessage) {
-        if (actionMessage == null) { deleting = false; deleteError = null; capabilities = null; capabilitiesError = null }
+        if (actionMessage == null) { deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     }
     LaunchedEffect(actionsId, capabilitiesAttempt) {
         val id = actionsId ?: return@LaunchedEffect
@@ -450,6 +451,15 @@ fun ChatScreen(
         val result = conversation.messageCapabilities(chat.id, id)
         capabilities = result.getOrNull()
         capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
+    }
+    fun setPinned(message: ChatMessage, pinned: Boolean) {
+        pinConfirm = false
+        closeActions()
+        error = null
+        scope.launch {
+            conversation.setMessagePinned(message.chatId, message.id, pinned)
+                .onFailure { error = it.userMessage(context, R.string.err_chat_pin_failed) }
+        }
     }
     LaunchedEffect(chat.id, reactionOwner?.id) {
         reactionOptions = emptyList()
@@ -764,11 +774,16 @@ fun ChatScreen(
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (actionMessage != null) MessageActionsBar(
             capabilities = capabilities, error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
+            canPin = canTogglePin(capabilities?.canPin == true), isPinned = actionMessage.isPinned,
             onClose = ::closeActions, onRetry = { capabilitiesAttempt++ },
             onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
             onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
             onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
+            onTogglePin = {
+                if (chat.isChannel && !actionMessage.isPinned) pinConfirm = true
+                else setPinned(actionMessage, !actionMessage.isPinned)
+            },
             onCopyLink = {
                 val target = actionMessage
                 scope.launch {
@@ -1158,6 +1173,17 @@ fun ChatScreen(
             onClose = { forwardId = null; forwardError = null; forwardAsCopy = false })
     }
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }) }
+    if (pinConfirm && actionMessage != null) AlertDialog(
+        onDismissRequest = { pinConfirm = false },
+        title = { Text(stringResource(R.string.chat_pin_channel_title)) },
+        text = { Text(stringResource(R.string.chat_pin_channel_message)) },
+        confirmButton = {
+            TextButton(onClick = { actionMessage?.let { setPinned(it, true) } }) {
+                Text(stringResource(R.string.message_action_pin))
+            }
+        },
+        dismissButton = { TextButton(onClick = { pinConfirm = false }) { Text(stringResource(R.string.common_cancel)) } }
+    )
 }
 
 @Composable

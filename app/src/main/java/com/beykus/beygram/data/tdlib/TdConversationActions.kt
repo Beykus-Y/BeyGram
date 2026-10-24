@@ -46,7 +46,7 @@ internal class TdConversationActions(
             properties.canBeEdited && message.isOutgoing && editable(message.content),
             properties.canBeDeletedOnlyForSelf, properties.canBeDeletedForAllUsers,
             canForward = properties.canBeForwarded, canSave = properties.canBeSaved,
-            canGetLink = properties.canGetLink)
+            canPin = properties.canBePinned, canGetLink = properties.canGetLink)
     }
 
     /** Предполагаем, что TDLib считает позицию от новых к старым, как результаты поиска: номер от самого раннего — total - position + 1. */
@@ -287,6 +287,17 @@ internal class TdConversationActions(
     }
 
     /**
+     * Pins or unpins [messageId] in its parent chat. A forum message keeps its topic: TDLib pins by message id, while the
+     * pinned list is already filtered by topic when read.
+     */
+    suspend fun pinMessage(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit> = conversationResult {
+        val properties = request(TdApi.GetMessageProperties(chatId, messageId))
+        if (!canTogglePin(properties.canBePinned)) throw UserMessageException(UiText.Res(R.string.err_message_pin_unavailable))
+        request(pinMessageRequest(chatId, messageId, pinned))
+        Unit
+    }
+
+    /**
      * Пересылка обычная или без автора ([asCopy]). TDLib сам отказывает, если сообщение нельзя переслать
      * или содержимое защищено.
      */
@@ -486,6 +497,14 @@ internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopic
     limit = 50
     filter = TdApi.SearchMessagesFilterPinned()
 }
+
+/**
+ * Telegram has separate pin and unpin requests rather than a toggle. Pinning is silent for chat members and is never
+ * limited to the current user. Topic chats pin the message id in the parent chat, so its topic association is preserved.
+ */
+internal fun pinMessageRequest(chatId: Long, messageId: Long, pinned: Boolean): TdApi.Function<TdApi.Ok> =
+    if (pinned) TdApi.PinChatMessage(chatId, messageId, true, false)
+    else TdApi.UnpinChatMessage(chatId, messageId)
 
 /** Медиа в журнале видны и принятые, и неудачные: текстовые сообщения слишком частые, поэтому там только сбои. */
 private fun recordMediaAccepted(kind: String) = recordAppEvent(

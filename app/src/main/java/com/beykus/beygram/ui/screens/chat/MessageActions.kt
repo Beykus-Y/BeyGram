@@ -53,17 +53,20 @@ internal fun MessageActionsBar(
     error: String?,
     hasText: Boolean,
     isMedia: Boolean,
+    canPin: Boolean,
+    isPinned: Boolean,
     onClose: () -> Unit,
     onRetry: () -> Unit,
     onReply: () -> Unit,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onTogglePin: () -> Unit,
     onCopyLink: () -> Unit = {},
     onForwardCopy: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
-    var moreOpen by remember(capabilities) { mutableStateOf(false) }
+    var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textPrimary) }
@@ -74,11 +77,15 @@ internal fun MessageActionsBar(
                     if (capabilities.canCopy && hasText) ActionIcon(Icons.Rounded.ContentCopy, stringResource(R.string.message_action_copy_text), palette.accent, onCopy)
                     if (capabilities.canEdit) ActionIcon(Icons.Rounded.Edit, if (isMedia) stringResource(R.string.message_action_edit_caption) else stringResource(R.string.message_action_edit), palette.accent, onEdit)
                     if (capabilities.canDeleteForSelf || capabilities.canDeleteForAll) ActionIcon(Icons.Rounded.Delete, stringResource(R.string.common_delete), palette.danger, onDelete)
-                    if (capabilities.canGetLink || capabilities.canForward) Box {
+                    if (canPin || capabilities.canGetLink || capabilities.canForward) Box {
                         IconButton(onClick = { moreOpen = true }) {
                             Icon(Icons.Rounded.MoreVert, stringResource(R.string.message_action_more), tint = palette.accent)
                         }
                         DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                            if (canPin) DropdownMenuItem(
+                                text = { Text(stringResource(if (isPinned) R.string.message_action_unpin else R.string.message_action_pin)) },
+                                onClick = { moreOpen = false; onTogglePin() }
+                            )
                             if (capabilities.canGetLink) DropdownMenuItem(
                                 text = { Text(stringResource(R.string.message_action_copy_link)) },
                                 onClick = { moreOpen = false; onCopyLink() }
