@@ -8,6 +8,11 @@
     <string name="err_bio_too_long">Bio cannot exceed %1$d characters</string>
     <string name="err_caption_too_long">Caption is too long</string>
     <string name="err_chat_actions_load_failed">Could not load message actions</string>
+    <string name="err_schedule_edit_unavailable">This message’s scheduled time can’t be changed</string>
+    <string name="err_schedule_time_future">Choose a time in the future</string>
+    <string name="err_tdlib_schedule_date">Telegram rejected the scheduled time</string>
+    <string name="err_tdlib_schedule_failed">Telegram did not allow scheduled sending</string>
+    <string name="err_tdlib_schedule_too_much">Too many scheduled messages in this chat</string>
     <string name="err_chat_delete_failed">Could not delete message</string>
     <string name="err_chat_edit_failed">Could not edit message</string>
     <string name="err_chat_history_load_failed">Could not load message history</string>
