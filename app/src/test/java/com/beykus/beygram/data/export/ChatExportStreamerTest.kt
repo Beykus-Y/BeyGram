@@ -225,4 +225,71 @@ class ChatExportStreamerTest {
         val json = JSONObject(String(entries.getValue("messages.json"), Charsets.UTF_8))
         assertTrue(json.getJSONArray("messages").getJSONObject(0).getJSONObject("media").isNull("exportedPath"))
     }
+
+    /** Records the cursor of every page request, so a test can tell one pass over the history from two. */
+    private class RecordingSource(private val inner: ChatExportPageSource) : ChatExportPageSource {
+        val cursors = mutableListOf<Long>()
+
+        override suspend fun page(beforeMessageId: Long, limit: Int): ChatExportPage {
+            cursors += beforeMessageId
+            return inner.page(beforeMessageId, limit)
+        }
+    }
+
+    private fun zipEntries(bytes: ByteArray): List<Pair<String, ByteArray>> {
+        val entries = mutableListOf<Pair<String, ByteArray>>()
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                entries += entry.name to zip.readBytes()
+            }
+        }
+        return entries
+    }
+
+    /** Two history pages with one photo on the newest message; the photo is copied when that message is reached. */
+    private suspend fun mediaExport(documentBufferBytes: Int): Pair<List<Pair<String, ByteArray>>, RecordingSource> {
+        val target = RecordingTarget()
+        val media = ChatExportMedia(MediaKind.Photo, 7, "", "image/jpeg", size = 3)
+        val source = RecordingSource(
+            FakeSource(
+                listOf(
+                    page(listOf(message(3, 300).copy(media = media), message(2, 200)), 2, true),
+                    page(listOf(message(1, 100)), 0, false)
+                )
+            )
+        )
+        val provider = object : ChatExportMediaProvider {
+            override suspend fun open(media: ChatExportMedia) = ByteArrayInputStream(byteArrayOf(1, 2, 3))
+        }
+        ChatExportStreamer(target, source, provider, documentBufferBytes).export(
+            chat = chat(),
+            request = ChatExportRequest(includeMedia = true),
+            onProgress = {}
+        )
+        return zipEntries(target.bytes.toByteArray()) to source
+    }
+
+    @Test fun `media export walks the history once`() = runBlocking {
+        val (entries, source) = mediaExport(CHAT_EXPORT_DOCUMENT_BUFFER_BYTES)
+
+        assertEquals(listOf(0L, 2L), source.cursors)
+        assertEquals(listOf("media/3_photo.jpg", "messages.json"), entries.map { it.first })
+        val messages = JSONObject(String(entries.last().second, Charsets.UTF_8)).getJSONArray("messages")
+        assertEquals(3L, messages.getJSONObject(0).getLong("id"))
+        assertEquals("media/3_photo.jpg", messages.getJSONObject(0).getJSONObject("media").getString("exportedPath"))
+    }
+
+    @Test fun `a document over the memory budget is rendered again without copying media twice`() = runBlocking {
+        val (inMemory, inMemorySource) = mediaExport(CHAT_EXPORT_DOCUMENT_BUFFER_BYTES)
+        val (rendered, renderedSource) = mediaExport(documentBufferBytes = 16)
+
+        assertEquals(listOf(0L, 2L), inMemorySource.cursors)
+        assertEquals(listOf(0L, 2L, 0L, 2L), renderedSource.cursors)
+        assertEquals(listOf("media/3_photo.jpg", "messages.json"), rendered.map { it.first })
+        assertEquals(listOf<Byte>(1, 2, 3), rendered.first().second.toList())
+        val expected = JSONObject(String(inMemory.last().second, Charsets.UTF_8)).getJSONArray("messages").toString()
+        val actual = JSONObject(String(rendered.last().second, Charsets.UTF_8)).getJSONArray("messages").toString()
+        assertEquals(expected, actual)
+    }
 }
