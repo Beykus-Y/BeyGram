@@ -131,6 +131,8 @@ fun ChatScreen(
     var translationPickerId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var translationLanguages by remember(chat.id) { mutableStateOf<Map<Long, String>>(emptyMap()) }
     var translationStates by remember(chat.id) { mutableStateOf<Map<Pair<Long, String>, TranslationUiState>>(emptyMap()) }
+    // A cached translation is valid only for the exact source text/entities that produced it.
+    var translationSources by remember(chat.id) { mutableStateOf<Map<Long, Pair<String, List<MessageTextEntity>>>>(emptyMap()) }
     val translationJobs = remember(chat.id) { mutableMapOf<Long, Job>() }
     // Local request state covers the gap before TDLib sends UpdateMessageContent with the recognition result.
     var transcribingIds by remember(chat.id) { mutableStateOf<Set<Long>>(emptySet()) }
@@ -463,6 +465,7 @@ fun ChatScreen(
             return
         }
         val key = message.id to language
+        translationSources = translationSources + (message.id to (message.text to message.entities))
         val previousLanguage = translationLanguages[message.id]
         if (previousLanguage != null && previousLanguage != language) {
             // Switching target abandons the old request and its spinner, but keeps completed translations cached.
@@ -518,6 +521,19 @@ fun ChatScreen(
     fun rateTranscription(message: ChatMessage, isGood: Boolean) {
         ratedTranscriptions = ratedTranscriptions + message.id
         scope.launch { conversation.rateSpeechRecognition(message.chatId, message.id, isGood) }
+    }
+    // Editing a translated message must not leave the old translation under the new source text.
+    LaunchedEffect(messages) {
+        val changed = translationLanguages.keys.filter { id ->
+            val current = messages.firstOrNull { it.id == id }
+            current == null || translationSources[id] != (current.text to current.entities)
+        }
+        if (changed.isNotEmpty()) {
+            changed.forEach { translationJobs.remove(it)?.cancel() }
+            translationStates = translationStates.filterKeys { it.first !in changed }
+            translationLanguages = translationLanguages - changed.toSet()
+            translationSources = translationSources - changed.toSet()
+        }
     }
     fun closeEdit() { editId = null; editText = ""; editError = null }
     LaunchedEffect(actionMessage) {

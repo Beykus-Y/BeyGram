@@ -256,7 +256,8 @@ internal fun VideoNoteBubble(
             rated = transcriptionRated,
             onRequest = onTranscribe,
             onRate = onRateTranscription,
-            modifier = Modifier.fillMaxWidth()
+            // Keep the note's circle alignment: a full-width section would push an incoming note to the right.
+            modifier = Modifier.width(size)
         )
     }
 }
