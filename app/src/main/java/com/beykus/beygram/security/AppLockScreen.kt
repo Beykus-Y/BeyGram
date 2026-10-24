@@ -77,7 +77,9 @@ internal fun AppLockDialog(manager: AppLockManager) {
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
-            dismissOnBackPress = false,
+            // Enabled with an empty dismiss callback: back is consumed, so it cannot finish
+            // the Activity and cancel in-flight sends while the user is still locked out.
+            dismissOnBackPress = true,
             dismissOnClickOutside = false,
             securePolicy = SecureFlagPolicy.SecureOn,
         ),
