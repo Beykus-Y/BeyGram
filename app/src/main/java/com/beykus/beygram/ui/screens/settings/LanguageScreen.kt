@@ -40,6 +40,7 @@ fun LanguageScreen(translationSettings: TranslationSettingsStore, onBack: () -> 
                 AppLocale.RUSSIAN -> stringResource(R.string.settings_language_ru)
                 AppLocale.ENGLISH -> stringResource(R.string.settings_language_en)
                 AppLocale.GERMAN -> stringResource(R.string.settings_language_de)
+                AppLocale.SPANISH -> stringResource(R.string.settings_language_es)
                 else -> stringResource(R.string.settings_language_en)
             }
             Row(

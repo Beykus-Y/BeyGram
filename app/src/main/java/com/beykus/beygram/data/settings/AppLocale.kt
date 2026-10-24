@@ -15,7 +15,8 @@ internal object AppLocale {
     const val RUSSIAN = "ru"
     const val ENGLISH = "en"
     const val GERMAN = "de"
-    val supported = listOf(SYSTEM, RUSSIAN, ENGLISH, GERMAN)
+    const val SPANISH = "es"
+    val supported = listOf(SYSTEM, RUSSIAN, ENGLISH, GERMAN, SPANISH)
 
     /** Android 13+ system App Languages can change outside BeyGram. The OS owns
      * the effective app locale; SharedPreferences is the fallback only when unavailable. */
