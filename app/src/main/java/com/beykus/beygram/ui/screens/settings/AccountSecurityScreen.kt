@@ -103,7 +103,7 @@ fun AccountSecurityScreen(
 
     BackHandler { if (!busy) onBack() }
 
-    LaunchedEffect(accountId, refresh) {
+    LaunchedEffect(accountId, repository, refresh) {
         loading = true
         loadError = null
         try {

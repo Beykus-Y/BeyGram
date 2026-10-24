@@ -514,6 +514,14 @@ internal class TdSecondaryAccountController private constructor(
             coordinator.logoutSecondary(accountId, serverDeleted)
             operation.trace("coordinator_logout_done")
         } catch (error: Throwable) {
+            if (serverDeleted) {
+                // Telegram confirmed that the account no longer exists. Clear stale
+                // restore metadata so the account switcher can still discard the
+                // remaining local session explicitly instead of hiding that action
+                // behind an "authorized" flag. The registry and files stay untouched.
+                runCatching { restoreStore.forget(accountId) }
+                runCatching { NotificationRuntime.get(app).detachSecondary(accountId) }
+            }
             if (accountId in registry.loadOrCreate().accountIds) {
                 restoreStore.clearDeletionPending(accountId)
                 operation.failure("logout", error)
