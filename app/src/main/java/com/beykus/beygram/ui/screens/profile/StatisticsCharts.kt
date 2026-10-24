@@ -82,8 +82,9 @@ private fun StatisticsChartCard(
     if (series.isEmpty()) return
     val title = stringResource(chartTitle(chart.id))
     val range = remember(chart) { chartRange(chart, series) }
-    val maxLabel = formatCompactCount(range.second)
-    val minLabel = formatCompactCount(range.first)
+    val percentSuffix = if (chart.percentage) "%" else ""
+    val maxLabel = formatCompactCount(range.second) + percentSuffix
+    val minLabel = formatCompactCount(range.first) + percentSuffix
     val rangeLabel = if (chart.yScaled && series.size > 1) {
         stringResource(R.string.channel_statistics_chart_scaled)
     } else if (range.first == range.second) {

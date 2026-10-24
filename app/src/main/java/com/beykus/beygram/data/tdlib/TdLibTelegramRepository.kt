@@ -1174,7 +1174,7 @@ class TdLibTelegramRepository private constructor(
         } catch (_: Exception) {
             emptyArray<TdApi.Message>()
         }
-        val byId = messages.associateBy { it.id }
+        val byId = messages.filterNotNull().associateBy { it.id }
         return ranked.map { post ->
             val message = byId[post.messageId]
             post.copy(

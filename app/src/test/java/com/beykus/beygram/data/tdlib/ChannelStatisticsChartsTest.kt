@@ -112,6 +112,26 @@ class ChannelStatisticsChartsTest {
     }
 
     @Test
+    fun `percentage area is normalized at every x position`() {
+        val chart = parseChannelChart(
+            ChannelChartId.Languages,
+            graph(
+                x = listOf(1000, 2000),
+                series = mapOf("y0" to listOf(1, 2), "y1" to listOf(3, 2)),
+                types = mapOf("y0" to "area", "y1" to "area"),
+                stacked = true,
+                percentage = true
+            ),
+            ChannelChartKind.Area
+        )
+
+        assertNotNull(chart)
+        assertTrue(chart!!.percentage)
+        assertEquals(listOf(25L, 50L), chart.series[0].points.map { it.value })
+        assertEquals(listOf(75L, 50L), chart.series[1].points.map { it.value })
+    }
+
+    @Test
     fun `unknown graph type falls back to the requested kind`() {
         val chart = parseChannelChart(
             ChannelChartId.MessageContent,

@@ -32,7 +32,10 @@ internal fun formatChartDate(millis: Long): String =
 
 private fun compact(value: Long, divisor: Double, suffix: String): String {
     val scaled = value / divisor
-    val format = if (abs(scaled) >= 100.0) "%.0f" else "%.1f"
-    val number = String.format(Locale.ROOT, format, scaled).trimEnd('0').trimEnd('.')
+    val number = if (abs(scaled) >= 100.0) {
+        String.format(Locale.ROOT, "%.0f", scaled)
+    } else {
+        String.format(Locale.ROOT, "%.1f", scaled).trimEnd('0').trimEnd('.')
+    }
     return number + suffix
 }

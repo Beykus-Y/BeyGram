@@ -16,9 +16,12 @@ class StatisticsFormattingTest {
         assertEquals("1K", formatCompactCount(1_000L))
         assertEquals("1.5K", formatCompactCount(1_500L))
         assertEquals("12K", formatCompactCount(12_000L))
+        assertEquals("100K", formatCompactCount(100_000L))
+        assertEquals("250K", formatCompactCount(250_000L))
         assertEquals("999K", formatCompactCount(999_499L))
         assertEquals("1M", formatCompactCount(999_500L))
         assertEquals("1.2M", formatCompactCount(1_200_000L))
+        assertEquals("100M", formatCompactCount(100_000_000L))
         assertEquals("2B", formatCompactCount(2_000_000_000L))
     }
 

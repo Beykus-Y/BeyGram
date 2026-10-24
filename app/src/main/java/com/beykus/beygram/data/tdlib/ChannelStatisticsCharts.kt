@@ -70,23 +70,49 @@ internal fun parseChannelChart(
 
     val selected = selectSeries(raw, length)
     if (selected.isEmpty()) return null
+    val chartSeries = selected.map { series ->
+        ChannelChartSeries(
+            name = series.name,
+            points = series.values.take(length).mapIndexed { pointIndex, value ->
+                ChannelChartPoint(pointsX[pointIndex], value)
+            }.sortedBy { it.x },
+            isOther = series.label.isEmpty()
+        )
+    }.let { if (percentage) normalizePercentages(it) else it }
     val chart = ChannelStatisticsChart(
         id = id,
         kind = kind,
-        series = selected.map { series ->
-            ChannelChartSeries(
-                name = series.name,
-                points = series.values.take(length).mapIndexed { pointIndex, value ->
-                    ChannelChartPoint(pointsX[pointIndex], value)
-                }.sortedBy { it.x },
-                isOther = series.label.isEmpty()
-            )
-        },
+        series = chartSeries,
         stacked = stacked,
         percentage = percentage,
         yScaled = yScaled
     )
     return normalizeChannelChart(chart)
+}
+
+/**
+ * Percentage graphs describe a composition: at every x the visible series should add up to 100.
+ * TDLib sends raw counts, so each point is normalized by the total at the same index.
+ */
+internal fun normalizePercentages(series: List<ChannelChartSeries>): List<ChannelChartSeries> {
+    val count = series.maxOfOrNull { it.points.size } ?: return series
+    if (count == 0) return series
+    val totals = LongArray(count) { index ->
+        series.sumOf { item -> (item.points.getOrNull(index)?.value ?: 0L).coerceAtLeast(0L) }
+    }
+    return series.map { item ->
+        item.copy(
+            points = item.points.mapIndexed { index, point ->
+                val total = totals.getOrElse(index) { 0L }
+                val value = if (total > 0L) {
+                    point.value.coerceAtLeast(0L).toDouble() * 100.0 / total
+                } else {
+                    0.0
+                }
+                point.copy(value = value.roundToLong())
+            }
+        )
+    }
 }
 
 /**
@@ -168,7 +194,14 @@ private fun aggregateBars(
             val byX = series.points.associate { it.x to it.value }
             series.copy(
                 points = buckets.map { bucket ->
-                    ChannelChartPoint(bucket.first(), bucket.sumOf { byX[it] ?: 0L })
+                    val values = bucket.mapNotNull { byX[it] }
+                    val sum = values.sum()
+                    val value = if (chart.percentage && values.isNotEmpty()) {
+                        (sum.toDouble() / values.size).roundToLong()
+                    } else {
+                        sum
+                    }
+                    ChannelChartPoint(bucket.first(), value)
                 }
             )
         }
