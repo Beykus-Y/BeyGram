@@ -134,8 +134,10 @@ internal fun MessageAlbumBubble(
                             onLongClick = onToggleSelection
                         ) else Modifier)
                         .semantics {
-                            this.selected = selected
-                            if (selectionState != null) stateDescription = selectionState
+                            if (selectionMode) {
+                                this.selected = selected
+                                if (selectionState != null) stateDescription = selectionState
+                            }
                         },
                     overlayMeta = false,
                     body = {

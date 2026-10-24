@@ -416,9 +416,10 @@ fun ChatScreen(
     val selectedMessages = remember(messages, selectionIds) { messages.filter { it.id in selectionIds } }
     val selectionCanCopy = selectedMessages.any { it.text.isNotBlank() }
     val selectionCanSave = selectedMessages.any { it.media != null }
-    // A deleted or reloaded-away message must not keep a phantom selection count.
+    // A deleted or reloaded-away message must not keep a phantom selection count. Wait for the first loaded page,
+    // otherwise a restored selection would be cleared before history arrives.
     LaunchedEffect(selectionMode, messages) {
-        if (selectionMode) {
+        if (selectionMode && messages.isNotEmpty()) {
             val loaded = messages.mapTo(hashSetOf()) { it.id }
             val kept = selectionIds.filterTo(linkedSetOf()) { it in loaded }
             if (kept != selectionIds) selectionIds = kept
@@ -1920,8 +1921,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                         .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
                         .semantics {
-                            this.selected = selected
-                            if (selectionState != null) stateDescription = selectionState
+                            if (selectionMode) {
+                                this.selected = selected
+                                if (selectionState != null) stateDescription = selectionState
+                            }
                         }
                         .combinedClickable(
                             onClickLabel = if (selectionMode) selectionLabel else if (message.media != null && !message.media.kind.playsInline()) openMediaLabel else null,
