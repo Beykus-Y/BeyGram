@@ -56,6 +56,7 @@ internal class TdStories(
     private val readOverrides = mutableMapOf<Long, Int>()
     private val requestedChats = mutableSetOf<Long>()
     private val blockedChats = mutableSetOf<Long>()
+    private val unblockedChats = mutableSetOf<Long>()
     private var selfId = 0L
     private var selfChatId = 0L
     private var generation = 0
@@ -68,7 +69,10 @@ internal class TdStories(
     val postEvents: SharedFlow<StoryPostEvent> = _postEvents.asSharedFlow()
 
     fun authorized() {
-        val token = synchronized(lock) { generation++ }
+        val token = synchronized(lock) {
+            generation += 1
+            generation
+        }
         profileJob?.cancel()
         profileJob = scope.launch {
             profiles.me.collect { publish() }
@@ -84,6 +88,7 @@ internal class TdStories(
             readOverrides.clear()
             requestedChats.clear()
             blockedChats.clear()
+            unblockedChats.clear()
             selfId = 0L
             selfChatId = 0L
         }
@@ -104,8 +109,13 @@ internal class TdStories(
             is TdApi.UpdateChatActiveStories -> applyActive(update.activeStories)
             is TdApi.UpdateChatBlockList -> {
                 synchronized(lock) {
-                    if (update.blockList is TdApi.BlockListMain) blockedChats += update.chatId
-                    else blockedChats -= update.chatId
+                    if (update.blockList is TdApi.BlockListMain) {
+                        blockedChats += update.chatId
+                        unblockedChats -= update.chatId
+                    } else {
+                        blockedChats -= update.chatId
+                        unblockedChats += update.chatId
+                    }
                 }
                 publish()
             }
@@ -197,6 +207,8 @@ internal class TdStories(
             Triple(active.values.toList(), hiddenStories.toSet(), readOverrides.toMap())
         }
         val blocked = synchronized(lock) { blockedChats.toSet() }
+        val unblocked = synchronized(lock) { unblockedChats.toSet() }
+        val self = synchronized(lock) { selfId }
         val me = profiles.me.value.info
         val entries = mutableListOf<ChatStories>()
         for (raw in snapshot) {
@@ -207,8 +219,8 @@ internal class TdStories(
                 continue
             }
             if (chat.type is TdApi.ChatTypeSecret) continue
-            val isSelf = (selfId > 0L && raw.chatId == selfId) || (me != null && raw.chatId == me.id)
-            if (!isSelf && (raw.chatId in blocked || chat.blockList is TdApi.BlockListMain)) continue
+            val isSelf = (self > 0L && raw.chatId == self) || (me != null && raw.chatId == me.id)
+            if (!isSelf && (raw.chatId in blocked || (raw.chatId !in unblocked && chat.blockList is TdApi.BlockListMain))) continue
             val stories = raw.stories.orEmpty()
                 .filterNot { it.isLive }
                 .filterNot { (raw.chatId to it.storyId) in hidden }
@@ -224,7 +236,7 @@ internal class TdStories(
                 chatId = raw.chatId,
                 title = title,
                 initials = initialsOf(title),
-                avatarColorArgb = if (isSelf) (me?.id ?: selfId).stableColor() else raw.chatId.stableColor(),
+                avatarColorArgb = if (isSelf) (me?.id ?: self).stableColor() else raw.chatId.stableColor(),
                 photo = if (isSelf) me?.photo else chat.photo?.let { profiles.photo(it) },
                 isSelf = isSelf,
                 order = raw.order,

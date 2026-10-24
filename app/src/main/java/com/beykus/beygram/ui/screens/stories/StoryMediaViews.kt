@@ -101,12 +101,16 @@ internal fun StoryVideo(
     path: String,
     playing: Boolean,
     onFailure: () -> Unit,
+    onReady: () -> Unit = {},
+    onPlayingChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var buffering by remember(path) { mutableStateOf(true) }
     var failed by remember(path) { mutableStateOf(false) }
     val currentOnFailure by rememberUpdatedState(onFailure)
+    val currentOnReady by rememberUpdatedState(onReady)
+    val currentOnPlayingChanged by rememberUpdatedState(onPlayingChanged)
     val player = remember(path) {
         ExoPlayer.Builder(context.applicationContext)
             .setAudioAttributes(
@@ -118,13 +122,20 @@ internal fun StoryVideo(
     }
     DisposableEffect(player, path) {
         val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                currentOnPlayingChanged(isPlaying && player.playbackState != Player.STATE_BUFFERING)
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 buffering = playbackState == Player.STATE_BUFFERING
+                if (playbackState == Player.STATE_READY) currentOnReady()
+                currentOnPlayingChanged(player.isPlaying && playbackState != Player.STATE_BUFFERING)
             }
 
             override fun onPlayerError(error: PlaybackException) {
                 failed = true
                 buffering = false
+                currentOnPlayingChanged(false)
                 currentOnFailure()
             }
         }

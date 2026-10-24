@@ -167,21 +167,24 @@ fun StoryViewerScreen(
     DisposableEffect(posterChatId) {
         onDispose { downloaded.toList().forEach(repository::cancelFileDownload) }
     }
-    // Current full file and neighbor thumbnails, never a neighbor's full video.
+    // Current full file first, then neighbor thumbnails; never a neighbor's full video.
     LaunchedEffect(posterChatId, current?.storyId, detail?.media?.fileId) {
         val media = detail?.media ?: return@LaunchedEffect
+        fun request(targets: List<StoryPrefetchTarget>) {
+            val keep = targets.map { it.fileId }.toSet()
+            (downloaded - keep).forEach(repository::cancelFileDownload)
+            downloaded.clear()
+            targets.forEach {
+                downloaded += it.fileId
+                repository.downloadFile(it.fileId)
+            }
+        }
+        request(storyPrefetchTargets(media, null, null))
         val previousId = stories.getOrNull(index - 1)?.storyId
         val nextId = stories.getOrNull(index + 1)?.storyId
         val previous = previousId?.let { repository.loadStory(posterChatId, it).getOrNull() }
         val next = nextId?.let { repository.loadStory(posterChatId, it).getOrNull() }
-        val targets = storyPrefetchTargets(media, previous?.media, next?.media)
-        val keep = targets.map { it.fileId }.toSet()
-        (downloaded - keep).forEach(repository::cancelFileDownload)
-        downloaded.clear()
-        targets.forEach {
-            downloaded += it.fileId
-            repository.downloadFile(it.fileId)
-        }
+        request(storyPrefetchTargets(media, previous?.media, next?.media))
     }
 
     val media = detail?.media
@@ -195,6 +198,14 @@ fun StoryViewerScreen(
     var paused by remember(current?.storyId) { mutableStateOf(false) }
     var progress by remember(current?.storyId) { mutableFloatStateOf(0f) }
     var progressRestart by remember(current?.storyId) { mutableIntStateOf(0) }
+    var videoReady by remember(current?.storyId) { mutableStateOf(false) }
+    var videoPlaying by remember(current?.storyId) { mutableStateOf(false) }
+    var showReactions by remember { mutableStateOf(false) }
+    var reactionStoryId by remember { mutableIntStateOf(0) }
+    var showReply by remember { mutableStateOf(false) }
+    var replyStoryId by remember { mutableIntStateOf(0) }
+    var showDelete by remember { mutableStateOf(false) }
+    var deleteStoryId by remember { mutableIntStateOf(0) }
     var notice by remember { mutableStateOf<String?>(null) }
     val reducedMotion = rememberReducedMotion()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -206,7 +217,14 @@ fun StoryViewerScreen(
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    val canPlay = detail != null && loadError == null && resumed && !paused
+    val dialogOpen = showReactions || showReply || showDelete
+    val mediaReady = when (media?.kind) {
+        StoryMediaKind.Photo -> fullFile.localPath != null
+        StoryMediaKind.Video -> fullFile.localPath != null && videoReady
+        null -> false
+    }
+    val storyActive = detail != null && loadError == null && mediaReady && resumed && !paused && !dialogOpen
+    val canPlay = storyActive && (media?.kind != StoryMediaKind.Video || videoPlaying)
     val duration = storyDurationMillis(detail)
     val closeLatest by rememberUpdatedState(onClose)
     val storyCount = stories.size
@@ -247,7 +265,6 @@ fun StoryViewerScreen(
         if (index < storyCount - 1) index++ else closeLatest()
     }
 
-    var showReactions by remember { mutableStateOf(false) }
     var reactions by remember { mutableStateOf<List<ReactionOption>?>(null) }
     var reactionsLoading by remember { mutableStateOf(false) }
     var reactionsError by remember { mutableStateOf<String?>(null) }
@@ -255,15 +272,16 @@ fun StoryViewerScreen(
         if (!showReactions || reactions != null || reactionsLoading) return@LaunchedEffect
         reactionsLoading = true
         reactionsError = null
-        reactions = repository.storyReactions().getOrElse {
-            reactionsError = it.userMessage(context, R.string.stories_reaction_failed)
-            emptyList()
+        try {
+            reactions = repository.storyReactions().getOrElse {
+                reactionsError = it.userMessage(context, R.string.stories_reaction_failed)
+                emptyList()
+            }
+        } finally {
+            reactionsLoading = false
         }
-        reactionsLoading = false
     }
-    var showReply by remember { mutableStateOf(false) }
     var replySending by remember { mutableStateOf(false) }
-    var showDelete by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
 
     val entry = snapshot
@@ -317,14 +335,19 @@ fun StoryViewerScreen(
                 loadError = loadError,
                 fullFile = fullFile,
                 thumbnailFile = thumbnailFile,
-                playing = canPlay,
+                playing = storyActive,
+                onReady = { videoReady = true },
+                onPlayingChanged = { videoPlaying = it },
                 onRetry = { retry++ },
-                onFailure = { notice = context.getString(R.string.stories_media_unsupported) }
+                onFailure = {
+                    videoReady = false
+                    notice = context.getString(R.string.stories_media_unsupported)
+                }
             )
         }
 
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            StoryProgressRow(stories.size, index, progress)
+            StoryProgressRow(stories.size, index) { progress }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -387,11 +410,17 @@ fun StoryViewerScreen(
                 }
                 Spacer(Modifier.weight(1f))
                 if (detail?.canBeReplied == true) {
-                    IconButton(onClick = { showReply = true }, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = {
+                        replyStoryId = current?.storyId ?: 0
+                        showReply = true
+                    }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Rounded.Reply, stringResource(R.string.stories_reply), tint = Color.White)
                     }
                 }
-                IconButton(onClick = { showReactions = true }, modifier = Modifier.size(48.dp)) {
+                IconButton(onClick = {
+                    reactionStoryId = current?.storyId ?: 0
+                    showReactions = true
+                }, modifier = Modifier.size(48.dp)) {
                     Icon(
                         Icons.Rounded.EmojiEmotions,
                         stringResource(R.string.stories_reaction),
@@ -399,7 +428,10 @@ fun StoryViewerScreen(
                     )
                 }
                 if (detail?.canBeDeleted == true) {
-                    IconButton(onClick = { showDelete = true }, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = {
+                        deleteStoryId = current?.storyId ?: 0
+                        showDelete = true
+                    }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Rounded.Delete, stringResource(R.string.stories_delete), tint = Color.White)
                     }
                 }
@@ -433,7 +465,7 @@ fun StoryViewerScreen(
             onPick = { option ->
                 val target = if (detail?.chosenReaction == option) null else option
                 scope.launch {
-                    repository.setStoryReaction(posterChatId, current?.storyId ?: 0, target)
+                    repository.setStoryReaction(posterChatId, reactionStoryId, target)
                         .onSuccess {
                             detail = detail?.copy(chosenReaction = target)
                             showReactions = false
@@ -451,7 +483,7 @@ fun StoryViewerScreen(
             onSend = { text ->
                 replySending = true
                 scope.launch {
-                    repository.replyToStory(posterChatId, current?.storyId ?: 0, text)
+                    repository.replyToStory(posterChatId, replyStoryId, text)
                         .onSuccess {
                             replySending = false
                             showReply = false
@@ -477,7 +509,7 @@ fun StoryViewerScreen(
                     onClick = {
                         deleting = true
                         scope.launch {
-                            repository.deleteStory(posterChatId, current?.storyId ?: 0)
+                            repository.deleteStory(posterChatId, deleteStoryId)
                                 .onSuccess {
                                     notice = context.getString(R.string.stories_deleted)
                                     onClose()
@@ -508,6 +540,8 @@ private fun StoryContent(
     fullFile: MediaFileState,
     thumbnailFile: MediaFileState,
     playing: Boolean,
+    onReady: () -> Unit,
+    onPlayingChanged: (Boolean) -> Unit,
     onRetry: () -> Unit,
     onFailure: () -> Unit
 ) {
@@ -539,16 +573,16 @@ private fun StoryContent(
         else -> {
             val path = fullFile.localPath
             if (path == null) StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
-            else StoryVideo(path, playing, onFailure)
+            else StoryVideo(path, playing, onFailure, onReady, onPlayingChanged)
         }
     }
 }
 
 @Composable
-private fun StoryProgressRow(count: Int, index: Int, progress: Float) {
+private fun StoryProgressRow(count: Int, index: Int, progress: () -> Float) {
     if (count <= 0) return
     val currentIndex = index.coerceIn(0, count - 1)
-    val currentProgress = progress.coerceIn(0f, 1f)
+    val currentProgress = progress().coerceIn(0f, 1f)
     val description = stringResource(R.string.stories_progress, currentIndex + 1, count)
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)
