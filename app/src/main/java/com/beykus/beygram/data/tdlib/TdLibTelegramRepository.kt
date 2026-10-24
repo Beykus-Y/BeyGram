@@ -42,6 +42,11 @@ import com.beykus.beygram.domain.model.QrLoginLinkTracker
 import com.beykus.beygram.domain.model.QrLoginLinkUpdate
 import com.beykus.beygram.domain.model.QR_LOGIN_REFRESH_TIMEOUT_MS
 import com.beykus.beygram.domain.model.CallHistoryPage
+import com.beykus.beygram.domain.model.ChannelAdminEvent
+import com.beykus.beygram.domain.model.ChannelAdminEventPage
+import com.beykus.beygram.domain.model.ChannelEventFilter
+import com.beykus.beygram.domain.model.ChannelStatisticsPerson
+import com.beykus.beygram.domain.model.ChannelStatisticsSummary
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
@@ -939,6 +944,72 @@ class TdLibTelegramRepository private constructor(
         }
         MessageLinkTarget(info.chatId, message.id, forumTopicId)
     }
+    override suspend fun channelStatistics(chatId: Long): Result<ChannelStatisticsSummary> = requestResult {
+        when (val statistics = tdRequests(TdApi.GetChatStatistics(chatId, false))) {
+            is TdApi.ChatStatisticsChannel -> ChannelStatisticsSummary(
+                periodStart = statistics.period.startDate,
+                periodEnd = statistics.period.endDate,
+                memberCount = statistics.memberCount.value.toInt(),
+                memberGrowthPercent = statistics.memberCount.growthRatePercentage,
+                meanViewCount = statistics.meanMessageViewCount.value.toInt(),
+                meanShareCount = statistics.meanMessageShareCount.value.toInt(),
+                meanReactionCount = statistics.meanMessageReactionCount.value.toInt(),
+                notificationsPercent = statistics.enabledNotificationsPercentage.toInt()
+            )
+            is TdApi.ChatStatisticsSupergroup -> ChannelStatisticsSummary(
+                periodStart = statistics.period.startDate,
+                periodEnd = statistics.period.endDate,
+                memberCount = statistics.memberCount.value.toInt(),
+                memberGrowthPercent = statistics.memberCount.growthRatePercentage,
+                meanViewCount = statistics.viewerCount.value.toInt(),
+                meanShareCount = statistics.messageCount.value.toInt(),
+                meanReactionCount = statistics.senderCount.value.toInt(),
+                topSenders = statistics.topSenders.orEmpty().take(5).map {
+                    ChannelStatisticsPerson(it.userId, profiles.senderName(TdApi.MessageSenderUser(it.userId)), it.sentMessageCount)
+                }
+            )
+            else -> throw UserMessageException(UiText.Res(R.string.err_statistics_unavailable))
+        }
+    }
+
+    override suspend fun channelAdminEvents(chatId: Long, fromEventId: Long, filter: ChannelEventFilter): Result<ChannelAdminEventPage> = requestResult {
+        val filters = TdApi.ChatEventLogFilters().apply {
+            when (filter) {
+                ChannelEventFilter.All -> {
+                    messageEdits = true; messageDeletions = true; messagePins = true
+                    memberJoins = true; memberLeaves = true; memberInvites = true
+                    memberPromotions = true; memberRestrictions = true; memberTagChanges = true
+                    infoChanges = true; settingChanges = true; inviteLinkChanges = true
+                    videoChatChanges = true; forumChanges = true; subscriptionExtensions = true
+                }
+                ChannelEventFilter.Messages -> {
+                    messageEdits = true; messageDeletions = true; messagePins = true
+                }
+                ChannelEventFilter.Members -> {
+                    memberJoins = true; memberLeaves = true; memberInvites = true
+                    memberPromotions = true; memberRestrictions = true; memberTagChanges = true
+                }
+                ChannelEventFilter.Settings -> {
+                    infoChanges = true; settingChanges = true; inviteLinkChanges = true
+                    videoChatChanges = true; forumChanges = true; subscriptionExtensions = true
+                }
+            }
+        }
+        val found = tdRequests(TdApi.GetChatEventLog(chatId, "", fromEventId, ADMIN_LOG_PAGE_SIZE, filters, longArrayOf()))
+        val events = found.events.orEmpty().map { event ->
+            val actorId = (event.memberId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L
+            ChannelAdminEvent(
+                id = event.date.toLong(),
+                date = event.date,
+                actorId = actorId,
+                actorName = if (actorId > 0L) profiles.senderName(TdApi.MessageSenderUser(actorId)) else "",
+                text = event.action.adminText(appContext, profiles)
+            )
+        }
+        val next = events.lastOrNull()?.id?.takeIf { it != 0L && it != fromEventId } ?: 0L
+        ChannelAdminEventPage(events, next)
+    }
+
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
@@ -2550,6 +2621,36 @@ private fun publicChatJoinError(error: Exception): UiText {
             UiText.Res(R.string.global_search_public_join_declined)
         else -> UiText.Res(R.string.global_search_public_open_failed)
     }
+}
+
+private const val ADMIN_LOG_PAGE_SIZE = 50
+
+/** Human-readable admin-log action. Unknown/new TDLib actions fall back to a neutral settings label. */
+private fun TdApi.ChatEventAction.adminText(context: Context, profiles: TdProfiles): String = when (this) {
+    is TdApi.ChatEventTitleChanged -> context.getString(R.string.channel_event_title_changed, newTitle)
+    is TdApi.ChatEventPhotoChanged -> context.getString(R.string.channel_event_photo_changed)
+    is TdApi.ChatEventDescriptionChanged -> context.getString(R.string.channel_event_description_changed)
+    is TdApi.ChatEventUsernameChanged -> context.getString(R.string.channel_event_username_changed, newUsername)
+    is TdApi.ChatEventMessageDeleted -> context.getString(R.string.channel_event_message_deleted)
+    is TdApi.ChatEventMessageEdited -> context.getString(R.string.channel_event_message_edited)
+    is TdApi.ChatEventMessagePinned -> context.getString(R.string.channel_event_message_pinned)
+    is TdApi.ChatEventMessageUnpinned -> context.getString(R.string.channel_event_message_unpinned)
+    is TdApi.ChatEventMemberJoined, is TdApi.ChatEventMemberJoinedByInviteLink,
+    is TdApi.ChatEventMemberJoinedByRequest -> context.getString(R.string.channel_event_member_joined)
+    is TdApi.ChatEventMemberLeft -> context.getString(R.string.channel_event_member_left)
+    is TdApi.ChatEventMemberInvited -> context.getString(
+        R.string.channel_event_member_invited,
+        profiles.senderName(TdApi.MessageSenderUser(userId))
+    )
+    is TdApi.ChatEventMemberPromoted -> context.getString(
+        R.string.channel_event_member_promoted,
+        profiles.senderName(TdApi.MessageSenderUser(userId))
+    )
+    is TdApi.ChatEventMemberRestricted -> context.getString(
+        R.string.channel_event_member_restricted,
+        profiles.senderName(memberId)
+    )
+    else -> context.getString(R.string.channel_event_settings_changed)
 }
 
 /** A manual unread marker can be cleared without a message; a plain empty chat has nothing to mark read. */

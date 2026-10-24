@@ -101,6 +101,7 @@ import com.beykus.beygram.ui.screens.settings.ActiveSessionsScreen
 import com.beykus.beygram.ui.screens.settings.LanguageScreen
 import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
+import com.beykus.beygram.ui.screens.profile.ChannelStatisticsScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
 import com.beykus.beygram.ui.screens.theme.AppearanceDraftSaver
@@ -1357,6 +1358,9 @@ private fun BeyGramAppContent(
                             } else routeName = chatBackRouteName
                         },
                         onChatInfo = { routeName = AppRoute.ChatInfo.name },
+                        onStatistics = if (chat.isChannel && chat.canPost) {
+                            { routeName = AppRoute.ChannelStatistics.name }
+                        } else null,
                         connectionState = connectionState,
                         recordingSettings = recordingSettings,
                         forumTopicId = activeTopicId,
@@ -1569,6 +1573,15 @@ private fun BeyGramAppContent(
 
                 AppRoute.Chat -> chatRoute()
                 AppRoute.ChatInfo -> chatInfoRoute()
+                AppRoute.ChannelStatistics -> {
+                    val statsChat by repository.chats.collectAsStateWithLifecycle()
+                    ChannelStatisticsScreen(
+                        title = statsChat.firstOrNull { it.id == selectedChatId }?.title.orEmpty(),
+                        loadStatistics = { repository.channelStatistics(selectedChatId) },
+                        loadEvents = { from, filter -> repository.channelAdminEvents(selectedChatId, from, filter) },
+                        onBack = { routeName = AppRoute.Chat.name }
+                    )
+                }
                 AppRoute.ChatMembers -> chatMembersRoute()
                 AppRoute.MemberProfile -> memberProfileRoute()
                 AppRoute.MyProfile -> {

@@ -112,7 +112,7 @@ private const val MAX_UNREAD_FORWARD_PAGES = 20
 fun ChatScreen(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
+    onBack: () -> Unit, onChatInfo: () -> Unit, onStatistics: (() -> Unit)? = null, connectionState: TelegramConnectionState,
     recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore,
     chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
@@ -1028,7 +1028,8 @@ fun ChatScreen(
             },
             onJumpUnread = ::jumpToFirstUnread,
             onScheduled = { scheduledMessagesOpen = true },
-            onChatSettings = { chatSettingsOpen = true }
+            onChatSettings = { chatSettingsOpen = true },
+            onStatistics = onStatistics
         )
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
@@ -1447,7 +1448,7 @@ private fun ChatTopBar(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
     hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
-    onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}
+    onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onStatistics: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     var menuOpen by remember { mutableStateOf(false) }
@@ -1487,6 +1488,10 @@ private fun ChatTopBar(
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_settings_title)) },
                         onClick = { menuOpen = false; onChatSettings() }
+                    )
+                    if (onStatistics != null) DropdownMenuItem(
+                        text = { Text(stringResource(R.string.channel_statistics_title)) },
+                        onClick = { menuOpen = false; onStatistics() }
                     )
                 }
             }
