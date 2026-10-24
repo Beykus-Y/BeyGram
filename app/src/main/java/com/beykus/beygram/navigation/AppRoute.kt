@@ -46,6 +46,12 @@ enum class AppRoute {
  */
 internal fun appRouteFromStored(value: String?): AppRoute {
     if (value == LEGACY_THEME_EDITOR_ROUTE) return AppRoute.Appearance
+    // The experimental account manager and picker were replaced by the shared
+    // bottom-sheet switcher. A task restored from an older build opens Chats.
+    if (value == AppRoute.AccountPicker.name ||
+        value == AppRoute.SecondaryAccounts.name ||
+        value == AppRoute.SecondaryChats.name
+    ) return AppRoute.Chats
     return AppRoute.entries.firstOrNull { it.name == value } ?: AppRoute.Start
 }
 

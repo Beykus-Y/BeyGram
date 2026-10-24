@@ -1,5 +1,10 @@
 # Issue #185 — C5: persisted foreground Telegram account selection
 
+> **Superseded UI:** the C5 account picker and the separate secondary-account
+> manager were replaced by the single compact switcher described in
+> [multi-account-account-switcher.md](multi-account-account-switcher.md)
+> (issue #357). The selection and isolation rules below remain authoritative.
+
 This step makes the **primary Chats route** display the selected source, not
 a mislabeled legacy `ChatPreview`. A new account picker is available from
 both chat headers. Selection is persisted in `TdAccountRegistry` and restored

@@ -38,6 +38,10 @@ internal sealed interface TdSecondaryRouteDecision {
     data class Blocked(val reason: TdSecondaryRouteBlock) : TdSecondaryRouteDecision
 }
 
+internal class TdSecondaryRouteUnavailableException(
+    val reason: TdSecondaryRouteBlock
+) : IllegalStateException("Secondary account route is unavailable: $reason")
+
 /**
  * No unknown or failed local proxy state is silently converted to direct TDLib.
  * For a primary manual proxy, the secondary account needs its own explicit

@@ -134,6 +134,9 @@ fun ChatScreen(
     var forwardId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var forwardBusy by remember { mutableStateOf(false) }
     var forwardError by remember { mutableStateOf<String?>(null) }
+    // A copy hides the original author; this survives recreation together with the pending forwardId.
+    var forwardAsCopy by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var forwardCopyConfirmId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var contextChatId by rememberSaveable(chat.id) { mutableStateOf(0L) }
     var contextMessageId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var highlighted by remember { mutableStateOf<Long?>(null) }
@@ -684,7 +687,20 @@ fun ChatScreen(
             onTogglePin = {
                 if (chat.isChannel && !actionMessage.isPinned) pinConfirm = true
                 else setPinned(actionMessage, !actionMessage.isPinned)
-            }
+            },
+            onCopyLink = {
+                val target = actionMessage
+                scope.launch {
+                    conversation.messageLink(chat.id, target.id, inMessageThread = forumTopicId > 0L)
+                        .onSuccess {
+                            clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.message_link), it))
+                            Toast.makeText(context, context.getString(R.string.message_link_copied), Toast.LENGTH_SHORT).show()
+                        }
+                        .onFailure { error = it.userMessage(context, R.string.err_message_link_unavailable) }
+                    closeActions()
+                }
+            },
+            onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() }
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
         else ChatTopBar(chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true }, observeFile, onDownloadFile, forumTopicTitle)
         reactionOwner?.takeIf { !deleting }?.let { owner ->
@@ -793,6 +809,19 @@ fun ChatScreen(
             Text(failure, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { error = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.warningText) }
         } }
+        forwardCopyConfirmId?.let { id ->
+            AlertDialog(
+                onDismissRequest = { forwardCopyConfirmId = null },
+                title = { Text(stringResource(R.string.message_forward_copy_title)) },
+                text = { Text(stringResource(R.string.message_forward_copy_warning)) },
+                confirmButton = {
+                    TextButton(onClick = { forwardCopyConfirmId = null; forwardAsCopy = true; forwardId = id }) {
+                        Text(stringResource(R.string.message_forward_copy_confirm), color = palette.accent)
+                    }
+                },
+                dismissButton = { TextButton(onClick = { forwardCopyConfirmId = null }) { Text(stringResource(R.string.common_cancel)) } }
+            )
+        }
         val replyTarget = messages.firstOrNull { it.id == replyId }
         if (deleting && actionMessage != null) {
             val caps = capabilities
@@ -1015,21 +1044,25 @@ fun ChatScreen(
             canForward = viewedRights?.canForward == true,
             canEdit = viewedRights?.canEdit == true,
             canDelete = viewedRights?.let { it.canDeleteForSelf || it.canDeleteForAll } == true,
-            onForward = { forwardId = viewed.id; selectedMediaId = null },
+            onForward = { forwardAsCopy = false; forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
             onDelete = { deleteEveryone = viewedRights?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
         ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) })
     forwardId?.let { id ->
-        ForwardChatDialog(chats, forwardBusy, forwardError,
+        ForwardChatDialog(chats, forwardBusy, forwardError, asCopy = forwardAsCopy,
             onPick = { target -> scope.launch {
                 forwardBusy = true; forwardError = null
                 try {
-                    val result = conversation.forwardMessage(chat.id, id, target.id)
-                    if (result.isSuccess) { forwardId = null; Toast.makeText(context, context.getString(R.string.chat_message_forwarded), Toast.LENGTH_SHORT).show() }
-                    else forwardError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                    val result = conversation.forwardMessage(chat.id, id, target.id, asCopy = forwardAsCopy)
+                    if (result.isSuccess) {
+                        val copied = forwardAsCopy
+                        forwardId = null
+                        forwardAsCopy = false
+                        Toast.makeText(context, context.getString(if (copied) R.string.message_forwarded_without_author else R.string.chat_message_forwarded), Toast.LENGTH_SHORT).show()
+                    } else forwardError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
                 } finally { forwardBusy = false }
             } },
-            onClose = { forwardId = null; forwardError = null })
+            onClose = { forwardId = null; forwardError = null; forwardAsCopy = false })
     }
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }) }
     if (pinConfirm && actionMessage != null) AlertDialog(
@@ -1136,6 +1169,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 }
                             }
                             if (hasText) FormattedMessageText(message)
+                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile) }
                         }
                     }
                 },

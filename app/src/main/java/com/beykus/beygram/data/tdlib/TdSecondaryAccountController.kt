@@ -9,13 +9,41 @@ import com.beykus.beygram.notifications.NotificationPreferencesStore
 import com.beykus.beygram.notifications.notificationPreferencesName
 import com.beykus.beygram.data.archive.archivePreferencesName
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * User-actionable failure from selecting or restoring an account. The shared UI
+ * maps these categories to messages and never displays a raw TDLib exception.
+ */
+internal sealed class TdAccountSwitchFailure(message: String, cause: Throwable? = null) :
+    IllegalStateException(message, cause) {
+    class RouteUnavailable(val reason: TdSecondaryRouteBlock) :
+        TdAccountSwitchFailure("Secondary connection route is unavailable: $reason")
+    class RoutePaused : TdAccountSwitchFailure("Secondary connection is paused by route policy")
+    class SessionLimit : TdAccountSwitchFailure("Two secondary sessions already run")
+    class Timeout : TdAccountSwitchFailure("Telegram did not respond in time")
+    class NotAuthorized : TdAccountSwitchFailure("The account has not completed Telegram sign-in")
+    class Disconnected : TdAccountSwitchFailure("The TDLib session is not running")
+    class AccountLimit : TdAccountSwitchFailure("The account registry has no free slot")
+}
+
+private val AUTH_WAITING_PHASES = setOf(
+    TdAccountAuthPhase.WAIT_PHONE,
+    TdAccountAuthPhase.WAIT_CODE,
+    TdAccountAuthPhase.WAIT_PASSWORD
+)
 
 /**
  * Process-owned and intentionally lazy. Opening Settings does NOT open a
@@ -60,6 +88,8 @@ internal class TdSecondaryAccountController private constructor(
                 NotificationRuntime.get(app).detachSecondary(id)
             }
         },
+        isAuthorized = restoreStore::isAuthorized,
+        isManuallyStopped = restoreStore::isManuallyStopped,
         openNative = { accountId, preference ->
             TdNativeSecondaryAuthSession(launcher.openRegisteredSecondary(accountId, preference))
         }
@@ -67,6 +97,155 @@ internal class TdSecondaryAccountController private constructor(
 
     private val reconcileMutex = Mutex()
     private val restoreMutex = Mutex()
+
+    fun isAuthorized(accountId: String): Boolean = restoreStore.isAuthorized(accountId)
+
+    fun isManuallyStopped(accountId: String): Boolean = restoreStore.isManuallyStopped(accountId)
+
+    /** Explicit route chosen for the next sign-in, or the route of the last READY session. */
+    fun preferredRoute(accountId: String): TdSecondaryRoutePreference =
+        restoreStore.storedRoute(accountId) ?: TdSecondaryRoutePreference.FOLLOW_PRIMARY
+
+    fun setPreferredRoute(accountId: String, preference: TdSecondaryRoutePreference) =
+        restoreStore.setStoredRoute(accountId, preference)
+
+    /**
+     * One-tap selection of a known account: reopen a stopped/restored session
+     * when needed and wait until its full repository is usable. Never switches
+     * to legacy data on failure.
+     */
+    suspend fun ensureReady(accountId: String) = restoreMutex.withLock {
+        requireSecondary(accountId)
+        var row = rowOf(accountId) ?: throw TdAccountSwitchFailure.Disconnected()
+        if (row.networkSuspended && row.connectedInThisProcess &&
+            row.phase != TdAccountAuthPhase.CLOSED
+        ) {
+            throw TdAccountSwitchFailure.RoutePaused()
+        }
+        if (!row.connectedInThisProcess || row.phase == TdAccountAuthPhase.CLOSED) {
+            if (!restoreStore.isAuthorized(accountId)) throw TdAccountSwitchFailure.NotAuthorized()
+            openSecondary(accountId, preferredRoute(accountId))
+        }
+        row = awaitPhase(accountId) ?: throw TdAccountSwitchFailure.Disconnected()
+        when {
+            row.phase == TdAccountAuthPhase.READY && !row.networkSuspended -> Unit
+            row.phase?.let { it in AUTH_WAITING_PHASES } == true ->
+                throw TdAccountSwitchFailure.NotAuthorized()
+            row.networkSuspended -> throw TdAccountSwitchFailure.RoutePaused()
+            else -> throw TdAccountSwitchFailure.Disconnected()
+        }
+    }
+
+    /**
+     * Start or resume Telegram sign-in for a reserved slot. No chat repository
+     * is exposed before TDLib reaches READY.
+     */
+    suspend fun connectForSignIn(
+        accountId: String,
+        preference: TdSecondaryRoutePreference = preferredRoute(accountId)
+    ) = restoreMutex.withLock {
+        requireSecondary(accountId)
+        restoreStore.setStoredRoute(accountId, preference)
+        val row = rowOf(accountId)
+        if (row?.connectedInThisProcess == true && row.phase != TdAccountAuthPhase.CLOSED) return@withLock
+        openSecondary(accountId, preference)
+    }
+
+    /**
+     * Apply an explicit route. A live session (READY or still waiting for
+     * credentials) is closed without logout and reopened after the route
+     * preflight, so a route-policy pause can be recovered during sign-in. A
+     * stopped or not-yet-open account only remembers the preference; its next
+     * explicit sign-in/reconnect uses it, so changing a route never clears a
+     * manual stop by itself.
+     */
+    suspend fun useRoute(accountId: String, preference: TdSecondaryRoutePreference) =
+        restoreMutex.withLock {
+            requireSecondary(accountId)
+            restoreStore.setStoredRoute(accountId, preference)
+            val row = rowOf(accountId)
+            when {
+                row != null && row.connectedInThisProcess &&
+                    row.phase != TdAccountAuthPhase.CLOSED ->
+                    reconnectLocked(accountId, preference)
+                else -> Unit
+            }
+        }
+
+    /** Removes only a slot whose native login never reached READY. */
+    suspend fun discardIncompleteAccount(accountId: String) {
+        requireSecondary(accountId)
+        if (restoreStore.isAuthorized(accountId)) throw TdAccountSwitchFailure.NotAuthorized()
+        restoreStore.markDeletionPending(accountId)
+        try {
+            coordinator.discardIncompleteAccount(accountId)
+        } catch (cancelled: CancellationException) {
+            // Cancellation before durable unregister must not leave a restart
+            // tombstone on a still-registered account.
+            kotlinx.coroutines.withContext(
+                kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO
+            ) {
+                runCatching {
+                    if (accountId in registry.loadOrCreate().accountIds) {
+                        restoreStore.clearDeletionPending(accountId)
+                    }
+                }
+            }
+            throw cancelled
+        } catch (failure: Throwable) {
+            if (accountId in registry.loadOrCreate().accountIds) {
+                restoreStore.clearDeletionPending(accountId)
+                throw failure
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                cleanupUnregisteredAccount(accountId)
+            }
+            return
+        }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            cleanupUnregisteredAccount(accountId)
+        }
+    }
+
+    private fun requireSecondary(accountId: String) {
+        require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+            "The primary account is owned by the legacy repository"
+        }
+    }
+
+    private fun rowOf(accountId: String): TdSecondaryAccountRow? =
+        coordinator.snapshot.value.accounts.firstOrNull { it.accountId == accountId }
+
+    private suspend fun openSecondary(
+        accountId: String,
+        preference: TdSecondaryRoutePreference
+    ) {
+        try {
+            withTimeout(60_000) { coordinator.connect(accountId, preference) }
+        } catch (_: TimeoutCancellationException) {
+            throw TdAccountSwitchFailure.Timeout()
+        } catch (failure: TdSecondaryRouteUnavailableException) {
+            throw TdAccountSwitchFailure.RouteUnavailable(failure.reason)
+        } catch (_: TdSecondarySessionLimitException) {
+            throw TdAccountSwitchFailure.SessionLimit()
+        } catch (_: TdAccountLimitException) {
+            throw TdAccountSwitchFailure.AccountLimit()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        }
+    }
+
+    /** Wait until TDLib either becomes ready, closes, or asks for sign-in data. */
+    private suspend fun awaitPhase(accountId: String): TdSecondaryAccountRow? =
+        withTimeoutOrNull(45_000) {
+            coordinator.snapshot
+                .mapNotNull { snapshot -> snapshot.accounts.firstOrNull { it.accountId == accountId } }
+                .first { row ->
+                    row.phase == TdAccountAuthPhase.READY ||
+                        row.phase == TdAccountAuthPhase.CLOSED ||
+                        row.phase?.let { it in AUTH_WAITING_PHASES } == true
+                }
+        } ?: throw TdAccountSwitchFailure.Timeout()
 
     /**
      * Can run after process restart: only accounts for which native TDLib
@@ -260,13 +439,32 @@ internal class TdSecondaryAccountController private constructor(
     /** Coordinates manual route switches against automatic account restore. */
     suspend fun reconnectWithRoute(accountId: String, preference: TdSecondaryRoutePreference) =
         restoreMutex.withLock {
-            coordinator.reconnectWithRoute(accountId, preference) { route ->
-                val decision = preflight.decide(primaryRoute(), route)
-                check(decision !is TdSecondaryRouteDecision.Blocked) {
-                    "Connection route is currently unavailable"
+            requireSecondary(accountId)
+            restoreStore.setStoredRoute(accountId, preference)
+            reconnectLocked(accountId, preference)
+        }
+
+    private suspend fun reconnectLocked(
+        accountId: String,
+        preference: TdSecondaryRoutePreference
+    ) {
+        try {
+            withTimeout(120_000) {
+                coordinator.reconnectWithRoute(accountId, preference) { route ->
+                    val decision = preflight.decide(primaryRoute(), route)
+                    if (decision is TdSecondaryRouteDecision.Blocked) {
+                        throw TdSecondaryRouteUnavailableException(decision.reason)
+                    }
                 }
             }
+        } catch (_: TimeoutCancellationException) {
+            throw TdAccountSwitchFailure.Timeout()
+        } catch (failure: TdSecondaryRouteUnavailableException) {
+            throw TdAccountSwitchFailure.RouteUnavailable(failure.reason)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         }
+    }
 
     /** Also called when entering the account screen; serializes all route probes. */
     suspend fun checkRoutesNow() = reconcileMutex.withLock {

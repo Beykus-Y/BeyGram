@@ -61,10 +61,12 @@ internal fun MessageActionsBar(
     onCopy: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onTogglePin: () -> Unit
+    onTogglePin: () -> Unit,
+    onCopyLink: () -> Unit = {},
+    onForwardCopy: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
-    var pinMenu by remember(capabilities, canPin) { mutableStateOf(false) }
+    var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textPrimary) }
@@ -74,20 +76,26 @@ internal fun MessageActionsBar(
                     if (capabilities.canReply) ActionIcon(Icons.AutoMirrored.Rounded.Reply, stringResource(R.string.message_action_reply), palette.accent, onReply)
                     if (capabilities.canCopy && hasText) ActionIcon(Icons.Rounded.ContentCopy, stringResource(R.string.message_action_copy_text), palette.accent, onCopy)
                     if (capabilities.canEdit) ActionIcon(Icons.Rounded.Edit, if (isMedia) stringResource(R.string.message_action_edit_caption) else stringResource(R.string.message_action_edit), palette.accent, onEdit)
-                    if (canPin) {
-                        Box {
-                            IconButton(onClick = { pinMenu = true }) {
-                                Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = palette.accent)
-                            }
-                            DropdownMenu(expanded = pinMenu, onDismissRequest = { pinMenu = false }) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(if (isPinned) R.string.message_action_unpin else R.string.message_action_pin)) },
-                                    onClick = { pinMenu = false; onTogglePin() }
-                                )
-                            }
+                    if (capabilities.canDeleteForSelf || capabilities.canDeleteForAll) ActionIcon(Icons.Rounded.Delete, stringResource(R.string.common_delete), palette.danger, onDelete)
+                    if (canPin || capabilities.canGetLink || capabilities.canForward) Box {
+                        IconButton(onClick = { moreOpen = true }) {
+                            Icon(Icons.Rounded.MoreVert, stringResource(R.string.message_action_more), tint = palette.accent)
+                        }
+                        DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                            if (canPin) DropdownMenuItem(
+                                text = { Text(stringResource(if (isPinned) R.string.message_action_unpin else R.string.message_action_pin)) },
+                                onClick = { moreOpen = false; onTogglePin() }
+                            )
+                            if (capabilities.canGetLink) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.message_action_copy_link)) },
+                                onClick = { moreOpen = false; onCopyLink() }
+                            )
+                            if (capabilities.canForward) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.message_action_forward_copy)) },
+                                onClick = { moreOpen = false; onForwardCopy() }
+                            )
                         }
                     }
-                    if (capabilities.canDeleteForSelf || capabilities.canDeleteForAll) ActionIcon(Icons.Rounded.Delete, stringResource(R.string.common_delete), palette.danger, onDelete)
                 }
                 error != null -> TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry), color = palette.accent) }
                 else -> CircularProgressIndicator(Modifier.padding(end = 14.dp).size(22.dp), color = palette.accent, strokeWidth = 2.dp)

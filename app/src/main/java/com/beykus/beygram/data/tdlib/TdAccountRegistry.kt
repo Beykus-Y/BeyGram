@@ -20,6 +20,10 @@ internal data class TdAccountRegistryState(
     val activeAccountId: String
 )
 
+/** The user reached BeyGram's bounded number of registered Telegram accounts. */
+internal class TdAccountLimitException :
+    IllegalStateException("Too many registered TDLib accounts")
+
 internal class TdAccountRegistry(private val privateFilesDir: File) {
     companion object {
         private const val FORMAT = "beygram-accounts-v1"
@@ -54,7 +58,7 @@ internal class TdAccountRegistry(private val privateFilesDir: File) {
     /** Reserve a new opaque account ID; does not start TDLib or create its database. */
     fun prepareSecondaryAccount(): Pair<TdAccountRegistryState, String> = synchronized(mutationLock) {
         val current = loadOrCreate()
-        check(current.accountIds.size < MAX_ACCOUNT_IDS) { "Too many registered TDLib accounts" }
+        if (current.accountIds.size >= MAX_ACCOUNT_IDS) throw TdAccountLimitException()
         val id = generateSequence { layout.newSecondaryId() }
             .first { it !in current.accountIds }
         // Validate the chosen storage before publishing the new ID to disk.

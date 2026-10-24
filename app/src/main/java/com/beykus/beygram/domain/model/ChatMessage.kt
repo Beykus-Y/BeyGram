@@ -28,8 +28,30 @@ data class ChatMessage(
     /** TDLib forum topic id for opening a global search hit in its original topic. */
     val forumTopicId: Long = 0L,
     /** The message is pinned in its chat (TDLib's Message.isPinned). */
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    /** Web-page metadata for a text message link; never populated in secret chats. */
+    val linkPreview: MessageLinkPreview? = null
 )
+
+/**
+ * The compact web-page card TDLib attaches to a text message. All content is server-supplied metadata; [photoFileId]
+ * points at a small photo size already registered in the media store, not at the page's original image.
+ */
+data class MessageLinkPreview(
+    /** The original destination TDLib resolved; may differ from the human-readable [displayUrl]. */
+    val url: String,
+    val displayUrl: String,
+    val siteName: String = "",
+    val title: String = "",
+    val description: String = "",
+    val photoFileId: Int? = null,
+    val photoWidth: Int = 0,
+    val photoHeight: Int = 0
+) {
+    /** A card with no text at all would render as an empty box, so it is not shown. */
+    val hasContent: Boolean
+        get() = url.isNotBlank() || displayUrl.isNotBlank() || siteName.isNotBlank() || title.isNotBlank() || description.isNotBlank()
+}
 
 /**
  * An emoji reaction under a message. [isChosen] marks the reaction the current user added. A custom emoji reaction has a
@@ -79,14 +101,25 @@ data class LiveMessageArrival(val sequence: Long, val messageId: Long)
 data class MessageIdReplacement(val oldId: Long, val newId: Long)
 
 data class MessageReply(val chatId: Long, val messageId: Long, val text: UiText, val senderName: String = "", val isUnavailable: Boolean = false)
-data class MessageCapabilities(val canReply: Boolean = false, val canCopy: Boolean = false, val canEdit: Boolean = false, val canDeleteForSelf: Boolean = false, val canDeleteForAll: Boolean = false, val canForward: Boolean = false, val canSave: Boolean = false, val canPin: Boolean = false)
+data class MessageCapabilities(
+    val canReply: Boolean = false,
+    val canCopy: Boolean = false,
+    val canEdit: Boolean = false,
+    val canDeleteForSelf: Boolean = false,
+    val canDeleteForAll: Boolean = false,
+    val canForward: Boolean = false,
+    val canSave: Boolean = false,
+    /** TDLib can produce a Telegram link for this message; private or protected messages may refuse one. */
+    val canGetLink: Boolean = false,
+    /** TDLib's canBePinned: both pinning and unpinning need it. */
+    val canPin: Boolean = false
+)
 
 /**
  * TDLib's canBePinned covers both pinning and unpinning. An existing pin must not be treated as standing permission:
  * a channel subscriber or group member without pin-management rights cannot unpin either.
  */
 fun canTogglePin(canPin: Boolean): Boolean = canPin
-
 enum class DeleteMessageScope { ForSelf, ForEveryone }
 data class MessageContext(val chatId: Long, val title: String, val targetId: Long, val messages: List<ChatMessage>)
 data class MessageSearchPage(val messages: List<ChatMessage>, val nextFromMessageId: Long)
