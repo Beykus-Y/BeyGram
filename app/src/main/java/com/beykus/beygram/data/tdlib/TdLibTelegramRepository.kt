@@ -12,6 +12,7 @@ import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.ReactionOption
@@ -815,9 +816,10 @@ class TdLibTelegramRepository private constructor(
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
-    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long) = conversationActions.search(chatId, query, fromMessageId)
-    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long) =
-        conversationActions.search(chatId, query, fromMessageId, forumTopicId)
+    override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
+        conversationActions.search(chatId, query, fromMessageId, filter = filter)
+    override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
+        conversationActions.search(chatId, query, fromMessageId, forumTopicId, filter)
     override suspend fun searchGlobalMessages(query: String, offset: String, filter: GlobalSearchFilter) =
         conversationActions.searchGlobal(query, offset, filter).map { page ->
             // One metadata lookup per distinct uncached chat, never per message. Bounded
@@ -2073,6 +2075,7 @@ class TdLibTelegramRepository private constructor(
         media = attachment,
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
+        senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
         isEdited = editDate > 0,
         entities = messageFormattedText(content)?.domainEntities().orEmpty(),
         inlineKeyboard = inlineKeyboard(replyMarkup),

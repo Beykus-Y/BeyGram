@@ -60,6 +60,8 @@ import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
+import com.beykus.beygram.domain.search.appendDistinctBy
+import com.beykus.beygram.domain.search.isCurrentChatSearch
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
@@ -166,11 +168,18 @@ fun ChatScreen(
     var pendingJumpId by remember(chat.id) { mutableStateOf<Long?>(null) }
     var searching by rememberSaveable(chat.id) { mutableStateOf(false) }
     var searchQuery by rememberSaveable(chat.id) { mutableStateOf("") }
+    var searchFilter by rememberSaveable(chat.id, stateSaver = ChatSearchFilterSaver) { mutableStateOf(ChatSearchFilter()) }
     var searchResults by remember(chat.id) { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var searchNextId by remember(chat.id) { mutableLongStateOf(0L) }
+    var searchTotalCount by remember(chat.id) { mutableIntStateOf(0) }
+    var searchGeneration by remember(chat.id) { mutableIntStateOf(0) }
     var searchBusy by remember(chat.id) { mutableStateOf(false) }
     var searchError by remember(chat.id) { mutableStateOf<String?>(null) }
-    fun closeSearch() { searching = false; searchQuery = "" }
+    fun closeSearch() {
+        searching = false; searchQuery = ""; searchFilter = ChatSearchFilter()
+        searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchGeneration++
+        searchBusy = false; searchError = null
+    }
     var sending by remember { mutableStateOf(false) }
     var sendOptionsOpen by remember(chat.id) { mutableStateOf(false) }
     var scheduledMessagesOpen by remember(chat.id) { mutableStateOf(false) }
@@ -336,6 +345,8 @@ fun ChatScreen(
         } else videoPermissions.launch(videoNotePermissions)
     }
     val messages = history.messages
+    // Sender picker is built from the loaded history; no extra TDLib member request is needed in the search bar.
+    val searchSenders = remember(messages) { chatSearchSenders(messages) }
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
     val rawMessageItems = remember(messages, pendingVideoNotes) {
         pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + groupTelegramMediaAlbums(messages)
@@ -733,26 +744,55 @@ fun ChatScreen(
                 .onFailure { error = it.userMessage(context, R.string.err_chat_actions_load_failed) }
         }
     }
-    // Results refresh after a short pause in typing; a new query replaces the pending request.
-    LaunchedEffect(searching, searchQuery) {
-        searchResults = emptyList(); searchNextId = 0L; searchError = null
+    // Results refresh after a short pause in typing; a new query or filter replaces the pending request.
+    LaunchedEffect(searching, searchQuery, searchFilter) {
+        val generation = ++searchGeneration
+        searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchError = null
         val needle = searchQuery.trim()
-        searchBusy = searching && needle.isNotEmpty()
-        if (!searching || needle.isEmpty()) return@LaunchedEffect
+        val requestedFilter = searchFilter
+        val active = needle.isNotEmpty() || requestedFilter.isActive
+        searchBusy = searching && active
+        if (!searching || !active) return@LaunchedEffect
         delay(300)
-        (if (forumTopicId > 0L) conversation.searchForumTopicMessages(chat.id, forumTopicId, needle, 0L) else conversation.searchMessages(chat.id, needle, 0L))
-            .onSuccess { page -> searchResults = page.messages; searchNextId = page.nextFromMessageId }
-            .onFailure { searchError = it.userMessage(context, R.string.chat_search_failed) }
-        searchBusy = false
+        (if (forumTopicId > 0L) conversation.searchForumTopicMessages(chat.id, forumTopicId, needle, 0L, requestedFilter)
+        else conversation.searchMessages(chat.id, needle, 0L, requestedFilter))
+            .onSuccess { page ->
+                if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) {
+                    searchResults = page.messages
+                    searchNextId = page.nextFromMessageId
+                    // TDLib's total predates the local date filter, so the UI falls back to the loaded count then.
+                    searchTotalCount = if (requestedFilter.hasDateRange) 0 else page.totalCount
+                }
+            }
+            .onFailure { failure ->
+                if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) {
+                    searchError = failure.userMessage(context, R.string.chat_search_failed)
+                }
+            }
+        if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) searchBusy = false
     }
     fun loadMoreResults() {
         val needle = searchQuery.trim()
+        val requestedFilter = searchFilter
+        val cursor = searchNextId
+        val generation = ++searchGeneration
         scope.launch {
             searchBusy = true
-            (if (forumTopicId > 0L) conversation.searchForumTopicMessages(chat.id, forumTopicId, needle, searchNextId) else conversation.searchMessages(chat.id, needle, searchNextId))
-                .onSuccess { page -> if (searchQuery.trim() == needle) { searchResults = searchResults + page.messages; searchNextId = page.nextFromMessageId } }
-                .onFailure { if (searchQuery.trim() == needle) { searchError = it.userMessage(context, R.string.chat_search_failed) } }
-            if (searchQuery.trim() == needle) { searchBusy = false }
+            searchError = null
+            (if (forumTopicId > 0L) conversation.searchForumTopicMessages(chat.id, forumTopicId, needle, cursor, requestedFilter)
+            else conversation.searchMessages(chat.id, needle, cursor, requestedFilter))
+                .onSuccess { page ->
+                    if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) {
+                        searchResults = appendDistinctBy(searchResults, page.messages) { it.id }
+                        searchNextId = page.nextFromMessageId
+                    }
+                }
+                .onFailure { failure ->
+                    if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) {
+                        searchError = failure.userMessage(context, R.string.chat_search_failed)
+                    }
+                }
+            if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) searchBusy = false
         }
     }
     fun openSearchResult(message: ChatMessage) {
@@ -954,8 +994,14 @@ fun ChatScreen(
                 TranslationPolicy.canTranslate(chat.isSecret, actionMessage.text.isNotBlank())) {
                 { translationPickerId = actionMessage.id; closeActions() }
             } else null
-        ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
-        else ChatTopBar(
+        ) else if (searching) ChatSearchBar(
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            filter = searchFilter,
+            senders = if (chat.isSecret) emptyList() else searchSenders,
+            onFilterChange = { searchFilter = it },
+            onClose = ::closeSearch
+        ) else ChatTopBar(
             chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true },
             observeFile, onDownloadFile, forumTopicTitle,
             hasUnread = (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0,
@@ -1094,8 +1140,18 @@ fun ChatScreen(
             Spacer(Modifier.width(6.dp))
             Text(stringResource(R.string.chat_jump_to_latest), color = palette.accentInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
-        if (searching) ChatSearchResults(searchQuery, searchResults, searchBusy, searchError, hasMore = searchNextId != 0L,
-            onOpen = ::openSearchResult, onMore = ::loadMoreResults)
+        if (searching) ChatSearchResults(
+            query = searchQuery,
+            filter = searchFilter,
+            results = searchResults,
+            totalCount = searchTotalCount.takeIf { it > 0 },
+            busy = searchBusy,
+            error = searchError,
+            hasMore = searchNextId != 0L,
+            onOpen = ::openSearchResult,
+            onMore = ::loadMoreResults,
+            onResetFilters = { searchFilter = ChatSearchFilter() }
+        )
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
         error?.let { failure -> Row(Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {

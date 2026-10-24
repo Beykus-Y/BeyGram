@@ -1,5 +1,7 @@
 package com.beykus.beygram.domain.search
 
+import com.beykus.beygram.domain.model.ChatSearchFilter
+import com.beykus.beygram.domain.model.SharedMediaKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -37,6 +39,14 @@ class SearchPagingTest {
     fun staleQueryIsNotCurrent() {
         assertTrue(isCurrentSearch(" котик ", "котик"))
         assertFalse(isCurrentSearch("котик", "кот"))
+    }
+
+    @Test
+    fun staleChatSearchAlsoChecksTheFilter() {
+        val filter = ChatSearchFilter(senderId = 7L, kind = SharedMediaKind.Files)
+        assertTrue(isCurrentChatSearch(" report ", filter, "report", filter))
+        assertFalse(isCurrentChatSearch("report", filter, "report", filter.copy(kind = SharedMediaKind.Links)))
+        assertFalse(isCurrentChatSearch("report", filter, "invoice", filter))
     }
 
     @Test
