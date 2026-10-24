@@ -132,6 +132,7 @@ internal object AutoDownloadNetworkStatus {
     fun ensureStarted(context: Context) {
         synchronized(lock) {
             if (monitor != null) return
+            _network.value = currentAutoDownloadNetwork(context.applicationContext)
             val created = AutoDownloadNetworkMonitor(context.applicationContext, scope) { _network.value = it }
             monitor = created
             created.start()

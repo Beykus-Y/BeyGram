@@ -10,7 +10,7 @@
     <string name="auto_download_limit_mb">%1$d MB</string>
     <string name="auto_download_limit_unlimited">No limit</string>
     <string name="auto_download_data_saver">Save data</string>
-    <string name="auto_download_data_saver_detail">Turns off all automatic downloads on mobile data and roaming. The Download button keeps working.</string>
+    <string name="auto_download_data_saver_detail">Turns off all automatic downloads on mobile data, roaming and metered Wi-Fi. The Download button keeps working.</string>
     <string name="auto_download_secret_note">Secret chats, disappearing photos and spoiler attachments are never downloaded automatically.</string>
     <string name="auto_download_manual_note">The Download button on an attachment always downloads it, even above the limit.</string>
     <string name="auto_download_streaming_note">Fast-start videos can play while downloading. If the file index is at the end, the video opens after the full download.</string>

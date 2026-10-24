@@ -10,7 +10,7 @@
     <string name="auto_download_limit_mb">%1$d MB</string>
     <string name="auto_download_limit_unlimited">Kein Limit</string>
     <string name="auto_download_data_saver">Daten sparen</string>
-    <string name="auto_download_data_saver_detail">Deaktiviert alle automatischen Downloads in mobilen Netzen und im Roaming. Die Schaltfläche „Herunterladen“ funktioniert weiterhin.</string>
+    <string name="auto_download_data_saver_detail">Deaktiviert alle automatischen Downloads in mobilen Netzen, im Roaming und in getaktetem WLAN. Die Schaltfläche „Herunterladen“ funktioniert weiterhin.</string>
     <string name="auto_download_secret_note">Geheime Chats, selbstlöschende Fotos und Spoiler-Anhänge werden nie automatisch geladen.</string>
     <string name="auto_download_manual_note">Die Schaltfläche „Herunterladen“ lädt einen Anhang immer, auch über dem Limit.</string>
     <string name="auto_download_streaming_note">Fast-Start-Videos können während des Downloads abspielen. Liegt der Dateiindex am Ende, öffnet sich das Video erst nach dem vollständigen Download.</string>

@@ -10,7 +10,7 @@
     <string name="auto_download_limit_mb">%1$d МБ</string>
     <string name="auto_download_limit_unlimited">Без ограничения</string>
     <string name="auto_download_data_saver">Экономить трафик</string>
-    <string name="auto_download_data_saver_detail">В мобильной сети и роуминге автоматическая загрузка отключается полностью. Кнопка «Загрузить» продолжает работать.</string>
+    <string name="auto_download_data_saver_detail">В мобильной сети, роуминге и Wi-Fi с лимитом трафика автоматическая загрузка отключается полностью. Кнопка «Загрузить» продолжает работать.</string>
     <string name="auto_download_secret_note">Секретные чаты, исчезающие фото и вложения со спойлером не загружаются автоматически.</string>
     <string name="auto_download_manual_note">Кнопка «Загрузить» на вложении загружает файл в любом случае, даже сверх лимита.</string>
     <string name="auto_download_streaming_note">Видео с быстрым стартом может играть во время загрузки. Если индекс файла находится в конце, видео откроется после полной загрузки.</string>
