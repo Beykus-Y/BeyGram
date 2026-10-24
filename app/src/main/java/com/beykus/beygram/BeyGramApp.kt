@@ -1801,8 +1801,8 @@ private fun BeyGramAppContent(
                         repository = repository,
                         currentPhone = myProfile.info?.phone.orEmpty(),
                         isPrimaryAccount = securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
-                        deletionRunning = accountDeletion.running &&
-                            accountDeletion.accountId == securityAccountId,
+                        deletionRunning = accountDeletion.accountId == securityAccountId &&
+                            (accountDeletion.running || accountDeletion.serverDeleted),
                         requestAccountDeletion = { password, onResult ->
                             if (!AccountDeletionTracker.begin(securityAccountId)) {
                                 onResult(
@@ -1827,6 +1827,7 @@ private fun BeyGramAppContent(
                                             securityAccountId,
                                             serverDeleted = false
                                         )
+                                        AccountDeletionTracker.clearTerminal()
                                         return@launch
                                     }
                                     if (securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
