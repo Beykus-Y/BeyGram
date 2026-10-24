@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
@@ -95,6 +96,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -117,8 +119,13 @@ fun ChatScreen(
     chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
     onServiceUser: (Long) -> Unit = {},
+    /** Opens the channel post's comment thread; only channel posts with a linked discussion group call it. */
+    onOpenComments: (ChatMessage) -> Unit = {},
+    /** A thread overlay above this chat owns Back until it closes, so the channel must not navigate away. */
+    threadOpen: Boolean = false,
     messageAnimations: MessageAnimationConfig = MessageAnimationConfig(),
-    accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+    accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
+    accountLabel: String = ""
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val canPostHere = chat.canPost && topicCanPost
@@ -139,6 +146,15 @@ fun ChatScreen(
     // The message of the latest swipe; a slower capability check for an older swipe is ignored.
     var swipedReplyId by remember(chat.id) { mutableLongStateOf(0L) }
     var actionsId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    var exportOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    val exportModel: ChatExportViewModel = viewModel(key = "chat-export-$accountId-${chat.id}")
+    val exportVisible by remember(exportModel) {
+        exportModel.state.map { it !is ChatExportUiState.Idle }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
+    // Returning to this chat while an export is still running (or finished) brings its progress/result back.
+    LaunchedEffect(exportVisible) {
+        if (exportVisible) exportOpen = true
+    }
     // Translation is manual and cached for this chat visit, per message and target language.
     var translationPickerId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var translationLanguages by remember(chat.id) { mutableStateOf<Map<Long, String>>(emptyMap()) }
@@ -197,6 +213,22 @@ fun ChatScreen(
     val chatOverrideState by chatOverrides.state.collectAsStateWithLifecycle()
     val globalWallpaper = LocalChatWallpaper.current
     val chatWallpaper = chatOverrideState[chat.id]?.wallpaper ?: globalWallpaper
+    // A channel's linked discussion group is stable for the visit; no per-post request is needed to show the chip.
+    var linkedDiscussionChatId by remember(chat.id) { mutableLongStateOf(0L) }
+    LaunchedEffect(chat.id, chat.isChannel, conversation) {
+        if (!chat.isChannel) {
+            linkedDiscussionChatId = 0L
+            return@LaunchedEffect
+        }
+        // A transient failure must not look like "no discussion group": retry with a bounded backoff while open.
+        var attempt = 0
+        while (true) {
+            conversation.linkedDiscussionChatId(chat.id)
+                .onSuccess { linkedDiscussionChatId = it; return@LaunchedEffect }
+            delay((5_000L * (1 shl attempt.coerceAtMost(4))).coerceAtMost(60_000L))
+            attempt++
+        }
+    }
     var error by remember { mutableStateOf<String?>(null) }
     var reactionOptions by remember(chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
@@ -613,7 +645,7 @@ fun ChatScreen(
         val kind = (currentMessages.firstOrNull { it.id == id } ?: mediaWindow.messages.firstOrNull { it.id == id })?.media?.kind
         viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
-    BackHandler(enabled = searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active) {
+    BackHandler(enabled = !threadOpen && (searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active)) {
         when {
             searching -> closeSearch()
             deleting -> { deleting = false; deleteError = null }
@@ -622,17 +654,17 @@ fun ChatScreen(
             else -> attachments.discardAll()
         }
     }
-    BackHandler(enabled = actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching, onBack = onBack)
-    BackHandler(enabled = videoNote.active || audioNote.active) {
+    BackHandler(enabled = !threadOpen && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching, onBack = onBack)
+    BackHandler(enabled = !threadOpen && (videoNote.active || audioNote.active)) {
         videoNote.stopForRecovery()
         audioNote.stopForRecovery()
     }
 
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
-    LaunchedEffect(chat.id, lifecycle, conversation) {
+    LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             snapshotFlow {
-                if (!window.isWindowFocused || searching || !scrollPosition.readBoundaryChecked) emptyList() else {
+                if (!window.isWindowFocused || searching || threadOpen || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
                     val eligible = currentMessages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id }
                     layout.visibleItemsInfo.filter { item ->
@@ -1029,7 +1061,8 @@ fun ChatScreen(
             onJumpUnread = ::jumpToFirstUnread,
             onScheduled = { scheduledMessagesOpen = true },
             onChatSettings = { chatSettingsOpen = true },
-            onStatistics = onStatistics
+            onStatistics = onStatistics,
+            onExport = { exportOpen = true }
         )
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
@@ -1078,11 +1111,18 @@ fun ChatScreen(
                     val latest = listItem.messages.maxByOrNull { it.id }
                     val animateArrival = remember(listItem.key) { animationTracker.claim(listItem.messages.map { it.id }) }
                     MessageAnimationFrame(animate = animateArrival, outgoing = latest?.isOutgoing == true, config = messageAnimations) {
-                        MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
-                            isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
-                            highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
-                            onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
-                            onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
+                        Column(Modifier.fillMaxWidth()) {
+                            MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
+                                isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
+                                highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
+                                onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
+                            val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
+                                ?: listItem.messages.firstOrNull()
+                            commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }?.let { post ->
+                                ChannelCommentsButton(listItem.messages.maxOfOrNull { it.replyCount } ?: 0, outgoing = post.isOutgoing) { onOpenComments(post) }
+                            }
+                        }
                     }
                 } else {
                     val message = listItem.messages.single()
@@ -1100,31 +1140,36 @@ fun ChatScreen(
                         }
                     }
                     MessageAnimationFrame(animate = animateArrival && launch == null, outgoing = message.isOutgoing, config = messageAnimations, modifier = launchModifier) {
-                        val translationLanguage = translationLanguages[message.id]
-                        val translationState = translationLanguage?.let { translationStates[message.id to it] }
-                        val media = message.media
-                        if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
-                        else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
-                        else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
-                            highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
-                            onPlayed = { conversation.openMessageContent(chat.id, message.id) },
-                            onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
-                            onBubblePositioned = bubblePosition,
-                            translation = translationState,
-                            onTranslationRetry = { retryTranslation(message) },
-                            onTranslationCancel = { cancelTranslation(message.id) },
-                            onTranslationDismiss = { translationLanguages = translationLanguages - message.id },
-                            transcriptionRequestPending = message.id in transcribingIds,
-                            transcriptionRequestError = transcriptionErrors[message.id],
-                            transcriptionRated = message.id in ratedTranscriptions,
-                            onTranscribe = if (message.sendState == MessageSendState.Sent && TranslationPolicy.canTranscribe(chat.isSecret, media)) {
-                                { transcribe(message) }
-                            } else null,
-                            onRateTranscription = if (chat.isSecret) {
-                                null
-                            } else {
-                                { isGood -> rateTranscription(message, isGood) }
-                            })
+                        Column(Modifier.fillMaxWidth()) {
+                            val translationLanguage = translationLanguages[message.id]
+                            val translationState = translationLanguage?.let { translationStates[message.id to it] }
+                            val media = message.media
+                            if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
+                            else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
+                            else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
+                                highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                onPlayed = { conversation.openMessageContent(chat.id, message.id) },
+                                onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
+                                onBubblePositioned = bubblePosition,
+                                translation = translationState,
+                                onTranslationRetry = { retryTranslation(message) },
+                                onTranslationCancel = { cancelTranslation(message.id) },
+                                onTranslationDismiss = { translationLanguages = translationLanguages - message.id },
+                                transcriptionRequestPending = message.id in transcribingIds,
+                                transcriptionRequestError = transcriptionErrors[message.id],
+                                transcriptionRated = message.id in ratedTranscriptions,
+                                onTranscribe = if (message.sendState == MessageSendState.Sent && TranslationPolicy.canTranscribe(chat.isSecret, media)) {
+                                    { transcribe(message) }
+                                } else null,
+                                onRateTranscription = if (chat.isSecret) {
+                                    null
+                                } else {
+                                    { isGood -> rateTranscription(message, isGood) }
+                                })
+                            if (message.serviceText == null && showsChannelComments(chat.isChannel, message.isChannelPost, linkedDiscussionChatId)) {
+                                ChannelCommentsButton(message.replyCount, outgoing = message.isOutgoing) { onOpenComments(message) }
+                            }
+                        }
                     }
                 }
             }
@@ -1433,6 +1478,13 @@ fun ChatScreen(
         globalWallpaper = globalWallpaper,
         onClose = { chatSettingsOpen = false }
     )
+    if (exportOpen) ChatExportDialog(
+        chat = chat,
+        accountId = accountId,
+        accountLabel = accountLabel,
+        conversation = conversation,
+        onDismiss = { exportOpen = false }
+    )
 }
 
 @Composable
@@ -1448,7 +1500,8 @@ private fun ChatTopBar(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
     hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
-    onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onStatistics: (() -> Unit)? = null
+    onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onStatistics: (() -> Unit)? = null,
+    onExport: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
     var menuOpen by remember { mutableStateOf(false) }
@@ -1486,6 +1539,10 @@ private fun ChatTopBar(
                         onClick = { menuOpen = false; onMarkUnread() }
                     )
                     DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_export_title)) },
+                        onClick = { menuOpen = false; onExport() }
+                    )
+                    DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_settings_title)) },
                         onClick = { menuOpen = false; onChatSettings() }
                     )
@@ -1500,9 +1557,38 @@ private fun ChatTopBar(
     }
 }
 
+/** The comments affordance sits below a channel post and never replaces the post's own reaction chips. */
+@Composable
+internal fun ChannelCommentsButton(count: Int, outgoing: Boolean = false, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val metrics = LocalBubbleMetrics.current
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = metrics.sideInset, vertical = 2.dp),
+        horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start
+    ) {
+        Row(
+            Modifier.clip(RoundedCornerShape(50))
+                .background(palette.surface2)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.ChatBubbleOutline, contentDescription = null, tint = palette.accent, modifier = Modifier.size(17.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                stringResource(R.string.chat_comments_button, count),
+                color = palette.accentInk,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {},
+    onSenderClick: (() -> Unit)? = null,
     onBubblePositioned: ((Rect) -> Unit)? = null,
     translation: TranslationUiState? = null,
     onTranslationRetry: (() -> Unit)? = null,
@@ -1555,7 +1641,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 overlayMeta = overlayMeta,
                 body = {
                     Column {
-                        if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                        if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                .then(if (onSenderClick != null) Modifier.clickable { onSenderClick?.invoke() } else Modifier))
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
                         message.media?.let { media ->
                             if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile, onPlayed, onActions,

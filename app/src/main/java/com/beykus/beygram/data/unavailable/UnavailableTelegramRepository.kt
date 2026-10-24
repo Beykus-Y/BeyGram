@@ -9,6 +9,10 @@ import com.beykus.beygram.domain.model.ChannelAdminEventPage
 import com.beykus.beygram.domain.model.ChannelEventFilter
 import com.beykus.beygram.domain.model.ChannelStatisticsSummary
 import com.beykus.beygram.domain.model.ChatActivity
+import com.beykus.beygram.domain.model.ChatExportProgress
+import com.beykus.beygram.domain.model.ChatExportRequest
+import com.beykus.beygram.domain.model.ChatExportSummary
+import com.beykus.beygram.domain.model.ChatExportTarget
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatSearchFilter
@@ -28,6 +32,8 @@ import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.MessageContext
+import com.beykus.beygram.domain.model.MessageThread
+import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MessageLimits
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -65,6 +71,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class UnavailableTelegramRepository : TelegramRepository {
     private val noChats = MutableStateFlow<List<ChatPreview>>(emptyList()).asStateFlow()
     private val noHistory = MutableStateFlow(ChatHistory()).asStateFlow()
+    private val noDeletions = MutableStateFlow<Set<Long>>(emptySet()).asStateFlow()
     private val noProfile = MutableStateFlow(ProfileState()).asStateFlow()
     private val noTyping = MutableStateFlow<List<String>>(emptyList()).asStateFlow()
 
@@ -192,11 +199,16 @@ class UnavailableTelegramRepository : TelegramRepository {
         transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft
     ) {}
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = noHistory
+    override fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>> = noDeletions
     override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> = noHistory
     override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {}
     override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {}
     override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> = unavailable()
     override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = unavailable()
+    override suspend fun linkedDiscussionChatId(chatId: Long): Result<Long> = unavailable()
+    override suspend fun loadMessageThread(chatId: Long, messageId: Long): Result<MessageThread> = unavailable()
+    override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long): Result<MessageThreadPage> = unavailable()
+    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?): Result<ChatMessage> = unavailable()
     override fun openChat(chatId: Long) {}
     override fun closeChat(chatId: Long) {}
     override fun loadOlderMessages(chatId: Long) {}
@@ -243,6 +255,12 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun searchGlobalPublicChats(query: String): Result<GlobalSearchPage<ChatPreview>> = unavailable()
     override suspend fun openPublicChat(chatId: Long): Result<PublicChatOpenResult> = unavailable()
     override suspend fun sharedMessages(chatId: Long, kind: SharedMediaKind, fromMessageId: Long, newer: Boolean): Result<MessageSearchPage> = unavailable()
+    override suspend fun exportChat(
+        chatId: Long,
+        target: ChatExportTarget,
+        request: ChatExportRequest,
+        onProgress: (ChatExportProgress) -> Unit
+    ): Result<ChatExportSummary> = unavailable()
     override fun messagesVisible(chatId: Long, messageIds: List<Long>) {}
     override fun setAppForeground(foreground: Boolean) {}
     override fun refreshInteractionPolicy() {}
