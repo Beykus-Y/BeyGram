@@ -44,7 +44,7 @@
     <string name="channel_event_member_left">Member left</string>
     <string name="channel_event_member_invited">Invited: %1$s</string>
     <string name="channel_event_member_promoted">Rights changed: %1$s</string>
-    <string name="channel_event_member_restricted">Restricted: %1$s</string>
+    <string name="channel_event_member_restricted">Restrictions changed: %1$s</string>
     <string name="channel_event_settings_changed">Channel settings changed</string>
     <string name="channel_statistics_actor">%1$s · %2$s</string>
     <string name="err_tdlib_schedule_date">Telegram rejected the scheduled time</string>

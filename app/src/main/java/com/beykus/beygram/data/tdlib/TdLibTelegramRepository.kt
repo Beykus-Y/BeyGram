@@ -973,33 +973,15 @@ class TdLibTelegramRepository private constructor(
     }
 
     override suspend fun channelAdminEvents(chatId: Long, fromEventId: Long, filter: ChannelEventFilter): Result<ChannelAdminEventPage> = requestResult {
-        val filters = TdApi.ChatEventLogFilters().apply {
-            when (filter) {
-                ChannelEventFilter.All -> {
-                    messageEdits = true; messageDeletions = true; messagePins = true
-                    memberJoins = true; memberLeaves = true; memberInvites = true
-                    memberPromotions = true; memberRestrictions = true; memberTagChanges = true
-                    infoChanges = true; settingChanges = true; inviteLinkChanges = true
-                    videoChatChanges = true; forumChanges = true; subscriptionExtensions = true
-                }
-                ChannelEventFilter.Messages -> {
-                    messageEdits = true; messageDeletions = true; messagePins = true
-                }
-                ChannelEventFilter.Members -> {
-                    memberJoins = true; memberLeaves = true; memberInvites = true
-                    memberPromotions = true; memberRestrictions = true; memberTagChanges = true
-                }
-                ChannelEventFilter.Settings -> {
-                    infoChanges = true; settingChanges = true; inviteLinkChanges = true
-                    videoChatChanges = true; forumChanges = true; subscriptionExtensions = true
-                }
-            }
-        }
-        val found = tdRequests(TdApi.GetChatEventLog(chatId, "", fromEventId, ADMIN_LOG_PAGE_SIZE, filters, longArrayOf()))
+        val found = tdRequests(
+            TdApi.GetChatEventLog(
+                chatId, "", fromEventId, ADMIN_LOG_PAGE_SIZE, adminLogFilters(filter), longArrayOf()
+            )
+        )
         val events = found.events.orEmpty().map { event ->
             val actorId = (event.memberId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L
             ChannelAdminEvent(
-                id = event.date.toLong(),
+                id = event.id,
                 date = event.date,
                 actorId = actorId,
                 actorName = if (actorId > 0L) profiles.senderName(TdApi.MessageSenderUser(actorId)) else "",
@@ -2235,8 +2217,9 @@ class TdLibTelegramRepository private constructor(
         val existing = chatCache[chatId] ?: return
         val chat = profiles.chat(chatId) ?: return
         val canPost = profiles.canPost(chat)
-        if (canPost == existing.canPost) return
-        chatCache[chatId] = existing.copy(canPost = canPost)
+        val isChannelAdmin = profiles.isChannelAdministrator(chat)
+        if (canPost == existing.canPost && isChannelAdmin == existing.isChannelAdmin) return
+        chatCache[chatId] = existing.copy(canPost = canPost, isChannelAdmin = isChannelAdmin)
         publishChat(chatId)
     }
 
@@ -2414,6 +2397,7 @@ class TdLibTelegramRepository private constructor(
             lastMessageSendState = lastMessage?.sendingState.toSendState(),
             lastReadOutboxMessageId = lastReadOutboxMessageId,
             canPost = profiles.canPost(this),
+            isChannelAdmin = profiles.isChannelAdministrator(this),
             photo = profiles.photo(photo),
             folderPositions = folderPositions
         )
@@ -2624,6 +2608,31 @@ private fun publicChatJoinError(error: Exception): UiText {
 }
 
 private const val ADMIN_LOG_PAGE_SIZE = 50
+
+/** Maps one UI filter to the TDLib switches; unselected groups stay false so no unrelated events are fetched. */
+internal fun adminLogFilters(filter: ChannelEventFilter): TdApi.ChatEventLogFilters =
+    TdApi.ChatEventLogFilters().apply {
+        when (filter) {
+            ChannelEventFilter.All -> {
+                messageEdits = true; messageDeletions = true; messagePins = true
+                memberJoins = true; memberLeaves = true; memberInvites = true
+                memberPromotions = true; memberRestrictions = true; memberTagChanges = true
+                infoChanges = true; settingChanges = true; inviteLinkChanges = true
+                videoChatChanges = true; forumChanges = true; subscriptionExtensions = true
+            }
+            ChannelEventFilter.Messages -> {
+                messageEdits = true; messageDeletions = true; messagePins = true
+            }
+            ChannelEventFilter.Members -> {
+                memberJoins = true; memberLeaves = true; memberInvites = true
+                memberPromotions = true; memberRestrictions = true; memberTagChanges = true
+            }
+            ChannelEventFilter.Settings -> {
+                infoChanges = true; settingChanges = true; inviteLinkChanges = true
+                videoChatChanges = true; forumChanges = true; subscriptionExtensions = true
+            }
+        }
+    }
 
 /** Human-readable admin-log action. Unknown/new TDLib actions fall back to a neutral settings label. */
 private fun TdApi.ChatEventAction.adminText(context: Context, profiles: TdProfiles): String = when (this) {

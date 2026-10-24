@@ -1358,7 +1358,7 @@ private fun BeyGramAppContent(
                             } else routeName = chatBackRouteName
                         },
                         onChatInfo = { routeName = AppRoute.ChatInfo.name },
-                        onStatistics = if (chat.isChannel && chat.canPost) {
+                        onStatistics = if (chat.isChannel && (chat.isChannelAdmin || chat.canPost)) {
                             { routeName = AppRoute.ChannelStatistics.name }
                         } else null,
                         connectionState = connectionState,

@@ -400,7 +400,7 @@
     <string name="channel_event_member_left">Участник вышел</string>
     <string name="channel_event_member_invited">Приглашён: %1$s</string>
     <string name="channel_event_member_promoted">Изменены права: %1$s</string>
-    <string name="channel_event_member_restricted">Ограничен: %1$s</string>
+    <string name="channel_event_member_restricted">Изменены ограничения: %1$s</string>
     <string name="channel_event_settings_changed">Изменены настройки канала</string>
     <string name="channel_statistics_actor">%1$s · %2$s</string>
     <string name="err_tdlib_schedule_date">Telegram отклонил время отложенной отправки</string>
