@@ -11,6 +11,8 @@
     <string name="err_bio_too_long">Die Biografie darf nicht länger als %1$d Zeichen sein</string>
     <string name="err_caption_too_long">Die Bildunterschrift ist zu lang</string>
     <string name="err_chat_actions_load_failed">Nachrichtenaktionen konnten nicht geladen werden</string>
+    <string name="err_premium_required">Diese Aktion erfordert Telegram Premium</string>
+    <string name="err_sticker_send_failed">Sticker konnte nicht gesendet werden</string>
     <string name="err_schedule_edit_unavailable">Die geplante Zeit dieser Nachricht kann nicht geändert werden</string>
     <string name="err_schedule_time_future">Wählen Sie einen Zeitpunkt in der Zukunft</string>
     <string name="err_tdlib_schedule_date">Telegram lehnte die geplante Zeit ab</string>
