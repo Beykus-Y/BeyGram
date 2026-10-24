@@ -267,9 +267,10 @@ private fun BeyGramAppContent(
         }
         value = accountId to target
     }
-    // Null while the selected account's repository is still being produced. The unavailable repository stands in.
+    // The legacy repository needs no async work. A secondary repository is null until it is produced for this selection.
     val repositorySelection: TelegramRepository? =
-        producedRepository.takeIf { it.first == selectedAccountId }?.second
+        if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) legacyRepository
+        else producedRepository.takeIf { it.first == selectedAccountId }?.second
     // The unavailable repository is intentionally EMPTY, not legacy data.
     // No caller of a secondary route may fall back to the first account.
     val unavailableAccountRepository = remember { UnavailableTelegramRepository() }
