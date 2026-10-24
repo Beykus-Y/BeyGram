@@ -18,7 +18,7 @@ class PublicChatDiscoveryTest {
 
     @Test fun inviteLinksKeepTheirCanonicalUrl() {
         assertEquals(PublicDiscoveryTarget.Invite("https://t.me/+AbCdEf"), publicDiscoveryTarget("t.me/+AbCdEf"))
-        assertEquals(PublicDiscoveryTarget.Invite("https://t.me/joinchat/AbCdEf"), publicDiscoveryTarget("https://t.me/joinchat/AbCdEf"))
+        assertEquals(PublicDiscoveryTarget.Invite("https://t.me/+AbCdEf"), publicDiscoveryTarget("https://t.me/joinchat/AbCdEf"))
         assertEquals(PublicDiscoveryTarget.Invite("https://t.me/+AbCdEf"), publicDiscoveryTarget("tg://join?invite=AbCdEf"))
     }
 
