@@ -716,12 +716,14 @@ private fun StoryArchiveDialog(repository: TelegramRepository, onDismiss: () -> 
     var loadingMore by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var moreError by remember { mutableStateOf<String?>(null) }
+    var deleteError by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<StoryDetail?>(null) }
     var reload by remember { mutableIntStateOf(0) }
     LaunchedEffect(reload) {
         loading = true
         error = null
         moreError = null
+        deleteError = null
         repository.storyArchive()
             .onSuccess {
                 stories = it.stories
@@ -802,6 +804,14 @@ private fun StoryArchiveDialog(repository: TelegramRepository, onDismiss: () -> 
                     }
                 }
             }
+            deleteError?.let {
+                Text(
+                    it,
+                    color = palette.danger,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 8.dp).errorAnnouncement()
+                )
+            }
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
             }
@@ -824,7 +834,7 @@ private fun StoryArchiveDialog(repository: TelegramRepository, onDismiss: () -> 
                                     nextFromStoryId = stories.lastOrNull()?.storyId ?: 0
                                 }
                             }
-                            .onFailure { error = it.userMessage(context, R.string.stories_delete_failed) }
+                            .onFailure { deleteError = it.userMessage(context, R.string.stories_delete_failed) }
                     }
                 }) { Text(stringResource(R.string.common_delete)) }
             },
