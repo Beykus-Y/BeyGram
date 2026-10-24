@@ -69,5 +69,11 @@ data class OutgoingMedia(
     val size: Long = 0,
     val thumbnailWidth: Int = 0,
     val thumbnailHeight: Int = 0,
-    val waveform: ByteArray = byteArrayOf()
+    val waveform: ByteArray = byteArrayOf(),
+    /** A file already stored on Telegram's servers; when set, TDLib sends it without downloading the bytes. */
+    val remoteFileId: Int = 0,
+    /** Server-side thumbnail for [remoteFileId]; zero when only a local [thumbnailPath] exists. */
+    val thumbnailRemoteFileId: Int = 0,
+    /** Emoji of a sticker, required by InputMessageSticker. */
+    val emoji: String = ""
 ) : Serializable

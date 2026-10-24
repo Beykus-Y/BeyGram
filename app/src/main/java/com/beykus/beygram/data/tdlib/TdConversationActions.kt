@@ -324,6 +324,14 @@ internal class TdConversationActions(
         send(chatId, media.toInputContent(bounded.text, bounded.entities), replyId, forumTopicId, options)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
+
+    /** A sticker keeps its native content type; TDLib sends it by file id without downloading the picker preview. */
+    suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyId: Long?, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
+        requireFutureSchedule(options)
+        require(sticker.kind == MediaKind.Sticker && sticker.remoteFileId > 0) { "Sticker file id is missing" }
+        send(chatId, sticker.toInputContent(""), replyId, forumTopicId, options)
+    }.onSuccess { recordMediaAccepted("sticker") }.onFailure { recordSendFailure("sticker", it) }
+
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
         requireFutureSchedule(options)
