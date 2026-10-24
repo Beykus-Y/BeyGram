@@ -70,6 +70,7 @@ import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.data.settings.AppLocale
+import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.settings.translationTargetLanguage
 import com.beykus.beygram.playback.PlaybackEngine
@@ -110,7 +111,8 @@ fun ChatScreen(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
-    recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
+    recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore,
+    chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
     onServiceUser: (Long) -> Unit = {},
     messageAnimations: MessageAnimationConfig = MessageAnimationConfig(),
@@ -182,6 +184,10 @@ fun ChatScreen(
     var sending by remember { mutableStateOf(false) }
     var sendOptionsOpen by remember(chat.id) { mutableStateOf(false) }
     var scheduledMessagesOpen by remember(chat.id) { mutableStateOf(false) }
+    var chatSettingsOpen by remember(chat.id) { mutableStateOf(false) }
+    val chatOverrideState by chatOverrides.state.collectAsStateWithLifecycle()
+    val globalWallpaper = LocalChatWallpaper.current
+    val chatWallpaper = chatOverrideState[chat.id]?.wallpaper ?: globalWallpaper
     var error by remember { mutableStateOf<String?>(null) }
     var reactionOptions by remember(chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
@@ -975,7 +981,8 @@ fun ChatScreen(
                 }
             },
             onJumpUnread = ::jumpToFirstUnread,
-            onScheduled = { scheduledMessagesOpen = true }
+            onScheduled = { scheduledMessagesOpen = true },
+            onChatSettings = { chatSettingsOpen = true }
         )
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
@@ -1011,7 +1018,7 @@ fun ChatScreen(
             Text(stringResource(R.string.chat_network_waiting), color = palette.warningText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
-        ChatWallpaperLayer(LocalChatWallpaper.current)
+        ChatWallpaperLayer(chatWallpaper)
         val metrics = LocalBubbleMetrics.current
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = metrics.listPadding), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
@@ -1362,6 +1369,13 @@ fun ChatScreen(
         conversation = conversation,
         onClose = { scheduledMessagesOpen = false }
     )
+    if (chatSettingsOpen) ChatSettingsSheet(
+        chatId = chat.id,
+        conversation = conversation,
+        overrides = chatOverrides,
+        globalWallpaper = globalWallpaper,
+        onClose = { chatSettingsOpen = false }
+    )
 }
 
 @Composable
@@ -1377,7 +1391,7 @@ private fun ChatTopBar(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
     hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
-    onScheduled: () -> Unit = {}
+    onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
     var menuOpen by remember { mutableStateOf(false) }
@@ -1413,6 +1427,10 @@ private fun ChatTopBar(
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_mark_unread)) },
                         onClick = { menuOpen = false; onMarkUnread() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_settings_title)) },
+                        onClick = { menuOpen = false; onChatSettings() }
                     )
                 }
             }
