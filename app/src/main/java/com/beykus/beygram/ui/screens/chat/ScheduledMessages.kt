@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.MessageSendOptions
+import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
@@ -51,6 +53,7 @@ import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.TimeZone
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -134,7 +137,10 @@ private fun showSchedulePicker(context: Context, onPicked: (Long) -> Unit) {
     datePicker.show()
 }
 
-private fun Long.isFuture(nowSeconds: Long = System.currentTimeMillis() / 1000): Boolean = this > nowSeconds
+private fun Long.isFuture(nowSeconds: Long = System.currentTimeMillis() / 1000): Boolean =
+    this > nowSeconds + MessageSendOptions.MIN_SCHEDULE_LEAD_SECONDS
+
+private const val SCHEDULED_REFRESH_MS = 5_000L
 
 /** TDLib is the source of truth: this dialog always reloads the queue from the server. */
 @Composable
@@ -153,13 +159,23 @@ internal fun ScheduledMessagesDialog(
     var reload by remember(chatId) { mutableIntStateOf(0) }
     var editing by remember(chatId) { mutableStateOf<ChatMessage?>(null) }
 
+    // TDLib is the source of truth: delivery, another client's edit/cancel and upload failures all change the queue.
+    // Keep the open dialog in sync without flickering the initial spinner.
     LaunchedEffect(chatId, reload, conversation) {
         loading = true
         error = null
-        val result = conversation.scheduledMessages(chatId)
-        messages = result.getOrDefault(emptyList())
-        result.exceptionOrNull()?.let { error = it.userMessage(context, R.string.chat_scheduled_load_failed) }
-        loading = false
+        while (true) {
+            val result = conversation.scheduledMessages(chatId)
+            result.onSuccess {
+                messages = it
+                error = null
+            }.onFailure {
+                if (messages.isEmpty()) messages = emptyList()
+                error = it.userMessage(context, R.string.chat_scheduled_load_failed)
+            }
+            loading = false
+            delay(SCHEDULED_REFRESH_MS)
+        }
     }
 
     fun runAction(action: suspend () -> Result<Unit>, failure: Int) {
@@ -210,6 +226,7 @@ internal fun ScheduledMessagesDialog(
                                     }
                                 },
                                 onSendNow = { runAction({ conversation.sendScheduledNow(chatId, message.id) }, R.string.chat_scheduled_send_now_failed) },
+                                onRetry = { runAction({ conversation.retryMessages(chatId, listOf(message.id)) }, R.string.chat_scheduled_retry_failed) },
                                 onCancel = { runAction({ conversation.deleteScheduledMessage(chatId, message.id) }, R.string.chat_scheduled_cancel_failed) }
                             )
                             HorizontalDivider(color = palette.divider)
@@ -230,13 +247,17 @@ private fun ScheduledMessageRow(
     onEdit: () -> Unit,
     onReschedule: () -> Unit,
     onSendNow: () -> Unit,
+    onRetry: () -> Unit,
     onCancel: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val failed = message.sendState == MessageSendState.Failed
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text(message.summary(), color = palette.textPrimary, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(scheduledTimeLabel(message), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+        if (failed) Text(stringResource(R.string.chat_scheduled_failed), color = palette.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            if (failed) TextButton(onClick = onRetry, enabled = !busy) { Text(stringResource(R.string.common_retry)) }
             TextButton(onClick = onReschedule, enabled = !busy) { Text(stringResource(R.string.chat_scheduled_reschedule)) }
             TextButton(onClick = onSendNow, enabled = !busy) { Text(stringResource(R.string.chat_send_now)) }
             TextButton(onClick = onEdit, enabled = !busy) { Text(stringResource(R.string.common_edit)) }

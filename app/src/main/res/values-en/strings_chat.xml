@@ -67,7 +67,9 @@
     <string name="chat_scheduled_cancel_failed">Could not cancel the scheduled message</string>
     <string name="chat_scheduled_edit_failed">Could not edit the scheduled message</string>
     <string name="chat_scheduled_empty">No scheduled messages</string>
+    <string name="chat_scheduled_failed">The scheduled message could not be sent</string>
     <string name="chat_scheduled_load_failed">Could not load scheduled messages</string>
+    <string name="chat_scheduled_retry_failed">Could not retry sending</string>
     <string name="chat_scheduled_reschedule">Change time</string>
     <string name="chat_scheduled_reschedule_failed">Could not change the scheduled time</string>
     <string name="chat_scheduled_send_now_failed">Could not send the message now</string>

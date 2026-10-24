@@ -53,9 +53,10 @@ class MessageSendOptionsTest {
     }
 
     @Test
-    fun `scheduled time must be in the future`() {
+    fun `scheduled time must clear TDLib minimum lead time`() {
         assertTrue(MessageSendOptions().scheduledTimeIsFuture(nowSeconds = 100L))
         assertFalse(MessageSendOptions(scheduledAtSeconds = 100L).scheduledTimeIsFuture(nowSeconds = 100L))
-        assertTrue(MessageSendOptions(scheduledAtSeconds = 101L).scheduledTimeIsFuture(nowSeconds = 100L))
+        assertFalse(MessageSendOptions(scheduledAtSeconds = 110L).scheduledTimeIsFuture(nowSeconds = 100L))
+        assertTrue(MessageSendOptions(scheduledAtSeconds = 111L).scheduledTimeIsFuture(nowSeconds = 100L))
     }
 }
