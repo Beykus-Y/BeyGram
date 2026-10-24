@@ -372,6 +372,26 @@ internal class TdSecondaryNativeLogin internal constructor(
         awaitNativeClosed()
     }
 
+    /**
+     * DeleteAccount already removed the server account, so LogOut is only a best effort.
+     * If TDLib has moved to WAIT_PHONE (or reports an invalid authorization), Close still
+     * releases the local database lease and lets the coordinator erase this account only.
+     */
+    suspend fun closeAfterServerDeletion() {
+        closeIntent = "server_account_deleted"
+        diagnostics.trace(
+            "server_delete_cleanup",
+            attrs = mapOf("phase" to authPhase.value.name)
+        )
+        if (authPhase.value == TdAccountAuthPhase.READY) {
+            runCatching { expectOk(TdApi.LogOut()) }
+        }
+        if (authPhase.value != TdAccountAuthPhase.CLOSED) {
+            requestCloseWithoutLogout("server_account_deleted")
+            awaitNativeClosed()
+        }
+    }
+
     /** Close keeps the TDLib database and user login. Do not call LogOut here. */
     fun close() = requestCloseWithoutLogout("user_close")
 

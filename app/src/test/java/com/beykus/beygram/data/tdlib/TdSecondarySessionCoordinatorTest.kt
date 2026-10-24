@@ -21,9 +21,14 @@ class TdSecondarySessionCoordinatorTest {
         var autoClose = false
         var logoutCount = 0
         var failLogout = false
+        var serverCleanupCount = 0
         override suspend fun logOutAndAwaitClosed() {
             if (failLogout) throw IllegalStateException("Logout failed")
             logoutCount++
+            phase.value = TdAccountAuthPhase.CLOSED
+        }
+        override suspend fun closeAfterServerDeletion() {
+            serverCleanupCount++
             phase.value = TdAccountAuthPhase.CLOSED
         }
         var lastPhone: String? = null
@@ -80,6 +85,38 @@ class TdSecondarySessionCoordinatorTest {
             assertEquals(TdAccountAuthPhase.READY, sessions[b]!!.phase.value)
             try { manager.connect(a, TdSecondaryRoutePreference.EXPLICIT_DIRECT); fail("Deleted account") }
             catch (_: IllegalArgumentException) {}
+        } finally { work.cancel(); root.deleteRecursively() }
+    }
+
+    @Test fun serverConfirmedDeletionClosesInvalidSessionAndRemovesOnlyThatAccount() = runBlocking {
+        val root = Files.createTempDirectory("beygram-server-delete-").toFile()
+        val work = SupervisorJob()
+        try {
+            val registry = TdAccountRegistry(root)
+            val sessions = mutableMapOf<String, Fake>()
+            val loggedOut = mutableListOf<String>()
+            val manager = TdSecondarySessionCoordinator(
+                registry, CoroutineScope(work + Dispatchers.Unconfined),
+                onLogoutConfirmed = { loggedOut += it },
+                openNative = { id, _ -> Fake().also { sessions[id] = it } }
+            )
+            val deleted = manager.reserveAccount()
+            val sibling = manager.reserveAccount()
+            manager.connect(deleted, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            manager.connect(sibling, TdSecondaryRoutePreference.EXPLICIT_DIRECT)
+            // DeleteAccount makes the authorization invalid; the cleanup must not
+            // require a second READY/LogOut handshake.
+            sessions[deleted]!!.phase.value = TdAccountAuthPhase.WAIT_PHONE
+            sessions[sibling]!!.phase.value = TdAccountAuthPhase.READY
+
+            manager.logoutSecondary(deleted, serverDeleted = true)
+
+            assertEquals(1, sessions[deleted]!!.serverCleanupCount)
+            assertEquals(0, sessions[deleted]!!.logoutCount)
+            assertEquals(0, sessions[sibling]!!.serverCleanupCount)
+            assertEquals(listOf(deleted), loggedOut)
+            assertEquals(listOf("legacy", sibling), registry.loadOrCreate().accountIds)
+            assertEquals(TdAccountAuthPhase.READY, sessions[sibling]!!.phase.value)
         } finally { work.cancel(); root.deleteRecursively() }
     }
 

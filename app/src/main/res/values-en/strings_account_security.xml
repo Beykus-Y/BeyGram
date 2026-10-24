@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="account_security_title">Account and security</string>
+    <string name="account_security_intro">These settings apply only to the selected account. Other accounts are not affected.</string>
+
+    <string name="account_security_2fa_title">Cloud password (2FA)</string>
+    <string name="account_security_2fa_enabled">Enabled</string>
+    <string name="account_security_2fa_disabled">Disabled</string>
+    <string name="account_security_2fa_description">The cloud password protects sign-in and is stored on Telegram servers. BeyGram does not save it on this device.</string>
+    <string name="account_security_2fa_hint">Hint: %1$s</string>
+    <string name="account_security_2fa_set">Set password</string>
+    <string name="account_security_2fa_change">Change password</string>
+    <string name="account_security_2fa_disable">Disable 2FA</string>
+    <string name="account_security_2fa_set_success">Cloud password set</string>
+    <string name="account_security_2fa_change_success">Cloud password changed</string>
+    <string name="account_security_2fa_disable_success">Cloud password disabled</string>
+
+    <string name="account_security_dialog_set_password">Set cloud password</string>
+    <string name="account_security_dialog_change_password">Change cloud password</string>
+    <string name="account_security_current_password">Current password</string>
+    <string name="account_security_new_password">New password</string>
+    <string name="account_security_confirm_password">Repeat new password</string>
+    <string name="account_security_password_hint">Password hint (optional)</string>
+    <string name="account_security_password_hint_public">Anyone trying to sign in will see this hint.</string>
+    <string name="account_security_password_rule">At least 4 characters.</string>
+    <string name="account_security_password_empty">Enter a new password</string>
+    <string name="account_security_password_short">The password is too short</string>
+    <string name="account_security_password_mismatch">The passwords do not match</string>
+    <string name="account_security_current_password_required">Enter the current password</string>
+    <string name="account_security_disable_warning">Without a cloud password, sign-in is protected only by the code from SMS or Telegram. Disable 2FA?</string>
+
+    <string name="account_security_email_title">Recovery email</string>
+    <string name="account_security_email_configured">Configured</string>
+    <string name="account_security_email_not_configured">Not configured</string>
+    <string name="account_security_email_requires_password">Set a cloud password first: Telegram does not accept a recovery email without one.</string>
+    <string name="account_security_email_description">The email helps restore access if you forget the cloud password.</string>
+    <string name="account_security_email_add">Add email</string>
+    <string name="account_security_email_change">Change email</string>
+    <string name="account_security_email_remove">Remove email</string>
+    <string name="account_security_email_label">Email</string>
+    <string name="account_security_email_sent">Confirmation code sent to %1$s</string>
+    <string name="account_security_email_updated">Recovery email updated</string>
+    <string name="account_security_email_removed">Recovery email removed</string>
+    <string name="account_security_email_remove_warning">Remove the recovery email? Restoring the password will be harder.</string>
+    <string name="account_security_email_remove_confirm">Remove email</string>
+    <string name="account_security_email_pending_title">Confirm the new email</string>
+    <string name="account_security_email_pending_body">Telegram sent a code to %1$s. The new email becomes active after confirmation.</string>
+    <string name="account_security_email_code">Code from the email</string>
+    <string name="account_security_email_confirm">Confirm</string>
+    <string name="account_security_email_resend">Send the code again</string>
+    <string name="account_security_email_cancel_change">Cancel email change</string>
+    <string name="account_security_email_code_invalid">Invalid or expired code from the email</string>
+    <string name="account_security_email_invalid">Check the email address</string>
+    <string name="account_security_email_not_allowed">Telegram does not accept this email address</string>
+
+    <string name="account_security_phone_title">Phone number</string>
+    <string name="account_security_phone_current">Current number: %1$s</string>
+    <string name="account_security_phone_unavailable_title">Phone number change is unavailable</string>
+    <string name="account_security_phone_unavailable_body">Telegram allows changing a phone number through TDLib only in official Android and iOS apps. BeyGram cannot safely perform this operation: change the number in the official Telegram app and it will update here. The account, chats and other devices are preserved.</string>
+
+    <string name="account_security_delete_title">Delete account</string>
+    <string name="account_security_delete_description">Deletes the account on Telegram servers together with cloud chats, contacts and group memberships. This is not a regular sign-out on this device.</string>
+    <string name="account_security_delete_action">Delete account permanently</string>
+    <string name="account_security_delete_dialog_title">Delete the account permanently?</string>
+    <string name="account_security_delete_warning">This cannot be undone: Telegram will delete the account and all related server data. The phone number can be used for a new account.</string>
+    <string name="account_security_delete_local_note_primary">BeyGram does not delete the main account local TDLib database: after the server account is deleted, it stays on the device. Other accounts are not affected.</string>
+    <string name="account_security_delete_local_note_secondary">After server confirmation, BeyGram deletes only this account local session. Other accounts are not affected.</string>
+    <string name="account_security_delete_type_word">Type “%1$s” to confirm</string>
+    <string name="account_security_delete_confirm_word">DELETE</string>
+    <string name="account_security_delete_word_mismatch">Type the confirmation word exactly</string>
+    <string name="account_security_delete_confirm">Delete permanently</string>
+    <string name="account_security_delete_busy">Deleting the account…</string>
+    <string name="account_security_deleted_on_server">The account was deleted on the server</string>
+    <string name="account_security_delete_cleanup_failed">The account was deleted on the server, but the local session could not be removed. Sign out of this account in the account switcher to remove it.</string>
+
+    <string name="account_security_password_missing">Enter the cloud password</string>
+    <string name="account_security_password_too_fresh">The password was changed recently. Try again later.</string>
+    <string name="account_security_phone_occupied">This phone number already belongs to a Telegram account</string>
+    <string name="account_security_action_failed">Could not update account security</string>
+    <string name="account_security_load_failed">Could not load security settings</string>
+</resources>

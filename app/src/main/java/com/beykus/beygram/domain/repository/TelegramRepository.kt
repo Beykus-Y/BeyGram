@@ -29,7 +29,8 @@ import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.repository.ReportBotChannel
 import kotlinx.coroutines.flow.StateFlow
 
-interface TelegramRepository : ConversationRepository, NotificationRepository, ReportBotChannel, StorageRepository {
+interface TelegramRepository : ConversationRepository, NotificationRepository, ReportBotChannel, StorageRepository,
+    AccountSecurityRepository {
     /** Текущее состояние авторизации. Обновляется реактивно при каждом ответе TDLib. */
     val authState: StateFlow<AuthState>
 

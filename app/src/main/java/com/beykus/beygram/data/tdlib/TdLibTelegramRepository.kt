@@ -152,6 +152,7 @@ class TdLibTelegramRepository private constructor(
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences(if (isLegacyAccount) "mihomo_tdlib_proxy" else "mihomo_tdlib_proxy_$accountId", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
+    private val accountSecurity = TdAccountSecurity(tdRequests)
     private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
     private val messageDrafts = TdChatDrafts(appContext, accountId) { client }
 
@@ -810,6 +811,20 @@ class TdLibTelegramRepository private constructor(
         tdRequests(TdApi.TerminateAllOtherSessions())
         Unit
     }
+
+    override suspend fun cloudPasswordState() = accountSecurity.passwordState()
+    override suspend fun setCloudPassword(
+        currentPassword: String,
+        newPassword: String,
+        hint: String
+    ) = accountSecurity.setPassword(currentPassword, newPassword, hint)
+    override suspend fun setRecoveryEmail(currentPassword: String, email: String) =
+        accountSecurity.setRecoveryEmail(currentPassword, email)
+    override suspend fun confirmRecoveryEmail(code: String) = accountSecurity.confirmRecoveryEmail(code)
+    override suspend fun resendRecoveryEmailCode() = accountSecurity.resendRecoveryEmailCode()
+    override suspend fun cancelRecoveryEmailChange() = accountSecurity.cancelRecoveryEmailChange()
+    override suspend fun deleteTelegramAccount(password: String) = accountSecurity.deleteAccount(password)
+
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = requestResult {
         !TdRequests { client }(TdApi.GetArchiveChatListSettings()).keepUnmutedChatsArchived
     }
