@@ -8,11 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import org.drinkless.tdlib.TdApi
 
-/** The server may need longer than a normal read when it erases an account. */
-private const val ACCOUNT_DELETE_TIMEOUT_MS = 45_000L
-
-/**
- * TDLib part of account security. It is a separate collaborator so the repository's huge chat
+/** TDLib part of account security. It is a separate collaborator so the repository's huge chat
  * surface never mixes with password and recovery-email requests.
  *
  * Passwords exist only as method arguments and TDLib request fields. They are never stored in a
@@ -59,7 +55,7 @@ internal class TdAccountSecurity(private val requests: TdRequests) {
     }
 
     suspend fun deleteAccount(password: String): Result<Unit> = securityResult {
-        requests(TdApi.DeleteAccount("", password), ACCOUNT_DELETE_TIMEOUT_MS)
+        requests.awaitResponse(TdApi.DeleteAccount("", password))
         Unit
     }
 

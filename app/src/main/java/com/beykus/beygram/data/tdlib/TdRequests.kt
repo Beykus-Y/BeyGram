@@ -19,6 +19,15 @@ private const val DEFAULT_REQUEST_TIMEOUT_MS = 30_000L
 
 internal class TdRequests(private val client: () -> Client) {
     suspend operator fun <T : TdApi.Object> invoke(function: TdApi.Function<T>, timeoutMillis: Long = DEFAULT_REQUEST_TIMEOUT_MS): T = withTimeout(timeoutMillis) {
+        awaitResponse(function)
+    }
+
+    /**
+     * Waits for TDLib without a local timeout. Account deletion must not be abandoned
+     * while the server may already have committed it; a late successful response still
+     * has to trigger local session cleanup.
+     */
+    internal suspend fun <T : TdApi.Object> awaitResponse(function: TdApi.Function<T>): T =
         suspendCancellableCoroutine { continuation ->
             client().send(function, Client.ResultHandler { result ->
                 if (continuation.isActive) {
@@ -27,7 +36,6 @@ internal class TdRequests(private val client: () -> Client) {
                 }
             })
         }
-    }
 }
 
 private val MESSAGE_TIMEOUT = UiText.Res(R.string.err_tdlib_message_timeout)
