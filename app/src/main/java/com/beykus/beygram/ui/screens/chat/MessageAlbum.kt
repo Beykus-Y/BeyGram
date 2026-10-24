@@ -93,7 +93,8 @@ internal fun MessageAlbumBubble(
     onReply: ((Long) -> Unit)? = null,
     onReaction: (Long, ReactionOption) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
-    onRetry: () -> Unit = {}
+    onRetry: () -> Unit = {},
+    commentsBar: (@Composable () -> Unit)? = null
 ) {
     if (messages.isEmpty()) return
     val palette = beyGramPalette()
@@ -152,7 +153,8 @@ internal fun MessageAlbumBubble(
                 meta = {
                     BubbleMeta(latest, isRead, retryAvailable = latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed },
                         overlay = false, onRetry = onRetry)
-                }
+                },
+                bottomBar = { commentsBar?.invoke() }
             )
         }
         MessageReactionChips(reactionOwner.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(reactionOwner.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))

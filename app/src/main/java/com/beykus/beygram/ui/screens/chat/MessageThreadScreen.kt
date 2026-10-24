@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -23,16 +22,13 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -84,8 +80,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
- * A channel post's discussion thread. The channel post stays pinned above the comments, so paging and jumping can
- * never lose it; only the discussion chat is read here, the channel history behind the overlay stays untouched.
+ * A channel post's discussion thread, shown as one list: the channel post once at the top, the comments below it,
+ * as in Telegram. Only the discussion chat is read here; the channel history behind the overlay stays untouched.
+ * The discussion group's own copy of the post (the thread root) is never shown as a comment.
  */
 @Composable
 internal fun MessageThreadScreen(
@@ -146,7 +143,7 @@ internal fun MessageThreadScreen(
         conversation.loadMessageThread(channelChatId, postId)
             .onSuccess { loaded ->
                 thread = loaded
-                messages = loaded.messages.filterNot { it.isChannelPost }.distinctBy { it.id }.sortedBy { it.id }
+                messages = loaded.messages.filterNot { it.isChannelPost || it.id == loaded.threadId }.distinctBy { it.id }.sortedBy { it.id }
                 hasOlder = loaded.hasOlderMessages && messages.isNotEmpty()
                 loading = false
                 if (messages.isNotEmpty()) scope.launch { listState.scrollToItem(0) }
@@ -167,8 +164,9 @@ internal fun MessageThreadScreen(
             coroutineScope {
                 launch {
                     conversation.observeChatHistory(chatId).collect { history ->
+                        // The thread root is the group's automatic copy of the post: it is already shown at the top.
                         val fresh = history.messages.filter {
-                            it.messageThreadId == currentThreadId && !it.isChannelPost
+                            it.messageThreadId == currentThreadId && !it.isChannelPost && it.id != currentThreadId
                         }
                         if (fresh.isNotEmpty()) {
                             messages = mergeThreadMessages(messages, fresh)
@@ -252,8 +250,13 @@ internal fun MessageThreadScreen(
             sendError = context.getString(R.string.chat_reply_original_unavailable)
             return
         }
-        // The channel post is permanently pinned above the comments, so replying to it needs no list jump.
-        if (reply.chatId == channelChatId && reply.messageId == postId) return
+        // The channel post is the topmost row of the reversed list.
+        val isPost = (reply.chatId == channelChatId && reply.messageId == postId) ||
+            (reply.chatId == thread?.discussionChatId && reply.messageId == thread?.threadId)
+        if (isPost) {
+            if (post != null) scope.launch { listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1) }
+            return
+        }
         val index = messages.indexOfFirst { it.id == reply.messageId && it.chatId == reply.chatId }
         if (index < 0) {
             sendError = context.getString(R.string.thread_reply_not_loaded)
@@ -331,29 +334,6 @@ internal fun MessageThreadScreen(
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
 
-        post?.let { root ->
-            Column(
-                Modifier.fillMaxWidth()
-                    .heightIn(max = 320.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 8.dp)
-            ) {
-                MessageBubble(
-                    message = root,
-                    observeFile = observeFile,
-                    onDownloadFile = downloadFile,
-                    onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId },
-                    onPlayed = { conversation.openMessageContent(channelChatId, root.id) },
-                    onActions = { reactionTarget = channelChatId to root },
-                    onReplyClick = ::jump,
-                    onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
-                    observeCustomEmoji = conversation::observeCustomEmoji,
-                    onRetry = {}
-                )
-            }
-            HorizontalDivider(color = palette.divider)
-        }
-
         if (errorText != null && thread == null) {
             Column(
                 Modifier.fillMaxWidth().weight(1f).padding(24.dp),
@@ -421,6 +401,25 @@ internal fun MessageThreadScreen(
                 if (thread != null && messages.isEmpty() && !loading) item(key = "thread_empty") {
                     Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
                         Text(stringResource(R.string.thread_comments_empty), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+                    }
+                }
+                // Reverse layout: the last item is drawn on top, so the post opens the discussion exactly once.
+                post?.let { root ->
+                    item(key = "thread_post") {
+                        Box(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                            MessageBubble(
+                                message = root,
+                                observeFile = observeFile,
+                                onDownloadFile = downloadFile,
+                                onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId },
+                                onPlayed = { conversation.openMessageContent(channelChatId, root.id) },
+                                onActions = { reactionTarget = channelChatId to root },
+                                onReplyClick = ::jump,
+                                onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
+                                observeCustomEmoji = conversation::observeCustomEmoji,
+                                onRetry = {}
+                            )
+                        }
                     }
                 }
             }

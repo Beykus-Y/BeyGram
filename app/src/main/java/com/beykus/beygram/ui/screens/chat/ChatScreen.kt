@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
@@ -1112,16 +1113,17 @@ fun ChatScreen(
                     val animateArrival = remember(listItem.key) { animationTracker.claim(listItem.messages.map { it.id }) }
                     MessageAnimationFrame(animate = animateArrival, outgoing = latest?.isOutgoing == true, config = messageAnimations) {
                         Column(Modifier.fillMaxWidth()) {
+                            val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
+                                ?: listItem.messages.firstOrNull()
+                            val albumComments = commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }
                             MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
                                 isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                 highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
                                 onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
-                                onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) })
-                            val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
-                                ?: listItem.messages.firstOrNull()
-                            commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }?.let { post ->
-                                ChannelCommentsButton(listItem.messages.maxOfOrNull { it.replyCount } ?: 0, outgoing = post.isOutgoing) { onOpenComments(post) }
-                            }
+                                onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
+                                commentsBar = albumComments?.let { post ->
+                                    { ChannelCommentsBar(listItem.messages.maxOfOrNull { it.replyCount } ?: 0) { onOpenComments(post) } }
+                                })
                         }
                     }
                 } else {
@@ -1165,10 +1167,10 @@ fun ChatScreen(
                                     null
                                 } else {
                                     { isGood -> rateTranscription(message, isGood) }
-                                })
-                            if (message.serviceText == null && showsChannelComments(chat.isChannel, message.isChannelPost, linkedDiscussionChatId)) {
-                                ChannelCommentsButton(message.replyCount, outgoing = message.isOutgoing) { onOpenComments(message) }
-                            }
+                                },
+                                commentsBar = if (showsChannelComments(chat.isChannel, message.isChannelPost, linkedDiscussionChatId)) {
+                                    { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
+                                } else null)
                         }
                     }
                 }
@@ -1557,30 +1559,34 @@ private fun ChatTopBar(
     }
 }
 
-/** The comments affordance sits below a channel post and never replaces the post's own reaction chips. */
+/**
+ * The comments affordance is the bottom strip of a channel post's bubble, spanning the bubble's full width as in
+ * Telegram; reactions stay below the bubble, so the strip never pushes the next post further away.
+ */
 @Composable
-internal fun ChannelCommentsButton(count: Int, outgoing: Boolean = false, onClick: () -> Unit) {
+internal fun ChannelCommentsBar(count: Int, onClick: () -> Unit) {
     val palette = beyGramPalette()
-    val metrics = LocalBubbleMetrics.current
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = metrics.sideInset, vertical = 2.dp),
-        horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start
-    ) {
+    Column(Modifier.fillMaxWidth()) {
+        HorizontalDivider(color = palette.textSecondary.copy(alpha = 0.18f))
         Row(
-            Modifier.clip(RoundedCornerShape(50))
-                .background(palette.surface2)
+            Modifier.fillMaxWidth()
                 .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(start = 12.dp, end = 8.dp, top = 9.dp, bottom = 9.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Rounded.ChatBubbleOutline, contentDescription = null, tint = palette.accent, modifier = Modifier.size(17.dp))
-            Spacer(Modifier.width(6.dp))
+            Icon(Icons.Rounded.ChatBubbleOutline, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
             Text(
-                stringResource(R.string.chat_comments_button, count),
+                if (count > 0) LocalContext.current.resources.getQuantityString(R.plurals.chat_comments_count, count, count)
+                else stringResource(R.string.chat_comments_leave),
                 color = palette.accentInk,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -1598,7 +1604,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     transcriptionRequestError: String? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
-    onRateTranscription: ((Boolean) -> Unit)? = null) {
+    onRateTranscription: ((Boolean) -> Unit)? = null,
+    commentsBar: (@Composable () -> Unit)? = null) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
     val shape = bubbleShape(message.isOutgoing, metrics)
@@ -1694,8 +1701,14 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
                         overlay = overlayMeta, onRetry = onRetry)
                 },
-                footer = inlineContent
+                footer = inlineContent,
+                bottomBar = { if (!circle && !sticker) commentsBar?.invoke() }
             )
+        }
+        // Кружок и стикер лежат без пузыря: полосе комментариев нужна своя подложка того же цвета.
+        if (circle || sticker) commentsBar?.let { bar ->
+            Box(Modifier.padding(top = 2.dp).width(244.dp).clip(RoundedCornerShape(metrics.replyRadius))
+                .background(if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)) { bar() }
         }
         MessageReactionChips(message.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(message.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }

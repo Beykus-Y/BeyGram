@@ -363,7 +363,8 @@
     <string name="new_chat_public_joined">Du bist dem Chat beigetreten</string>
     <string name="new_chat_public_request_sent">Beitrittsanfrage gesendet</string>
     <string name="new_chat_public_join_failed">Dem Chat konnte nicht beigetreten werden</string>
-    <string name="chat_comments_button">Kommentare · %1$d</string>
+    <string name="chat_comments_leave">Kommentar schreiben</string>
+    <plurals name="chat_comments_count"><item quantity="one">%d Kommentar</item><item quantity="other">%d Kommentare</item></plurals>
     <string name="thread_comments_title">Kommentare · %1$d</string>
     <string name="thread_comments_empty">Noch keine Kommentare</string>
     <string name="thread_comments_load_earlier">Frühere Kommentare laden</string>
