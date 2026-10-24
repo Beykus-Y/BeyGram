@@ -91,6 +91,7 @@ import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.PrivacySettingsScreen
+import com.beykus.beygram.ui.screens.settings.AccountSecurityScreen
 import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
@@ -1740,6 +1741,7 @@ private fun BeyGramAppContent(
                         onLanguage = { routeName = AppRoute.Language.name },
                         onSessions = { routeName = AppRoute.Sessions.name },
                         onPrivacy = { routeName = AppRoute.PrivacySettings.name },
+                        onAccountSecurity = { routeName = AppRoute.AccountSecurity.name },
                         onSecondaryAccounts = { accountSwitcherVisible = true }
                     )
                 }
@@ -1756,6 +1758,53 @@ private fun BeyGramAppContent(
                     terminate = repository::terminateOtherSession,
                     terminateAll = repository::terminateAllOtherSessions
                 )
+                AppRoute.AccountSecurity -> key(selectedAccountId) {
+                    val securityAccountId = selectedAccountId
+                    AccountSecurityScreen(
+                        accountId = securityAccountId,
+                        repository = repository,
+                        currentPhone = myProfile.info?.phone.orEmpty(),
+                        isPrimaryAccount = securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
+                        onServerAccountDeleted = { deletedAccountId ->
+                            if (deletedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+                                // Never erase the primary TDLib database here. TDLib publishes
+                                // WaitPhoneNumber after DeleteAccount, and the auth-state effect
+                                // opens the sign-in screen through Start.
+                                routeName = AppRoute.Start.name
+                            } else {
+                                accountSwitchScope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            secondaryAccountController.logoutAndDelete(
+                                                deletedAccountId,
+                                                serverDeleted = true
+                                            )
+                                        }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Throwable) {
+                                        noticeError = UiText.Res(
+                                            R.string.account_security_delete_cleanup_failed
+                                        )
+                                    }
+                                    if (selectedAccountId == deletedAccountId) {
+                                        applyAccountSelection(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                                            .onFailure { failure ->
+                                                noticeError = UiText.Raw(
+                                                    context.getString(
+                                                        accountSwitcherErrorResource(
+                                                            accountSwitcherErrorReason(failure)
+                                                        )
+                                                    )
+                                                )
+                                            }
+                                    }
+                                }
+                            }
+                        },
+                        onBack = { routeName = AppRoute.Settings.name }
+                    )
+                }
                 AppRoute.NewChat -> NewChatScreen(
                     loadContacts = repository::loadContacts,
                     openPrivateChat = repository::openPrivateChat,
