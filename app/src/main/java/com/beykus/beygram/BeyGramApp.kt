@@ -1432,10 +1432,15 @@ private fun BeyGramAppContent(
                     CallsScreen(loadCalls = repository::loadCallHistory, observeFile = repository::observeFile, downloadFile = repository::downloadFile, accountId = selectedAccountId)
                 }
                 AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder) {
+                    val contactChats by repository.chats.collectAsStateWithLifecycle()
                     ContactsScreen(
                         accountId = selectedAccountId,
                         loadContacts = repository::loadContacts,
                         addContact = repository::addContact,
+                        updateContact = repository::updateContact,
+                        deleteContact = repository::deleteContact,
+                        sendContact = repository::sendContact,
+                        chats = contactChats,
                         openPrivateChat = repository::openPrivateChat,
                         observeFile = repository::observeFile,
                         downloadFile = repository::downloadFile,
