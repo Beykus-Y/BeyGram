@@ -45,7 +45,8 @@ internal class TdConversationActions(
         MessageCapabilities(properties.canBeReplied, properties.canBeCopied && editable(message.content),
             properties.canBeEdited && message.isOutgoing && editable(message.content),
             properties.canBeDeletedOnlyForSelf, properties.canBeDeletedForAllUsers,
-            canForward = properties.canBeForwarded, canSave = properties.canBeSaved)
+            canForward = properties.canBeForwarded, canSave = properties.canBeSaved,
+            canPin = properties.canBePinned, canGetLink = properties.canGetLink)
     }
 
     /** Предполагаем, что TDLib считает позицию от новых к старым, как результаты поиска: номер от самого раннего — total - position + 1. */
@@ -189,26 +190,31 @@ internal class TdConversationActions(
         Unit
     }
 
-    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true): Result<Unit> = conversationResult<Unit> {
+    suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
+        requireFutureSchedule(options)
         val bounded = boundTelegramText(text, entities, limits.value.text)
         if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
-        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft }, replyId, forumTopicId)
+        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft }, replyId, forumTopicId, options)
     }.onFailure { recordSendFailure("text", it) }
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
+        requireFutureSchedule(options)
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         val bounded = boundTelegramText(caption, entities, limits.value.caption)
-        send(chatId, media.toInputContent(bounded.text, bounded.entities), replyId, forumTopicId)
+        send(chatId, media.toInputContent(bounded.text, bounded.entities), replyId, forumTopicId, options)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L): Result<Unit> = conversationResult<Unit> {
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
+        requireFutureSchedule(options)
         val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
             request(TdApi.GetMessage(chatId, it))
         }
+        val protocolOptions = sendOptions(options)
         val messages = request(TdApi.SendMessageAlbum().apply {
             this.chatId = chatId
+            this.options = protocolOptions
             inputMessageContents = media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
@@ -217,7 +223,8 @@ internal class TdConversationActions(
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }
         })
-        messages.messages.filterNotNull().forEach { message -> history.put(map(message)); hydrateReply(message) }
+        // A scheduled album belongs to TDLib's schedule queue, not to the visible chat history.
+        messages.messages.orEmpty().filterNotNull().filter { it.schedulingState == null }.forEach { message -> history.put(map(message)); hydrateReply(message) }
     }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
 
     suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L): Result<PinnedMessagePage> = conversationResult {
@@ -232,13 +239,14 @@ internal class TdConversationActions(
         Unit
     }
     /** [forumTopicId] is used only without a reply target: a reply already carries its topic. */
-    private suspend fun send(chatId: Long, content: TdApi.InputMessageContent, replyId: Long?, forumTopicId: Long = 0L) {
+    private suspend fun send(chatId: Long, content: TdApi.InputMessageContent, replyId: Long?, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()) {
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
             request(TdApi.GetMessage(chatId, it))
         }
+        val protocolOptions = sendOptions(options)
         val message = request(TdApi.SendMessage().apply {
-            this.chatId = chatId; inputMessageContent = content
+            this.chatId = chatId; inputMessageContent = content; this.options = protocolOptions
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
@@ -246,7 +254,42 @@ internal class TdConversationActions(
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }
         })
-        history.put(map(message)); hydrateReply(message)
+        // TDLib keeps scheduled messages in a separate server-side queue.
+        if (message.schedulingState == null) { history.put(map(message)); hydrateReply(message) }
+    }
+
+    /** All scheduled messages in the chat, newest first, straight from TDLib (the only scheduled-message store). */
+    suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>> = conversationResult {
+        request(TdApi.GetChatScheduledMessages(chatId)).messages.orEmpty().filterNotNull().map(map)
+    }
+
+    /** Cancels a queued message. The server owns the queue, so no local copy is kept. */
+    suspend fun deleteScheduledMessage(chatId: Long, messageId: Long): Result<Unit> = conversationResult {
+        request(TdApi.DeleteMessages(chatId, longArrayOf(messageId), false))
+        Unit
+    }
+
+    /** Moves a queued message to [atSeconds]; TDLib also moves the rest of its album. */
+    suspend fun rescheduleMessage(chatId: Long, messageId: Long, atSeconds: Long): Result<Unit> = conversationResult {
+        if (!MessageSendOptions(scheduledAtSeconds = atSeconds).scheduledTimeIsFuture()) {
+            throw UserMessageException(UiText.Res(R.string.err_schedule_time_future))
+        }
+        requireSchedulingEditable(chatId, messageId)
+        request(TdApi.EditMessageSchedulingState(chatId, messageId, scheduledState(atSeconds)))
+        Unit
+    }
+
+    /** Sends a queued message now through TDLib; null scheduling state means immediate delivery. */
+    suspend fun sendScheduledNow(chatId: Long, messageId: Long): Result<Unit> = conversationResult {
+        requireSchedulingEditable(chatId, messageId)
+        request(TdApi.EditMessageSchedulingState(chatId, messageId, null))
+        Unit
+    }
+
+    private suspend fun requireSchedulingEditable(chatId: Long, messageId: Long) {
+        if (!request(TdApi.GetMessageProperties(chatId, messageId)).canEditSchedulingState) {
+            throw UserMessageException(UiText.Res(R.string.err_schedule_edit_unavailable))
+        }
     }
 
     suspend fun edit(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>): Result<Unit> = conversationResult {
@@ -275,7 +318,8 @@ internal class TdConversationActions(
             }
             request(TdApi.EditMessageCaption(chatId, messageId, null, formattedText(bounded.text, bounded.entities), above))
         }
-        history.put(map(message)); hydrateReply(message)
+        // Editing a scheduled message must not insert it into the visible chat history before it is sent.
+        if (message.schedulingState == null) { history.put(map(message)); hydrateReply(message) }
     }
     suspend fun delete(chatId: Long, messageId: Long, deleteScope: DeleteMessageScope): Result<Unit> = conversationResult {
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))
@@ -285,11 +329,32 @@ internal class TdConversationActions(
         history.delete(chatId, listOf(messageId))
     }
 
-    /** Пересылка без копии: TDLib сам отказывает, если сообщение нельзя переслать или содержимое защищено. */
-    suspend fun forward(fromChatId: Long, messageId: Long, toChatId: Long): Result<Unit> = conversationResult {
+    /**
+     * Pins or unpins [messageId] in its parent chat. A forum message keeps its topic: TDLib pins by message id, while the
+     * pinned list is already filtered by topic when read.
+     */
+    suspend fun pinMessage(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit> = conversationResult {
+        val properties = request(TdApi.GetMessageProperties(chatId, messageId))
+        if (!canTogglePin(properties.canBePinned)) throw UserMessageException(UiText.Res(R.string.err_message_pin_unavailable))
+        request(pinMessageRequest(chatId, messageId, pinned))
+        Unit
+    }
+
+    /**
+     * Пересылка обычная или без автора ([asCopy]). TDLib сам отказывает, если сообщение нельзя переслать
+     * или содержимое защищено.
+     */
+    suspend fun forward(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean = false): Result<Unit> = conversationResult {
         if (!request(TdApi.GetMessageProperties(fromChatId, messageId)).canBeForwarded) throw UserMessageException(UiText.Res(R.string.err_message_cannot_forward))
-        val forwarded = request(TdApi.ForwardMessages(toChatId, null, fromChatId, longArrayOf(messageId), TdApi.MessageSendOptions(), false, false))
+        val forwarded = request(forwardMessagesRequest(toChatId, fromChatId, messageId, asCopy))
         if (!forwarded.messages.orEmpty().any { it != null }) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
+    }
+
+    /** A Telegram link to the message; comments in a thread need the thread form. */
+    suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean): Result<String> = conversationResult {
+        val link = request(messageLinkRequest(chatId, messageId, inMessageThread)).link
+        if (link.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_link_unavailable))
+        link
     }
 
     /**
@@ -340,12 +405,38 @@ internal class TdConversationActions(
         return limit.coerceAtLeast(1)
     }
 
-    /** Messages around [messageId], newest last. TDLib may return fewer messages, so the target is fetched separately. */
+    /**
+     * One page newer than [afterMessageId]. Used when the boundary window contains only outgoing messages and the first
+     * unread incoming message is farther ahead.
+     */
+    suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> = conversationResult {
+        if (chatId == 0L || afterMessageId <= 0L) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
+        val page = if (forumTopicId > 0L) {
+            request(TdApi.GetForumTopicHistory().apply {
+                this.chatId = chatId
+                this.forumTopicId = forumTopicId.toInt()
+                fromMessageId = afterMessageId
+                offset = 1
+                limit = 50
+            })
+        } else request(TdApi.GetChatHistory(chatId, afterMessageId, 1, 50, false))
+        page.messages.orEmpty().filterNotNull().filter { it.id > afterMessageId }.sortedBy { it.id }.map(map)
+    }
+
+    /**
+     * Messages around [messageId], newest last. TDLib may return fewer messages, so the target is fetched separately.
+     * A read watermark can outlive its message: if the target was deleted, the surrounding page is still usable and is
+     * returned instead of failing the whole unread-boundary jump.
+     */
     suspend fun window(chatId: Long, messageId: Long): Result<List<TdApi.Message>> = conversationResult {
         if (chatId == 0L || messageId <= 0) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
-        val target = request(TdApi.GetMessage(chatId, messageId))
         val page = request(TdApi.GetChatHistory(chatId, messageId, -15, 40, false)).messages.orEmpty().filterNotNull()
-        (page + target).distinctBy { it.id }.sortedBy { it.id }
+        val target = try {
+            request(TdApi.GetMessage(chatId, messageId))
+        } catch (error: TdRequestError) {
+            if (error.code == 404) null else throw error
+        }
+        (page + listOfNotNull(target)).distinctBy { it.id }.sortedBy { it.id }
     }
 
     suspend fun context(chatId: Long, messageId: Long): Result<MessageContext> = conversationResult {
@@ -431,9 +522,29 @@ private const val TAG = "BeyGramNet"
 private const val FORUM_TOPIC_PAGE_SIZE = 100
 private const val MAX_FORUM_TOPIC_PAGES = 20
 
+/** TDLib scheduling state for a Unix timestamp in seconds; null keeps an immediate send. */
+internal fun scheduledState(atSeconds: Long?): TdApi.MessageSchedulingState? =
+    atSeconds?.let { TdApi.MessageSchedulingStateSendAtDate(it.toInt(), 0) }
+
+/** Protocol options for an ordinary send, a silent send, or a scheduled one. */
+internal fun sendOptions(options: MessageSendOptions): TdApi.MessageSendOptions = TdApi.MessageSendOptions().apply {
+    disableNotification = options.disableNotification
+    schedulingState = scheduledState(options.scheduledAtSeconds)
+}
+
+private fun requireFutureSchedule(options: MessageSendOptions) {
+    if (!options.scheduledTimeIsFuture()) throw UserMessageException(UiText.Res(R.string.err_schedule_time_future))
+}
+
 internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(text.take(180)) else UiText.Res(when (media?.kind) {
     MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title
 })
+
+internal fun messageLinkRequest(chatId: Long, messageId: Long, inMessageThread: Boolean) =
+    TdApi.GetMessageLink(chatId, messageId, 0, 0, "", false, inMessageThread)
+
+internal fun forwardMessagesRequest(toChatId: Long, fromChatId: Long, messageId: Long, asCopy: Boolean) =
+    TdApi.ForwardMessages(toChatId, null, fromChatId, longArrayOf(messageId), TdApi.MessageSendOptions(), asCopy, false)
 
 internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L) = TdApi.SearchChatMessages().apply {
     this.chatId = chatId
@@ -443,6 +554,14 @@ internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopic
     limit = 50
     filter = TdApi.SearchMessagesFilterPinned()
 }
+
+/**
+ * Telegram has separate pin and unpin requests rather than a toggle. Pinning is silent for chat members and is never
+ * limited to the current user. Topic chats pin the message id in the parent chat, so its topic association is preserved.
+ */
+internal fun pinMessageRequest(chatId: Long, messageId: Long, pinned: Boolean): TdApi.Function<TdApi.Ok> =
+    if (pinned) TdApi.PinChatMessage(chatId, messageId, true, false)
+    else TdApi.UnpinChatMessage(chatId, messageId)
 
 /** Медиа в журнале видны и принятые, и неудачные: текстовые сообщения слишком частые, поэтому там только сбои. */
 private fun recordMediaAccepted(kind: String) = recordAppEvent(

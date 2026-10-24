@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WifiOff
@@ -62,6 +63,10 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
+import com.beykus.beygram.data.settings.AppLocale
+import com.beykus.beygram.data.settings.ChatOverridesStore
+import com.beykus.beygram.data.settings.TranslationSettingsStore
+import com.beykus.beygram.data.settings.translationTargetLanguage
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.LocalPlaybackAccountId
@@ -81,9 +86,16 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** More than one transition can be in flight, but an accidental tap storm must not create an unbounded overlay. */
 private const val MAX_ACTIVE_COMPOSER_LAUNCHES = 4
+
+/** A zero-watermark jump walks history to its beginning; this guard keeps a huge chat from loading forever. */
+private const val MAX_UNREAD_HISTORY_PAGES = 50
+private const val UNREAD_HISTORY_PAGE_TIMEOUT_MS = 15_000L
+/** Bound on forward paging when outgoing messages separate the read boundary from the first unread incoming row. */
+private const val MAX_UNREAD_FORWARD_PAGES = 20
 
 @OptIn(FlowPreview::class)
 @Composable
@@ -91,7 +103,8 @@ fun ChatScreen(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, connectionState: TelegramConnectionState,
-    recordingSettings: VideoMessageSettingsStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
+    recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore,
+    chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
     onServiceUser: (Long) -> Unit = {},
     messageAnimations: MessageAnimationConfig = MessageAnimationConfig(),
@@ -116,6 +129,17 @@ fun ChatScreen(
     // The message of the latest swipe; a slower capability check for an older swipe is ignored.
     var swipedReplyId by remember(chat.id) { mutableLongStateOf(0L) }
     var actionsId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    // Translation is manual and cached for this chat visit, per message and target language.
+    var translationPickerId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    var translationLanguages by remember(chat.id) { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    var translationStates by remember(chat.id) { mutableStateOf<Map<Pair<Long, String>, TranslationUiState>>(emptyMap()) }
+    // A cached translation is valid only for the exact source text/entities that produced it.
+    var translationSources by remember(chat.id) { mutableStateOf<Map<Long, Pair<String, List<MessageTextEntity>>>>(emptyMap()) }
+    val translationJobs = remember(chat.id) { mutableMapOf<Long, Job>() }
+    // Local request state covers the gap before TDLib sends UpdateMessageContent with the recognition result.
+    var transcribingIds by remember(chat.id) { mutableStateOf<Set<Long>>(emptySet()) }
+    var transcriptionErrors by remember(chat.id) { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    var ratedTranscriptions by remember(chat.id) { mutableStateOf<Set<Long>>(emptySet()) }
     var editId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var editText by rememberSaveable(chat.id) { mutableStateOf("") }
     var editBusy by remember { mutableStateOf(false) }
@@ -124,6 +148,7 @@ fun ChatScreen(
     var deleteEveryone by remember { mutableStateOf(false) }
     var deleteBusy by remember { mutableStateOf(false) }
     var deleteError by remember { mutableStateOf<String?>(null) }
+    var pinConfirm by rememberSaveable(chat.id) { mutableStateOf(false) }
     var capabilities by remember { mutableStateOf<MessageCapabilities?>(null) }
     var capabilitiesError by remember { mutableStateOf<String?>(null) }
     var capabilitiesAttempt by remember { mutableIntStateOf(0) }
@@ -133,6 +158,9 @@ fun ChatScreen(
     var forwardId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var forwardBusy by remember { mutableStateOf(false) }
     var forwardError by remember { mutableStateOf<String?>(null) }
+    // A copy hides the original author; this survives recreation together with the pending forwardId.
+    var forwardAsCopy by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var forwardCopyConfirmId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var contextChatId by rememberSaveable(chat.id) { mutableStateOf(0L) }
     var contextMessageId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var highlighted by remember { mutableStateOf<Long?>(null) }
@@ -146,6 +174,12 @@ fun ChatScreen(
     var searchError by remember(chat.id) { mutableStateOf<String?>(null) }
     fun closeSearch() { searching = false; searchQuery = "" }
     var sending by remember { mutableStateOf(false) }
+    var sendOptionsOpen by remember(chat.id) { mutableStateOf(false) }
+    var scheduledMessagesOpen by remember(chat.id) { mutableStateOf(false) }
+    var chatSettingsOpen by remember(chat.id) { mutableStateOf(false) }
+    val chatOverrideState by chatOverrides.state.collectAsStateWithLifecycle()
+    val globalWallpaper = LocalChatWallpaper.current
+    val chatWallpaper = chatOverrideState[chat.id]?.wallpaper ?: globalWallpaper
     var error by remember { mutableStateOf<String?>(null) }
     var reactionOptions by remember(chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
@@ -171,6 +205,7 @@ fun ChatScreen(
     val context = LocalContext.current
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
     val recordingMode by recordingSettings.recordingMode.collectAsStateWithLifecycle()
+    val translationPreferences by translationSettings.state.collectAsStateWithLifecycle()
     val recordingRecovery: ChatRecordingRecoveryViewModel = viewModel(key = "chat-recording-$accountId-${chat.id}")
     val recordingPreview by recordingRecovery.preview.collectAsStateWithLifecycle()
     val recordingPreviewIndex by recordingRecovery.selectedIndex.collectAsStateWithLifecycle()
@@ -243,9 +278,9 @@ fun ChatScreen(
         if (previewFirst) recordingRecovery.showPreview(listOf(media))
         else sendRecordedMedia(listOf(media))
     }
-    val attachments = rememberAttachmentState(chat.id) { media, caption ->
-        val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = forumTopicId)
-        else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = forumTopicId)
+    val attachments = rememberAttachmentState(chat.id) { media, caption, options ->
+        val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
+        else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
         if (result.isSuccess) clearReply()
         result
     }
@@ -428,10 +463,89 @@ fun ChatScreen(
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
-    fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null }
+    fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
+    // The picker remembers the last choice; a blank stored value follows the app language, then the device language.
+    fun translationDefaultLanguage() = translationTargetLanguage(translationPreferences.targetLanguageCode,
+        AppLocale.selected(context).ifBlank { java.util.Locale.getDefault().language })
+    fun startTranslation(message: ChatMessage, language: String) {
+        if (!TranslationPolicy.canTranslate(chat.isSecret, message.text.isNotBlank())) {
+            translationStates = translationStates + ((message.id to language) to TranslationUiState.Failed(context.getString(R.string.err_translation_secret_chat)))
+            return
+        }
+        val key = message.id to language
+        translationSources = translationSources + (message.id to (message.text to message.entities))
+        val previousLanguage = translationLanguages[message.id]
+        if (previousLanguage != null && previousLanguage != language) {
+            // Switching target abandons the old request and its spinner, but keeps completed translations cached.
+            translationJobs.remove(message.id)?.cancel()
+            translationStates = translationStates.filterKeys { (id, lang) ->
+                id != message.id || translationStates[id to lang] !is TranslationUiState.Loading
+            }
+        }
+        translationLanguages = translationLanguages + (message.id to language)
+        if (translationStates[key] is TranslationUiState.Ready) return
+        translationJobs.remove(message.id)?.cancel()
+        translationStates = translationStates.filterKeys { it != key } + (key to TranslationUiState.Loading)
+        translationJobs[message.id] = scope.launch {
+            val result = conversation.translateMessage(message.chatId, message.id, language)
+            // A newer target or a cancel may have replaced this request while it was in flight.
+            if (translationLanguages[message.id] != language) return@launch
+            translationStates = translationStates + (key to result.fold(
+                onSuccess = { TranslationUiState.Ready(it) },
+                onFailure = { TranslationUiState.Failed(it.userMessage(context, R.string.err_translation_failed)) }
+            ))
+            translationJobs.remove(message.id)
+        }
+    }
+    fun chooseTranslationLanguage(message: ChatMessage, language: String) {
+        translationPickerId = null
+        translationSettings.setTargetLanguage(language)
+        startTranslation(message, language)
+    }
+    fun cancelTranslation(messageId: Long) {
+        translationJobs.remove(messageId)?.cancel()
+        val language = translationLanguages[messageId]
+        if (language != null) translationStates = translationStates.filterKeys { it != (messageId to language) }
+        translationLanguages = translationLanguages - messageId
+    }
+    fun retryTranslation(message: ChatMessage) {
+        val language = translationLanguages[message.id] ?: return
+        translationStates = translationStates.filterKeys { it != (message.id to language) }
+        startTranslation(message, language)
+    }
+    fun transcribe(message: ChatMessage) {
+        val media = message.media ?: return
+        if (!TranslationPolicy.canTranscribe(chat.isSecret, media)) return
+        transcriptionErrors = transcriptionErrors - message.id
+        transcribingIds = transcribingIds + message.id
+        scope.launch {
+            val result = conversation.recognizeSpeech(message.chatId, message.id)
+            transcribingIds = transcribingIds - message.id
+            result.onFailure {
+                transcriptionErrors = transcriptionErrors + (message.id to it.userMessage(context, R.string.err_transcription_failed))
+            }
+        }
+    }
+    fun rateTranscription(message: ChatMessage, isGood: Boolean) {
+        ratedTranscriptions = ratedTranscriptions + message.id
+        scope.launch { conversation.rateSpeechRecognition(message.chatId, message.id, isGood) }
+    }
+    // Editing a translated message must not leave the old translation under the new source text.
+    LaunchedEffect(messages) {
+        val changed = translationLanguages.keys.filter { id ->
+            val current = messages.firstOrNull { it.id == id }
+            current == null || translationSources[id] != (current.text to current.entities)
+        }
+        if (changed.isNotEmpty()) {
+            changed.forEach { translationJobs.remove(it)?.cancel() }
+            translationStates = translationStates.filterKeys { it.first !in changed }
+            translationLanguages = translationLanguages - changed.toSet()
+            translationSources = translationSources - changed.toSet()
+        }
+    }
     fun closeEdit() { editId = null; editText = ""; editError = null }
     LaunchedEffect(actionMessage) {
-        if (actionMessage == null) { deleting = false; deleteError = null; capabilities = null; capabilitiesError = null }
+        if (actionMessage == null) { deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     }
     LaunchedEffect(actionsId, capabilitiesAttempt) {
         val id = actionsId ?: return@LaunchedEffect
@@ -439,6 +553,15 @@ fun ChatScreen(
         val result = conversation.messageCapabilities(chat.id, id)
         capabilities = result.getOrNull()
         capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
+    }
+    fun setPinned(message: ChatMessage, pinned: Boolean) {
+        pinConfirm = false
+        closeActions()
+        error = null
+        scope.launch {
+            conversation.setMessagePinned(message.chatId, message.id, pinned)
+                .onFailure { error = it.userMessage(context, R.string.err_chat_pin_failed) }
+        }
     }
     LaunchedEffect(chat.id, reactionOwner?.id) {
         reactionOptions = emptyList()
@@ -654,6 +777,94 @@ fun ChatScreen(
         }
     }
     fun jumpToPinned(message: ChatMessage) = jumpToMessage(message.id, R.string.chat_pinned_failed)
+    suspend fun loadOlderUntilBeginning(): List<ChatMessage> {
+        val flow = if (forumTopicId > 0L) conversation.observeForumTopicHistory(chat.id, forumTopicId)
+        else conversation.observeChatHistory(chat.id)
+        var pages = 0
+        while (pages < MAX_UNREAD_HISTORY_PAGES && flow.value.hasOlderMessages && !flow.value.isLoading) {
+            val before = flow.value.messages.size
+            if (forumTopicId > 0L) conversation.loadOlderForumTopicMessages(chat.id, forumTopicId)
+            else conversation.loadOlderMessages(chat.id)
+            val next = withTimeoutOrNull(UNREAD_HISTORY_PAGE_TIMEOUT_MS) {
+                flow.first { it.messages.size != before || !it.hasOlderMessages || it.error != null }
+            } ?: break
+            if (next.error != null) break
+            pages++
+        }
+        return flow.value.messages
+    }
+    suspend fun findFirstUnreadAfter(boundary: Long): Long? {
+        var after = boundary
+        repeat(MAX_UNREAD_FORWARD_PAGES) {
+            val page = conversation.newerMessages(chat.id, forumTopicId, after).getOrElse { return null }
+            if (page.isEmpty()) return null
+            val items = groupTelegramMediaAlbums(page)
+            val index = firstUnreadItemIndex(items, boundary)
+            if (index >= 0) {
+                return items[index].messages.firstOrNull { !it.isOutgoing && it.id > boundary }?.id
+            }
+            val newest = page.maxOfOrNull { it.id } ?: return null
+            if (newest <= after) return null
+            after = newest
+        }
+        return null
+    }
+    fun jumpToFirstUnread() {
+        val boundary = history.lastReadInboxMessageId
+        // With no read watermark every incoming message is unread, so the target is the first incoming message in the
+        // whole chat. Otherwise the boundary page must be loaded, or the oldest loaded row is merely the oldest fetched
+        // unread message.
+        val unreadBoundary = boundary.coerceAtLeast(0L)
+        val readLoaded = boundary > 0L && rawMessageItems.any { item -> item.messages.any { it.id <= boundary } }
+        val firstUnread = firstUnreadItemIndex(rawMessageItems, unreadBoundary)
+        if (boundary <= 0L) {
+            if (!history.hasOlderMessages && firstUnread >= 0) {
+                val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing }?.id
+                scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
+            } else if (history.hasOlderMessages) {
+                scope.launch {
+                    val items = groupTelegramMediaAlbums(loadOlderUntilBeginning())
+                    val index = firstUnreadItemIndex(items, 0L)
+                    if (index >= 0) pendingJumpId = items[index].messages.firstOrNull { !it.isOutgoing }?.id
+                }
+            }
+            return
+        }
+        if (!needsUnreadWindow(readLoaded, firstUnread)) {
+            val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
+            scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
+            return
+        }
+        // A zero watermark has no message to anchor GetChatHistory; extend the oldest loaded page instead.
+        val anchor = boundary
+        // Request the boundary page. This also covers a window that is entirely older than the boundary: readLoaded is
+        // true there, but there is no unread row to scroll to. Resolve the target from the applied window itself, then
+        // let the existing pendingJumpId effect wait until that row is in the list.
+        scope.launch {
+            val loadedWindow = if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, anchor)
+            else conversation.loadMessagesAround(chat.id, anchor)
+            if (loadedWindow.isFailure) {
+                error = loadedWindow.exceptionOrNull().userMessage(context, R.string.err_chat_history_load_failed)
+                return@launch
+            }
+            if (loadedWindow.getOrDefault(false)) {
+                val loaded = if (forumTopicId > 0L) conversation.observeForumTopicHistory(chat.id, forumTopicId).value.messages
+                else conversation.observeChatHistory(chat.id).value.messages
+                val items = groupTelegramMediaAlbums(loaded)
+                val index = firstUnreadItemIndex(items, unreadBoundary)
+                if (index >= 0) {
+                    pendingJumpId = items[index].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
+                    return@launch
+                }
+                // The boundary window can contain only outgoing messages. Walk newer pages until an unread incoming
+                // message appears, then open its window so the jump target is present in the list.
+                val target = findFirstUnreadAfter(boundary) ?: return@launch
+                val targetWindow = if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, target)
+                else conversation.loadMessagesAround(chat.id, target)
+                if (targetWindow.getOrDefault(false)) pendingJumpId = target
+            }
+        }
+    }
     // Переход из профиля к вложению: чат открывается у сообщения один раз, после этого запрос сбрасывается.
     LaunchedEffect(focusMessageId) {
         if (focusMessageId == 0L) return@LaunchedEffect
@@ -661,17 +872,119 @@ fun ChatScreen(
         onFocusHandled()
     }
 
+    /**
+     * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
+     * the choice applies to this send only and is not kept for the next one.
+     */
+    fun sendCurrentDraft(options: MessageSendOptions) {
+        if (editId != null) return
+        if (attachments.active) {
+            attachments.send(draft, options) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
+            return
+        }
+        val outgoingAnimation = messageAnimations.direction(outgoing = true)
+        val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
+        // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
+        val launch = if (options.scheduledAtSeconds == null && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
+            composerFieldBounds?.let { source ->
+                composerLaunchCounter += 1
+                ComposerLaunch(
+                    key = composerLaunchCounter,
+                    text = outgoing.text,
+                    entities = outgoing.entities,
+                    replyToMessageId = replyId,
+                    sourceBounds = source,
+                    baselineSequence = history.liveArrivalSequence,
+                    speed = outgoingAnimation.tuning.speed
+                ).also {
+                    composerDraftLaunchKey = it.key
+                    composerLaunches += it
+                    while (composerLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) composerLaunches.removeAt(0)
+                }
+            }
+        } else null
+        sending = true; error = null
+        scope.launch {
+            var delivered = false
+            try {
+                val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId, options = options)
+                if (result.isSuccess) {
+                    delivered = true
+                    updateDraft { MessageDraft() }
+                    launch?.awaitingSend = false
+                    if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                    botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
+                    if (options.scheduledAtSeconds != null) {
+                        Toast.makeText(context, context.getString(R.string.chat_schedule_success), Toast.LENGTH_SHORT).show()
+                    }
+                } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
+            } finally {
+                launch?.awaitingSend = false
+                if (!delivered) {
+                    launch?.let(composerLaunches::remove)
+                    if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                }
+                sending = false
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (actionMessage != null) MessageActionsBar(
             capabilities = capabilities, error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
+            canPin = canTogglePin(capabilities?.canPin == true), isPinned = actionMessage.isPinned,
             onClose = ::closeActions, onRetry = { capabilitiesAttempt++ },
             onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
             onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
             onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
-            onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true }
+            onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
+            onTogglePin = {
+                if (chat.isChannel && !actionMessage.isPinned) pinConfirm = true
+                else setPinned(actionMessage, !actionMessage.isPinned)
+            },
+            onCopyLink = {
+                val target = actionMessage
+                scope.launch {
+                    conversation.messageLink(chat.id, target.id, inMessageThread = forumTopicId > 0L)
+                        .onSuccess {
+                            clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.message_link), it))
+                            Toast.makeText(context, context.getString(R.string.message_link_copied), Toast.LENGTH_SHORT).show()
+                        }
+                        .onFailure { error = it.userMessage(context, R.string.err_message_link_unavailable) }
+                    closeActions()
+                }
+            },
+            onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() },
+            onTranslate = if (actionMessage.mediaAlbumId == 0L && actionMessage.sendState == MessageSendState.Sent &&
+                TranslationPolicy.canTranslate(chat.isSecret, actionMessage.text.isNotBlank())) {
+                { translationPickerId = actionMessage.id; closeActions() }
+            } else null
         ) else if (searching) ChatSearchBar(searchQuery, { searchQuery = it }, ::closeSearch)
-        else ChatTopBar(chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true }, observeFile, onDownloadFile, forumTopicTitle)
+        else ChatTopBar(
+            chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true },
+            observeFile, onDownloadFile, forumTopicTitle,
+            hasUnread = (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0,
+            onMarkUnread = {
+                scope.launch {
+                    conversation.markChatUnread(chat.id)
+                        .onSuccess { Toast.makeText(context, context.getString(R.string.chat_mark_unread_done), Toast.LENGTH_SHORT).show(); onBack() }
+                        .onFailure { error = it.userMessage(context, R.string.err_chat_mark_unread_failed) }
+                }
+            },
+            onJumpUnread = ::jumpToFirstUnread,
+            onScheduled = { scheduledMessagesOpen = true },
+            onChatSettings = { chatSettingsOpen = true }
+        )
+        // The target picker lives above the message list so the action bar can close before selection.
+        val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
+        if (translationTargetMessage != null && TranslationPolicy.canTranslate(chat.isSecret, translationTargetMessage.text.isNotBlank())) {
+            TranslationTargetDialog(
+                currentLanguageCode = translationDefaultLanguage(),
+                onSelect = { chooseTranslationLanguage(translationTargetMessage, it) },
+                onDismiss = { translationPickerId = null }
+            )
+        }
         reactionOwner?.takeIf { !deleting }?.let { owner ->
             MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
                 setReaction(owner.id, option, addToRecent = true)
@@ -697,7 +1010,7 @@ fun ChatScreen(
             Text(stringResource(R.string.chat_network_waiting), color = palette.warningText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
-        ChatWallpaperLayer(LocalChatWallpaper.current)
+        ChatWallpaperLayer(chatWallpaper)
         val metrics = LocalBubbleMetrics.current
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = metrics.listPadding), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
@@ -732,13 +1045,31 @@ fun ChatScreen(
                         }
                     }
                     MessageAnimationFrame(animate = animateArrival && launch == null, outgoing = message.isOutgoing, config = messageAnimations, modifier = launchModifier) {
+                        val translationLanguage = translationLanguages[message.id]
+                        val translationState = translationLanguage?.let { translationStates[message.id to it] }
+                        val media = message.media
                         if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
                         else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                         else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                             highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                             onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                             onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
-                            onBubblePositioned = bubblePosition)
+                            onBubblePositioned = bubblePosition,
+                            translation = translationState,
+                            onTranslationRetry = { retryTranslation(message) },
+                            onTranslationCancel = { cancelTranslation(message.id) },
+                            onTranslationDismiss = { translationLanguages = translationLanguages - message.id },
+                            transcriptionRequestPending = message.id in transcribingIds,
+                            transcriptionRequestError = transcriptionErrors[message.id],
+                            transcriptionRated = message.id in ratedTranscriptions,
+                            onTranscribe = if (message.sendState == MessageSendState.Sent && TranslationPolicy.canTranscribe(chat.isSecret, media)) {
+                                { transcribe(message) }
+                            } else null,
+                            onRateTranscription = if (chat.isSecret) {
+                                null
+                            } else {
+                                { isGood -> rateTranscription(message, isGood) }
+                            })
                     }
                 }
             }
@@ -778,6 +1109,19 @@ fun ChatScreen(
             Text(failure, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { error = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.warningText) }
         } }
+        forwardCopyConfirmId?.let { id ->
+            AlertDialog(
+                onDismissRequest = { forwardCopyConfirmId = null },
+                title = { Text(stringResource(R.string.message_forward_copy_title)) },
+                text = { Text(stringResource(R.string.message_forward_copy_warning)) },
+                confirmButton = {
+                    TextButton(onClick = { forwardCopyConfirmId = null; forwardAsCopy = true; forwardId = id }) {
+                        Text(stringResource(R.string.message_forward_copy_confirm), color = palette.accent)
+                    }
+                },
+                dismissButton = { TextButton(onClick = { forwardCopyConfirmId = null }) { Text(stringResource(R.string.common_cancel)) } }
+            )
+        }
         val replyTarget = messages.firstOrNull { it.id == replyId }
         if (deleting && actionMessage != null) {
             val caps = capabilities
@@ -869,9 +1213,13 @@ fun ChatScreen(
             else Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f))
                 // A tap must not move focus off the text field, or the keyboard closes.
                 .focusProperties { canFocus = false }
-                .clickable(enabled = canSend) {
-                    when {
-                        editing -> scope.launch {
+                .combinedClickable(
+                    enabled = canSend,
+                    onLongClickLabel = if (!editing) stringResource(R.string.chat_send_options) else null,
+                    onLongClick = if (editing) null else { { sendOptionsOpen = true } }
+                ) {
+                    if (editing) {
+                        scope.launch {
                             val target = editMessage ?: return@launch
                             editBusy = true; editError = null
                             try {
@@ -879,50 +1227,8 @@ fun ChatScreen(
                                 if (result.isSuccess) closeEdit() else editError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_edit_failed)
                             } finally { editBusy = false }
                         }
-                        attachments.active -> attachments.send(draft) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
-                        else -> {
-                            val outgoingAnimation = messageAnimations.direction(outgoing = true)
-                            val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
-                            val launch = if (messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
-                                composerFieldBounds?.let { source ->
-                                    composerLaunchCounter += 1
-                                    ComposerLaunch(
-                                        key = composerLaunchCounter,
-                                        text = outgoing.text,
-                                        entities = outgoing.entities,
-                                        replyToMessageId = replyId,
-                                        sourceBounds = source,
-                                        baselineSequence = history.liveArrivalSequence,
-                                        speed = outgoingAnimation.tuning.speed
-                                    ).also {
-                                        composerDraftLaunchKey = it.key
-                                        composerLaunches += it
-                                        while (composerLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) composerLaunches.removeAt(0)
-                                    }
-                                }
-                            } else null
-                            sending = true; error = null
-                            scope.launch {
-                                var delivered = false
-                                try {
-                                    val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId)
-                                    if (result.isSuccess) {
-                                        delivered = true
-                                        updateDraft { com.beykus.beygram.domain.model.MessageDraft() }
-                                        launch?.awaitingSend = false
-                                        if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
-                                        botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
-                                    } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
-                                } finally {
-                                    launch?.awaitingSend = false
-                                    if (!delivered) {
-                                        launch?.let(composerLaunches::remove)
-                                        if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
-                                    }
-                                    sending = false
-                                }
-                            }
-                        }
+                    } else {
+                        sendCurrentDraft(MessageSendOptions())
                     }
                 }, contentAlignment = Alignment.Center) {
                 if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
@@ -1000,23 +1306,57 @@ fun ChatScreen(
             canForward = viewedRights?.canForward == true,
             canEdit = viewedRights?.canEdit == true,
             canDelete = viewedRights?.let { it.canDeleteForSelf || it.canDeleteForAll } == true,
-            onForward = { forwardId = viewed.id; selectedMediaId = null },
+            onForward = { forwardAsCopy = false; forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
             onDelete = { deleteEveryone = viewedRights?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
         ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) })
     forwardId?.let { id ->
-        ForwardChatDialog(chats, forwardBusy, forwardError,
+        ForwardChatDialog(chats, forwardBusy, forwardError, asCopy = forwardAsCopy,
             onPick = { target -> scope.launch {
                 forwardBusy = true; forwardError = null
                 try {
-                    val result = conversation.forwardMessage(chat.id, id, target.id)
-                    if (result.isSuccess) { forwardId = null; Toast.makeText(context, context.getString(R.string.chat_message_forwarded), Toast.LENGTH_SHORT).show() }
-                    else forwardError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                    val result = conversation.forwardMessage(chat.id, id, target.id, asCopy = forwardAsCopy)
+                    if (result.isSuccess) {
+                        val copied = forwardAsCopy
+                        forwardId = null
+                        forwardAsCopy = false
+                        Toast.makeText(context, context.getString(if (copied) R.string.message_forwarded_without_author else R.string.chat_message_forwarded), Toast.LENGTH_SHORT).show()
+                    } else forwardError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
                 } finally { forwardBusy = false }
             } },
-            onClose = { forwardId = null; forwardError = null })
+            onClose = { forwardId = null; forwardError = null; forwardAsCopy = false })
     }
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }) }
+    if (pinConfirm && actionMessage != null) AlertDialog(
+        onDismissRequest = { pinConfirm = false },
+        title = { Text(stringResource(R.string.chat_pin_channel_title)) },
+        text = { Text(stringResource(R.string.chat_pin_channel_message)) },
+        confirmButton = {
+            TextButton(onClick = { actionMessage?.let { setPinned(it, true) } }) {
+                Text(stringResource(R.string.message_action_pin))
+            }
+        },
+        dismissButton = { TextButton(onClick = { pinConfirm = false }) { Text(stringResource(R.string.common_cancel)) } }
+    )
+    if (sendOptionsOpen) SendOptionsDialog(
+        canSchedule = !chat.isSecret,
+        onDismiss = { sendOptionsOpen = false },
+        onSendNow = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions()) },
+        onSendSilently = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(disableNotification = true)) },
+        onSchedule = { at -> sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(scheduledAtSeconds = at)) }
+    )
+    if (scheduledMessagesOpen) ScheduledMessagesDialog(
+        chatId = chat.id,
+        conversation = conversation,
+        onClose = { scheduledMessagesOpen = false }
+    )
+    if (chatSettingsOpen) ChatSettingsSheet(
+        chatId = chat.id,
+        conversation = conversation,
+        overrides = chatOverrides,
+        globalWallpaper = globalWallpaper,
+        onClose = { chatSettingsOpen = false }
+    )
 }
 
 @Composable
@@ -1028,8 +1368,14 @@ private fun ReadOnlyChatBar() {
 }
 
 @Composable
-private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null) {
+private fun ChatTopBar(
+    chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
+    hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
+    onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}
+) {
     val palette = beyGramPalette()
+    var menuOpen by remember { mutableStateOf(false) }
     // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
     val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
@@ -1041,7 +1387,26 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
                 Text(forumTopicTitle ?: chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(chatPresenceLine(chat, info, lastSeenStyle, now).resolve(), color = palette.textSecondary, fontSize = 13.sp)
             }
+            if (!chat.isSecret) IconButton(onClick = onScheduled) { Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_scheduled_title), tint = palette.textSecondary) }
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
+            Box {
+                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary) }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_jump_to_unread)) },
+                        enabled = hasUnread,
+                        onClick = { menuOpen = false; onJumpUnread() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_mark_unread)) },
+                        onClick = { menuOpen = false; onMarkUnread() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_settings_title)) },
+                        onClick = { menuOpen = false; onChatSettings() }
+                    )
+                }
+            }
         }
         HorizontalDivider(color = palette.divider)
     }
@@ -1050,7 +1415,16 @@ private fun ChatTopBar(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: Las
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {},
-    onBubblePositioned: ((Rect) -> Unit)? = null) {
+    onBubblePositioned: ((Rect) -> Unit)? = null,
+    translation: TranslationUiState? = null,
+    onTranslationRetry: (() -> Unit)? = null,
+    onTranslationCancel: (() -> Unit)? = null,
+    onTranslationDismiss: (() -> Unit)? = null,
+    transcriptionRequestPending: Boolean = false,
+    transcriptionRequestError: String? = null,
+    transcriptionRated: Boolean = false,
+    onTranscribe: (() -> Unit)? = null,
+    onRateTranscription: ((Boolean) -> Unit)? = null) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
     val shape = bubbleShape(message.isOutgoing, metrics)
@@ -1096,8 +1470,18 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     message.sendState == MessageSendState.Sending -> stringResource(R.string.chat_sending_description)
                                     isRead -> stringResource(R.string.chat_read_description)
                                     else -> stringResource(R.string.chat_sent_description)
-                                }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted, origin = playbackOrigin)
-                            else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed, origin = playbackOrigin)
+                                }, unseen = !message.isOutgoing && !media.isViewed, highlighted = highlighted, origin = playbackOrigin,
+                                transcriptionRequestPending = transcriptionRequestPending,
+                                transcriptionRequestError = transcriptionRequestError,
+                                transcriptionRated = transcriptionRated,
+                                onTranscribe = onTranscribe,
+                                onRateTranscription = onRateTranscription)
+                            else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed, origin = playbackOrigin,
+                                transcriptionRequestPending = transcriptionRequestPending,
+                                transcriptionRequestError = transcriptionRequestError,
+                                transcriptionRated = transcriptionRated,
+                                onTranscribe = onTranscribe,
+                                onRateTranscription = onRateTranscription)
                         }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
@@ -1110,6 +1494,16 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 }
                             }
                             if (hasText) FormattedMessageText(message)
+                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile) }
+                            translation?.let { state ->
+                                TranslationBlock(
+                                    state = state,
+                                    onRetry = { onTranslationRetry?.invoke() },
+                                    onCancel = { onTranslationCancel?.invoke() },
+                                    onDismiss = { onTranslationDismiss?.invoke() },
+                                    messageId = message.id
+                                )
+                            }
                         }
                     }
                 },

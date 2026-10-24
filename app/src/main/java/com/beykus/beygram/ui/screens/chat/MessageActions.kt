@@ -2,6 +2,7 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,8 +15,12 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,6 +29,10 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -45,14 +54,22 @@ internal fun MessageActionsBar(
     error: String?,
     hasText: Boolean,
     isMedia: Boolean,
+    canPin: Boolean,
+    isPinned: Boolean,
     onClose: () -> Unit,
     onRetry: () -> Unit,
     onReply: () -> Unit,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onTogglePin: () -> Unit,
+    onCopyLink: () -> Unit = {},
+    onForwardCopy: () -> Unit = {},
+    onTranslate: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
+    var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
+    val translate = onTranslate
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textPrimary) }
@@ -63,6 +80,30 @@ internal fun MessageActionsBar(
                     if (capabilities.canCopy && hasText) ActionIcon(Icons.Rounded.ContentCopy, stringResource(R.string.message_action_copy_text), palette.accent, onCopy)
                     if (capabilities.canEdit) ActionIcon(Icons.Rounded.Edit, if (isMedia) stringResource(R.string.message_action_edit_caption) else stringResource(R.string.message_action_edit), palette.accent, onEdit)
                     if (capabilities.canDeleteForSelf || capabilities.canDeleteForAll) ActionIcon(Icons.Rounded.Delete, stringResource(R.string.common_delete), palette.danger, onDelete)
+                    if (canPin || capabilities.canGetLink || capabilities.canForward || translate != null) Box {
+                        IconButton(onClick = { moreOpen = true }) {
+                            Icon(Icons.Rounded.MoreVert, stringResource(R.string.message_action_more), tint = palette.accent)
+                        }
+                        DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                            if (canPin) DropdownMenuItem(
+                                text = { Text(stringResource(if (isPinned) R.string.message_action_unpin else R.string.message_action_pin)) },
+                                onClick = { moreOpen = false; onTogglePin() }
+                            )
+                            if (capabilities.canGetLink) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.message_action_copy_link)) },
+                                onClick = { moreOpen = false; onCopyLink() }
+                            )
+                            if (capabilities.canForward) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.message_action_forward_copy)) },
+                                onClick = { moreOpen = false; onForwardCopy() }
+                            )
+                            if (translate != null) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.message_action_translate), color = palette.textPrimary) },
+                                leadingIcon = { Icon(Icons.Rounded.Translate, null, tint = palette.accent) },
+                                onClick = { moreOpen = false; translate() }
+                            )
+                        }
+                    }
                 }
                 error != null -> TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry), color = palette.accent) }
                 else -> CircularProgressIndicator(Modifier.padding(end = 14.dp).size(22.dp), color = palette.accent, strokeWidth = 2.dp)

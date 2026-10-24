@@ -18,6 +18,12 @@ sealed interface AuthState {
     /** Включена двухфакторная аутентификация; [hint] — подсказка к паролю. */
     data class WaitingForPassword(val hint: String) : AuthState
 
+    /** Ожидаем подтверждения входа по QR-коду; [link] — `tg://login?token=...` от TDLib. */
+    data class WaitingForQr(val link: String) : AuthState {
+        // The link contains a login secret and must never reach a log through a generic state dump.
+        override fun toString(): String = "WaitingForQr(***)"
+    }
+
     /** Пользователь успешно вошёл. */
     data object Ready : AuthState
 

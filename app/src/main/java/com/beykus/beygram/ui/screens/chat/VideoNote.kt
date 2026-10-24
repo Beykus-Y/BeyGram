@@ -127,7 +127,12 @@ internal fun VideoNoteBubble(
     statusDescription: String? = null,
     unseen: Boolean = false,
     highlighted: Boolean = false,
-    origin: PlaybackOrigin? = null
+    origin: PlaybackOrigin? = null,
+    transcriptionRequestPending: Boolean = false,
+    transcriptionRequestError: String? = null,
+    transcriptionRated: Boolean = false,
+    onTranscribe: (() -> Unit)? = null,
+    onRateTranscription: ((Boolean) -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
@@ -244,5 +249,15 @@ internal fun VideoNoteBubble(
                 Icon(statusIcon, contentDescription = statusDescription, tint = if (statusIcon == Icons.Rounded.Schedule) palette.messageTime else palette.accent, modifier = Modifier.size(14.dp))
             }
         }
+        TranscriptionSection(
+            media = media,
+            requestPending = transcriptionRequestPending,
+            requestError = transcriptionRequestError,
+            rated = transcriptionRated,
+            onRequest = onTranscribe,
+            onRate = onRateTranscription,
+            // Keep the note's circle alignment: a full-width section would push an incoming note to the right.
+            modifier = Modifier.width(size)
+        )
     }
 }

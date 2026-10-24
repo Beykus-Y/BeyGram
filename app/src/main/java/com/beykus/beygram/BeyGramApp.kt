@@ -102,6 +102,8 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.settings.ChatOverridesStore
+import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
 import com.beykus.beygram.ui.screens.proxy.ProxyConnectScreen
@@ -459,6 +461,7 @@ private fun BeyGramAppContent(
                 routeName = when {
                     target != TdAccountStorageLayout.LEGACY_ACCOUNT_ID -> AppRoute.Chats.name
                     legacyRepository.authState.value is AuthState.WaitingForPhone -> AppRoute.LoginPhone.name
+                    legacyRepository.authState.value is AuthState.WaitingForQr -> AppRoute.LoginPhone.name
                     legacyRepository.authState.value is AuthState.WaitingForCode -> AppRoute.LoginCode.name
                     legacyRepository.authState.value is AuthState.WaitingForPassword -> AppRoute.LoginPassword.name
                     legacyRepository.authState.value == AuthState.Ready -> AppRoute.Chats.name
@@ -528,6 +531,12 @@ private fun BeyGramAppContent(
     }
     val archiveSettingsStore = remember(context, selectedAccountId) {
         ArchiveSettingsStore.get(context, selectedAccountId)
+    }
+    val translationSettings = remember(context, selectedAccountId) {
+        TranslationSettingsStore(context.applicationContext, selectedAccountId)
+    }
+    val chatOverrides = remember(context, selectedAccountId) {
+        ChatOverridesStore(context.applicationContext, selectedAccountId)
     }
     val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
     val archiveSettingsScope = rememberCoroutineScope()
@@ -691,6 +700,7 @@ private fun BeyGramAppContent(
         mutableStateOf(incomingShare?.targetChatId != 0L)
     }
     val shareLegacyFinalLogout = legacyAuthState is AuthState.WaitingForPhone ||
+        legacyAuthState is AuthState.WaitingForQr ||
         legacyAuthState is AuthState.WaitingForCode ||
         legacyAuthState is AuthState.WaitingForPassword
     if (incomingShare != null && shareLegacyShortcut &&
@@ -896,6 +906,14 @@ private fun BeyGramAppContent(
                     routeName = AppRoute.LoginPhone.name
                 }
             }
+            is AuthState.WaitingForQr -> {
+                // QR is rendered inside the phone login screen; don't leave it on the start/code/password screen.
+                if (currentRoute in listOf(
+                        AppRoute.Start, AppRoute.LoginPhone, AppRoute.LoginCode, AppRoute.LoginPassword
+                    )) {
+                    routeName = AppRoute.LoginPhone.name
+                }
+            }
             is AuthState.WaitingForCode -> {
                 phone = (authState as AuthState.WaitingForCode).phone.ifEmpty { phone }
                 routeName = AppRoute.LoginCode.name
@@ -961,6 +979,7 @@ private fun BeyGramAppContent(
                 onAccountPicker = { accountSwitcherVisible = true },
                 onArchiveClick = { routeName = AppRoute.Archive.name },
                 onMarkRead = markChatRead,
+                onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
                 onArchive = archiveChat,
                 onPinChat = repository::setChatPinned,
                 onMuteChat = repository::setChatMuted,
@@ -1168,7 +1187,9 @@ private fun BeyGramAppContent(
                         topicUnreadCount = selectedTopic?.unreadCount ?: 0,
                         onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
                         focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L },
-                        messageAnimations = appearance.messageAnimations
+                        messageAnimations = appearance.messageAnimations,
+                        translationSettings = translationSettings,
+                        chatOverrides = chatOverrides
                     )
                 }
             }
@@ -1327,7 +1348,9 @@ private fun BeyGramAppContent(
                         phone = submittedPhone
                         repository.submitPhoneNumber(submittedPhone)
                         // Навигация произойдёт через LaunchedEffect(authState) при WaitingForCode
-                    }
+                    },
+                    onQrLogin = repository::requestQrLogin,
+                    onCancelQrLogin = repository::cancelQrLogin
                 )
 
                 AppRoute.LoginCode -> LoginCodeScreen(
@@ -1444,7 +1467,7 @@ private fun BeyGramAppContent(
                         onSecondaryAccounts = { accountSwitcherVisible = true }
                     )
                 }
-                AppRoute.Language -> LanguageScreen(onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.Language -> LanguageScreen(translationSettings, onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.AccountPicker, AppRoute.SecondaryAccounts, AppRoute.SecondaryChats ->
                     LaunchedEffect(Unit) {
                         // Old saved navigation from the experimental account
