@@ -172,8 +172,11 @@ private fun GroupProfileToolbar(title: String, collapse: State<Float>, onBack: (
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
         Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).graphicsLayer { alpha = collapse.value }.semantics { heading() })
-        ChatInfoMenu(canBlock = false, canDelete = true, onBlock = { Result.success(Unit) },
-            onDelete = onDelete, onDeleted = onDeleted)
+        ChatInfoMenu(
+            canBlock = false, canReport = false, isBlocked = false, canDelete = true,
+            onSetBlocked = { Result.success(Unit) }, onReportSpam = { Result.success(Unit) },
+            onDelete = onDelete, onDeleted = onDeleted
+        )
     }
 }
 

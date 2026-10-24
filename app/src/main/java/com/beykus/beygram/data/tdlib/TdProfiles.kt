@@ -409,7 +409,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             commonGroupCount = full?.groupInCommonCount?.takeIf { it > 0 && user.id != myId },
             personalChatId = full?.personalChatId?.toLong() ?: 0L,
             personalChatTitle = full?.personalChatId?.let { chats[it]?.title }.orEmpty(),
-            isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true
+            isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true,
+            isBlocked = user.id != myId && full?.blockList is TdApi.BlockListMain
         )
     }
     private fun chatInfo(id: Long): ProfileInfo? = chatProfile(id)?.copy(

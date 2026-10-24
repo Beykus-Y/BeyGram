@@ -115,6 +115,13 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun setChatMuted(chatId: Long, muted: Boolean): Result<Unit> = unavailable()
     override suspend fun deleteChatForSelf(chatId: Long): Result<Unit> = unavailable()
     override suspend fun blockPrivateChat(chatId: Long): Result<Unit> = unavailable()
+    override suspend fun setPrivateChatBlocked(chatId: Long, blocked: Boolean): Result<Unit> = unavailable()
+    override suspend fun loadPrivacySettings(): Result<List<com.beykus.beygram.domain.model.PrivacySettingState>> = unavailable()
+    override suspend fun setPrivacySetting(setting: com.beykus.beygram.domain.model.PrivacySetting, rules: com.beykus.beygram.domain.model.PrivacyRules): Result<Unit> = unavailable()
+    override suspend fun loadBlockedSenders(offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.BlockedSendersPage> = unavailable()
+    override suspend fun setSenderBlocked(kind: com.beykus.beygram.domain.model.BlockedSenderKind, senderId: Long, blocked: Boolean): Result<Unit> = unavailable()
+    override suspend fun reportSpam(chatId: Long): Result<Unit> = unavailable()
+    override suspend fun reportSpamForUser(userId: Long): Result<Unit> = unavailable()
     override val groupCreation: StateFlow<com.beykus.beygram.domain.model.GroupCreationState> =
         MutableStateFlow<com.beykus.beygram.domain.model.GroupCreationState>(com.beykus.beygram.domain.model.GroupCreationState.Idle).asStateFlow()
     override fun beginGroupCreation(title: String, memberUserIds: List<Long>): Result<Unit> = unavailable()

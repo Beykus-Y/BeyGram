@@ -30,7 +30,7 @@ import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
-/** Как показывать время последнего входа собеседника. Статусы «в сети» и «был(а) недавно» Telegram показывает как есть. */
+/** Только формат времени последнего визита. Кто видит это время, настраивается в «Приватности и безопасности» и хранится в TDLib. */
 @Composable
 fun LastSeenSettingsScreen(style: LastSeenStyle, onStyleChange: (LastSeenStyle) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()

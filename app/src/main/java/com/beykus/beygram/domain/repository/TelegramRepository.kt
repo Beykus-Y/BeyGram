@@ -13,6 +13,11 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.BlockedSenderKind
+import com.beykus.beygram.domain.model.BlockedSendersPage
+import com.beykus.beygram.domain.model.PrivacyRules
+import com.beykus.beygram.domain.model.PrivacySetting
+import com.beykus.beygram.domain.model.PrivacySettingState
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.OutgoingMedia
@@ -77,6 +82,20 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun deleteChatForSelf(chatId: Long): Result<Unit>
     /** Block the other user from a private conversation. Refuses group/channel and self. */
     suspend fun blockPrivateChat(chatId: Long): Result<Unit>
+    /** Block or unblock the other user in a private conversation; the block list is account-wide. */
+    suspend fun setPrivateChatBlocked(chatId: Long, blocked: Boolean): Result<Unit>
+    /** Telegram privacy rules are stored on the server and shared by every signed-in device. */
+    suspend fun loadPrivacySettings(): Result<List<PrivacySettingState>>
+    /** Replaces one privacy setting; exceptions are sent as TDLib allow/restrict user rules. */
+    suspend fun setPrivacySetting(setting: PrivacySetting, rules: PrivacyRules): Result<Unit>
+    /** A page of TDLib's main block list, including users and chats returned by the server. */
+    suspend fun loadBlockedSenders(offset: Int, limit: Int = 50): Result<BlockedSendersPage>
+    /** Changes the account block list for a user or chat sender. Never deletes a contact. */
+    suspend fun setSenderBlocked(kind: BlockedSenderKind, senderId: Long, blocked: Boolean): Result<Unit>
+    /** Reports a private chat for spam using Telegram's required report option flow. */
+    suspend fun reportSpam(chatId: Long): Result<Unit>
+    /** Resolves a blocked user's private chat and reports it for spam without opening it. */
+    suspend fun reportSpamForUser(userId: Long): Result<Unit>
     /** Create a Telegram broadcast channel; returns its new chat ID. */
     suspend fun createChannel(title: String, description: String): Result<Long>
     /** Create a basic Telegram group with explicitly selected contact IDs. */
