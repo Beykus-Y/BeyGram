@@ -95,6 +95,7 @@ import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
+import com.beykus.beygram.ui.screens.settings.AppLockSettingsScreen
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherSheet
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherMeta
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherIdentity
@@ -154,7 +155,8 @@ fun BeyGramApp(
     onIncomingShareHandled: (Long) -> Unit = {},
     pendingDeepLink: PendingTelegramDeepLink? = null,
     onDeepLinkBound: (Long, String) -> Unit = { _, _ -> },
-    onDeepLinkHandled: (Long) -> Unit = {}
+    onDeepLinkHandled: (Long) -> Unit = {},
+    onSecureScreenChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val videoMessageSettings = remember(context) { VideoMessageSettingsStore(context) }
@@ -199,7 +201,8 @@ fun BeyGramApp(
         onIncomingShareHandled = onIncomingShareHandled,
         pendingDeepLink = pendingDeepLink,
         onDeepLinkBound = onDeepLinkBound,
-        onDeepLinkHandled = onDeepLinkHandled
+        onDeepLinkHandled = onDeepLinkHandled,
+        onSecureScreenChange = onSecureScreenChange
     )
 }
 
@@ -219,7 +222,8 @@ private fun BeyGramAppContent(
     onIncomingShareHandled: (Long) -> Unit,
     pendingDeepLink: PendingTelegramDeepLink?,
     onDeepLinkBound: (Long, String) -> Unit,
-    onDeepLinkHandled: (Long) -> Unit
+    onDeepLinkHandled: (Long) -> Unit,
+    onSecureScreenChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
@@ -1152,6 +1156,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.NewChat) { routeName = AppRoute.Chats.name }
     BackHandler(enabled = route == AppRoute.CreateChannel) { routeName = AppRoute.NewChat.name }
     BackHandler(enabled = route == AppRoute.CreateGroup) {
@@ -1240,6 +1245,13 @@ private fun BeyGramAppContent(
         val accountLabel = myAccount.info?.title?.takeIf { it.isNotBlank() } ?: myAccount.info?.phone.orEmpty()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
         val chat = selectedChat ?: chats.firstOrNull { it.id == selectedChatId }
+        // A secret or protected chat must not appear in screenshots or a screen recording.
+        // The Activity owns the window flag; this effect only reports the current screen policy.
+        val chatSecure = chat != null && (chat.isSecret || chat.hasProtectedContent)
+        DisposableEffect(chatSecure) {
+            onSecureScreenChange(chatSecure)
+            onDispose { if (chatSecure) onSecureScreenChange(false) }
+        }
         LaunchedEffect(authState, selectedChatId) {
             if (authState == AuthState.Ready && chat == null && selectedChatId != 0L) repository.loadChat(selectedChatId)
         }
@@ -1450,6 +1462,13 @@ private fun BeyGramAppContent(
     }
     val chatInfoRoute: @Composable () -> Unit = {
         val chats by repository.chats.collectAsStateWithLifecycle()
+        val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
+        // Chat information includes shared media; a protected chat must stay out of screenshots here too.
+        val chatInfoSecure = selectedChat?.let { it.isSecret || it.hasProtectedContent } == true
+        DisposableEffect(chatInfoSecure) {
+            onSecureScreenChange(chatInfoSecure)
+            onDispose { if (chatInfoSecure) onSecureScreenChange(false) }
+        }
         val infoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
         LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
@@ -1740,9 +1759,11 @@ private fun BeyGramAppContent(
                         onLanguage = { routeName = AppRoute.Language.name },
                         onSessions = { routeName = AppRoute.Sessions.name },
                         onPrivacy = { routeName = AppRoute.PrivacySettings.name },
-                        onSecondaryAccounts = { accountSwitcherVisible = true }
+                        onSecondaryAccounts = { accountSwitcherVisible = true },
+                        onAppLock = { routeName = AppRoute.AppLock.name }
                     )
                 }
+                AppRoute.AppLock -> AppLockSettingsScreen(onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.Language -> LanguageScreen(translationSettings, onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.AccountPicker, AppRoute.SecondaryAccounts, AppRoute.SecondaryChats ->
                     LaunchedEffect(Unit) {

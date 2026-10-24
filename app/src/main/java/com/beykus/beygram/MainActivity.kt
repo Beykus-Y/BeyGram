@@ -5,8 +5,9 @@ import android.os.Bundle
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import android.view.View
+import android.view.WindowManager
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -15,11 +16,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.security.AppLockManager
+import com.beykus.beygram.security.AppLockScreen
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.deeplink.PendingDeepLinkInbox
 import com.beykus.beygram.deeplink.PendingTelegramDeepLink
@@ -44,7 +58,13 @@ import com.beykus.beygram.ui.theme.AppearanceViewModel
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.resolveTokens
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
+    private val appLock by lazy { AppLockManager.get(applicationContext) }
+    private var windowResumed = false
+    private var screenSecure = false
+    private var secretPlayback = false
+    /** Bumped when onStart hides the window, so Compose shows it again after drawing the gate. */
+    private var windowVisibilityRevision by mutableIntStateOf(0)
     override fun attachBaseContext(newBase: android.content.Context) {
         super.attachBaseContext(com.beykus.beygram.data.settings.AppLocale.context(newBase))
     }
@@ -57,6 +77,13 @@ class MainActivity : ComponentActivity() {
     private var lastDeepLinkIntentData: String? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Restore the window-privacy policy before the first frame. Rotation of a secret chat
+        // must not produce an unprotected frame just because the new composition has not run yet.
+        screenSecure = savedInstanceState?.getBoolean("secure_screen", false) ?: false
+        secretPlayback = savedInstanceState?.getBoolean("secret_playback", false) ?: false
+        // Protect the very first frame: a locked cold start must not flash the task snapshot
+        // of a previous, already authenticated session.
+        applyWindowPrivacy()
         if (savedInstanceState != null) {
             if (savedInstanceState.getBoolean("notification_pending")) notificationRequest = NotificationOpenRequest(savedInstanceState.getLong("notification_token"),
                 savedInstanceState.getLong("notification_chat").takeIf { it != 0L }, savedInstanceState.getBoolean("notification_settings"), savedInstanceState.getBoolean("notification_proxy"), savedInstanceState.getLong("notification_topic"),
@@ -85,13 +112,42 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
+            val lockManager = appLock
+            val locked by lockManager.locked.collectAsStateWithLifecycle()
+            val lockSettings by lockManager.store.settings.collectAsStateWithLifecycle()
+            // Read the manager directly as well: onStart can lock the process and invalidate
+            // composition before the StateFlow collector has delivered its value. The gate
+            // fails closed on the current value instead of drawing one unlocked frame.
+            val gateLocked = (locked || lockManager.locked.value) && lockSettings.isActive
+            // Keeps the navigation state while the lock replaces the chat UI, without
+            // composing any chat screen or collecting its data behind the gate.
+            val appStateHolder = rememberSaveableStateHolder()
+            var secureScreen by remember { mutableStateOf(false) }
+            val secretPlaybackActive by produceState(initialValue = false) {
+                PlaybackEngine.state
+                    .map { state -> state.item?.secret == true && state.started && !state.ended && !state.failed }
+                    .distinctUntilChanged()
+                    .collect { value = it }
+            }
+            LaunchedEffect(gateLocked, lockSettings.isActive, lockSettings.hideRecents, secureScreen, secretPlaybackActive) {
+                screenSecure = secureScreen
+                secretPlayback = secretPlaybackActive
+                applyWindowPrivacy()
+            }
             val appearance: AppearanceViewModel = viewModel()
+            // Reading the revision makes Compose reveal the window again after onStart hid
+            // it for a locked foreground transition.
+            val visibilityRevision = windowVisibilityRevision
+            LaunchedEffect(visibilityRevision) { window.decorView.visibility = View.VISIBLE }
             // The saved choice is read asynchronously. Nothing is drawn until it is known, so the theme never flips.
             val config = appearance.config.collectAsState().value ?: return@setContent
             val systemDark = isSystemInDarkTheme()
             val isDarkTheme = config.mode.isDark(systemDark)
             // The status and navigation bar icons follow the theme in use. The bars stay transparent, so the app's own colours show through.
             SideEffect {
+                // onStart hides the window while a locked session is recomposed; the new frame
+                // is the lock screen, never the previous chat frame.
+                window.decorView.visibility = View.VISIBLE
                 enableEdgeToEdge(
                     statusBarStyle = if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
                     navigationBarStyle = if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
@@ -114,33 +170,97 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
-                        BeyGramApp(
-                            notificationRequest = notificationRequest,
-                            onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
-                            incomingShare = incomingShare,
-                            onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null; ShareSessions.release(this, it) },
-                            pendingDeepLink = pendingDeepLink,
-                            onDeepLinkBound = { token, accountId ->
-                                pendingDeepLink = deepLinkInbox.bind(token, accountId) ?: pendingDeepLink
-                            },
-                            onDeepLinkHandled = { token ->
-                                val current = pendingDeepLink?.takeIf { it.token == token }
-                                if (current != null) {
-                                    deepLinkInbox.take(
-                                        token,
-                                        current.accountId ?: TdAccountStorageLayout.LEGACY_ACCOUNT_ID
-                                    )
-                                    pendingDeepLink = deepLinkInbox.restore()
-                                }
-                            },
-                            appearance = config,
-                            onAppearanceChange = appearance::save
-                        )
+                        if (gateLocked) {
+                            AppLockScreen(lockManager)
+                        } else {
+                            appStateHolder.SaveableStateProvider("beygram") {
+                                BeyGramApp(
+                                    notificationRequest = notificationRequest,
+                                    onNotificationHandled = { if (notificationRequest?.token == it) notificationRequest = null },
+                                    incomingShare = incomingShare,
+                                    onIncomingShareHandled = { if (incomingShare?.requestId == it) incomingShare = null; ShareSessions.release(this, it) },
+                                    pendingDeepLink = pendingDeepLink,
+                                    onDeepLinkBound = { token, accountId ->
+                                        pendingDeepLink = deepLinkInbox.bind(token, accountId) ?: pendingDeepLink
+                                    },
+                                    onDeepLinkHandled = { token ->
+                                        val current = pendingDeepLink?.takeIf { it.token == token }
+                                        if (current != null) {
+                                            deepLinkInbox.take(
+                                                token,
+                                                current.accountId ?: TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+                                            )
+                                            pendingDeepLink = deepLinkInbox.restore()
+                                        }
+                                    },
+                                    appearance = config,
+                                    onAppearanceChange = appearance::save,
+                                    onSecureScreenChange = { secureScreen = it }
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        appLock.onActivityStarted()
+        if (appLock.locked.value && appLock.store.settings.value.isActive) {
+            // Hide the stale window surface until Compose draws the lock screen. FLAG_SECURE
+            // protects snapshots; this prevents a one-frame flash of the previous chat.
+            window.decorView.visibility = View.INVISIBLE
+            windowVisibilityRevision++
+        }
+        applyWindowPrivacy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        windowResumed = true
+        applyWindowPrivacy()
+    }
+
+    override fun onPause() {
+        // Set the flag before the system can capture the task snapshot. With the lock enabled
+        // the Recents card stays blank even while the user is still inside the timeout window.
+        windowResumed = false
+        applyWindowPrivacy()
+        super.onPause()
+    }
+
+    override fun onStop() {
+        appLock.onActivityStopped(isChangingConfigurations)
+        applyWindowPrivacy()
+        super.onStop()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // A playing secret video note can clear the flag when it ends; restore the
+        // screen-level policy as soon as the window regains focus.
+        if (hasFocus) applyWindowPrivacy()
+    }
+
+    /**
+     * Single place that owns the window privacy flags. The lock, a secret chat and active
+     * secret playback all require FLAG_SECURE; the optional Recents setting additionally
+     * hides the task snapshot while the app is in the background.
+     */
+    private fun applyWindowPrivacy() {
+        val settings = appLock.store.settings.value
+        val protectRecents = settings.isActive || settings.hideRecents
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            setRecentsScreenshotEnabled(!protectRecents)
+        }
+        val secure = (appLock.locked.value && settings.isActive) || screenSecure || secretPlayback ||
+            (!windowResumed && protectRecents && !isChangingConfigurations)
+        if (secure) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -154,6 +274,8 @@ class MainActivity : ComponentActivity() {
         notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId); outState.putString("notification_account", it.accountId) }
         incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text); outState.putParcelableArrayList("share_uris", ArrayList(it.uris)); outState.putLong("share_chat_id", it.targetChatId) }
         outState.putString("deeplink_intent_data", lastDeepLinkIntentData)
+        outState.putBoolean("secure_screen", screenSecure)
+        outState.putBoolean("secret_playback", secretPlayback)
         super.onSaveInstanceState(outState)
     }
     /**
