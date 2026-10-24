@@ -169,7 +169,7 @@ class ChatExportStreamerTest {
         )
 
         assertEquals(1, summary.mediaFiles)
-        assertTrue(progress.any { it.phase == ChatExportPhase.Media && it.mediaCopied == 1 })
+        assertTrue(progress.any { it.phase == ChatExportPhase.Messages && it.mediaCopied == 1 })
         val entries = linkedMapOf<String, ByteArray>()
         ZipInputStream(ByteArrayInputStream(target.bytes.toByteArray())).use { zip ->
             while (true) {
@@ -291,6 +291,29 @@ class ChatExportStreamerTest {
         val expected = JSONObject(String(inMemory.last().second, Charsets.UTF_8)).getJSONArray("messages").toString()
         val actual = JSONObject(String(rendered.last().second, Charsets.UTF_8)).getJSONArray("messages").toString()
         assertEquals(expected, actual)
+    }
+
+    @Test fun `media progress keeps the message count of the walk`() = runBlocking {
+        val media = ChatExportMedia(MediaKind.Photo, 7, "", "image/jpeg", size = 3)
+        val source = FakeSource(
+            listOf(
+                page(listOf(message(3, 300), message(2, 200)), 2, true),
+                page(listOf(message(1, 100).copy(media = media)), 0, false)
+            )
+        )
+        val provider = object : ChatExportMediaProvider {
+            override suspend fun open(media: ChatExportMedia) = ByteArrayInputStream(byteArrayOf(1, 2, 3))
+        }
+        val progress = mutableListOf<ChatExportProgress>()
+        ChatExportStreamer(RecordingTarget(), source, provider).export(
+            chat = chat(),
+            request = ChatExportRequest(includeMedia = true),
+            onProgress = { progress += it }
+        )
+
+        // The copy of the photo happens after the first page was reported, so its event must carry that page's count.
+        assertEquals(listOf(2, 2, 3), progress.filter { it.phase == ChatExportPhase.Messages }.map { it.messagesWritten })
+        assertEquals(1, progress.count { it.phase == ChatExportPhase.Media })
     }
 
     /** A whole chat served newest first with the cursor semantics of the TDLib page source; resolves date bounds on request. */

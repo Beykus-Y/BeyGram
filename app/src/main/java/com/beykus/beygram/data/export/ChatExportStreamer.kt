@@ -205,9 +205,12 @@ internal class ChatExportStreamer(
         zip.closeEntry()
         linkedMedia[message.id] = CopiedMedia(media.fileId, entry)
         mediaStats.copied++
+        // The media events belong to the message walk, so they carry its count. A Media phase here would switch the dialog
+        // between its determinate and indeterminate bars for every file, and a zero count would reset the message line.
         onProgress(
             ChatExportProgress(
-                phase = ChatExportPhase.Media,
+                phase = ChatExportPhase.Messages,
+                messagesWritten = mediaStats.messagesWritten,
                 mediaCopied = mediaStats.copied,
                 bytesWritten = counting.bytesWritten,
                 totalMessages = totalMessages
@@ -289,6 +292,7 @@ internal class ChatExportStreamer(
                 linkedMedia[message.id]?.takeIf { it.fileId == message.media?.fileId }?.entry
             )
             first = false
+            mediaStats.messagesWritten++
         }
         writer.write("\n],\n\"summary\":{\"messages\":")
         writer.write(stats.messages.toString())
@@ -394,6 +398,7 @@ internal class ChatExportStreamer(
                 message,
                 linkedMedia[message.id]?.takeIf { it.fileId == message.media?.fileId }?.entry
             )
+            mediaStats.messagesWritten++
         }
         writer.write("</section>\n<footer class=\"chat-footer\">\n<p>")
         appendHtmlEscaped(
@@ -526,8 +531,11 @@ internal class ChatExportStreamer(
     }
 
     private data class DocumentStats(val messages: Int, val skippedSaveRestricted: Int)
-    /** Counted while the history is walked, so the final counts are known once the walk ends. */
-    private data class MediaStats(var copied: Int, var skipped: Int)
+    /**
+     * Counted while the history is walked, so the final counts are known once the walk ends. [messagesWritten] lets
+     * media progress report the message count the walk has reached, so the message line does not drop back to zero.
+     */
+    private data class MediaStats(var copied: Int, var skipped: Int, var messagesWritten: Int = 0)
     private data class CopiedMedia(val fileId: Int, val entry: String)
 
     private companion object {
