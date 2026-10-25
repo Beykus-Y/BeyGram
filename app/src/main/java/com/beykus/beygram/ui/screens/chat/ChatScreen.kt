@@ -842,7 +842,7 @@ fun ChatScreen(
     LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             snapshotFlow {
-                if (!window.isWindowFocused || searching || threadOpen || !scrollPosition.readBoundaryChecked) emptyList() else {
+                if (!window.isWindowFocused || searching || threadOpen || attachments.cameraOpen || attachments.editor != null || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
                     val eligible = currentMessages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id }
                     layout.visibleItemsInfo.filter { item ->
@@ -1609,6 +1609,7 @@ fun ChatScreen(
             if (composerDraftLaunchKey == it.key) composerDraftLaunchKey = null
         }
     )
+    AttachmentMediaHost(attachments)
     }
     // Each unacknowledged video draft remains in the app center. Only the oldest is shown;
     // later previews are retained, not overwritten by a second showPreview() call.
