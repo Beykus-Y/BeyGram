@@ -16,9 +16,10 @@ interface ConversationRepository {
     suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?>
     /**
      * Resolves an inline bot by username and asks TDLib for one results page. Pass "" first, then the previous
-     * [InlineBotResults.nextOffset]. No message is sent by this call.
+     * [InlineBotResults.nextOffset]. No message is sent by this call. A null page means [username] is not an inline
+     * bot (unknown, a user, a channel or a bot without inline mode), which is not an error.
      */
-    suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String = ""): Result<InlineBotResults>
+    suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String = ""): Result<InlineBotResults?>
     /** Sends one inline result with the composer's reply, forum topic and delivery options. */
     suspend fun sendInlineBotResult(
         chatId: Long,

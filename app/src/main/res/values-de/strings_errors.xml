@@ -38,7 +38,6 @@
     <string name="err_message_original_unavailable">Originalnachricht nicht verfügbar</string>
     <string name="err_message_too_long">Die Nachricht ist zu lang</string>
     <string name="err_contact_not_found">Dieser Kontakt ist in Telegram nicht mehr verfügbar</string>
-    <string name="err_inline_bot_unavailable">Dieser Bot unterstützt den Inline-Modus nicht</string>
     <string name="err_webapp_insecure_url">Die Mini App hat eine unsichere URL zurückgegeben</string>
     <string name="err_webapp_unavailable">Die Mini App ist in diesem Chat nicht verfügbar</string>
     <string name="err_name_empty">Geben Sie einen Namen ein</string>

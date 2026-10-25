@@ -413,7 +413,6 @@
     <string name="err_message_original_unavailable">Оригинал недоступен</string>
     <string name="err_message_too_long">Сообщение слишком длинное</string>
     <string name="err_contact_not_found">Этот контакт больше не доступен в Telegram</string>
-    <string name="err_inline_bot_unavailable">Этот бот не поддерживает inline-режим</string>
     <string name="err_webapp_insecure_url">Mini App вернул небезопасную ссылку</string>
     <string name="err_webapp_unavailable">Mini App недоступен в этом чате</string>
     <string name="err_name_empty">Введите имя</string>

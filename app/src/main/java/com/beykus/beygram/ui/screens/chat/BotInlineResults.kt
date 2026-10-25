@@ -102,6 +102,7 @@ internal fun BotInlineResultsPanel(
         val loaded = conversation.inlineBotQuery(chatId, parsed.username, parsed.query)
         if (generation != token) return@LaunchedEffect
         loading = false
+        // A null page means the username is not an inline bot: nothing is shown, and no error is raised.
         loaded.onSuccess { results = it }
             .onFailure { loadError = it.userMessage(context, R.string.chat_inline_error) }
     }
@@ -120,7 +121,7 @@ internal fun BotInlineResultsPanel(
                 val page = conversation.inlineBotQuery(chatId, username, query, offset)
                 if (generation != token) return@launch
                 page.onSuccess { next ->
-                    results = next.copy(
+                    if (next != null) results = next.copy(
                         results = mergeInlineBotResults(current.results, next.results),
                         nextOffset = nextInlineQueryOffset(offset, next.nextOffset),
                         buttonText = next.buttonText.ifBlank { current.buttonText },
@@ -154,7 +155,8 @@ internal fun BotInlineResultsPanel(
         }
     }
 
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    // Idle with no results and no error means the draft is not an inline bot: the panel stays out of the layout.
+    if (loading || results != null || loadError != null) Column(Modifier.fillMaxWidth().background(palette.surface)) {
         HorizontalDivider(color = palette.divider)
         Row(
             Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 4.dp),

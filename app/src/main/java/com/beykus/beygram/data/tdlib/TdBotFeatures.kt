@@ -4,6 +4,8 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
@@ -29,8 +31,8 @@ internal class TdBotFeatures(client: () -> Client) {
         if (commands.isEmpty()) null else BotCommandMenu(type.userId, commands)
     }
 
-    suspend fun inlineQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults> = requestResult {
-        val botUserId = inlineBot(username)
+    suspend fun inlineQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults?> = requestResult {
+        val botUserId = inlineBot(username) ?: return@requestResult null
         val answer = request(TdApi.GetInlineQueryResults(botUserId, chatId, null, query, offset))
         val button = answer.button
         val buttonUrl = (button?.type as? TdApi.InlineQueryResultsButtonTypeWebApp)?.url?.let(::normalizedWebAppUrl)
@@ -121,20 +123,38 @@ internal class TdBotFeatures(client: () -> Client) {
         if (launchId == 0L) Result.success(Unit)
         else requestResult { request(TdApi.CloseWebApp(launchId)); Unit }
 
-    private suspend fun inlineBot(username: String): Long {
+    /**
+     * Null when [username] is not an inline bot. Both outcomes of a completed lookup are cached, so typing more of the
+     * same draft does not repeat it. A failed lookup is not an answer: it returns null silently and is retried later.
+     */
+    private suspend fun inlineBot(username: String): Long? {
         val now = System.currentTimeMillis()
-        val cached = inlineBots[username]?.takeIf { now - it.resolvedAtMillis < INLINE_BOT_CACHE_MILLIS }
-        if (cached != null) return cached.userId
-        val chat = request(TdApi.SearchPublicChat(username))
-        val type = chat.type as? TdApi.ChatTypePrivate
-            ?: throw UserMessageException(UiText.Res(R.string.err_inline_bot_unavailable))
-        val user = request(TdApi.GetUser(type.userId))
-        val bot = user.type as? TdApi.UserTypeBot
-            ?: throw UserMessageException(UiText.Res(R.string.err_inline_bot_unavailable))
-        if (!bot.isInline) throw UserMessageException(UiText.Res(R.string.err_inline_bot_unavailable))
+        inlineBots[username]?.takeIf { now - it.resolvedAtMillis < INLINE_BOT_CACHE_MILLIS }?.let { return it.userId }
+        val userId = try {
+            resolveInlineBot(username)
+        } catch (timeout: TimeoutCancellationException) {
+            return null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            return null
+        }
         if (inlineBots.size >= MAX_CACHED_INLINE_BOTS) inlineBots.clear()
-        inlineBots[username] = CachedInlineBot(type.userId, now)
-        return type.userId
+        inlineBots[username] = CachedInlineBot(userId, now)
+        return userId
+    }
+
+    /** Null for a username that is unknown, a user, a channel, or a bot without inline mode. */
+    private suspend fun resolveInlineBot(username: String): Long? {
+        val chat = try {
+            request(TdApi.SearchPublicChat(username))
+        } catch (error: TdRequestError) {
+            if (error.message?.contains("USERNAME_") == true) return null
+            throw error
+        }
+        val type = chat.type as? TdApi.ChatTypePrivate ?: return null
+        val bot = request(TdApi.GetUser(type.userId)).type as? TdApi.UserTypeBot ?: return null
+        return type.userId.takeIf { bot.isInline }
     }
 
     private suspend fun resolveBotUserId(chatId: Long, candidate: Long): Long {
@@ -168,7 +188,8 @@ internal class TdBotFeatures(client: () -> Client) {
         TdApi.WebAppOpenModeFullSize()
     )
 
-    private data class CachedInlineBot(val userId: Long, val resolvedAtMillis: Long)
+    /** [userId] is null when the username was resolved to something that is not an inline bot. */
+    private data class CachedInlineBot(val userId: Long?, val resolvedAtMillis: Long)
 
     private companion object {
         const val INLINE_BOT_CACHE_MILLIS = 10 * 60 * 1000L
