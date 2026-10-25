@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_auto_download_title">Descarga automática de multimedia</string>
+    <string name="auto_download_intro">Elige qué descarga la app por sí sola en cada red. Las descargas manuales siempre funcionan.</string>
+    <string name="auto_download_network_wifi">Wi-Fi</string>
+    <string name="auto_download_network_mobile">Datos móviles</string>
+    <string name="auto_download_network_roaming">Roaming</string>
+    <string name="auto_download_network_other">Otra red</string>
+    <string name="auto_download_limit_title">Límite de tamaño</string>
+    <string name="auto_download_limit_mb">%1$d MB</string>
+    <string name="auto_download_limit_unlimited">Sin límite</string>
+    <string name="auto_download_data_saver">Ahorrar datos</string>
+    <string name="auto_download_data_saver_detail">Desactiva todas las descargas automáticas con datos móviles, roaming y Wi-Fi medido. El botón de descarga sigue funcionando.</string>
+    <string name="auto_download_secret_note">Los chats secretos, las fotos que desaparecen y los adjuntos con spoiler nunca se descargan automáticamente.</string>
+    <string name="auto_download_manual_note">El botón de descarga de un adjunto siempre lo descarga, incluso si supera el límite.</string>
+    <string name="auto_download_streaming_note">Los videos de inicio rápido pueden reproducirse mientras se descargan. Si el índice del archivo está al final, el video se abre tras la descarga completa.</string>
+    <string name="auto_download_save_failed">No se pudieron guardar los ajustes</string>
+</resources>

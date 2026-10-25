@@ -59,4 +59,11 @@
     <string name="settings_video_standard_detail">384 × 384 · 30 FPS · 1000 kbps</string>
     <string name="sessions_load_timeout">Se agotó el tiempo de carga de la sesión. Comprueba tu conexión e inténtalo de nuevo.</string>
     <string name="sessions_action_timeout">Telegram no confirmó la acción. Actualiza la lista antes de reintentar; puede que ya se haya completado.</string>
+    <string name="settings_video_diagnostics_save">Guardar en archivo</string>
+    <string name="settings_video_diagnostics_compact">Compacto</string>
+    <string name="settings_video_diagnostics_full">Completo</string>
+    <string name="settings_video_diagnostics_txt">TXT</string>
+    <string name="settings_video_diagnostics_json">JSON</string>
+    <string name="diag_save_done">Informe guardado</string>
+    <string name="diag_save_failed">No se pudo guardar el informe</string>
 </resources>
