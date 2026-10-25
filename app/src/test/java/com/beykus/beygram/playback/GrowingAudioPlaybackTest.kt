@@ -78,6 +78,17 @@ class GrowingAudioPlaybackTest {
         assertNull(growingAudioSource(unknown, 5, "audio/x-unknown", { MutableStateFlow(unknown) }) {})
     }
 
+    @Test fun oggSeekIsDeferredUntilCompletionButMp3IsNot() {
+        val partial = MediaFileState(7, size = 100, downloadPath = "/partial", downloadedPrefixBytes = 20, isDownloading = true)
+        val ogg = growingAudioSource(partial, 7, "audio/ogg", { MutableStateFlow(partial) }) {}
+        assertNotNull(ogg)
+        assertTrue(shouldDeferGrowingSeek(ogg, 5_000L))
+        assertFalse(shouldDeferGrowingSeek(ogg, 0L))
+        val mp3 = growingAudioSource(partial, 7, "audio/mpeg", { MutableStateFlow(partial) }) {}
+        assertNotNull(mp3)
+        assertFalse(shouldDeferGrowingSeek(mp3, 5_000L))
+    }
+
     private fun tempMp4(bytes: ByteArray): File = File.createTempFile("audio-probe", ".m4a").apply {
         writeBytes(bytes)
         deleteOnExit()

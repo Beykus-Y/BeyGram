@@ -60,6 +60,8 @@ data class GrowingPlaybackSource(
     val totalSize: Long,
     val readablePrefix: () -> Long,
     val isComplete: () -> Boolean,
+    /** Final local path once TDLib completes; may differ from the growing path. */
+    val completedPath: () -> String?,
     val isDownloading: () -> Boolean,
     val onNeedMore: () -> Unit,
     /**
@@ -113,6 +115,9 @@ data class PlaybackState(
 
 /** Музыка, которую прервало голосовое или кружок. Продолжается с [positionMs], когда прерывающий файл доиграет. */
 internal data class InterruptedMusic(val item: PlaybackItem, val positionMs: Long)
+
+/** A seek requested on an unseekable growing Ogg/Opus source; applied after completion. */
+private data class DeferredGrowingSeek(val key: String, val positionMs: Long, val resume: Boolean)
 
 /**
  * Что ждёт музыку после запуска [next]. Играющая музыка ждёт, пока голосовое или кружок доиграет. Новая музыка заменяет
@@ -185,6 +190,10 @@ internal fun partialAudioPlaybackPath(file: MediaFileState, mimeType: String): S
             canPlayAudioProgressively(mimeType, it, file.downloadedPrefixBytes)
     }
 
+/** Ogg/Opus cannot seek before completion; defer the requested position until a seekable source is available. */
+internal fun shouldDeferGrowingSeek(growing: GrowingPlaybackSource?, positionMs: Long): Boolean =
+    growing != null && positionMs > 0L && !growing.isComplete() && !growing.advertiseLength
+
 /** Builds live source callbacks for an in-progress audio/voice file. */
 internal fun growingAudioSource(
     state: MediaFileState,
@@ -201,6 +210,7 @@ internal fun growingAudioSource(
         totalSize = state.size,
         readablePrefix = { observeFile(fileId).value.downloadedPrefixBytes },
         isComplete = { observeFile(fileId).value.localPath != null },
+        completedPath = { observeFile(fileId).value.localPath },
         isDownloading = { observeFile(fileId).value.isDownloading },
         onNeedMore = onNeedMore,
         advertiseLength = normalized !in UNKNOWN_LENGTH_AUDIO_MIME
@@ -252,6 +262,8 @@ object PlaybackEngine {
     private var appContext: Context? = null
     private var progress: Job? = null
     private var pendingStartFraction = 0f
+    private var deferredSeek: DeferredGrowingSeek? = null
+    private var deferredSeekJob: Job? = null
     private var videoOwner: Any? = null
     private var videoView: TextureView? = null
     /** Музыка, которая ждёт, пока голосовое или кружок доиграет. Очищается при остановке и при новом запуске музыки. */
@@ -364,15 +376,18 @@ object PlaybackEngine {
         val target = player(context)
         if (onStarted != null) startedCallback = item.key to onStarted
         syncPosition()
+        clearDeferredSeek()
         // Отметка ждёт только свой файл: запуск другого файла её сбрасывает.
         startedCallback = startedCallback?.takeIf { it.first == item.key }
         val waiting = interruptedMusic
-        val resumeMs = startPositionMs ?: resumePositionMs(waiting, item.key)
+        val requestedStart = startPositionMs ?: resumePositionMs(waiting, item.key)
+        val growing = item.growing
+        val deferStart = shouldDeferGrowingSeek(growing, requestedStart)
+        val resumeMs = if (deferStart) 0L else requestedStart
         interruptedMusic = interruptedAfterStart(_state.value, waiting, item)
         val mediaItem = MediaItem.Builder()
             .setMediaId(item.key)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
-        val growing = item.growing
         if (growing == null) {
             target.setMediaItem(mediaItem.setUri(Uri.fromFile(File(item.path))).build(), resumeMs)
         } else {
@@ -386,30 +401,115 @@ object PlaybackEngine {
         }
         target.prepare()
         // Длина из сообщения округлена до секунды, поэтому долю применяем, когда плеер узнает настоящую длину файла.
-        pendingStartFraction = if (startPositionMs == null) startFraction.coerceIn(0f, 1f) else 0f
+        pendingStartFraction = if (startPositionMs == null && !deferStart) startFraction.coerceIn(0f, 1f) else 0f
+        if (deferStart) {
+            // Ogg/Opus cannot seek before completion; wait for a seekable full file instead of
+            // letting ProgressiveMediaPeriod silently reset the seek to zero.
+            deferredSeek = DeferredGrowingSeek(item.key, requestedStart, resume = true)
+            _state.value = PlaybackState(item = item, playing = false, positionMs = requestedStart, speed = _state.value.speed)
+            startDeferredSeekWatcher()
+            return
+        }
         target.play()
         _state.value = PlaybackState(item = item, playing = true, positionMs = resumeMs, speed = _state.value.speed)
         startPlaybackService()
         startProgress()
     }
 
-    /** Перемотка по абсолютной позиции; работает и когда контейнер ещё не сообщил длину (растущий Ogg). */
+    /** Перемотка по абсолютной позиции; для растущего Ogg запрос откладывается до полной загрузки. */
     fun seekToPosition(positionMs: Long) {
         val target = exo ?: return
         val position = positionMs.coerceAtLeast(0L)
+        val item = _state.value.item
+        val growing = item?.growing
+        if (item != null && shouldDeferGrowingSeek(growing, position)) {
+            val resume = _state.value.playing
+            target.pause()
+            deferredSeek = DeferredGrowingSeek(item.key, position, resume)
+            _state.update { it.copy(positionMs = position, playing = false) }
+            startDeferredSeekWatcher()
+            return
+        }
+        if (item != null && growing != null && !growing.advertiseLength && growing.isComplete() && growing.completedPath() != null) {
+            rebuildSeekableAt(item, position, _state.value.playing)
+            return
+        }
         target.seekTo(position)
         _state.update { it.copy(positionMs = position) }
+    }
+
+    /** Rebuilds the player on the completed file, preserving the requested position and play state. */
+    private fun rebuildSeekableAt(item: PlaybackItem, positionMs: Long, resume: Boolean) {
+        val path = item.growing?.completedPath() ?: return
+        val target = exo ?: return
+        val completed = item.copy(path = path, growing = null)
+        pendingStartFraction = 0f
+        target.setMediaItem(
+            MediaItem.Builder()
+                .setMediaId(completed.key)
+                .setUri(Uri.fromFile(File(path)))
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(completed.title).build())
+                .build(),
+            positionMs
+        )
+        target.prepare()
+        if (resume) {
+            target.play()
+            startPlaybackService()
+            startProgress()
+        } else {
+            target.pause()
+            progress?.cancel()
+            progress = null
+        }
+        _state.update { it.copy(item = completed, positionMs = positionMs, playing = resume) }
+    }
+
+    private fun startDeferredSeekWatcher() {
+        deferredSeekJob?.cancel()
+        deferredSeekJob = scope.launch {
+            while (true) {
+                val pending = deferredSeek ?: break
+                val item = _state.value.item
+                if (item?.key != pending.key) {
+                    deferredSeek = null
+                    break
+                }
+                val growing = item.growing
+                if (growing?.isComplete() == true && growing.completedPath() != null) {
+                    deferredSeek = null
+                    rebuildSeekableAt(item, pending.positionMs, pending.resume)
+                    break
+                }
+                delay(200)
+            }
+        }
+    }
+
+    private fun clearDeferredSeek() {
+        deferredSeek = null
+        deferredSeekJob?.cancel()
+        deferredSeekJob = null
     }
 
     /** Отметка для файла, который продолжают после паузы: вызывается, когда он начнёт играть, даже если пузырь уже ушёл с экрана. */
     fun resume(key: String, onStarted: () -> Unit) {
         startedCallback = key to onStarted
+        if (deferredSeek?.key == key) {
+            deferredSeek = deferredSeek?.copy(resume = true)
+            return
+        }
         togglePlayPause()
     }
 
     /** Пауза или продолжение. Конец файла и ошибку обрабатывает обёртка плеера, поэтому системные кнопки ведут себя так же. */
     fun togglePlayPause() {
         val target = controls ?: return
+        // A deferred Ogg seek is waiting for the completed file; starting at zero here would undo it.
+        if (deferredSeek != null) {
+            deferredSeek = deferredSeek?.copy(resume = true)
+            return
+        }
         // Решает то же состояние, что видит интерфейс: файл, который уже буферизуется, пауза отменяет, а не запускает снова.
         if (_state.value.playing) {
             pause()
@@ -423,6 +523,7 @@ object PlaybackEngine {
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
     fun pause() {
         exo?.pause()
+        deferredSeek = deferredSeek?.copy(resume = false)
         _state.update { it.copy(playing = false) }
     }
 
@@ -490,6 +591,7 @@ object PlaybackEngine {
     private fun halt() {
         progress?.cancel()
         progress = null
+        clearDeferredSeek()
         pendingStartFraction = 0f
         startedCallback = null
         exo?.let {
@@ -527,6 +629,7 @@ object PlaybackEngine {
 
         override fun onPlayerError(error: PlaybackException) {
             progress?.cancel()
+            clearDeferredSeek()
             _state.update { it.copy(playing = false, failed = true) }
             // Голосовое или кружок, которые не открылись, не должны оставить прерванную музыку навсегда на паузе.
             val music = interruptedMusic ?: return
