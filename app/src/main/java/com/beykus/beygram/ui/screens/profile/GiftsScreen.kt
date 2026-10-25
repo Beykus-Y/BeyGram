@@ -101,15 +101,18 @@ fun GiftsScreen(
     var noticeIsError by remember { mutableStateOf(false) }
     // A submitted SendGift survives rotation only as this marker: the coroutine itself does not.
     // While non-zero it blocks another purchase until the user acknowledges the warning.
-    var pendingGiftId by rememberSaveable { mutableStateOf(0L) }
+    // The process-level copy also survives navigating away and back without an Activity recreation.
+    var pendingGiftId by rememberSaveable { mutableStateOf(PendingGiftPurchase.giftId) }
     val sending = step is GiftSendStep.Sending
 
     BackHandler { if (!sending) onBack() }
     LaunchedEffect(Unit) {
-        if (pendingGiftId != 0L) {
+        if (PendingGiftPurchase.giftId != 0L) pendingGiftId = PendingGiftPurchase.giftId
+        val pending = pendingGiftId
+        if (pending != 0L) {
             notice = context.getString(R.string.gifts_send_uncertain)
             noticeIsError = true
-            step = GiftSendStep.Failed(pendingGiftId, uncertain = true)
+            step = GiftSendStep.Failed(pending, uncertain = true)
         }
     }
     LaunchedEffect(reload) {
@@ -165,6 +168,7 @@ fun GiftsScreen(
         }
         step = nextStep
         pendingGiftId = gift.id
+        PendingGiftPurchase.giftId = gift.id
         scope.launch {
             val outcome = try {
                 send(gift.id)
@@ -180,17 +184,20 @@ fun GiftsScreen(
             when (outcome) {
                 GiftSendOutcome.Sent -> {
                     pendingGiftId = 0L
+                    PendingGiftPurchase.giftId = 0L
                     notice = context.getString(R.string.gifts_send_success)
                     noticeIsError = false
                     reload++
                 }
                 is GiftSendOutcome.Blocked -> {
                     pendingGiftId = 0L
+                    PendingGiftPurchase.giftId = 0L
                     notice = outcome.reason.resolve(context)
                     noticeIsError = true
                 }
                 is GiftSendOutcome.Failed -> {
                     pendingGiftId = 0L
+                    PendingGiftPurchase.giftId = 0L
                     notice = outcome.reason.resolve(context)
                     noticeIsError = true
                 }
@@ -262,6 +269,7 @@ fun GiftsScreen(
                                     TextButton(
                                         onClick = {
                                             pendingGiftId = 0L
+                                            PendingGiftPurchase.giftId = 0L
                                             notice = null
                                             noticeIsError = false
                                             reload++
@@ -671,4 +679,13 @@ private fun giftBlockMessage(reason: GiftBlockReason): Int = when (reason) {
     GiftBlockReason.PremiumRequired -> R.string.gifts_block_premium
     GiftBlockReason.BalanceUnknown -> R.string.gifts_block_balance_unknown
     GiftBlockReason.InsufficientStars -> R.string.gifts_block_balance
+}
+
+/**
+ * Process-wide uncertainty marker for a SendGift whose result could not be observed.
+ * It is never cleared by recreation or navigation, only by a definite outcome or an
+ * explicit acknowledgement, so a second purchase cannot happen silently.
+ */
+private object PendingGiftPurchase {
+    @Volatile var giftId: Long = 0L
 }

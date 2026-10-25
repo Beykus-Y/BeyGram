@@ -70,9 +70,10 @@ data class PremiumGiftCodeInfo(
     val dayCount: Int,
     val isUsed: Boolean,
     val useDateSeconds: Int,
-    val isForAnotherUser: Boolean
+    /** The original recipient, not an exclusive restriction: Telegram allows re-gifting. */
+    val wasOriginallyForAnotherUser: Boolean
 ) {
-    val canActivate: Boolean get() = !isUsed && !isForAnotherUser
+    val canActivate: Boolean get() = !isUsed
 }
 
 data class PremiumGiftDuration(val months: Int, val days: Int) {
@@ -170,7 +171,10 @@ data class StarTransactionItem(
     val isRefund: Boolean,
     val dateSeconds: Int,
     val kind: StarTransactionKind
-)
+) {
+    /** Telegram may reuse a transaction id for its refund; both rows must stay visible. */
+    val identityKey: String get() = (if (isRefund) "refund:" else "transaction:") + id
+}
 
 data class StarsInfo(
     val balance: StarBalance,

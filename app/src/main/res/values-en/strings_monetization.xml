@@ -56,7 +56,7 @@
     <string name="premium_gift_code_created">Created: %1$s</string>
     <string name="premium_gift_code_activated_on">Activated: %1$s</string>
     <string name="premium_gift_code_used">This code has already been activated.</string>
-    <string name="premium_gift_code_other_user">This code was issued to another user.</string>
+    <string name="premium_gift_code_other_user">This code was originally issued to another user. It can still be activated or re-gifted.</string>
     <string name="premium_gift_code_check_failed">Could not check the code</string>
     <string name="premium_gift_code_apply_failed">Could not activate the code</string>
     <string name="premium_gift_code_success">Premium activated.</string>

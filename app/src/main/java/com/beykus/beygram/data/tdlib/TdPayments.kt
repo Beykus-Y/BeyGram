@@ -85,7 +85,7 @@ internal class TdPayments(private val requests: TdRequests) {
                 dayCount = info.dayCount,
                 isUsed = info.useDate > 0,
                 useDateSeconds = info.useDate,
-                isForAnotherUser = info.userId != 0L && meId != 0L && info.userId != meId
+                wasOriginallyForAnotherUser = info.userId != 0L && meId != 0L && info.userId != meId
             )
         }
     }

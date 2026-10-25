@@ -28,6 +28,20 @@ class MonetizationFormattingTest {
     }
 
     @Test
+    fun `refund and original transaction with the same id keep distinct identities`() {
+        val original = StarTransactionItem(
+            id = "42",
+            amount = StarBalance(-10),
+            isRefund = false,
+            dateSeconds = 100,
+            kind = StarTransactionKind.GiftPurchase
+        )
+        val refund = original.copy(isRefund = true)
+        assertEquals("transaction:42", original.identityKey)
+        assertEquals("refund:42", refund.identityKey)
+    }
+
+    @Test
     fun `payment switches stay disabled until a provider is integrated`() {
         assertFalse(MonetizationPayments.premiumPurchaseSupported)
         assertFalse(MonetizationPayments.starTopUpSupported)

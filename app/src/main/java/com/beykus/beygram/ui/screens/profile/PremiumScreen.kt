@@ -546,12 +546,11 @@ private fun GiftCodeConfirmationDialog(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
-                if (info.isForAnotherUser) {
+                if (info.wasOriginallyForAnotherUser) {
                     Text(
                         stringResource(R.string.premium_gift_code_other_user),
-                        color = palette.danger,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
+                        color = palette.textSecondary,
+                        fontSize = 14.sp
                     )
                 }
                 if (applying) {

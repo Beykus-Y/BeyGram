@@ -56,7 +56,7 @@
     <string name="premium_gift_code_created">Создан: %1$s</string>
     <string name="premium_gift_code_activated_on">Активирован: %1$s</string>
     <string name="premium_gift_code_used">Код уже активирован.</string>
-    <string name="premium_gift_code_other_user">Код выдан другому пользователю.</string>
+    <string name="premium_gift_code_other_user">Код изначально выдан другому пользователю. Его можно активировать или передарить.</string>
     <string name="premium_gift_code_check_failed">Не удалось проверить код</string>
     <string name="premium_gift_code_apply_failed">Не удалось активировать код</string>
     <string name="premium_gift_code_success">Premium активирован.</string>

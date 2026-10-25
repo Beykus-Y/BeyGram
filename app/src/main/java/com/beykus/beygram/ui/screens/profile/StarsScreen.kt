@@ -131,7 +131,7 @@ fun StarsScreen(
                 loadMore(requestedOffset)
                     .onSuccess { page ->
                         if (generation != currentGeneration) return@onSuccess
-                        transactions = (transactions + page.transactions).distinctBy { it.id }
+                        transactions = (transactions + page.transactions).distinctBy { it.identityKey }
                         nextOffset = if (page.nextOffset == requestedOffset) "" else page.nextOffset
                         info = info?.copy(balance = page.balance)
                     }
@@ -240,7 +240,7 @@ fun StarsScreen(
                             )
                         }
                     }
-                    items(transactions, key = { it.id }) { transaction ->
+                    items(transactions, key = { it.identityKey }) { transaction ->
                         StarTransactionRow(transaction)
                     }
                     if (transactions.isNotEmpty() && nextOffset.isNotBlank()) {

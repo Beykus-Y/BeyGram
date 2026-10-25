@@ -55,6 +55,13 @@ class PremiumGiftCodeTest {
     }
 
     @Test
+    fun `used codes cannot be activated but re-gifted codes can`() {
+        assertEquals(false, info(isUsed = true).canActivate)
+        assertEquals(true, info(wasOriginallyForAnotherUser = true).canActivate)
+        assertEquals(true, info().canActivate)
+    }
+
+    @Test
     fun `code must be checked and confirmed before applying`() {
         var step: PremiumGiftCodeStep = PremiumGiftCodeStep.Idle
         step = step.next(PremiumGiftCodeEvent.Apply)
@@ -100,14 +107,17 @@ class PremiumGiftCodeTest {
         )
     }
 
-    private fun info() = PremiumGiftCodeInfo(
+    private fun info(
+        isUsed: Boolean = false,
+        wasOriginallyForAnotherUser: Boolean = false
+    ) = PremiumGiftCodeInfo(
         creatorName = "Sender",
         creationDateSeconds = 1,
         isFromGiveaway = false,
         monthCount = 3,
         dayCount = 0,
-        isUsed = false,
-        useDateSeconds = 0,
-        isForAnotherUser = false
+        isUsed = isUsed,
+        useDateSeconds = if (isUsed) 2 else 0,
+        wasOriginallyForAnotherUser = wasOriginallyForAnotherUser
     )
 }
