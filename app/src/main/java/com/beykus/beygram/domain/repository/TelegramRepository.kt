@@ -16,9 +16,13 @@ import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
 import com.beykus.beygram.domain.model.PremiumInfo
+import com.beykus.beygram.domain.model.PremiumPlan
+import com.beykus.beygram.domain.model.StarTopUpOption
+import com.beykus.beygram.domain.model.StarsTopUpOutcome
 import com.beykus.beygram.domain.model.StarTransactionsPage
 import com.beykus.beygram.domain.model.StarsInfo
 import com.beykus.beygram.domain.model.ContactPreview
@@ -141,8 +145,14 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Reuse an existing Telegram profile photo as the current (non-public) avatar. */
     suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit>
 
-    /** Read-only Premium status, capabilities and plans. This build never starts a payment. */
+    /** Read-only Premium status, capabilities and plans. */
     suspend fun premiumInfo(): Result<PremiumInfo>
+
+    /**
+     * Re-checks a confirmed plan against TDLib and resolves Telegram's external checkout URL.
+     * The app never charges, never collects card data and never retries this request.
+     */
+    suspend fun premiumPaymentUrl(plan: PremiumPlan): PremiumCheckoutOutcome
 
     /** Inspect a Premium gift code without applying it. The code is never stored or logged. */
     suspend fun checkPremiumGiftCode(code: String): Result<PremiumGiftCodeInfo>
@@ -150,8 +160,14 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Apply one Premium gift code after explicit confirmation. Never retried by the repository. */
     suspend fun applyPremiumGiftCode(code: String): PremiumGiftCodeApplyOutcome
 
-    /** Stars balance, the first page of transactions and informational top-up options. */
+    /** Stars balance, the first page of transactions and the current top-up options. */
     suspend fun starsInfo(): Result<StarsInfo>
+
+    /**
+     * Re-checks a confirmed Stars package and returns only external payment pages. A card form
+     * or a form that spends existing Stars is rejected; SendPaymentForm is never called.
+     */
+    suspend fun starsTopUpPayment(option: StarTopUpOption): StarsTopUpOutcome
 
     /** Next transaction page, newest-offset cursor from [StarsInfo.nextOffset]. */
     suspend fun starTransactions(offset: String): Result<StarTransactionsPage>

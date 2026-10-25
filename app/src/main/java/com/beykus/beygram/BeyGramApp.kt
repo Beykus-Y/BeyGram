@@ -1997,11 +1997,13 @@ private fun BeyGramAppContent(
                     load = repository::premiumInfo,
                     checkGiftCode = repository::checkPremiumGiftCode,
                     applyGiftCode = repository::applyPremiumGiftCode,
+                    purchaseLink = repository::premiumPaymentUrl,
                     onBack = { routeName = monetizationReturnRouteName }
                 )
                 AppRoute.Stars -> StarsScreen(
                     load = repository::starsInfo,
                     loadMore = repository::starTransactions,
+                    topUp = repository::starsTopUpPayment,
                     onBack = { routeName = starsReturnRouteName }
                 )
                 AppRoute.Gifts -> if (giftsProfileId == 0L) {
