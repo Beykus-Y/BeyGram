@@ -177,22 +177,25 @@ fun GiftsScreen(
                 GiftSendOutcome.Uncertain
             }
             // From here the result is known; a rotation before that keeps the marker and warns.
-            pendingGiftId = 0L
             when (outcome) {
                 GiftSendOutcome.Sent -> {
+                    pendingGiftId = 0L
                     notice = context.getString(R.string.gifts_send_success)
                     noticeIsError = false
                     reload++
                 }
                 is GiftSendOutcome.Blocked -> {
+                    pendingGiftId = 0L
                     notice = outcome.reason.resolve(context)
                     noticeIsError = true
                 }
                 is GiftSendOutcome.Failed -> {
+                    pendingGiftId = 0L
                     notice = outcome.reason.resolve(context)
                     noticeIsError = true
                 }
                 GiftSendOutcome.Uncertain -> {
+                    // Keep the marker: the user must acknowledge the warning before another send.
                     notice = context.getString(R.string.gifts_send_uncertain)
                     noticeIsError = true
                     reload++
