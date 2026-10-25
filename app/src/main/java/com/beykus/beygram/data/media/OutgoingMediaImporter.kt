@@ -118,9 +118,9 @@ internal class OutgoingMediaImporter(context: Context, private val accountId: St
             }
         }
         if (!destination.isFile || destination.length() <= 0L) throw UserMessageException(UiText.Res(R.string.err_media_file_empty))
-        File(original.path).takeIf { it != destination }?.delete()
         val media = prepareVideo(destination, directory, mime, original.fileName)
         if (media.kind != MediaKind.Video) throw UserMessageException(UiText.Res(R.string.err_video_compress_failed))
+        File(original.path).takeIf { it != destination }?.delete()
         media
     }
 

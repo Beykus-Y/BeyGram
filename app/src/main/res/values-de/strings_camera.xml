@@ -68,4 +68,18 @@
     <string name="photo_editor_keep_original">Original behalten</string>
     <string name="photo_editor_keep_original_hint">Das Original wird als separate Datei gesendet.</string>
     <string name="photo_editor_send_original">Unverändert senden</string>
+
+    <string name="video_quality_chip">Video: %1$s</string>
+    <string name="video_quality_compact">kompakt</string>
+    <string name="video_quality_balanced">mittel</string>
+    <string name="video_quality_original">Original</string>
+    <string name="video_quality_notice">Neue Videos: %1$s</string>
+    <string name="video_compressing">Video wird komprimiert… %1$d%%</string>
+    <string name="video_compressing_indeterminate">Video wird komprimiert…</string>
+    <string name="video_compression_cancel">Komprimierung abbrechen</string>
+    <string name="video_compression_cancelled">Komprimierung abgebrochen, Original wird gesendet</string>
+    <string name="video_compression_failed_original">Video konnte nicht komprimiert werden. Das Original wird gesendet.</string>
+    <string name="video_compressed">Video komprimiert: %1$s → %2$s</string>
+    <string name="video_too_long_as_file">Das Video ist länger als 60 Minuten — wird als Datei gesendet</string>
+    <string name="video_too_large_as_file">Das Video ist größer als 2 GB — wird als Datei gesendet</string>
 </resources>

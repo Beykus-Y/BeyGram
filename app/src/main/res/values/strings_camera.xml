@@ -68,4 +68,18 @@
     <string name="photo_editor_keep_original">Сохранить оригинал</string>
     <string name="photo_editor_keep_original_hint">Оригинал отправится отдельным файлом.</string>
     <string name="photo_editor_send_original">Отправить без изменений</string>
+
+    <string name="video_quality_chip">Видео: %1$s</string>
+    <string name="video_quality_compact">экономное</string>
+    <string name="video_quality_balanced">обычное</string>
+    <string name="video_quality_original">оригинал</string>
+    <string name="video_quality_notice">Новые видео: %1$s</string>
+    <string name="video_compressing">Сжимаем видео… %1$d%%</string>
+    <string name="video_compressing_indeterminate">Сжимаем видео…</string>
+    <string name="video_compression_cancel">Отменить сжатие</string>
+    <string name="video_compression_cancelled">Сжатие отменено, отправляем оригинал</string>
+    <string name="video_compression_failed_original">Не удалось сжать видео. Отправим оригинал.</string>
+    <string name="video_compressed">Видео сжато: %1$s → %2$s</string>
+    <string name="video_too_long_as_file">Видео длиннее 60 минут — отправим файлом</string>
+    <string name="video_too_large_as_file">Видео больше 2 ГБ — отправим файлом</string>
 </resources>
