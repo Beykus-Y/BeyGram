@@ -188,7 +188,8 @@ fun StoryPublisherScreen(
     val periods = storyActivePeriodChoices(premium)
     val denied = (permission as? StoryPostPermission.Denied)?.reason
     val submissionInFlight = submissionState is StorySubmissionState.Submitting ||
-        submissionState is StorySubmissionState.Pending
+        submissionState is StorySubmissionState.Pending ||
+        submissionState is StorySubmissionState.Published
     val busy = publishing || pendingTicket != null || submissionInFlight
     val selectedTarget = targets.firstOrNull { it.chatId == targetChatId }
     val isSelfTarget = selectedTarget?.isSelf != false
@@ -308,7 +309,11 @@ fun StoryPublisherScreen(
         val item = media
         val inFlight = submissionId.takeIf { it.isNotBlank() }
             ?.let { repository.storySubmissionState(it).value }
-            ?.let { it is StorySubmissionState.Submitting || it is StorySubmissionState.Pending }
+            ?.let {
+                it is StorySubmissionState.Submitting ||
+                    it is StorySubmissionState.Pending ||
+                    it is StorySubmissionState.Published
+            }
             ?: false
         when {
             item == null -> error = context.getString(R.string.stories_publish_need_media)

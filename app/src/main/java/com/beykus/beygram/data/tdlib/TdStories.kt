@@ -474,6 +474,8 @@ internal class TdStories(
         val persisted = synchronized(lock) { persistedSubmissions[submissionId] }
         val persistedTicket = persisted?.ticket
         val initial = when {
+            persistedTicket != null && persisted?.kind == "published" ->
+                StorySubmissionState.Published(persistedTicket)
             persistedTicket != null -> StorySubmissionState.Pending(persistedTicket)
             persisted != null -> StorySubmissionState.Submitting
             else -> StorySubmissionState.Idle
@@ -495,7 +497,16 @@ internal class TdStories(
                 submissionId,
                 PersistedSubmission("pending", state.ticket.posterChatId, state.ticket, System.currentTimeMillis())
             )
-            is StorySubmissionState.Published, is StorySubmissionState.Failed -> removePersistedSubmission(submissionId)
+            is StorySubmissionState.Published -> persistSubmission(
+                submissionId,
+                PersistedSubmission(
+                    "published",
+                    state.ticket.posterChatId,
+                    state.ticket.copy(isPending = false),
+                    System.currentTimeMillis()
+                )
+            )
+            is StorySubmissionState.Failed -> removePersistedSubmission(submissionId)
             else -> Unit
         }
     }
@@ -540,11 +551,11 @@ internal class TdStories(
                 val kind = parts[1]
                 val targetChatId = parts[2].toLongOrNull() ?: return@forEach
                 val createdAt = parts[6].toLongOrNull() ?: System.currentTimeMillis()
-                val ticket = if (kind == "pending") {
+                val ticket = if (kind == "pending" || kind == "published") {
                     val posterChatId = parts[3].toLongOrNull() ?: return@forEach
                     val storyId = parts[4].toIntOrNull() ?: return@forEach
                     val fileIds = parts[5].split(',').mapNotNull { it.toIntOrNull() }
-                    StoryPostTicket(posterChatId, storyId, true, fileIds)
+                    StoryPostTicket(posterChatId, storyId, kind == "pending", fileIds)
                 } else {
                     null
                 }
