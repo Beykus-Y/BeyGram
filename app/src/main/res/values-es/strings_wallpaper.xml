@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wallpaper_title">Fondo de chat</string>
+    <string name="wallpaper_option_none">Sin fondo</string>
+    <string name="wallpaper_option_solid">Color sólido %1$d</string>
+    <string name="wallpaper_option_gradient">Degradado %1$d</string>
+    <string name="wallpaper_option_photo">Foto de la galería</string>
+    <string name="wallpaper_dim">Oscurecer fondo</string>
+    <string name="wallpaper_import_failed">No se pudo abrir esta foto</string>
+    <string name="wallpaper_reset">Quitar fondo</string>
+    <string name="wallpaper_blur">Desenfocar foto</string>
+    <string name="wallpaper_blur_hint">Funciona en Android 12 y versiones posteriores. En versiones anteriores la foto se oscurece más.</string>
+    <string name="wallpaper_option_solid_custom">Fondo personalizado</string>
+    <string name="wallpaper_option_gradient_custom">Degradado personalizado</string>
+</resources>

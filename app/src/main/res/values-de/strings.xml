@@ -84,6 +84,7 @@
     <string name="settings_language_ru">Русский</string>
     <string name="settings_language_en">English</string>
     <string name="settings_language_de">Deutsch</string>
+    <string name="settings_language_es">Español</string>
     <string name="feature_language_hint">Die Sprache wird sofort übernommen.</string>
     <string name="sessions_intro">Sehen Sie, wo Sie bei Telegram angemeldet sind. Durch das Beenden anderer Sitzungen wird dieses Gerät nicht abgemeldet.</string>
     <string name="sessions_current">Aktuelle Sitzung</string>

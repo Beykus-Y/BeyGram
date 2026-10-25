@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="message_action_translate">Traducir</string>
+    <string name="translation_settings_title">Traducción</string>
+    <string name="translation_target_title">Traducir a</string>
+    <string name="translation_translating">Traduciendo…</string>
+    <string name="translation_translated_to">Traducido a %1$s</string>
+    <string name="translation_dismiss">Ocultar traducción</string>
+    <string name="translation_auto_title">Traducir automáticamente</string>
+    <string name="translation_auto_hint">La traducción manual siempre está disponible. Esta versión no inicia traducciones automáticas.</string>
+    <string name="translation_language_en">Inglés</string>
+    <string name="translation_language_ru">Ruso</string>
+    <string name="translation_language_uk">Ucraniano</string>
+    <string name="translation_language_de">Alemán</string>
+    <string name="translation_language_fr">Francés</string>
+    <string name="translation_language_es">Español</string>
+    <string name="translation_language_it">Italiano</string>
+    <string name="translation_language_tr">Turco</string>
+    <string name="translation_language_zh">Chino</string>
+    <string name="translation_language_ar">Árabe</string>
+    <string name="err_translation_failed">No se pudo traducir el mensaje</string>
+    <string name="err_translation_secret_chat">La traducción no está disponible en los chats secretos</string>
+    <string name="transcription_action">Transcribir</string>
+    <string name="transcription_pending">Transcribiendo…</string>
+    <string name="transcription_rate_good">Buena transcripción</string>
+    <string name="transcription_rate_bad">Mala transcripción</string>
+    <string name="err_transcription_failed">No se pudo transcribir el mensaje</string>
+    <string name="err_transcription_secret_chat">La transcripción no está disponible en los chats secretos</string>
+</resources>

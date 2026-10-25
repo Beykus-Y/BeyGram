@@ -84,6 +84,7 @@
     <string name="settings_language_ru">Русский</string>
     <string name="settings_language_en">English</string>
     <string name="settings_language_de">Deutsch</string>
+    <string name="settings_language_es">Español</string>
     <string name="feature_language_hint">Language changes immediately.</string>
     <string name="sessions_intro">See where you are signed in to Telegram. Terminating other sessions will not sign out this device.</string>
     <string name="sessions_current">Current session</string>
