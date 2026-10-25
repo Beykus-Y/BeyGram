@@ -99,6 +99,8 @@ fun StarsScreen(
         unsupported = false
         loadingMore = false
         moreError = null
+        // No pagination may start from the previous page while this refresh is running.
+        nextOffset = ""
         try {
             load()
                 .onSuccess { loaded ->
