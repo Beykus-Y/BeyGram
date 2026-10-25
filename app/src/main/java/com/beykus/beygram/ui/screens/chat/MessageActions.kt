@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageCapabilities
+import com.beykus.beygram.domain.model.MessageSpecialContent
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import androidx.compose.foundation.layout.RowScope
@@ -180,4 +181,15 @@ internal fun EditBanner(original: String, isCaption: Boolean, count: Int, limit:
     }
 }
 
-@Composable internal fun ChatMessage.summary(): String = text.ifBlank { media?.kind?.label(LocalContext.current) ?: stringResource(R.string.message_title) }.take(180)
+@Composable internal fun ChatMessage.summary(): String = text.ifBlank {
+    when (val content = special) {
+        is MessageSpecialContent.Poll -> content.poll.question
+        is MessageSpecialContent.Location -> stringResource(R.string.chat_preview_location)
+        is MessageSpecialContent.LiveLocation -> stringResource(R.string.chat_preview_live_location)
+        is MessageSpecialContent.Venue -> content.venue.title.ifBlank { stringResource(R.string.chat_preview_location) }
+        is MessageSpecialContent.Contact -> content.contact.displayName
+        is MessageSpecialContent.Dice -> stringResource(R.string.chat_preview_dice, content.dice.emoji)
+        is MessageSpecialContent.Unsupported -> stringResource(R.string.chat_unsupported_message)
+        null -> media?.kind?.label(LocalContext.current) ?: stringResource(R.string.message_title)
+    }
+}.take(180)

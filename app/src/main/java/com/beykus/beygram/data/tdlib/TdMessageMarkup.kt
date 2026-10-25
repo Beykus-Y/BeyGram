@@ -54,6 +54,7 @@ internal fun TdApi.ChatType.isSecretChatType(): Boolean = this is TdApi.ChatType
 internal fun ChatMessage.withUpdatedContent(
     content: TdApi.MessageContent,
     media: MessageMedia?,
+    special: MessageSpecialContent?,
     text: String,
     entities: List<MessageTextEntity>,
     serviceText: String?,
@@ -64,6 +65,7 @@ internal fun ChatMessage.withUpdatedContent(
     isCallEvent = content is TdApi.MessageCall,
     entities = entities,
     media = media,
+    special = special,
     linkPreview = linkPreview
 )
 

@@ -65,6 +65,18 @@ interface ConversationRepository {
     suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /** Poll, location, contact and dice are sent as TDLib content, never as formatted text. */
+    suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    suspend fun sendLocation(chatId: Long, point: GeoPoint, live: Boolean = false, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    suspend fun sendContactCard(chatId: Long, userId: Long, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    suspend fun sendDice(chatId: Long, emoji: String, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /** Chosen option positions are 0-based, as TDLib expects. */
+    suspend fun votePoll(chatId: Long, messageId: Long, optionIndices: List<Int>): Result<Unit>
+    suspend fun stopPoll(chatId: Long, messageId: Long): Result<Unit>
+    /** Ends an outgoing live-location share by editing it to a zero live period. */
+    suspend fun stopLiveLocation(chatId: Long, messageId: Long, point: GeoPoint): Result<Unit>
+    /** The account's Telegram address book, for the compose-contact picker. */
+    suspend fun contacts(): Result<List<ContactPreview>>
     /** Scheduled queue straight from TDLib; no local scheduled-message cache is created. */
     suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>>
     /** Cancels one queued message in TDLib. */

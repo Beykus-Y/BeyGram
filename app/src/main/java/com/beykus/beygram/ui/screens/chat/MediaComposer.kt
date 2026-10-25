@@ -21,9 +21,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
+import com.beykus.beygram.domain.model.MessageExtraDraft
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -71,25 +77,39 @@ internal class AttachmentState(
     private val scope: CoroutineScope,
     private val pendingState: MutableState<ArrayList<OutgoingMedia>>,
     private val errorState: MutableState<String?>,
-    private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>
+    private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>,
+    private val sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>
 ) {
     var menuOpen by mutableStateOf(false)
     var importing by mutableStateOf(false)
         private set
     var sending by mutableStateOf(false)
         private set
+    var extra by mutableStateOf<MessageExtraDraft?>(null)
+        private set
     val pending: List<OutgoingMedia> get() = pendingState.value
     val error: String? get() = errorState.value
     private var importJob: Job? = null
     var pickPhotos: () -> Unit = {}
     var pickDocuments: () -> Unit = {}
+    var pickPoll: () -> Unit = {}
+    var pickLocation: (live: Boolean) -> Unit = {}
+    var pickContact: () -> Unit = {}
+    var pickDice: () -> Unit = {}
+    /** Secret chats and some channels do not support these attachments; the chips disappear instead of failing. */
+    var allowsPolls: Boolean = true
+    var allowsLiveLocation: Boolean = true
 
-    /** True while the panel replaces the plain composer (files are being imported or are ready to send). */
-    val active: Boolean get() = pending.isNotEmpty() || importing
+    /** True while the panel replaces the plain composer (files or a poll/location/contact/dice are ready to send). */
+    val active: Boolean get() = pending.isNotEmpty() || importing || extra != null
+
+    /** The normal Send button is enabled when the prepared attachment can be delivered. */
+    val canSend: Boolean get() = !sending && !importing && (pending.isNotEmpty() || extra != null)
 
     fun prepare(uris: List<android.net.Uri>, asDocument: Boolean) {
         if (uris.isEmpty()) return
         if (uris.size > 10) { errorState.value = context.getString(R.string.composer_too_many_attachments); return }
+        extra = null
         importJob = scope.launch {
             importing = true
             errorState.value = null
@@ -104,6 +124,26 @@ internal class AttachmentState(
         }
     }
 
+    /** Puts a poll/location/contact/dice in the panel; the normal Send button then applies reply and send options. */
+    fun prepareExtra(draft: MessageExtraDraft) {
+        if (sending || importing) return
+        importJob?.cancel()
+        if (pending.isNotEmpty()) scope.launch { pending.toList().forEach { importer.discard(it) } }
+        pendingState.value = arrayListOf()
+        extra = draft
+        errorState.value = null
+        menuOpen = false
+    }
+
+    fun removeExtra() {
+        if (sending || importing) return
+        extra = null
+    }
+
+    fun reportError(message: String?) {
+        if (message != null) errorState.value = message
+    }
+
     fun remove(item: OutgoingMedia) {
         if (sending || importing) return
         pendingState.value = ArrayList(pending.filterNot { it.path == item.path })
@@ -115,6 +155,7 @@ internal class AttachmentState(
         importJob?.cancel()
         val discarded = pending.toList()
         pendingState.value = arrayListOf()
+        extra = null
         importing = false
         errorState.value = null
         menuOpen = false
@@ -122,7 +163,26 @@ internal class AttachmentState(
     }
 
     fun send(caption: String, options: MessageSendOptions, onCaptionChange: (String) -> Unit) {
-        if (sending || importing || pending.isEmpty()) return
+        if (sending || importing) return
+        val preparedExtra = extra
+        if (preparedExtra != null) {
+            scope.launch {
+                sending = true
+                errorState.value = null
+                try {
+                    val result = sendExtra(preparedExtra, options)
+                    if (result.isFailure) {
+                        errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed)
+                    } else if (extra === preparedExtra) {
+                        extra = null
+                    }
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) { errorState.value = failure.userMessage(context, R.string.composer_send_failed) }
+                finally { sending = false }
+            }
+            return
+        }
+        if (pending.isEmpty()) return
         scope.launch {
             sending = true
             errorState.value = null
@@ -147,7 +207,8 @@ internal class AttachmentState(
 @Composable
 internal fun rememberAttachmentState(
     chatId: Long,
-    sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>
+    sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>,
+    sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>
 ): AttachmentState {
     val context = LocalContext.current
     val accountId = com.beykus.beygram.playback.LocalPlaybackAccountId.current
@@ -156,7 +217,12 @@ internal fun rememberAttachmentState(
     val pending = rememberSaveable(accountId, chatId) { mutableStateOf(arrayListOf<OutgoingMedia>()) }
     val error = rememberSaveable(accountId, chatId) { mutableStateOf<String?>(null) }
     val currentSend by androidx.compose.runtime.rememberUpdatedState(sendMedia)
-    val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error) { media, caption, options -> currentSend(media, caption, options) } }
+    val currentSendExtra by androidx.compose.runtime.rememberUpdatedState(sendExtra)
+    val state = remember(accountId, chatId) {
+        AttachmentState(context, importer, scope, pending, error,
+            { media, caption, options -> currentSend(media, caption, options) },
+            { draft, options -> currentSendExtra(draft, options) })
+    }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
     state.pickPhotos = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
@@ -193,6 +259,11 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                     ) {
                         TypeChip(Icons.Rounded.Image, stringResource(R.string.composer_type_photo_video)) { state.menuOpen = false; state.pickPhotos() }
                         TypeChip(Icons.Rounded.Description, stringResource(R.string.composer_type_file)) { state.menuOpen = false; state.pickDocuments() }
+                        if (state.allowsPolls) TypeChip(Icons.Rounded.Poll, stringResource(R.string.composer_type_poll)) { state.menuOpen = false; state.pickPoll() }
+                        TypeChip(Icons.Rounded.LocationOn, stringResource(R.string.composer_type_location)) { state.menuOpen = false; state.pickLocation(false) }
+                        if (state.allowsLiveLocation) TypeChip(Icons.Rounded.MyLocation, stringResource(R.string.composer_type_live_location)) { state.menuOpen = false; state.pickLocation(true) }
+                        TypeChip(Icons.Rounded.Person, stringResource(R.string.composer_type_contact)) { state.menuOpen = false; state.pickContact() }
+                        TypeChip(Icons.Rounded.Casino, stringResource(R.string.composer_type_dice)) { state.menuOpen = false; state.pickDice() }
                     }
                 } else {
                     Spacer(Modifier.weight(1f))
@@ -204,6 +275,33 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    state.extra?.let { extra ->
+                        val label = extraLabel(extra)
+                        Row(
+                            Modifier.clip(RoundedCornerShape(14.dp)).background(palette.surface2)
+                                .padding(start = 6.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                when (extra) {
+                                    is MessageExtraDraft.Poll -> Icons.Rounded.Poll
+                                    is MessageExtraDraft.Location -> if (extra.live) Icons.Rounded.MyLocation else Icons.Rounded.LocationOn
+                                    is MessageExtraDraft.Contact -> Icons.Rounded.Person
+                                    is MessageExtraDraft.Dice -> Icons.Rounded.Casino
+                                },
+                                contentDescription = null, tint = palette.accentInk,
+                                modifier = Modifier.size(36.dp).background(palette.accentSoft, RoundedCornerShape(8.dp)).padding(8.dp)
+                            )
+                            Text(label, color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp).width(180.dp))
+                            AttachmentRemoveButton(
+                                fileName = label,
+                                enabled = !state.sending && !state.importing,
+                                onClick = { state.removeExtra() }
+                            )
+                        }
+                    }
                     state.pending.forEach { item ->
                         Row(
                             Modifier.clip(RoundedCornerShape(14.dp)).background(palette.surface2)
@@ -229,9 +327,11 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                     Icon(Icons.Rounded.Close, stringResource(R.string.composer_cancel_attachments), tint = palette.textSecondary)
                 }
             }
-            val count = caption.codePointCount(0, caption.length)
-            Text("$count / $captionLimit", color = if (count > captionLimit) palette.danger else palette.textSecondary, fontSize = 12.sp,
-                modifier = Modifier.padding(start = 2.dp, bottom = 2.dp))
+            if (state.extra == null) {
+                val count = caption.codePointCount(0, caption.length)
+                Text("$count / $captionLimit", color = if (count > captionLimit) palette.danger else palette.textSecondary, fontSize = 12.sp,
+                    modifier = Modifier.padding(start = 2.dp, bottom = 2.dp))
+            }
         }
         state.error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp)) }
         Spacer(Modifier.height(4.dp))
@@ -268,4 +368,17 @@ private fun TypeChip(icon: androidx.compose.ui.graphics.vector.ImageVector, titl
         Spacer(Modifier.width(8.dp))
         Text(title, color = palette.accentInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     }
+}
+
+@Composable
+private fun extraLabel(extra: MessageExtraDraft): String = when (extra) {
+    is MessageExtraDraft.Poll -> stringResource(
+        R.string.composer_extra_poll,
+        extra.poll.normalized().question.ifBlank { stringResource(R.string.chat_poll_untitled) }
+    )
+    is MessageExtraDraft.Location -> stringResource(
+        if (extra.live) R.string.composer_extra_live_location else R.string.composer_extra_location
+    )
+    is MessageExtraDraft.Contact -> stringResource(R.string.composer_extra_contact, extra.title)
+    is MessageExtraDraft.Dice -> stringResource(R.string.composer_extra_dice, extra.emoji)
 }

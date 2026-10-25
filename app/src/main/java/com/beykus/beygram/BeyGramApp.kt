@@ -1407,6 +1407,28 @@ private fun BeyGramAppContent(
                         topicCanPost = selectedTopic?.canWrite ?: true,
                         topicUnreadCount = selectedTopic?.unreadCount ?: 0,
                         onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
+                        onOpenUserChat = { userId ->
+                            val sourceAccountId = selectedAccountId
+                            val sourceRepository = repository
+                            memberScope.launch {
+                                sourceRepository.openPrivateChat(userId)
+                                    .onSuccess { chatId ->
+                                        if (selectedAccountId == sourceAccountId) {
+                                            selectedChatId = chatId
+                                            selectedTopicChatId = 0L
+                                            selectedForumTopicId = 0L
+                                            chatBackRouteName = AppRoute.Chats.name
+                                            routeName = AppRoute.Chat.name
+                                        }
+                                    }
+                                    .onFailure { error ->
+                                        if (selectedAccountId == sourceAccountId) {
+                                            noticeError = (error as? UserMessageException)?.text
+                                                ?: UiText.Res(R.string.profile_member_open_failed)
+                                        }
+                                    }
+                            }
+                        },
                         onOpenComments = { post ->
                             threadChannelChatId = selectedChatId
                             threadPostId = post.id
