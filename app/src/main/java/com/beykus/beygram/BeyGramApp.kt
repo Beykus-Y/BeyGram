@@ -85,6 +85,7 @@ import com.beykus.beygram.ui.screens.chats.ChatsTwoPaneScaffold
 import com.beykus.beygram.ui.screens.chats.chatListHighlightedId
 import com.beykus.beygram.ui.screens.chats.chatListPaneWidthDp
 import com.beykus.beygram.ui.screens.chats.isTwoPaneChatsWidth
+import com.beykus.beygram.ui.screens.chats.rememberChatsScreenState
 import com.beykus.beygram.ui.screens.chats.CreateChannelScreen
 import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
 import com.beykus.beygram.ui.screens.chats.NewChatScreen
@@ -619,6 +620,10 @@ private fun BeyGramAppContent(
         tabPreferences.save(visibility)
     }
     val tabStateHolder = rememberSaveableStateHolder()
+    // Поиск, папка и позиция списка живут выше раскладки: телефон, две панели, поворот и
+    // складка переиспользуют одно состояние, а не создают список заново. Ключ аккаунта
+    // не даёт поиску и id папок прошлого аккаунта перейти в следующий.
+    val chatsScreenState = key(selectedAccountId) { rememberChatsScreenState() }
     // Куда вернуться из раздела нижнего меню и из уведомлений: их открывают из разных мест.
     var tabReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var notificationsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
@@ -1216,7 +1221,8 @@ private fun BeyGramAppContent(
                 routeName = AppRoute.Chat.name
             },
             highlightedChatId = chatListHighlightedId(twoPane && chatOpen, selectedChatId),
-            compactHeader = twoPane
+            compactHeader = twoPane,
+            state = chatsScreenState
         )
     }
     // Телефонный раздел чатов: тот же список под нижним меню. Широкий экран собирает две панели ниже.
@@ -1669,31 +1675,25 @@ private fun BeyGramAppContent(
                     BoxWithConstraints(Modifier.fillMaxSize()) {
                         val twoPane = isTwoPaneChatsWidth(maxWidth.value)
                         if (twoPane) {
-                            // Тот же ключ, что у телефонного раздела чатов: после поворота или
-                            // раскладывания список возвращается на прежнее место при новой разметке.
-                            tabStateHolder.SaveableStateProvider(
-                                "${selectedAccountId}:${MainTab.Chats.route.name}"
-                            ) {
-                                ChatsTwoPaneScaffold(
-                                    listPaneWidth = chatListPaneWidthDp(maxWidth.value).dp,
-                                    showNavigation = route == AppRoute.Chats,
-                                    navigation = {
-                                        // Нижнее меню остаётся прежним; на широком экране оно
-                                        // занимает всю ширину под обеими панелями.
-                                        NowPlayingBar()
-                                        MainTabBar(
-                                            tabs = MainTab.entries.filter { tabVisibility.isVisible(it) },
-                                            selected = MainTab.Chats,
-                                            onSelect = selectTab
-                                        )
-                                    },
-                                    list = { chatsList(true, route != AppRoute.Chats) },
-                                    detail = {
-                                        if (route == AppRoute.Chats) ChatsDetailPlaceholder()
-                                        else chatRoute(true)
-                                    }
-                                )
-                            }
+                            ChatsTwoPaneScaffold(
+                                listPaneWidth = chatListPaneWidthDp(maxWidth.value).dp,
+                                showNavigation = route == AppRoute.Chats,
+                                navigation = {
+                                    // Нижнее меню остаётся прежним; на широком экране оно
+                                    // занимает всю ширину под обеими панелями.
+                                    NowPlayingBar()
+                                    MainTabBar(
+                                        tabs = MainTab.entries.filter { tabVisibility.isVisible(it) },
+                                        selected = MainTab.Chats,
+                                        onSelect = selectTab
+                                    )
+                                },
+                                list = { chatsList(true, route != AppRoute.Chats) },
+                                detail = {
+                                    if (route == AppRoute.Chats) ChatsDetailPlaceholder()
+                                    else chatRoute(true)
+                                }
+                            )
                         } else if (route == AppRoute.Chats) {
                             chatsTab()
                         } else {

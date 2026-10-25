@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -65,7 +64,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -166,18 +164,23 @@ fun ChatsScreen(
      * Узкая левая панель двухпанельного режима. Заголовок компактнее, а менеджер папок
      * открывается поверх всего окна: в панели шириной 300 dp он был бы обрезан.
      */
-    compactHeader: Boolean = false
+    compactHeader: Boolean = false,
+    /**
+     * Поиск, папка и позиция списка. Владелец экрана держит это состояние выше раскладки,
+     * поэтому переход между телефоном и двумя панелями не сбрасывает список.
+     */
+    state: ChatsScreenState = rememberChatsScreenState()
 ) {
-    var query by rememberSaveable(key = "chats_query") { mutableStateOf("") }
+    val query = state.query
     // Server folders replace the old local All / People / Groups / Unread chips.
     // Applying local filtering again beneath server folders gave users two competing tab bars.
     val selectedFilter = ChatFilter.All
-    var managingFolders by rememberSaveable(key = "chats_managing_folders") { mutableStateOf(false) }
+    var managingFolders by rememberSaveable { mutableStateOf(false) }
     // A folder is selected by server ID, never by its mutable index or local category name.
-    var selectedFolderId by rememberSaveable(myProfile?.id, key = "chats_selected_folder") { mutableIntStateOf(0) }
+    val selectedFolderId = state.selectedFolderId
     val activeFolderId = validTelegramFolderSelection(folderSnapshot, selectedFolderId.takeIf { it > 0 })
     LaunchedEffect(folderSnapshot.initialized, folderSnapshot.folders.map { it.id }) {
-        if (folderSnapshot.initialized && selectedFolderId != 0 && activeFolderId == null) selectedFolderId = 0
+        if (folderSnapshot.initialized && selectedFolderId != 0 && activeFolderId == null) state.selectFolder(0)
     }
     val displayedChats = activeFolderId?.let { folderChats[it].orEmpty() } ?: chats
     val folderLoad = activeFolderId?.let { folderLoadStates[it] } ?: TelegramFolderLoadState(hasMore = false)
@@ -217,13 +220,7 @@ fun ChatsScreen(
     val unreadTotal = remember(displayedChats) { displayedChats.sumOf { it.unreadCount } }
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
-    // Explicit key: the same list keeps its position when the two-pane layout appears or disappears
-    // around it (rotation, unfolding), while each server folder still starts at its own top.
-    val listState = rememberSaveable(
-        activeFolderId,
-        saver = LazyListState.Saver,
-        key = "chats_list_${activeFolderId ?: 0}"
-    ) { LazyListState() }
+    val listState = state.listState
     val archivePullThresholdPx = with(density) { archivePullThreshold.toPx() }
     // Сколько протянуто вниз, пока архив скрыт. Подсказка растёт до порога, а за порогом архив возвращается при отпускании.
     var pullPx by remember { mutableFloatStateOf(0f) }
@@ -343,7 +340,7 @@ fun ChatsScreen(
             }
 
             Spacer(Modifier.height(14.dp))
-            SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
+            SearchField(query = query, onChange = { state.query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
             Spacer(Modifier.height(12.dp))
             // Only one source of folder navigation: server-backed Telegram lists.
             // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
@@ -365,7 +362,7 @@ fun ChatsScreen(
                                     title = stringResource(R.string.chat_folders_all),
                                     selected = activeFolderId == null,
                                     unreadCount = null,
-                                    onClick = { selectedFolderId = 0 }
+                                    onClick = { state.selectFolder(0) }
                                 )
                                 is TelegramFolderTab.Folder -> {
                                     val folder = folderSnapshot.folders.firstOrNull { it.id == tab.id }
@@ -373,7 +370,7 @@ fun ChatsScreen(
                                         title = folder.title,
                                         selected = activeFolderId == folder.id,
                                         unreadCount = folder.unreadChats,
-                                        onClick = { selectedFolderId = folder.id }
+                                        onClick = { state.selectFolder(folder.id) }
                                     )
                                 }
                             }
