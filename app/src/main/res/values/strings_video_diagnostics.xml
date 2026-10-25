@@ -20,7 +20,8 @@
     <string name="camera_report_none">нет</string>
     <string name="camera_report_failed">Опрос камеры не удался: %1$s</string>
     <string name="camera_report_encoders">Видеокодировщики H.264:</string>
-    <string name="camera_report_encoder_line">%1$s (аппаратный: %2$s): %3$s</string>
+    <string name="camera_report_encoder_line">%1$s (аппаратный: %2$s, MIME video/avc): %3$s</string>
+    <string name="camera_report_encoder_meta">  профили: %1$s; уровни: %2$s; битрейт: %3$s..%4$s бит/с; кадры/с: %5$s..%6$s; экземпляров: %7$s</string>
     <string name="camera_report_no_encoder">Кодировщик H.264 не найден</string>
     <string name="camera_report_encoder_failed">Не удалось прочитать возможности кодировщиков: %1$s</string>
     <string name="camera_report_thermal">Нагрев сейчас: %1$s</string>
@@ -29,7 +30,19 @@
     <string name="camera_report_recording_heading">Как обычная запись кружка выбирает частоту кадров (запрошено %1$s):</string>
     <string name="camera_report_recording_lens">  %1$s камера %2$s: выбран диапазон %3$s. %4$s</string>
     <string name="camera_report_recording_candidates">    Подходящие обычные диапазоны: %1$s; кодировщик подтверждает 60 кадров/с: %2$s</string>
+    <string name="camera_report_camerax_vs_camera2">    Сравнение пути: CameraX заявляет %1$s; Camera2 normal AE: %2$s. Обычная запись использует CameraX; Camera2 manual/high-speed — только отдельные проверки.</string>
     <string name="camera_report_recording_unavailable">  Камеры для записи сейчас недоступны.</string>
+    <string name="camera_report_path_note">Путь записи: CameraX Preview+VideoCapture и обычные AE-диапазоны. Camera2 manual sensor и скоростная съёмка доступны только как отдельные проверки и по умолчанию не включаются.</string>
+    <string name="camera_detail_capture_path">Выбранный путь: CameraX, обычный AE. Camera2 manual sensor: %1$s; constrained high-speed: %2$s. Это возможности, а не включённый режим.</string>
+    <string name="session_config_supported">Camera2 session (Android 15+, без открытия камеры; запланированная комбинация): preview %1$s + encoder %2$s — поддерживается.</string>
+    <string name="session_config_unsupported">Camera2 session (Android 15+, без открытия камеры; запланированная комбинация): preview %1$s + encoder %2$s — не поддерживается: %3$s.</string>
+    <string name="session_config_unknown">Camera2 session (Android 15+, без открытия камеры; запланированная комбинация): preview %1$s + encoder %2$s — статус неизвестен: %3$s.</string>
+    <string name="session_reason_supported">проверка пройдена</string>
+    <string name="session_reason_rejected">Camera2 отклонил комбинацию</string>
+    <string name="session_reason_api_old">нужен Android 15 (SDK 35), сейчас SDK %1$d</string>
+    <string name="session_reason_setup_unavailable">устройство не предоставляет проверку конфигурации</string>
+    <string name="session_reason_no_surface">не удалось подобрать или создать тестовые поверхности</string>
+    <string name="session_reason_exception">исключение %1$s</string>
 
     <string name="camera_thermal_none">нет</string>
     <string name="camera_thermal_light">лёгкий</string>
@@ -76,7 +89,7 @@
     <string name="fps_check_row_open_failed">камера не открылась (%1$s)</string>
     <string name="fps_check_row_session_failed">камера отклонила режим (%1$s)</string>
     <string name="fps_check_row_timeout">камера не ответила вовремя</string>
-    <string name="fps_check_row_measured">измерено %1$s кадров/с (%2$d кадров), интервал p50/p95/макс %3$s/%4$s/%5$s мс, длинных пауз %6$d, выдержка ≈%7$s мс, сбоев снимков %8$d</string>
+    <string name="fps_check_row_measured">измерено %1$s кадров/с (%2$d кадров), интервал p50/p95/макс %3$s/%4$s/%5$s мс, длинных пауз %6$d, выдержка ≈%7$s мс, длительность кадра p50/p95 %8$s/%9$s мс, дольше бюджета %10$d, сбоев снимков %11$d</string>
     <string name="fps_verdict_reached">цель %1$d достигнута</string>
     <string name="fps_verdict_low_light">ниже цели: выдержка почти равна интервалу кадра, мало света</string>
     <string name="fps_verdict_thermal">ниже цели: телефон сильно нагрет</string>
@@ -113,6 +126,7 @@
     <string name="vn_report_raw">Исходная запись: %1$s кадров/с</string>
     <string name="vn_report_final">Готовый файл: %1$s кадров/с</string>
     <string name="vn_report_stage">Где ограничена частота: %1$s</string>
+    <string name="vn_report_fallback">Причина выбора частоты: %1$s</string>
     <string name="vn_stage_raw">Исходная запись</string>
     <string name="vn_stage_final">Готовый файл, часть %1$d</string>
     <string name="vn_frame_summary">%1$dx%2$d, кадров %3$d, измерено %4$s кадров/с (в файле заявлено %5$s), интервал p50/p95/макс %6$s/%7$s/%8$s мс, пауз дольше 50 мс %9$d, повторных меток %10$d, кадров по секундам [%11$s], видео %12$s (профиль %13$s, уровень %14$s), битрейт %15$s, звук %16$s, расхождение звука и видео %17$s мс, %18$d байт</string>
@@ -123,6 +137,10 @@
     <string name="vn_entry_bitrate">Целевой битрейт записи: %1$d бит/с; зеркалирование фронтальной: %2$s</string>
     <string name="vn_entry_start_requested">Запрошен старт записи</string>
     <string name="vn_entry_camera">Камера %1$s; размер исходного потока %2$dx%3$d; превью и запись в одном сеансе, кадр 1:1 по центру</string>
+    <string name="vn_entry_light">Подсветка при старте записи: %1$s; включена: %2$s</string>
+    <string name="vn_light_torch">фонарик</string>
+    <string name="vn_light_screen">свет экрана</string>
+    <string name="vn_light_unavailable">недоступна</string>
     <string name="vn_entry_recording_started">Запись началась</string>
     <string name="vn_entry_recording_finalized">Запись завершена: %1$d с, %2$d байт, код ошибки %3$d</string>
     <string name="vn_entry_switch_refused">Смена камеры отклонена: другая камера не поддерживает диапазон кадров записи</string>
@@ -143,7 +161,7 @@
     <string name="env_heading">Среда и сборка (схема отчёта %1$d)</string>
     <string name="env_app">Приложение: %1$s, версия %2$s (%3$s)</string>
     <string name="env_build">Сборка: %1$s/%2$s, коммит %3$s</string>
-    <string name="env_libraries">Библиотеки: камера %1$s, обработка видео %2$s</string>
+    <string name="env_libraries">Библиотеки: CameraX %1$s, Media3 %2$s; Camera2 API: Android SDK %3$d</string>
     <string name="env_device">Устройство: %1$s %2$s (%3$s), чип: %4$s</string>
     <string name="env_android">Android %1$s (SDK %2$d), патч безопасности %3$s</string>
     <string name="env_fingerprint">Прошивка: %1$s</string>
@@ -212,6 +230,18 @@
     <string name="diag_full_start">Начать</string>
     <string name="vn_entry_sensor">Сенсор во время записи: %1$d результатов, %2$s кадров/с, интервалы p50/p95/макс %3$s/%4$s/%5$s мс, длинных пауз %6$d, выдержка %7$s мс, охват окна %8$d%%</string>
     <string name="vn_entry_sensor_none">Сенсор во время записи: результатов не получено (это не значит, что камера не отдаёт кадры)</string>
+    <string name="vn_entry_sensor_ae">AE в результатах сенсора: диапазон %1$s (вариантов %2$d: %3$s), длительность кадра p50/p95 %4$s/%5$s мс, дольше бюджета %6$d кадров, состояния AE: %7$s</string>
+    <string name="vn_entry_sensor_stabilization">Стабилизация в результатах сенсора: видео %1$s, оптика %2$s</string>
+    <string name="ae_state_inactive">неактивна</string>
+    <string name="ae_state_searching">поиск экспозиции</string>
+    <string name="ae_state_converged">сошлась</string>
+    <string name="ae_state_locked">зафиксирована</string>
+    <string name="ae_state_flash_required">нужна вспышка</string>
+    <string name="ae_state_precapture">предвспышка</string>
+    <string name="ae_state_unknown">неизвестно (%1$d)</string>
+    <string name="stabilization_off">выкл.</string>
+    <string name="stabilization_on">вкл.</string>
+    <string name="stabilization_preview">только превью</string>
     <string name="vn_entry_crop">Область кадра сенсора при записи: %1$s (позиция и размер в пикселях), зум %2$s</string>
     <string name="vn_entry_sensor_truncated">Запись длиннее лимита замеров: в расчёт вошёл только её начальный участок</string>
     <string name="vn_entry_av">Звук: %1$s Гц, каналов %2$s, %3$s кбит/с; смещение звука относительно видео в начале %4$s мс, в конце %5$s мс, уход %6$s мс: %7$s</string>
@@ -225,6 +255,7 @@
     <string name="diag_center_open">Открыть</string>
     <string name="diag_full_report_title">Полный отчёт</string>
     <string name="diag_full_report_not_run">Не запускалось.</string>
+    <string name="diag_full_report_compact_notice">Краткий вид: только последние записи и их ключевые метрики. Возможности камер, проверки FPS и Telegram скрыты — выберите «Полно».</string>
     <string name="diag_full_report_survey">=== Возможности камер ===</string>
     <string name="diag_full_report_fps">=== Проверка частоты кадров ===</string>
     <string name="diag_full_report_telegram">=== Проверка через Telegram ===</string>

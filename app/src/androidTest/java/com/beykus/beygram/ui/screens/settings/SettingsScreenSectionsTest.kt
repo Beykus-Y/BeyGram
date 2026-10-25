@@ -31,6 +31,7 @@ class SettingsScreenSectionsTest {
                     onLastSeen = { opened += "lastSeen" },
                     onNotifications = { opened += "notifications" },
                     onStorage = { opened += "storage" },
+                    onAutoDownload = { opened += "autoDownload" },
                     onProxy = { opened += "proxy" },
                     onVideoRecording = { opened += "video" },
                     onDiagnostics = { opened += "diagnostics" },
@@ -66,6 +67,7 @@ class SettingsScreenSectionsTest {
             R.string.settings_last_seen_title to "lastSeen",
             R.string.start_proxy_settings to "proxy",
             R.string.settings_storage_title to "storage",
+            R.string.settings_auto_download_title to "autoDownload",
             R.string.diagnostics_title to "diagnostics",
             R.string.updates_title to "updates"
         )

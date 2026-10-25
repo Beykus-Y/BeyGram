@@ -1,10 +1,15 @@
 package com.beykus.beygram.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,14 +27,23 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -57,7 +71,11 @@ internal val MainTab.icon: ImageVector
         MainTab.Settings -> Icons.Rounded.Settings
     }
 
-/** Один раздел нижнего меню: пилюля с иконкой и подпись под ней. Выбранный раздел подсвечен акцентом. */
+/**
+ * Один раздел нижнего меню: пилюля с иконкой и подпись под ней. Выбранный раздел подсвечен акцентом.
+ * Нажатие показывает короткую акцентную капсулу той же формы вместо стандартного прямоугольного ripple;
+ * [interactive] = false оставляет только отрисовку для превью в настройках.
+ */
 @Composable
 internal fun MainTabItem(
     tab: MainTab,
@@ -65,22 +83,67 @@ internal fun MainTabItem(
     onSelect: () -> Unit,
     modifier: Modifier = Modifier,
     pillHeight: Dp = 32.dp,
-    iconSize: Dp = 24.dp
+    iconSize: Dp = 24.dp,
+    interactive: Boolean = true
 ) {
     val palette = beyGramPalette()
+    val haptic = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressProgress by animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = tween(durationMillis = TabPressFadeMillis),
+        label = "mainTabPress"
+    )
     val tint = if (selected) palette.accentInk else palette.textSecondary
+    val itemModifier = if (interactive) {
+        modifier.selectable(
+            selected = selected,
+            interactionSource = interactionSource,
+            indication = null,
+            role = Role.Tab,
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                onSelect()
+            }
+        )
+    } else {
+        // Превью не нажимается, поэтому не должно обещать действие ни ripple, ни семантикой клика.
+        modifier.semantics(mergeDescendants = true) {
+            role = Role.Tab
+            this.selected = selected
+        }
+    }
     Column(
-        modifier = modifier.selectable(selected = selected, role = Role.Tab, onClick = onSelect),
+        modifier = itemModifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
                 .width(56.dp)
                 .height(pillHeight)
-                .clip(RoundedCornerShape(16.dp))
-                .background(if (selected) palette.accentSoft else Color.Transparent),
+                .graphicsLayer {
+                    val scale = tabPressScale(pressProgress)
+                    scaleX = scale
+                    scaleY = scale
+                },
             contentAlignment = Alignment.Center
         ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (selected) palette.accentSoft else Color.Transparent)
+            )
+            if (pressProgress > 0f) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(tabPressCapsuleColor(palette.accent, selected, pressProgress))
+                        .testTag(MainTabPressCapsuleTag)
+                )
+            }
             Icon(tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(iconSize))
         }
         Spacer(Modifier.height(4.dp))

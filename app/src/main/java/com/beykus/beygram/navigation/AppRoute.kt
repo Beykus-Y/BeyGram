@@ -10,11 +10,15 @@ enum class AppRoute {
     Chat,
     MessageThread,
     ChatInfo,
+    ChatManagement,
     ChannelStatistics,
     ChatMembers,
     MemberProfile,
     MyProfile,
     EditProfile,
+    Premium,
+    Stars,
+    Gifts,
     Notifications,
     ConnectionDiagnostics,
     Calls,
@@ -30,6 +34,7 @@ enum class AppRoute {
     Updates,
     VideoMessageSettings,
     StorageSettings,
+    AutoDownloadSettings,
     Diagnostics,
     Resources,
     GlobalSearch,
@@ -40,9 +45,12 @@ enum class AppRoute {
     ChatAnimations,
     Language,
     Sessions,
+    AppLock,
     NewChat,
     CreateGroup,
-    CreateChannel
+    CreateChannel,
+    Stories,
+    StoryPublisher
 }
 
 /**

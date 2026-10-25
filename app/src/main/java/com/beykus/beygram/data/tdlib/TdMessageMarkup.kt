@@ -64,6 +64,7 @@ internal fun ChatMessage.withUpdatedContent(
     isCallEvent = content is TdApi.MessageCall,
     entities = entities,
     media = media,
+    expiredMediaKind = expiredMediaKindOf(content),
     linkPreview = linkPreview
 )
 
@@ -95,14 +96,20 @@ internal fun inlineKeyboard(markup: TdApi.ReplyMarkup?): List<List<BotButton>> =
         is TdApi.InlineKeyboardButtonTypeUrl -> BotButton(button.text, BotButtonKind.Url, type.url)
         is TdApi.InlineKeyboardButtonTypeCopyText -> BotButton(button.text, BotButtonKind.Copy, type.text)
         is TdApi.InlineKeyboardButtonTypeUser -> BotButton(button.text, BotButtonKind.User, type.userId.toString())
+        is TdApi.InlineKeyboardButtonTypeWebApp -> BotButton(button.text, BotButtonKind.WebApp, type.url)
         else -> BotButton(button.text, BotButtonKind.Unsupported)
     }
 } }
 
 internal fun botKeyboard(message: TdApi.Message?): BotKeyboard? = when (val markup = message?.replyMarkup) {
     is TdApi.ReplyMarkupShowKeyboard -> BotKeyboard(message.id, markup.rows.orEmpty().map { row -> row.map {
-        BotButton(it.text, if (it.type is TdApi.KeyboardButtonTypeText) BotButtonKind.Text else BotButtonKind.Unsupported)
-    } }, markup.oneTime, markup.isPersistent, markup.inputFieldPlaceholder)
-    is TdApi.ReplyMarkupForceReply -> BotKeyboard(message.id, emptyList(), placeholder = markup.inputFieldPlaceholder, forceReply = true)
+        val kind = when (it.type) {
+            is TdApi.KeyboardButtonTypeText -> BotButtonKind.Text
+            is TdApi.KeyboardButtonTypeWebApp -> BotButtonKind.WebApp
+            else -> BotButtonKind.Unsupported
+        }
+        BotButton(it.text, kind, (it.type as? TdApi.KeyboardButtonTypeWebApp)?.url.orEmpty())
+    } }, markup.oneTime, markup.isPersistent, markup.inputFieldPlaceholder.orEmpty())
+    is TdApi.ReplyMarkupForceReply -> BotKeyboard(message.id, emptyList(), placeholder = markup.inputFieldPlaceholder.orEmpty(), forceReply = true)
     else -> null
 }

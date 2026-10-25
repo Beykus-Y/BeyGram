@@ -13,7 +13,9 @@ data class ContactPreview(
     val avatarColorArgb: Long,
     val firstName: String = "",
     val lastName: String = "",
-    val phone: String = ""
+    val phone: String = "",
+    /** Secret chats require a regular user; bots are never eligible. */
+    val isBot: Boolean = false
 ) {
     val initials: String get() = initialsOf(title)
 }

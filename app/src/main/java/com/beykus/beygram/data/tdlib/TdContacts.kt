@@ -121,7 +121,8 @@ internal class TdContacts(private val client: () -> Client, private val profiles
         avatarColorArgb = id.stableColor(),
         firstName = firstName.orEmpty(),
         lastName = lastName.orEmpty(),
-        phone = phoneNumber.orEmpty()
+        phone = phoneNumber.orEmpty(),
+        isBot = type is TdApi.UserTypeBot
     )
 
     private fun TdApi.User.subtitle(): String {

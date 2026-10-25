@@ -41,9 +41,20 @@ data class ChatMessage(
     val linkPreview: MessageLinkPreview? = null,
     /** Unix timestamp when a scheduled message will be sent; null for a normal message. */
     val scheduledAtSeconds: Long? = null,
+    /** TDLib's per-message self-destruct type; distinct from the chat's messageAutoDeleteTime TTL. */
+    val selfDestruct: MessageSelfDestruct? = null,
+    /** Seconds left before this message self-destructs; null when no self-destruct timer runs. */
+    val selfDestructInSeconds: Long? = null,
+    /** Seconds left before the chat's TTL deletes this message; null when no chat TTL applies. */
+    val autoDeleteInSeconds: Long? = null,
+    /** TDLib replaced an expired self-destructing attachment with MessageExpired*; the bubble shows a placeholder. */
+    val expiredMediaKind: MediaKind? = null,
     /** TDLib's Message.effectId: the effect chosen by the sender, or zero when the message has none. */
     val effectId: Long = 0L
-)
+) {
+    /** View-once media is the per-message "open once" type, not every attachment in a secret chat. */
+    val isViewOnce: Boolean get() = selfDestruct is MessageSelfDestruct.Immediately
+}
 
 /**
  * The compact web-page card TDLib attaches to a text message. All content is server-supplied metadata; [photoFileId]
@@ -103,7 +114,12 @@ data class ChatHistory(
     val liveArrivals: List<LiveMessageArrival> = emptyList(),
     val liveArrivalSequence: Long = 0L,
     /** Recent temporary-to-server ID replacements, bounded by the history store. */
-    val recentReplacements: List<MessageIdReplacement> = emptyList()
+    val recentReplacements: List<MessageIdReplacement> = emptyList(),
+    /**
+     * Messages loaded outside the window, such as older comments of a channel post's thread. Updates and deletions reach
+     * them like [messages], but they are never part of [messages], so the chat timeline and its paging do not show them.
+     */
+    val outsideWindowMessages: List<ChatMessage> = emptyList()
 )
 
 /** One live insertion, ordered by [sequence] within a history store. A temporary-to-server replacement is not an arrival. */

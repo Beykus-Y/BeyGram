@@ -29,4 +29,39 @@ class MediaFileStoreTest {
         assertEquals(1f, MediaFileState(1, size = 10, downloadedBytes = 20).downloadProgress)
         assertEquals(0.5f, MediaFileState(1, size = 100, uploadedBytes = 50).uploadProgress)
     }
+
+    @Test fun cancellingDownloadAllowsItToBeRequestedAgain() {
+        val store = MediaFileStore()
+        assertTrue(store.beginDownload(7))
+        store.cancel(7)
+        assertFalse(store.observe(7).value.isDownloading)
+        assertTrue(store.beginDownload(7))
+    }
+
+    @Test fun cancellingLeavesCompletedFileAlone() {
+        val store = MediaFileStore()
+        store.update(MediaFileState(8, size = 100, localPath = "/cached.jpg", downloadedBytes = 100))
+        store.cancel(8)
+        assertEquals("/cached.jpg", store.observe(8).value.localPath)
+        assertFalse(store.observe(8).value.isDownloading)
+    }
+
+    @Test fun cancelledAutomaticDownloadKeepsPartialStateAndAllowsManualRetry() {
+        val store = MediaFileStore()
+        store.update(MediaFileState(7, size = 100, downloadedBytes = 40, downloadPath = "/partial", downloadedPrefixBytes = 40))
+        assertTrue(store.beginDownload(7))
+        store.cancel(7)
+        val cancelled = store.observe(7).value
+        assertFalse(cancelled.isDownloading)
+        assertNull(cancelled.error)
+        assertEquals("/partial", cancelled.downloadPath)
+        assertEquals(40L, cancelled.downloadedPrefixBytes)
+        assertTrue(store.beginDownload(7))
+    }
+
+    @Test fun snapshotExposesTheSameStateAsObservers() {
+        val store = MediaFileStore()
+        store.update(MediaFileState(3, size = 10, isDownloading = true))
+        assertEquals(store.observe(3).value, store.snapshot(3))
+    }
 }
