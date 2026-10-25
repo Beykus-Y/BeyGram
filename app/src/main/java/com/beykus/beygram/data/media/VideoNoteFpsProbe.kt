@@ -122,6 +122,7 @@ internal class VideoNoteFpsProbe(private val context: Context) {
                 ?: return ProbeOutcome.SessionFailed("configure")
             val timestamps = ArrayList<Long>()
             val exposures = ArrayList<Long>()
+            val frameDurations = ArrayList<Long>()
             var startedAt = 0L
             val callback = object : CameraCaptureSession.CaptureCallback() {
                 override fun onCaptureStarted(s: CameraCaptureSession, request: CaptureRequest, timestamp: Long, frameNumber: Long) {
@@ -136,6 +137,7 @@ internal class VideoNoteFpsProbe(private val context: Context) {
                     synchronized(timestamps) {
                         timestamps += ts
                         result.get(CaptureResult.SENSOR_EXPOSURE_TIME)?.let { exposures += it }
+                        result.get(CaptureResult.SENSOR_FRAME_DURATION)?.let { frameDurations += it }
                     }
                 }
                 override fun onCaptureFailed(s: CameraCaptureSession, request: CaptureRequest, failure: CaptureFailure) {
@@ -158,7 +160,8 @@ internal class VideoNoteFpsProbe(private val context: Context) {
             delay((WARMUP_NS + MEASURE_NS) / 1_000_000L)
             runCatching { session.stopRepeating() }
             val (ts, exp) = synchronized(timestamps) { timestamps.toList() to exposures.toList() }
-            val stats = measureProbeFrames(ts, exp, range.last, MEASURE_NS)
+            val durations = synchronized(timestamps) { frameDurations.toList() }
+            val stats = measureProbeFrames(ts, exp, range.last, MEASURE_NS, durations)
             val thermalAfter = thermalStatus()
             return ProbeOutcome.Measured(stats, classifyProbe(stats, range.last, thermalAfter), counter.failed.get(),
                 thermalBefore, thermalAfter, counter.snapshot())

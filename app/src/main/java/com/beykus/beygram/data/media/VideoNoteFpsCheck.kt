@@ -141,7 +141,8 @@ internal object VideoNoteFpsCheck {
             val s = outcome.stats
             fun f(v: Double?) = v?.let { String.format(Locale.US, "%.1f", it) } ?: "?"
             context.getString(R.string.fps_check_row_measured, f(s.measuredFps), s.frames, f(s.p50GapMs), f(s.p95GapMs),
-                f(s.maxGapMs), s.longGaps, f(s.medianExposureMs), outcome.failedCaptures) + "; " +
+                f(s.maxGapMs), s.longGaps, f(s.medianExposureMs), f(s.medianFrameDurationMs), f(s.p95FrameDurationMs),
+                s.frameDurationOverBudget, outcome.failedCaptures) + "; " +
                 verdictText(context, outcome, target) + "\n    " + detailsText(context, outcome)
         }
     }
