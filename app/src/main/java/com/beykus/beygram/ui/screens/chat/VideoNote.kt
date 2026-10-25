@@ -39,10 +39,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
@@ -124,11 +128,20 @@ internal fun VideoNoteBubble(
     transcriptionRequestError: String? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
-    onRateTranscription: ((Boolean) -> Unit)? = null
+    onRateTranscription: ((Boolean) -> Unit)? = null,
+    /** Repository-backed automatic thumbnail download; explicit playback still uses [downloadFile]. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
     val hostContext = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(hostContext, accountId) {
+        AutoDownloadSettingsStore.getInstance(hostContext.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(hostContext) { AutoDownloadNetworkStatus.ensureStarted(hostContext) }
+    val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
     val label = media.kind.label(hostContext)
     val key = media.playbackKey()
     val playbackState = PlaybackEngine.state.collectAsStateWithLifecycle()
@@ -165,7 +178,19 @@ internal fun VideoNoteBubble(
     // Миниатюра лежит под кадрами видео: пока кадра нет, например сразу после старта или возврата в ленту, виден не чёрный круг. У секретного кружка её не грузим.
     val thumbnailId = media.thumbnailFileId?.takeUnless { media.isSecret }
     val thumbnail by remember(thumbnailId) { thumbnailId?.let(observeFile) ?: NoThumbnailState }.collectAsStateWithLifecycle()
-    LaunchedEffect(thumbnailId) { if (thumbnailId != null) downloadFile(thumbnailId) }
+    LaunchedEffect(thumbnailId, thumbnail.size, media.isSecret, media.isSecretChat, policySettings, policyNetwork) {
+        if (thumbnailId != null) {
+            val request = AutoDownloadRequest(
+                fileId = thumbnailId,
+                kind = MediaKind.Photo,
+                sizeBytes = thumbnail.size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat,
+                hasSpoiler = false
+            )
+            if (autoDownload != null) autoDownload(request) else downloadFile(thumbnailId)
+        }
+    }
     // Запуск заменяет файл в общем плеере, а тот же кружок ставит на паузу или продолжает.
     fun startCircle(localPath: String) {
         val state = PlaybackEngine.state.value

@@ -2,6 +2,7 @@ package com.beykus.beygram.domain.repository
 
 import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChannelAdminEventPage
 import com.beykus.beygram.domain.model.ChannelEventFilter
 import com.beykus.beygram.domain.model.ChannelStatisticsSummary
@@ -229,5 +230,10 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun deleteVideoNoteLossTest(messageId: Long): Result<Unit>
 
     fun observeFile(fileId: Int): StateFlow<MediaFileState>
+
+    /** Explicit user download; always allowed and unaffected by auto-download limits. */
     fun downloadFile(fileId: Int)
+
+    /** Automatic download that the repository may deny, cancel or skip according to the local policy. */
+    fun autoDownloadFile(request: AutoDownloadRequest)
 }

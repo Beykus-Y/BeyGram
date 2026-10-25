@@ -31,7 +31,8 @@ import kotlinx.coroutines.launch
 /** A separate history window keeps distant replies from creating gaps in the main pagination. */
 @Composable
 internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: ConversationRepository,
-    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClose: () -> Unit) {
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClose: () -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null) {
     var context by remember(chatId, targetId) { mutableStateOf<MessageContext?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
@@ -88,7 +89,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
         }
     }
     selected?.let { message -> message.media?.let { media -> MediaViewer(pages = listOf(MediaViewerItem(message.id, media, message.isViewOnce)), selectedId = message.id, onSelect = {},
-        observeFile = observeFile, downloadFile = downloadFile, onViewed = { id -> conversation.openMessageContent(message.chatId, id) }, onClose = { selected = null },
+        observeFile = observeFile, downloadFile = downloadFile, autoDownloadFile = autoDownloadFile, onViewed = { id -> conversation.openMessageContent(message.chatId, id) }, onClose = { selected = null },
         canExport = MediaViewerPolicy.rightsFor(message.id, rights)?.canSave == true && !message.isViewOnce,
         confirmExport = { id -> conversation.messageCapabilities(message.chatId, id).getOrNull()?.canSave == true }) } }
 }

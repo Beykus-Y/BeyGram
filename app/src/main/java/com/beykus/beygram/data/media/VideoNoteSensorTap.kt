@@ -10,7 +10,9 @@ internal data class VideoNoteSensorResult(
     val firstCrop: String? = null,
     val firstZoom: Float? = null,
     val cropChanged: Boolean = false,
-    val zoomChanged: Boolean = false
+    val zoomChanged: Boolean = false,
+    /** Actual AE range/frame duration/stabilization reported by the camera; null = not reported. */
+    val ae: AeCaptureSummary? = null
 )
 
 /**
@@ -26,6 +28,7 @@ internal data class VideoNoteSensorResult(
 internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
     private val timestamps = ArrayList<Long>()
     private val exposures = ArrayList<Long>()
+    private val aeSamples = ArrayList<AeCaptureSample>()
     private var active = false
     private var begun = false
     private var truncated = false
@@ -43,6 +46,7 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
     @Synchronized fun begin() {
         timestamps.clear()
         exposures.clear()
+        aeSamples.clear()
         crop = null
         zoom = null
         firstCrop = null
@@ -54,7 +58,17 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
         begun = true
     }
 
-    @Synchronized fun record(sensorTimestampNs: Long?, exposureNs: Long?, cropRegion: String? = null, zoomRatio: Float? = null) {
+    @Synchronized fun record(
+        sensorTimestampNs: Long?,
+        exposureNs: Long?,
+        cropRegion: String? = null,
+        zoomRatio: Float? = null,
+        frameDurationNs: Long? = null,
+        targetFpsRange: IntRange? = null,
+        aeState: Int? = null,
+        videoStabilizationMode: Int? = null,
+        opticalStabilizationMode: Int? = null
+    ) {
         if (!active || sensorTimestampNs == null) return
         if (cropRegion != null) {
             if (firstCrop == null) firstCrop = cropRegion
@@ -72,6 +86,16 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
         }
         timestamps += sensorTimestampNs
         exposureNs?.let { exposures += it }
+        if (frameDurationNs != null || targetFpsRange != null || aeState != null ||
+            videoStabilizationMode != null || opticalStabilizationMode != null) {
+            aeSamples += AeCaptureSample(
+                frameDurationNs = frameDurationNs,
+                targetFpsRange = targetFpsRange,
+                aeState = aeState,
+                videoStabilizationMode = videoStabilizationMode,
+                opticalStabilizationMode = opticalStabilizationMode
+            )
+        }
     }
 
     /** Stops collecting but keeps the data for [finish]. */
@@ -88,7 +112,7 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
         val wasBegun = begun
         begun = false
         if (!wasBegun || timestamps.isEmpty()) {
-            timestamps.clear(); exposures.clear(); crop = null; zoom = null
+            timestamps.clear(); exposures.clear(); aeSamples.clear(); crop = null; zoom = null
             firstCrop = null; firstZoom = null; cropChanged = false; zoomChanged = false; truncated = false
             return null
         }
@@ -97,8 +121,9 @@ internal class VideoNoteSensorTap(private val capacity: Int = 4000) {
         val interval = 1_000_000_000L / targetFps.coerceAtLeast(1)
         // The window is what the recording spanned plus one frame: coverage compares against that.
         val stats = measureProbeFrames(timestamps.toList(), exposures.toList(), targetFps, (last - first) + interval)
-        val result = VideoNoteSensorResult(stats, crop, zoom, truncated, firstCrop, firstZoom, cropChanged, zoomChanged)
-        timestamps.clear(); exposures.clear(); crop = null; zoom = null
+        val ae = summarizeAeCapture(aeSamples.toList(), targetFps).takeIf { it.hasData }
+        val result = VideoNoteSensorResult(stats, crop, zoom, truncated, firstCrop, firstZoom, cropChanged, zoomChanged, ae)
+        timestamps.clear(); exposures.clear(); aeSamples.clear(); crop = null; zoom = null
         firstCrop = null; firstZoom = null; cropChanged = false; zoomChanged = false; truncated = false
         return result
     }
