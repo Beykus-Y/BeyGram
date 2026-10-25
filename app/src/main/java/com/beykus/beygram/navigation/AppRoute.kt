@@ -44,6 +44,7 @@ enum class AppRoute {
     Appearance,
     Language,
     Sessions,
+    AccountSecurity,
     AppLock,
     NewChat,
     CreateGroup,

@@ -275,6 +275,20 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = unavailable()
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = unavailable()
     override suspend fun terminateAllOtherSessions(): Result<Unit> = unavailable()
+    override suspend fun cloudPasswordState(): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun setCloudPassword(
+        currentPassword: String,
+        newPassword: String,
+        hint: String
+    ): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun setRecoveryEmail(
+        currentPassword: String,
+        email: String
+    ): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun confirmRecoveryEmail(code: String): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun resendRecoveryEmailCode(): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun cancelRecoveryEmailChange(): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun deleteTelegramAccount(password: String): Result<Unit> = unavailable()
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = unavailable()
     override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = unavailable()
     override suspend fun markChatRead(chatId: Long): Result<Unit> = unavailable()

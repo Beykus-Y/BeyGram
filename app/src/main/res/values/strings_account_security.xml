@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="account_security_title">Аккаунт и безопасность</string>
+    <string name="account_security_intro">Настройки действуют только для выбранного аккаунта. Другие аккаунты не затрагиваются.</string>
+
+    <string name="account_security_2fa_title">Облачный пароль (2FA)</string>
+    <string name="account_security_2fa_enabled">Включён</string>
+    <string name="account_security_2fa_disabled">Выключен</string>
+    <string name="account_security_2fa_description">Облачный пароль защищает вход в аккаунт и хранится на серверах Telegram. BeyGram не сохраняет его на устройстве.</string>
+    <string name="account_security_2fa_hint">Подсказка: %1$s</string>
+    <string name="account_security_2fa_set">Установить пароль</string>
+    <string name="account_security_2fa_change">Изменить пароль</string>
+    <string name="account_security_2fa_disable">Отключить 2FA</string>
+    <string name="account_security_2fa_set_success">Облачный пароль установлен</string>
+    <string name="account_security_2fa_change_success">Облачный пароль изменён</string>
+    <string name="account_security_2fa_disable_success">Облачный пароль отключён</string>
+
+    <string name="account_security_dialog_set_password">Установить облачный пароль</string>
+    <string name="account_security_dialog_change_password">Изменить облачный пароль</string>
+    <string name="account_security_current_password">Текущий пароль</string>
+    <string name="account_security_new_password">Новый пароль</string>
+    <string name="account_security_confirm_password">Повторите новый пароль</string>
+    <string name="account_security_password_hint">Подсказка к паролю (необязательно)</string>
+    <string name="account_security_password_hint_public">Подсказку увидит любой, кто пытается войти в аккаунт.</string>
+    <string name="account_security_password_rule">Не менее 4 символов.</string>
+    <string name="account_security_password_empty">Введите новый пароль</string>
+    <string name="account_security_password_short">Пароль слишком короткий</string>
+    <string name="account_security_password_mismatch">Пароли не совпадают</string>
+    <string name="account_security_current_password_required">Введите текущий пароль</string>
+    <string name="account_security_disable_warning">Без облачного пароля вход в аккаунт будет защищён только кодом из SMS или Telegram. Отключить 2FA?</string>
+
+    <string name="account_security_email_title">Email для восстановления</string>
+    <string name="account_security_email_configured">Настроен</string>
+    <string name="account_security_email_not_configured">Не настроен</string>
+    <string name="account_security_email_requires_password">Сначала установите облачный пароль: без него Telegram не принимает email для восстановления.</string>
+    <string name="account_security_email_description">Email нужен, чтобы восстановить доступ, если вы забудете облачный пароль.</string>
+    <string name="account_security_email_add">Добавить email</string>
+    <string name="account_security_email_change">Изменить email</string>
+    <string name="account_security_email_remove">Удалить email</string>
+    <string name="account_security_email_label">Email</string>
+    <string name="account_security_email_sent">Код подтверждения отправлен на %1$s</string>
+    <string name="account_security_email_updated">Email для восстановления обновлён</string>
+    <string name="account_security_email_removed">Email для восстановления удалён</string>
+    <string name="account_security_email_remove_warning">Удалить email для восстановления? Восстановить пароль будет сложнее.</string>
+    <string name="account_security_email_remove_confirm">Удалить email</string>
+    <string name="account_security_email_pending_title">Подтвердите новый email</string>
+    <string name="account_security_email_pending_body">Telegram отправил код на %1$s. Новый email начнёт действовать после подтверждения.</string>
+    <string name="account_security_email_code">Код из письма</string>
+    <string name="account_security_email_confirm">Подтвердить</string>
+    <string name="account_security_email_resend">Отправить код ещё раз</string>
+    <string name="account_security_email_cancel_change">Отменить смену email</string>
+    <string name="account_security_email_code_invalid">Неверный или просроченный код из письма</string>
+    <string name="account_security_email_invalid">Проверьте адрес email</string>
+    <string name="account_security_email_not_allowed">Telegram не принимает этот адрес email</string>
+
+    <string name="account_security_phone_title">Номер телефона</string>
+    <string name="account_security_phone_current">Текущий номер: %1$s</string>
+    <string name="account_security_phone_unavailable_title">Смена номера недоступна</string>
+    <string name="account_security_phone_unavailable_body">Telegram разрешает менять номер только официальным приложениям Android и iOS. BeyGram не может безопасно выполнить эту операцию: смените номер в официальном Telegram, и он обновится здесь. Аккаунт, чаты и другие устройства сохранятся.</string>
+
+    <string name="account_security_delete_title">Удаление аккаунта</string>
+    <string name="account_security_delete_description">Удаляет аккаунт на серверах Telegram вместе с облачными чатами, контактами и членством в группах. Это не обычный выход из аккаунта на этом устройстве.</string>
+    <string name="account_security_delete_action">Удалить аккаунт навсегда</string>
+    <string name="account_security_delete_dialog_title">Удалить аккаунт навсегда?</string>
+    <string name="account_security_delete_warning">Это действие необратимо: Telegram удалит аккаунт и все связанные с ним данные с серверов. Номер телефона можно будет использовать для нового аккаунта.</string>
+    <string name="account_security_delete_local_note_primary">BeyGram не удаляет локальные данные основного аккаунта: после удаления аккаунта на сервере они останутся на устройстве. Другие аккаунты не затрагиваются.</string>
+    <string name="account_security_delete_local_note_secondary">После подтверждения сервером BeyGram удалит локальную сессию только этого аккаунта. Другие аккаунты не затрагиваются.</string>
+    <string name="account_security_delete_type_word">Введите «%1$s», чтобы подтвердить</string>
+    <string name="account_security_delete_confirm_word">УДАЛИТЬ</string>
+    <string name="account_security_delete_word_mismatch">Введите слово подтверждения без ошибок</string>
+    <string name="account_security_delete_confirm">Удалить навсегда</string>
+    <string name="account_security_delete_busy">Удаляем аккаунт…</string>
+    <string name="account_security_deleted_on_server">Аккаунт удалён на сервере</string>
+    <string name="account_security_delete_cleanup_failed">Аккаунт удалён на сервере, но локальную сессию удалить не удалось. Выйдите из этого аккаунта в переключателе аккаунтов, чтобы удалить её.</string>
+
+    <string name="account_security_password_missing">Введите облачный пароль</string>
+    <string name="account_security_password_too_fresh">Пароль недавно менялся. Попробуйте позже.</string>
+    <string name="account_security_phone_occupied">Этот номер уже привязан к аккаунту Telegram</string>
+    <string name="account_security_action_failed">Не удалось изменить настройки безопасности аккаунта</string>
+    <string name="account_security_load_failed">Не удалось загрузить настройки безопасности</string>
+</resources>
