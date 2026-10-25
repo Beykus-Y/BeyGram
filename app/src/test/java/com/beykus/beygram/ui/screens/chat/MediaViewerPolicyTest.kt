@@ -34,6 +34,8 @@ class MediaViewerPolicyTest {
     @Test fun secureFollowsSettledPage() {
         assertTrue(MediaViewerPolicy.secureWhileShowing(secret))
         assertFalse(MediaViewerPolicy.secureWhileShowing(plain))
+        // View-once media in an ordinary private chat is still a one-time secret while its viewer is open.
+        assertTrue(MediaViewerPolicy.secureWhileShowing(plain, viewOnce = true))
     }
 
     @Test fun neighbourSecretPageStaysClosedWhileSwipeIsNotSettled() {

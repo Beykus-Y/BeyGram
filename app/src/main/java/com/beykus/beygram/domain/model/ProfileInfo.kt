@@ -82,6 +82,10 @@ data class ProfileInfo(
     val memberPreview: List<ProfileMember> = emptyList(),
     /** TDLib разрешает получать список участников: у каналов это часто запрещено. */
     val canListMembers: Boolean = false,
+    /** Что текущий аккаунт может менять в этой группе или канале; null для личных чатов. */
+    val groupAdmin: GroupAdminRights? = null,
+    /** TDLib's supergroupFullInfo.canGetStatistics: owner/admin with the server-side statistics right. */
+    val canViewStatistics: Boolean = false,
     val isSelf: Boolean = false,
     val isPremium: Boolean = false,
     val isVerified: Boolean = false,
@@ -93,6 +97,13 @@ data class ProfileInfo(
 ) {
     val initials: String get() = initialsOf(title)
 }
+
+/**
+ * Statistics for supergroups is server-gated by TDLib's canGetStatistics. Basic groups also use
+ * [ProfileKind.Group], but never receive the flag, so they stay excluded.
+ */
+internal fun canOpenGroupStatistics(info: ProfileInfo?): Boolean =
+    info != null && info.kind == ProfileKind.Group && info.canViewStatistics
 
 data class ProfileState(val info: ProfileInfo? = null, val isLoading: Boolean = false, val error: UiText? = null)
 

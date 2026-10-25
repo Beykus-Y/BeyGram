@@ -89,6 +89,8 @@ internal class TdNotifications(
             is TdApi.UpdateHavePendingNotifications -> _state.value = _state.value.copy(hasPending = update.haveDelayedNotifications || update.haveUnreceivedNotifications)
             is TdApi.UpdateChatTitle -> chats[update.chatId]?.let { it.title = update.title; groups.replaceAll { _, group -> if (group.chatId == it.id) metadata(group) else group } }
             is TdApi.UpdateChatPermissions -> chats[update.chatId]?.let { it.permissions = update.permissions; groups.replaceAll { _, group -> if (group.chatId == it.id) metadata(group) else group } }
+            // Protected content must hide notification previews immediately, not after the next snapshot.
+            is TdApi.UpdateChatHasProtectedContent -> chats[update.chatId]?.let { it.hasProtectedContent = update.hasProtectedContent; groups.replaceAll { _, group -> if (group.chatId == it.id) metadata(group) else group } }
             else -> return@synchronized
         }
         publish()
@@ -104,7 +106,8 @@ internal class TdNotifications(
         val archived = isArchived(group.chatId)
         return chats[group.chatId]?.let { chat ->
             group.copy(title = chat.title, metadataReady = true, isGroup = chat.type is TdApi.ChatTypeBasicGroup || chat.type is TdApi.ChatTypeSupergroup,
-                isSecret = group.isSecret || chat.type is TdApi.ChatTypeSecret, archived = archived, replyable = replyable(chat))
+                isSecret = group.isSecret || chat.type is TdApi.ChatTypeSecret, archived = archived, replyable = replyable(chat),
+                hasProtectedContent = chat.hasProtectedContent)
         } ?: group.copy(archived = archived)
     }
     private fun publish() { _state.value = _state.value.copy(groups = groups.values.sortedBy { it.id }) }

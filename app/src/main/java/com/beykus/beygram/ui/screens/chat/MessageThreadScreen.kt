@@ -62,6 +62,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageReply
@@ -100,7 +101,9 @@ internal fun MessageThreadScreen(
     initialReplyToId: Long = 0L,
     onDraftChange: (String, List<MessageTextEntity>, Long) -> Unit = { _, _, _ -> },
     onBack: () -> Unit,
-    onOpenProfile: (Long) -> Unit
+    onOpenProfile: (Long) -> Unit,
+    /** Repository-backed automatic download for the shared media viewer. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -556,16 +559,17 @@ internal fun MessageThreadScreen(
     }
     if (viewed?.media != null) {
         MediaViewer(
-            pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it) } },
+            pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce) } },
             selectedId = viewed.id,
             onSelect = { selectedMediaId = it },
             observeFile = observeFile,
             downloadFile = downloadFile,
+            autoDownloadFile = autoDownloadFile,
             onViewed = { id -> conversation.openMessageContent(viewed.chatId, id) },
             onClose = { selectedMediaId = null; selectedMediaChatId = 0L },
             title = viewed.senderName.ifBlank { channelTitle },
             subtitle = viewed.time,
-            canExport = viewerCanSave,
+            canExport = viewerCanSave && !viewed.isViewOnce,
             confirmExport = { id ->
                 conversation.messageCapabilities(viewed.chatId, id).getOrNull()?.canSave == true
             }

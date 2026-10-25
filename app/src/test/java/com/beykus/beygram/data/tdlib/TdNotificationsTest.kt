@@ -109,6 +109,17 @@ class TdNotificationsTest {
         assertTrue(feed.state.value.groups.single().replyable)
     }
 
+    @Test fun protectedContentIsRereadForNotificationPreviews() {
+        val feed = newFeed()
+        feed.handle(groupUpdate(listOf(notice(7))))
+        assertFalse(feed.state.value.groups.single().hasProtectedContent)
+        feed.handle(TdApi.UpdateChatHasProtectedContent().apply {
+            chatId = CHAT_ID
+            hasProtectedContent = true
+        })
+        assertTrue(feed.state.value.groups.single().hasProtectedContent)
+    }
+
     private companion object {
         const val GROUP_ID = 1
         const val CHAT_ID = 10L

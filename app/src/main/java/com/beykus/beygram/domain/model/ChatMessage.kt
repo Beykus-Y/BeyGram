@@ -45,8 +45,19 @@ data class ChatMessage(
     /** Web-page metadata for a text message link; never populated in secret chats. */
     val linkPreview: MessageLinkPreview? = null,
     /** Unix timestamp when a scheduled message will be sent; null for a normal message. */
-    val scheduledAtSeconds: Long? = null
-)
+    val scheduledAtSeconds: Long? = null,
+    /** TDLib's per-message self-destruct type; distinct from the chat's messageAutoDeleteTime TTL. */
+    val selfDestruct: MessageSelfDestruct? = null,
+    /** Seconds left before this message self-destructs; null when no self-destruct timer runs. */
+    val selfDestructInSeconds: Long? = null,
+    /** Seconds left before the chat's TTL deletes this message; null when no chat TTL applies. */
+    val autoDeleteInSeconds: Long? = null,
+    /** TDLib replaced an expired self-destructing attachment with MessageExpired*; the bubble shows a placeholder. */
+    val expiredMediaKind: MediaKind? = null
+) {
+    /** View-once media is the per-message "open once" type, not every attachment in a secret chat. */
+    val isViewOnce: Boolean get() = selfDestruct is MessageSelfDestruct.Immediately
+}
 
 /**
  * The compact web-page card TDLib attaches to a text message. All content is server-supplied metadata; [photoFileId]

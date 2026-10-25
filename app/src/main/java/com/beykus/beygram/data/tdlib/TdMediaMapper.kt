@@ -18,15 +18,24 @@ import com.beykus.beygram.domain.model.MessageVenueInfo
 import com.beykus.beygram.domain.model.PollVoteRestriction
 import org.drinkless.tdlib.TdApi
 
-internal fun TdApi.File.toMediaFileState() = MediaFileState(
-    id = id,
-    size = maxOf(size, expectedSize),
-    localPath = local?.takeIf { it.isDownloadingCompleted }?.path?.takeIf { it.isNotBlank() },
-    downloadedBytes = local?.downloadedSize ?: 0,
-    isDownloading = local?.isDownloadingActive == true,
-    uploadedBytes = remote?.uploadedSize ?: 0,
-    isUploading = remote?.isUploadingActive == true
-)
+internal fun TdApi.File.toMediaFileState(): MediaFileState {
+    val local = local
+    return MediaFileState(
+        id = id,
+        size = maxOf(size, expectedSize),
+        localPath = local?.takeIf { it.isDownloadingCompleted }?.path?.takeIf { it.isNotBlank() },
+        downloadedBytes = local?.downloadedSize ?: 0,
+        isDownloading = local?.isDownloadingActive == true,
+        uploadedBytes = remote?.uploadedSize ?: 0,
+        isUploading = remote?.isUploadingActive == true,
+        downloadPath = local?.let { file ->
+            file.path?.takeIf {
+                it.isNotBlank() && (file.isDownloadingCompleted || file.downloadedPrefixSize > 0L)
+            }
+        },
+        downloadedPrefixBytes = local?.downloadedPrefixSize ?: 0
+    )
+}
 
 /** TDLib присылает волну 5-битными значениями (0…31), записанными подряд, младшие биты первыми. */
 internal fun decodeVoiceWaveform(bytes: ByteArray): List<Int> = List(bytes.size * 8 / 5) { index ->
@@ -73,7 +82,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             full?.let { MessageMedia(MediaKind.Photo, register(it.photo), preview?.photo?.let(::register), "", "image/jpeg", it.width, it.height, hasSpoiler = content.hasSpoiler, isSecret = content.isSecret, minithumbnail = content.photo.minithumbnail?.data) }
         }
         is TdApi.MessageVideo -> content.video.let {
-            MessageMedia(MediaKind.Video, register(it.video), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "video/mp4" }, it.width, it.height, it.duration, content.hasSpoiler, content.isSecret, minithumbnail = it.minithumbnail?.data)
+            MessageMedia(MediaKind.Video, register(it.video), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "video/mp4" }, it.width, it.height, it.duration, content.hasSpoiler, content.isSecret, minithumbnail = it.minithumbnail?.data, supportsStreaming = it.supportsStreaming)
         }
         is TdApi.MessageAnimation -> content.animation.let {
             MessageMedia(MediaKind.Animation, register(it.animation), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "video/mp4" }, it.width, it.height, it.duration, content.hasSpoiler, minithumbnail = it.minithumbnail?.data)

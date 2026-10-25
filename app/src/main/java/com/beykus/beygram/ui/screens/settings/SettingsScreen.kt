@@ -24,11 +24,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Devices
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Security
@@ -58,7 +60,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit,
     onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit,
     onDiagnostics: () -> Unit, onUpdates: () -> Unit, onLanguage: () -> Unit, onSessions: () -> Unit,
-    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit) {
+    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -82,6 +84,8 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
         }
         SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {
+            SettingsLink(Icons.Rounded.Fingerprint, stringResource(R.string.app_lock_title), onAppLock)
+            SettingsDivider()
             SettingsLink(Icons.Rounded.Security, stringResource(R.string.privacy_title), onPrivacy)
             SettingsDivider()
             SettingsLink(Icons.Rounded.People, stringResource(R.string.secondary_accounts_title), onSecondaryAccounts)
@@ -96,6 +100,8 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
         }
         SettingsGroup(stringResource(R.string.settings_group_data_diagnostics)) {
             SettingsLink(Icons.Rounded.Storage, stringResource(R.string.settings_storage_title), onStorage)
+            SettingsDivider()
+            SettingsLink(Icons.Rounded.Download, stringResource(R.string.settings_auto_download_title), onAutoDownload)
             SettingsDivider()
             SettingsLink(Icons.Rounded.BugReport, stringResource(R.string.diagnostics_title), onDiagnostics)
         }
