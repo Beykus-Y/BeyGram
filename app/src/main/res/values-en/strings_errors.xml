@@ -11,6 +11,8 @@
     <string name="err_bio_too_long">Bio cannot exceed %1$d characters</string>
     <string name="err_caption_too_long">Caption is too long</string>
     <string name="err_chat_actions_load_failed">Could not load message actions</string>
+    <string name="err_premium_required">This action requires Telegram Premium</string>
+    <string name="err_sticker_send_failed">Could not send sticker</string>
     <string name="err_schedule_edit_unavailable">This message’s scheduled time can’t be changed</string>
     <string name="err_schedule_time_future">Choose a time in the future</string>
     <string name="err_statistics_unavailable">Statistics are available only to channel administrators</string>

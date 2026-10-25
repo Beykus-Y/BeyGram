@@ -41,6 +41,8 @@ internal suspend fun <T> conversationResult(timeoutMessage: UiText = MESSAGE_TIM
             error.message?.contains("MESSAGE_EDIT_TIME_EXPIRED") == true -> UiText.Res(R.string.err_tdlib_message_edit_expired)
             error.message?.contains("MESSAGE_ID_INVALID") == true || (error as? TdRequestError)?.code == 404 -> UiText.Res(R.string.err_tdlib_message_unavailable)
             error.message?.contains("MESSAGE_DELETE_FORBIDDEN") == true -> UiText.Res(R.string.err_tdlib_message_delete_forbidden)
+            error.message?.contains("PREMIUM_ACCOUNT_REQUIRED") == true -> UiText.Res(R.string.err_premium_required)
+            error.message?.contains("STICKER") == true -> UiText.Res(R.string.err_sticker_send_failed)
             error.message?.contains("SCHEDULE_DATE") == true -> UiText.Res(R.string.err_tdlib_schedule_date)
             error.message?.contains("SCHEDULE_TOO_MUCH") == true -> UiText.Res(R.string.err_tdlib_schedule_too_much)
             error.message?.contains("SCHEDULE_") == true -> UiText.Res(R.string.err_tdlib_schedule_failed)

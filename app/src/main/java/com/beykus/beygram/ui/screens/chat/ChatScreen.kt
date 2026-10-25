@@ -236,6 +236,8 @@ fun ChatScreen(
     }
     var sending by remember { mutableStateOf(false) }
     var sendOptionsOpen by remember(chat.id) { mutableStateOf(false) }
+    // A sticker long-pressed in the picker waits for the explicit send-options choice (silent/scheduled).
+    var pendingSticker by remember(chat.id) { mutableStateOf<OutgoingMedia?>(null) }
     var scheduledMessagesOpen by remember(chat.id) { mutableStateOf(false) }
     var chatSettingsOpen by remember(chat.id) { mutableStateOf(false) }
     val chatOverrideState by chatOverrides.state.collectAsStateWithLifecycle()
@@ -402,12 +404,20 @@ fun ChatScreen(
         if (previewFirst) recordingRecovery.showPreview(listOf(media))
         else sendRecordedMedia(listOf(media))
     }
-    val attachments = rememberAttachmentState(chat.id) { media, caption, options ->
-        val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
-        else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
-        if (result.isSuccess) clearReply()
-        result
-    }
+    val attachments = rememberAttachmentState(
+        chatId = chat.id,
+        sendMedia = { media, caption, options ->
+            val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
+            else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
+            if (result.isSuccess) clearReply()
+            result
+        },
+        sendSticker = { sticker, options ->
+            val result = conversation.sendSticker(chat.id, sticker, replyId, forumTopicId = forumTopicId, options = options)
+            if (result.isSuccess) clearReply()
+            result
+        }
+    )
     // View-once is a regular-private-chat photo/video feature. TDLib rejects per-message self-destruct in secret chats,
     // groups, channels and Saved Messages, so those keep only the separate chat-wide TTL controls.
     val allowViewOnce = !chat.isSecret && !chat.isGroup && !chat.isChannel && !chat.isSavedMessages
@@ -880,7 +890,7 @@ fun ChatScreen(
         val kind = (currentMessages.firstOrNull { it.id == id } ?: mediaWindow.messages.firstOrNull { it.id == id })?.media?.kind
         viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
-    BackHandler(enabled = !threadOpen && (searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || selectionMode)) {
+    BackHandler(enabled = !threadOpen && (searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || attachments.picker != AttachmentPicker.None || selectionMode)) {
         when {
             selectionDeleteOpen -> { selectionDeleteOpen = false; selectionDeleteError = null }
             selectionForwardOpen -> { selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
@@ -889,10 +899,11 @@ fun ChatScreen(
             deleting -> { deleting = false; deleteError = null }
             actionMessage != null -> closeActions()
             editMessage != null -> closeEdit()
+            attachments.picker != AttachmentPicker.None -> attachments.closePicker()
             else -> attachments.discardAll()
         }
     }
-    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching, onBack = onBack)
+    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && attachments.picker == AttachmentPicker.None && !searching, onBack = onBack)
     BackHandler(enabled = !threadOpen && (videoNote.active || audioNote.active)) {
         videoNote.stopForRecovery()
         audioNote.stopForRecovery()
@@ -1196,6 +1207,12 @@ fun ChatScreen(
      */
     fun sendCurrentDraft(options: MessageSendOptions) {
         if (editId != null || inlineSending) return
+        pendingSticker?.let { sticker ->
+            pendingSticker = null
+            attachments.closePicker()
+            attachments.sendStickerWithOptions(sticker, options)
+            return
+        }
         // View-once is selected in the attachment panel; scheduling or groups silently drop the flag instead of
         // producing a TDLib error, and the composer hides those paths for view-once media.
         val effectiveOptions = if (attachments.active) {
@@ -1547,7 +1564,16 @@ fun ChatScreen(
         } else if (editMessage != null) {
             EditBanner(editMessage.text.ifBlank { editMessage.summary() }, editMessage.media != null, editText.codePointCount(0, editText.length), editLimit, editError, onClose = ::closeEdit)
         } else if (!searching && !selectionMode) {
-            AttachmentPanel(attachments, draft, limits.caption, allowViewOnce)
+            AttachmentPanel(
+                state = attachments,
+                caption = draft,
+                captionLimit = limits.caption,
+                conversation = conversation,
+                observeFile = observeFile,
+                onDownloadFile = onDownloadFile,
+                onStickerOptions = { sticker -> pendingSticker = sticker; sendOptionsOpen = true },
+                allowViewOnce = allowViewOnce
+            )
             if (replyId != null) Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
                     Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -1854,7 +1880,7 @@ fun ChatScreen(
     )
     if (sendOptionsOpen) SendOptionsDialog(
         canSchedule = !chat.isSecret,
-        onDismiss = { sendOptionsOpen = false },
+        onDismiss = { sendOptionsOpen = false; pendingSticker = null },
         onSendNow = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions()) },
         onSendSilently = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(disableNotification = true)) },
         onSchedule = { at -> sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(scheduledAtSeconds = at)) }
