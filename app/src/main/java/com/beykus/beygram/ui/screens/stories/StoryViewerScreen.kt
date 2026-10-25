@@ -297,10 +297,9 @@ fun StoryViewerScreen(
         reactionsLoading = true
         reactionsError = null
         try {
-            reactions = repository.storyReactions().getOrElse {
-                reactionsError = it.userMessage(context, R.string.stories_reaction_failed)
-                emptyList()
-            }
+            reactions = repository.storyReactions()
+                .onFailure { reactionsError = it.userMessage(context, R.string.stories_reaction_failed) }
+                .getOrNull()
         } finally {
             reactionsLoading = false
         }
