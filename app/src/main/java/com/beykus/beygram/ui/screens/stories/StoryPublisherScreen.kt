@@ -80,6 +80,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.data.media.StoryMediaPreparer
+import com.beykus.beygram.data.tdlib.markSentUpload
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
@@ -101,6 +102,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
@@ -109,6 +111,20 @@ private val SelectedStoryUsersSaver = Saver<Set<Long>, LongArray>(
     save = { it.toLongArray() },
     restore = { it.toSet() }
 )
+
+/**
+ * A published story may still point at the staged upload, just like a sent message. Keep the file
+ * as cache and mark its ids as sent so TdStorage can invalidate and evict it later; deleting the
+ * path immediately would leave TDLib and MediaFileStore with a dead local copy.
+ */
+private fun markPublishedStoryUpload(media: OutgoingMedia?, fileIds: List<Int>, accountId: String) {
+    val source = media?.path?.let(::File) ?: return
+    val parent = source.parentFile ?: return
+    val folder = if (parent.name == "original" && parent.parentFile != null) parent.parentFile!! else parent
+    fileIds.asSequence().filter { it > 0 }.distinct().forEach { fileId ->
+        runCatching { markSentUpload(folder, fileId, accountId) }
+    }
+}
 
 /**
  * Publishes one photo or video with the privacy, lifetime and protection options TDLib actually exposes.
@@ -207,6 +223,7 @@ fun StoryPublisherScreen(
                     val ready = try {
                         storyPreparer.prepare(source)
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        discard(prepared)
                         throw cancelled
                     } catch (failure: Exception) {
                         discard(prepared)
@@ -242,7 +259,7 @@ fun StoryPublisherScreen(
         pendingStoryId = 0
         when (event) {
             is StoryPostEvent.Published -> {
-                discard(media)
+                markPublishedStoryUpload(media, event.fileIds, accountId)
                 media = null
                 onPublished()
             }
@@ -274,7 +291,7 @@ fun StoryPublisherScreen(
                     ).onSuccess { ticket ->
                         if (!ticket.isPending) {
                             publishing = false
-                            discard(item)
+                            markPublishedStoryUpload(item, ticket.fileIds, accountId)
                             media = null
                             onPublished()
                             return@onSuccess

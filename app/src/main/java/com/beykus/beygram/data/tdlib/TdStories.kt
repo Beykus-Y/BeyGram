@@ -187,7 +187,12 @@ internal class TdStories(
                     hiddenStories.remove(update.story.posterChatId to update.story.id)
                 }
                 _postEvents.tryEmit(
-                    StoryPostEvent.Published(update.story.posterChatId, update.story.id, update.oldStoryId)
+                    StoryPostEvent.Published(
+                        update.story.posterChatId,
+                        update.story.id,
+                        update.oldStoryId,
+                        update.story.content.uploadFileIds()
+                    )
                 )
                 publish()
             }
@@ -434,7 +439,7 @@ internal class TdStories(
             keepInProfile,
             protectContent
         ), POST_TIMEOUT_MS)
-        StoryPostTicket(chatId, story.id, story.isBeingPosted)
+        StoryPostTicket(chatId, story.id, story.isBeingPosted, story.content.uploadFileIds())
     }
 
     private suspend fun ensureSelfChatId(): Long {
@@ -497,6 +502,14 @@ internal class TdStories(
             )
         }
         else -> null
+    }
+
+    private fun TdApi.StoryContent.uploadFileIds(): List<Int> = when (this) {
+        is TdApi.StoryContentPhoto -> listOfNotNull(
+            photo.sizes.orEmpty().maxByOrNull { it.width.toLong() * it.height }?.photo?.id
+        )
+        is TdApi.StoryContentVideo -> listOf(video.video.id)
+        else -> emptyList()
     }
 
     private fun register(file: TdApi.File): Int {

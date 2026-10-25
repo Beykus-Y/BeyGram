@@ -93,11 +93,18 @@ enum class StoryPostDenial {
 data class StoryPostTicket(
     val posterChatId: Long,
     val storyId: Int,
-    val isPending: Boolean
+    val isPending: Boolean,
+    /** TDLib file ids of the uploaded media; used to mark the staged upload as safely evictable. */
+    val fileIds: List<Int> = emptyList()
 )
 
 sealed interface StoryPostEvent {
-    data class Published(val posterChatId: Long, val storyId: Int, val oldStoryId: Int) : StoryPostEvent
+    data class Published(
+        val posterChatId: Long,
+        val storyId: Int,
+        val oldStoryId: Int,
+        val fileIds: List<Int> = emptyList()
+    ) : StoryPostEvent
 
     data class Failed(val posterChatId: Long, val storyId: Int, val reason: StoryPostDenial) : StoryPostEvent
 }
