@@ -94,6 +94,26 @@ interface ConversationRepository {
     suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /**
+     * Sends a sticker as a native InputMessageSticker, not as a document. [sticker] carries the TDLib file id,
+     * dimensions and emoji; its bytes are never downloaded by the picker. Reply/topic/scheduling apply as usual.
+     */
+    suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /** The account's recent sticker list; the first page is bounded by TDLib. */
+    suspend fun recentStickers(): Result<List<StickerItem>>
+    /** Installed regular sticker sets; opening one fetches that set only when the user asks for it. */
+    suspend fun installedStickerSets(): Result<List<StickerSetSummary>>
+    suspend fun stickerSet(setId: Long): Result<StickerSetContent>
+    /** Sticker text search across sets. Pass 0 first, then [StickerSearchPage.nextOffset]. */
+    suspend fun searchStickers(query: String, offset: Int = 0): Result<StickerSearchPage>
+    /** GIFs explicitly saved by the user in this Telegram account. */
+    suspend fun savedAnimations(): Result<List<AnimationItem>>
+    /** GIFs recently seen in this account's chats, newest first. An empty [offset] starts the list. */
+    suspend fun recentAnimations(offset: String = ""): Result<AnimationPage>
+    /** GIFs found in this account's message history. [offset] comes from the previous page's nextOffset. */
+    suspend fun searchAnimations(query: String, offset: String = ""): Result<AnimationPage>
+    /** Whether the current account may send premium stickers. */
+    suspend fun isPremiumAccount(): Result<Boolean>
     /** Scheduled queue straight from TDLib; no local scheduled-message cache is created. */
     suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>>
     /** Cancels one queued message in TDLib. */
