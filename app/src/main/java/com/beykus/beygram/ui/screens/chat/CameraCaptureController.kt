@@ -141,7 +141,7 @@ internal class CameraCaptureController(
     }
 
     fun selectMode(value: CameraCaptureMode) {
-        if (recording || startingRecording || countdown > 0 || value == mode) return
+        if (recording || startingRecording || countdown > 0 || photoBusy || value == mode) return
         if (value != mode) {
             camcorderTorchOff()
             flashEnabled = false
@@ -178,7 +178,7 @@ internal class CameraCaptureController(
     }
 
     fun switchCamera() {
-        if (recording || startingRecording || countdown > 0 || !canSwitchCamera) return
+        if (recording || startingRecording || countdown > 0 || photoBusy || !canSwitchCamera) return
         camcorderTorchOff()
         frontCamera = !frontCamera
         flashEnabled = false
