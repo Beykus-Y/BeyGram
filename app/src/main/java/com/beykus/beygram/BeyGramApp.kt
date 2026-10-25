@@ -1691,7 +1691,13 @@ private fun BeyGramAppContent(
                 routeName = AppRoute.Chat.name
             },
             onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.ChatInfo) },
-            autoDownloadFile = repository::autoDownloadFile)
+            autoDownloadFile = repository::autoDownloadFile,
+            startSecretChat = repository::createSecretChat,
+            onSecretChatOpened = { chatId ->
+                selectedChatId = chatId
+                chatBackRouteName = AppRoute.Chats.name
+                routeName = AppRoute.Chat.name
+            })
     }
 
     val chatMembersRoute: @Composable () -> Unit = {
@@ -1735,7 +1741,13 @@ private fun BeyGramAppContent(
             },
             lastSeenStyle = lastSeenStyle,
             onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MemberProfile) },
-            autoDownloadFile = repository::autoDownloadFile)
+            autoDownloadFile = repository::autoDownloadFile,
+            startSecretChat = repository::createSecretChat,
+            onSecretChatOpened = { chatId ->
+                selectedChatId = chatId
+                chatBackRouteName = AppRoute.Chats.name
+                routeName = AppRoute.Chat.name
+            })
     }
 
     CompositionLocalProvider(

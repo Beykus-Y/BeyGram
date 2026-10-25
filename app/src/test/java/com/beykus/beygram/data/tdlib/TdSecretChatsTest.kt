@@ -14,8 +14,9 @@ class TdSecretChatsTest {
         userId: Long = 42,
         state: TdApi.SecretChatState = TdApi.SecretChatStateReady(),
         outbound: Boolean = true,
+        keyHash: ByteArray = ByteArray(36),
         layer: Int = 144
-    ) = TdApi.SecretChat(id, userId, state, outbound, ByteArray(36), layer)
+    ) = TdApi.SecretChat(id, userId, state, outbound, keyHash, layer)
 
     @Test
     fun `secret chat state maps to lifecycle values`() {
@@ -26,7 +27,8 @@ class TdSecretChatsTest {
 
     @Test
     fun `secret chat details keep chat and secret chat ids apart`() {
-        val details = secret().toDetails(chatId = 1000L, ttlSeconds = 86_400)
+        val keyHash = byteArrayOf(0x01, 0x23, 0x45)
+        val details = secret(keyHash = keyHash).toDetails(chatId = 1000L, ttlSeconds = 86_400)
 
         assertEquals(1000L, details.chatId)
         assertEquals(7, details.secretChatId)
@@ -34,6 +36,8 @@ class TdSecretChatsTest {
         assertEquals(SecretChatState.Ready, details.state)
         assertEquals(86_400, details.ttlSeconds)
         assertEquals(144, details.layer)
+        assertEquals(keyHash.toList(), details.keyHash)
+        assertEquals("012345", details.keyFingerprint)
     }
 
     @Test

@@ -133,7 +133,8 @@ internal fun TdApi.SecretChat.toDetails(chatId: Long, ttlSeconds: Int): SecretCh
     state = secretChatStateOf(state),
     isOutbound = isOutbound,
     ttlSeconds = ttlSeconds.coerceAtLeast(0),
-    layer = layer
+    layer = layer,
+    keyHash = keyHash.toList()
 )
 
 /** Only ChatTypeSecret has a secret chat id; everything else is a cloud chat. */

@@ -128,6 +128,9 @@ internal fun MessageThreadScreen(
     var reactionOptions by remember { mutableStateOf<List<ReactionOption>>(emptyList()) }
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
     var selectedMediaChatId by remember { mutableStateOf(0L) }
+    // A view-once message is deleted as soon as it is opened; keep its page for this viewer session.
+    var retainedViewOnce by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
+    var openedViewOnceIds by remember(channelChatId, postId) { mutableStateOf(emptySet<Long>()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val messageLimits by conversation.messageLimits.collectAsStateWithLifecycle()
 
@@ -365,7 +368,7 @@ internal fun MessageThreadScreen(
                         observeFile = observeFile,
                         onDownloadFile = downloadFile,
                         onOpenProfile = onOpenProfile,
-                        onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId },
+                        onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
                         onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
                         onRetry = {
                             scope.launch {
@@ -432,7 +435,7 @@ internal fun MessageThreadScreen(
                                 message = root,
                                 observeFile = observeFile,
                                 onDownloadFile = downloadFile,
-                                onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId },
+                                onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId; if (root.isViewOnce) retainedViewOnce = root },
                                 onPlayed = { conversation.openMessageContent(channelChatId, root.id) },
                                 onActions = { reactionTarget = channelChatId to root },
                                 onReplyClick = ::jump,
@@ -550,30 +553,52 @@ internal fun MessageThreadScreen(
         channelChatId -> listOfNotNull(post)
         else -> messages.filter { it.chatId == selectedMediaChatId }
     }.filter { it.media != null }
-    val viewed = mediaMessages.firstOrNull { it.id == selectedMediaId }
+    val liveViewed = mediaMessages.firstOrNull { it.id == selectedMediaId }
+    val retainedViewed = retainedViewOnce?.takeIf { it.id == selectedMediaId }
+    val viewed = liveViewed ?: retainedViewed
+    LaunchedEffect(selectedMediaId, liveViewed?.media?.fileId, liveViewed?.isViewOnce) {
+        if (selectedMediaId == null) {
+            retainedViewOnce = null
+            return@LaunchedEffect
+        }
+        if (liveViewed?.media != null && liveViewed.isViewOnce) retainedViewOnce = liveViewed
+    }
     var viewerCanSave by remember(selectedMediaId) { mutableStateOf(false) }
     LaunchedEffect(selectedMediaId, viewed?.chatId) {
         viewerCanSave = if (selectedMediaId != null && viewed != null) {
             conversation.messageCapabilities(viewed.chatId, viewed.id).getOrNull()?.canSave == true
         } else false
     }
-    if (viewed?.media != null) {
-        MediaViewer(
-            pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce) } },
-            selectedId = viewed.id,
-            onSelect = { selectedMediaId = it },
-            observeFile = observeFile,
-            downloadFile = downloadFile,
-            autoDownloadFile = autoDownloadFile,
-            onViewed = { id -> conversation.openMessageContent(viewed.chatId, id) },
-            onClose = { selectedMediaId = null; selectedMediaChatId = 0L },
-            title = viewed.senderName.ifBlank { channelTitle },
-            subtitle = viewed.time,
-            canExport = viewerCanSave && !viewed.isViewOnce,
-            confirmExport = { id ->
-                conversation.messageCapabilities(viewed.chatId, id).getOrNull()?.canSave == true
-            }
-        )
+    if (viewed != null) {
+        val viewedMedia = viewed.media
+        if (viewedMedia != null) {
+            val viewerPages = MediaViewerPolicy.retainViewOncePage(
+                pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce) } },
+                retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce)
+            )
+            MediaViewer(
+                pages = viewerPages,
+                selectedId = viewed.id,
+                onSelect = { selectedMediaId = it },
+                observeFile = observeFile,
+                downloadFile = downloadFile,
+                autoDownloadFile = autoDownloadFile,
+                onViewed = { id ->
+                    val once = (mediaMessages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
+                    if (!once || id !in openedViewOnceIds) {
+                        if (once) openedViewOnceIds = openedViewOnceIds + id
+                        conversation.openMessageContent(viewed.chatId, id)
+                    }
+                },
+                onClose = { selectedMediaId = null; selectedMediaChatId = 0L },
+                title = viewed.senderName.ifBlank { channelTitle },
+                subtitle = viewed.time,
+                canExport = viewerCanSave && !viewed.isViewOnce,
+                confirmExport = { id ->
+                    conversation.messageCapabilities(viewed.chatId, id).getOrNull()?.canSave == true
+                }
+            )
+        }
     }
 }
 
