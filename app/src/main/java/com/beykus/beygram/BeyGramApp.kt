@@ -2001,6 +2001,7 @@ private fun BeyGramAppContent(
                 AppRoute.NewChat -> NewChatScreen(
                     loadContacts = repository::loadContacts,
                     openPrivateChat = repository::openPrivateChat,
+                    createSecretChat = repository::createSecretChat,
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
                     onBack = { routeName = AppRoute.Chats.name },

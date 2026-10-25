@@ -7,7 +7,11 @@ import com.beykus.beygram.domain.model.OutgoingMedia
 import org.drinkless.tdlib.TdApi
 import java.io.File
 
-internal fun OutgoingMedia.toInputContent(caption: String, entities: List<MessageTextEntity> = emptyList()): TdApi.InputMessageContent {
+internal fun OutgoingMedia.toInputContent(
+    caption: String,
+    entities: List<MessageTextEntity> = emptyList(),
+    selfDestructType: TdApi.MessageSelfDestructType? = null
+): TdApi.InputMessageContent {
     // A server-side file is sent by id: TDLib neither downloads it nor uploads it again.
     val local = if (remoteFileId > 0) TdApi.InputFileId(remoteFileId) else TdApi.InputFileLocal(path)
     val formattedCaption = formattedText(caption, entities)
@@ -26,6 +30,7 @@ internal fun OutgoingMedia.toInputContent(caption: String, entities: List<Messag
                 addedStickerFileIds = intArrayOf()
             }
             this.caption = formattedCaption
+            this.selfDestructType = selfDestructType
         }
         MediaKind.Video -> TdApi.InputMessageVideo().apply {
             video = TdApi.InputVideo().apply {
@@ -40,6 +45,7 @@ internal fun OutgoingMedia.toInputContent(caption: String, entities: List<Messag
                 addedStickerFileIds = intArrayOf()
             }
             this.caption = formattedCaption
+            this.selfDestructType = selfDestructType
         }
         MediaKind.VideoNote -> TdApi.InputMessageVideoNote().apply {
             videoNote = local

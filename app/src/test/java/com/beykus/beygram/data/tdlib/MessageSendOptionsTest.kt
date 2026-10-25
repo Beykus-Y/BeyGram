@@ -59,4 +59,10 @@ class MessageSendOptionsTest {
         assertFalse(MessageSendOptions(scheduledAtSeconds = 110L).scheduledTimeIsFuture(nowSeconds = 100L))
         assertTrue(MessageSendOptions(scheduledAtSeconds = 111L).scheduledTimeIsFuture(nowSeconds = 100L))
     }
+
+    @Test
+    fun `view once uses the per-message immediately self destruct type`() {
+        assertNull(selfDestructType(MessageSendOptions()))
+        assertTrue(selfDestructType(MessageSendOptions(viewOnce = true)) is TdApi.MessageSelfDestructTypeImmediately)
+    }
 }

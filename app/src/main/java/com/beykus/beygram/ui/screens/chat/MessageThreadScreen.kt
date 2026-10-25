@@ -522,7 +522,7 @@ internal fun MessageThreadScreen(
     }
     if (viewed?.media != null) {
         MediaViewer(
-            pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it) } },
+            pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce) } },
             selectedId = viewed.id,
             onSelect = { selectedMediaId = it },
             observeFile = observeFile,
@@ -532,7 +532,7 @@ internal fun MessageThreadScreen(
             onClose = { selectedMediaId = null; selectedMediaChatId = 0L },
             title = viewed.senderName.ifBlank { channelTitle },
             subtitle = viewed.time,
-            canExport = viewerCanSave,
+            canExport = viewerCanSave && !viewed.isViewOnce,
             confirmExport = { id ->
                 conversation.messageCapabilities(viewed.chatId, id).getOrNull()?.canSave == true
             }

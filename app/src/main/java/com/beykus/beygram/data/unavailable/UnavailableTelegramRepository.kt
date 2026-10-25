@@ -72,6 +72,7 @@ import com.beykus.beygram.domain.model.StickerSetContent
 import com.beykus.beygram.domain.model.StickerSetSummary
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
+import com.beykus.beygram.domain.model.SecretChatDetails
 import com.beykus.beygram.domain.model.CachePolicy
 import com.beykus.beygram.domain.model.SavedTelegramProxy
 import com.beykus.beygram.domain.model.StorageCategory
@@ -284,6 +285,12 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun deleteContact(userId: Long): Result<Unit> = unavailable()
     override suspend fun sendContact(chatId: Long, userId: Long): Result<Unit> = unavailable()
     override suspend fun openPrivateChat(userId: Long): Result<Long> = unavailable()
+    override suspend fun createSecretChat(userId: Long): Result<Long> = unavailable()
+    override val secretChats: StateFlow<Map<Long, SecretChatDetails>> =
+        MutableStateFlow<Map<Long, SecretChatDetails>>(emptyMap()).asStateFlow()
+    override fun refreshSecretChat(chatId: Long) {}
+    override suspend fun setSecretChatTtl(chatId: Long, seconds: Int): Result<Unit> = unavailable()
+    override suspend fun closeSecretChat(chatId: Long): Result<Unit> = unavailable()
     override suspend fun resolvePublicChat(username: String): Result<Long> = unavailable()
     override suspend fun resolvePhoneNumber(phone: String): Result<Long> = unavailable()
     override suspend fun checkInviteLink(url: String): Result<com.beykus.beygram.domain.model.ChatInvitePreview> = unavailable()

@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Animation
@@ -31,12 +33,14 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
@@ -85,6 +89,7 @@ import com.beykus.beygram.data.media.videoLimitIssue
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.ViewOncePolicy
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
@@ -140,6 +145,7 @@ internal class AttachmentState(
     private val scope: CoroutineScope,
     private val pendingState: MutableState<ArrayList<OutgoingMedia>>,
     private val errorState: MutableState<String?>,
+    private val viewOnceState: MutableState<Boolean>,
     private val editorState: MutableState<PhotoEditorSession?>,
     private val captureRetry: MutableState<CaptureRetryState>,
     private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>,
@@ -159,6 +165,10 @@ internal class AttachmentState(
         private set
     var sending by mutableStateOf(false)
         private set
+    /** Per-message view-once flag, saved with the pending attachments across activity recreation. */
+    var viewOnce: Boolean
+        get() = viewOnceState.value
+        set(value) { viewOnceState.value = value }
     var picker by mutableStateOf(AttachmentPicker.None)
     var processing by mutableStateOf<MediaProcessing?>(null)
         private set
@@ -712,6 +722,7 @@ internal fun rememberAttachmentState(
     val scope = rememberCoroutineScope()
     val pending = rememberSaveable(accountId, chatId) { mutableStateOf(arrayListOf<OutgoingMedia>()) }
     val error = rememberSaveable(accountId, chatId) { mutableStateOf<String?>(null) }
+    val viewOnce = rememberSaveable(accountId, chatId) { mutableStateOf(false) }
     // The editor owns the only reference to an un-staged camera take; keep it across rotation.
     val editor = rememberSaveable(accountId, chatId) { mutableStateOf<PhotoEditorSession?>(null) }
     // A failed camera import keeps its cache path across activity recreation too.
@@ -721,7 +732,7 @@ internal fun rememberAttachmentState(
     val currentSend by rememberUpdatedState(sendMedia)
     val currentSticker by rememberUpdatedState(sendSticker)
     val state = remember(accountId, chatId) {
-        AttachmentState(context, importer, scope, pending, error, editor, captureRetry,
+        AttachmentState(context, importer, scope, pending, error, viewOnce, editor, captureRetry,
             sendMedia = { media, caption, options -> currentSend(media, caption, options) },
             sendSticker = { media, options -> currentSticker(media, options) })
     }
@@ -753,13 +764,18 @@ internal fun AttachmentPanel(
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
-    onStickerOptions: (OutgoingMedia) -> Unit
+    onStickerOptions: (OutgoingMedia) -> Unit,
+    allowViewOnce: Boolean = false
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val visible = state.menuOpen || state.active || state.picker != AttachmentPicker.None || state.error != null || state.notice != null || state.canRetryCapture
+    val viewOnceAvailable = ViewOncePolicy.canSend(state.pending, allowViewOnce, scheduled = false)
+    LaunchedEffect(viewOnceAvailable, state.pending) {
+        if (!viewOnceAvailable) state.viewOnce = false
+    }
     if (!visible) return
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         when {
@@ -865,6 +881,20 @@ internal fun AttachmentPanel(
                     }
                 }
                 val count = caption.codePointCount(0, caption.length)
+                if (viewOnceAvailable) {
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .toggleable(value = state.viewOnce, enabled = !state.sending, role = Role.Checkbox) { state.viewOnce = it }
+                            .padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(checked = state.viewOnce, onCheckedChange = null, enabled = !state.sending)
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.composer_view_once), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.composer_view_once_hint), color = palette.textSecondary, fontSize = 12.sp)
+                        }
+                    }
+                }
                 Text("$count / $captionLimit", color = if (count > captionLimit) palette.danger else palette.textSecondary, fontSize = 12.sp,
                     modifier = Modifier.padding(start = 2.dp, bottom = 2.dp))
             }
