@@ -142,7 +142,12 @@ internal data class ProbeFrameStats(
     val coverage: Double = 0.0,
     /** Time between the first and the last usable frame, and the window it should fill. */
     val spanMs: Double = 0.0,
-    val windowMs: Double = 0.0
+    val windowMs: Double = 0.0,
+    /** SENSOR_FRAME_DURATION percentiles reported by the camera; null when it did not report them. */
+    val medianFrameDurationMs: Double? = null,
+    val p95FrameDurationMs: Double? = null,
+    /** Frames whose reported duration exceeded the target frame budget by more than 5%. */
+    val frameDurationOverBudget: Int = 0
 )
 
 /** Default measurement window of one mode. */
@@ -157,7 +162,8 @@ internal fun measureProbeFrames(
     timestampsNs: List<Long>,
     exposuresNs: List<Long>,
     targetFps: Int,
-    windowNs: Long = PROBE_MEASURE_NS
+    windowNs: Long = PROBE_MEASURE_NS,
+    frameDurationsNs: List<Long> = emptyList()
 ): ProbeFrameStats {
     val gaps = ArrayList<Long>()
     var nonIncreasing = 0
@@ -188,7 +194,10 @@ internal fun measureProbeFrames(
         expectedFrames = expectedFrames,
         coverage = usable.toDouble() / expectedFrames,
         spanMs = span / 1_000_000.0,
-        windowMs = windowNs / 1_000_000.0
+        windowMs = windowNs / 1_000_000.0,
+        medianFrameDurationMs = sensorDurationPercentileMs(frameDurationsNs, 0.5),
+        p95FrameDurationMs = sensorDurationPercentileMs(frameDurationsNs, 0.95),
+        frameDurationOverBudget = frameDurationsOverBudget(frameDurationsNs, targetFps)
     )
 }
 

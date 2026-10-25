@@ -174,22 +174,53 @@ object VideoNoteDiagnostics {
     }
 
     /** Sensor results seen during the recording itself; a null [stats] is logged as "no results", not "no frames". */
-    internal fun recordSensor(id: String, stats: ProbeFrameStats?, truncated: Boolean = false) {
+    internal fun recordSensor(
+        id: String,
+        stats: ProbeFrameStats?,
+        truncated: Boolean = false,
+        ae: AeCaptureSummary? = null
+    ) {
         if (!hasReport(id)) return
-        if (stats == null) {
+        if (stats == null && ae == null) {
             append(id, text(R.string.vn_entry_sensor_none))
             return
         }
         fun ms(v: Double?) = v?.let { String.format(Locale.US, "%.1f", it) } ?: "?"
+        val lines = mutableListOf<String>()
+        if (stats != null) {
+            lines += stamp(text(R.string.vn_entry_sensor, stats.frames,
+                stats.measuredFps?.let { String.format(Locale.US, "%.2f", it) } ?: "?",
+                ms(stats.p50GapMs), ms(stats.p95GapMs), ms(stats.maxGapMs), stats.longGaps,
+                ms(stats.medianExposureMs), (stats.coverage * 100).toInt()))
+        }
+        ae?.let { evidence ->
+            if (evidence.dominantTargetRange != null || evidence.frameDurationP50Ms != null ||
+                evidence.aeStates.isNotEmpty()) {
+                val states = evidence.aeStates.entries.joinToString { (state, count) ->
+                    val label = localContext?.let { context -> aeStateLabel(context, state) } ?: state.toString()
+                    "$label $count"
+                }
+                lines += stamp(text(R.string.vn_entry_sensor_ae,
+                    evidence.dominantTargetRange?.toText() ?: "—",
+                    evidence.distinctTargetRanges.size,
+                    evidence.distinctTargetRanges.joinToString { it.toText() }.ifBlank { "—" },
+                    ms(evidence.frameDurationP50Ms), ms(evidence.frameDurationP95Ms),
+                    evidence.frameDurationOverBudget, states.ifBlank { "—" }))
+            }
+            if (evidence.videoStabilizationMode != null || evidence.opticalStabilizationMode != null) {
+                val video = evidence.videoStabilizationMode
+                    ?.let { value -> localContext?.let { videoStabilizationLabel(it, value) } }
+                val optical = evidence.opticalStabilizationMode
+                    ?.let { value -> localContext?.let { opticalStabilizationLabel(it, value) } }
+                lines += stamp(text(R.string.vn_entry_sensor_stabilization,
+                    video ?: "—", optical ?: "—"))
+            }
+        }
+        if (truncated) lines += stamp(text(R.string.vn_entry_sensor_truncated))
         modify(id) { old ->
             old.copy(
-                sensorFps = stats.measuredFps,
-                entries = (old.entries + stamp(text(R.string.vn_entry_sensor, stats.frames,
-                    stats.measuredFps?.let { String.format(Locale.US, "%.2f", it) } ?: "?",
-                    ms(stats.p50GapMs), ms(stats.p95GapMs), ms(stats.maxGapMs), stats.longGaps,
-                    ms(stats.medianExposureMs), (stats.coverage * 100).toInt()))) .let { rows ->
-                    if (truncated) rows + stamp(text(R.string.vn_entry_sensor_truncated)) else rows
-                }.takeLast(MAX_ENTRIES)
+                sensorFps = stats?.measuredFps ?: old.sensorFps,
+                entries = (old.entries + lines).takeLast(MAX_ENTRIES)
             )
         }
     }

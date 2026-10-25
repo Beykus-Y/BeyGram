@@ -22,7 +22,7 @@ import java.util.Locale
  */
 internal object VideoNoteEnvironment {
     /** Bump when the layout of the report text changes, so before/after reports are not mixed up. */
-    const val REPORT_SCHEMA_VERSION = 2
+    const val REPORT_SCHEMA_VERSION = 3
 
     fun snapshot(context: Context): String = buildString {
         appendLine(context.getString(R.string.env_heading, REPORT_SCHEMA_VERSION))
@@ -31,7 +31,8 @@ internal object VideoNoteEnvironment {
         val code = info?.let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode else it.versionCode.toLong() }
         appendLine(context.getString(R.string.env_app, context.packageName, info?.versionName ?: "?", code?.toString() ?: "?"))
         appendLine(context.getString(R.string.env_build, BuildConfig.FLAVOR, BuildConfig.BUILD_TYPE, BuildConfig.BUILD_GIT_SHA))
-        appendLine(context.getString(R.string.env_libraries, BuildConfig.CAMERAX_VERSION, BuildConfig.MEDIA3_VERSION))
+        appendLine(context.getString(R.string.env_libraries, BuildConfig.CAMERAX_VERSION,
+            BuildConfig.MEDIA3_VERSION, Build.VERSION.SDK_INT))
         appendLine(context.getString(R.string.env_device, Build.MANUFACTURER, Build.MODEL, Build.DEVICE, soc()))
         appendLine(context.getString(R.string.env_android, Build.VERSION.RELEASE, Build.VERSION.SDK_INT,
             Build.VERSION.SECURITY_PATCH.ifBlank { "?" }))

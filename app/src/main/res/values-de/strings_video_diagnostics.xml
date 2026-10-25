@@ -19,7 +19,8 @@
     <string name="camera_report_none">keiner</string>
     <string name="camera_report_failed">Kameraabfrage fehlgeschlagen: %1$s</string>
     <string name="camera_report_encoders">H.264-Video-Encoder:</string>
-    <string name="camera_report_encoder_line">%1$s (Hardware: %2$s): %3$s</string>
+    <string name="camera_report_encoder_line">%1$s (Hardware: %2$s, MIME video/avc): %3$s</string>
+    <string name="camera_report_encoder_meta">  Profile: %1$s; Level: %2$s; Bitrate: %3$s..%4$s Bit/s; fps: %5$s..%6$s; Instanzen: %7$s</string>
     <string name="camera_report_no_encoder">Kein H.264-Encoder gefunden</string>
     <string name="camera_report_encoder_failed">Encoderfunktionen konnten nicht gelesen werden: %1$s</string>
     <string name="camera_report_thermal">Aktuelle Erwärmung: %1$s</string>
@@ -75,7 +76,7 @@
     <string name="fps_check_row_open_failed">Kamera ließ sich nicht öffnen (%1$s)</string>
     <string name="fps_check_row_session_failed">Kamera hat den Modus abgelehnt (%1$s)</string>
     <string name="fps_check_row_timeout">Die Kamera reagierte nicht rechtzeitig</string>
-    <string name="fps_check_row_measured">gemessene %1$s fps (%2$d Frames), Intervall p50/p95/max %3$s/%4$s/%5$s ms, lange Pausen %6$d, Belichtung ≈%7$s ms, fehlgeschlagene Aufnahmen %8$d</string>
+    <string name="fps_check_row_measured">gemessene %1$s fps (%2$d Frames), Intervall p50/p95/max %3$s/%4$s/%5$s ms, lange Pausen %6$d, Belichtung ≈%7$s ms, Bilddauer p50/p95 %8$s/%9$s ms, über Budget %10$d, fehlgeschlagene Aufnahmen %11$d</string>
     <string name="fps_verdict_reached">Ziel %1$d erreicht</string>
     <string name="fps_verdict_low_light">unter dem Ziel: Die Belichtung liegt nahe am Frame-Intervall, wenig Licht</string>
     <string name="fps_verdict_thermal">unter dem Ziel: Das Telefon ist sehr heiß</string>
@@ -122,6 +123,10 @@
     <string name="vn_entry_bitrate">Aufnahmezielbitrate: %1$d Bit/s; Frontkamera-Spiegelung: %2$s</string>
     <string name="vn_entry_start_requested">Aufnahmestart angefordert</string>
     <string name="vn_entry_camera">Kamera %1$s; Größe des Quellstreams %2$dx%3$d; Vorschau und Aufzeichnung teilen sich eine Sitzung, 1:1 zentriertes Bild</string>
+    <string name="vn_entry_light">Beleuchtung beim Aufnahmestart: %1$s; aktiv: %2$s</string>
+    <string name="vn_light_torch">Taschenlampe</string>
+    <string name="vn_light_screen">Bildschirmlicht</string>
+    <string name="vn_light_unavailable">nicht verfügbar</string>
     <string name="vn_entry_recording_started">Aufnahme gestartet</string>
     <string name="vn_entry_recording_finalized">Aufnahme beendet: %1$d s, %2$d Bytes, Fehlercode %3$d</string>
     <string name="vn_entry_switch_refused">Kamerawechsel abgelehnt: Die andere Kamera unterstützt den Bildratenbereich der Aufnahme nicht</string>
@@ -142,7 +147,7 @@
     <string name="env_heading">Umgebung und Build (Berichtsschema %1$d)</string>
     <string name="env_app">App: %1$s, Version %2$s (%3$s)</string>
     <string name="env_build">Build: %1$s/%2$s, Commit %3$s</string>
-    <string name="env_libraries">Bibliotheken: Kamera %1$s, Videoverarbeitung %2$s</string>
+    <string name="env_libraries">Bibliotheken: CameraX %1$s, Media3 %2$s; Camera2-API: Android SDK %3$d</string>
     <string name="env_device">Gerät: %1$s %2$s (%3$s), Chip: %4$s</string>
     <string name="env_android">Android %1$s (SDK %2$d), Sicherheitspatch %3$s</string>
     <string name="env_fingerprint">Firmware: %1$s</string>
@@ -211,6 +216,18 @@
     <string name="diag_full_start">Start</string>
     <string name="vn_entry_sensor">Sensor während der Aufnahme: %1$d Ergebnisse, %2$s fps, Intervalle p50/p95/max %3$s/%4$s/%5$s ms, lange Pausen %6$d, Belichtung %7$s ms, Fensterabdeckung %8$d%%</string>
     <string name="vn_entry_sensor_none">Sensor während der Aufnahme: keine Ergebnisse erhalten (dies bedeutet nicht, dass die Kamera keine Bilder liefert)</string>
+    <string name="vn_entry_sensor_ae">Sensor-AE-Ergebnisse: Bereich %1$s (%2$d Varianten: %3$s), Bilddauer p50/p95 %4$s/%5$s ms, über Budget %6$d Bilder, AE-Zustände: %7$s</string>
+    <string name="vn_entry_sensor_stabilization">Stabilisierung in Sensorergebnissen: Video %1$s, Optik %2$s</string>
+    <string name="ae_state_inactive">inaktiv</string>
+    <string name="ae_state_searching">Belichtungssuche</string>
+    <string name="ae_state_converged">konvergiert</string>
+    <string name="ae_state_locked">fixiert</string>
+    <string name="ae_state_flash_required">Blitz erforderlich</string>
+    <string name="ae_state_precapture">Vorblitz</string>
+    <string name="ae_state_unknown">unbekannt (%1$d)</string>
+    <string name="stabilization_off">aus</string>
+    <string name="stabilization_on">an</string>
+    <string name="stabilization_preview">nur Vorschau</string>
     <string name="vn_entry_crop">Sensorausschnittbereich während der Aufnahme: %1$s (Position und Größe in Pixel), Zoom %2$s</string>
     <string name="vn_entry_sensor_truncated">Die Aufnahme ist länger als das Sampling-Limit: Nur der erste Teil ist enthalten</string>
     <string name="vn_entry_av">Audio: %1$s Hz, %2$s Kanäle, %3$s kbps; Audio-Offset zum Video am Anfang %4$s ms, am Ende %5$s ms, Drift %6$s ms: %7$s</string>

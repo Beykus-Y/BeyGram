@@ -51,6 +51,7 @@ import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoNoteDiagnostics
 import com.beykus.beygram.data.media.VideoNoteLossDiagnostics
 import com.beykus.beygram.data.media.VideoNoteCameraSurvey
+import com.beykus.beygram.data.media.VideoNoteReportRedactor
 import com.beykus.beygram.data.media.VideoNoteFpsCheck
 import com.beykus.beygram.data.media.VideoNoteHighSpeedProbe
 import com.beykus.beygram.data.media.VideoNoteSyntheticSource
@@ -611,23 +612,26 @@ private const val REPORT_INLINE_SHARE_LIMIT = 60_000
 @Composable
 private fun DiagnosticsReportActions(label: String, report: String) {
     val context = LocalContext.current
+    // Copied/shared reports pass the same redaction as the passive survey: no paths, tokens,
+    // e-mails, phone numbers or handles leave the app even if a future entry adds one.
+    val safeReport = VideoNoteReportRedactor.redact(report)
     Row {
         TextButton(onClick = {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            runCatching { clipboard.setPrimaryClip(ClipData.newPlainText(label, report.take(REPORT_INLINE_SHARE_LIMIT * 4))) }
+            runCatching { clipboard.setPrimaryClip(ClipData.newPlainText(label, safeReport.take(REPORT_INLINE_SHARE_LIMIT * 4))) }
         }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
         TextButton(onClick = {
             val sent = runCatching {
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_SUBJECT, label)
-                    if (report.length <= REPORT_INLINE_SHARE_LIMIT) {
-                        putExtra(Intent.EXTRA_TEXT, report)
+                    if (safeReport.length <= REPORT_INLINE_SHARE_LIMIT) {
+                        putExtra(Intent.EXTRA_TEXT, safeReport)
                     } else {
                         // Big reports exceed what the share sheet carries inline; send them as a file.
                         val dir = File(context.cacheDir, "diagnostics").apply { mkdirs() }
                         dir.listFiles { f -> f.name.startsWith("beygram-report-") }?.forEach { it.delete() }
-                        val file = File(dir, "beygram-report-${System.currentTimeMillis()}.txt").apply { writeText(report) }
+                        val file = File(dir, "beygram-report-${System.currentTimeMillis()}.txt").apply { writeText(safeReport) }
                         putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(context, "${context.packageName}.files", file))
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }

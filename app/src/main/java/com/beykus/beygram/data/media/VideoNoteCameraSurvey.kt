@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.media
 
 import android.content.Context
+import android.annotation.SuppressLint
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
@@ -254,12 +255,31 @@ internal object VideoNoteCameraSurvey {
         MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { it.isEncoder }
             .filter { info -> info.supportedTypes.any { it.equals("video/avc", ignoreCase = true) } }
             .joinToString(separator = "\n") { info ->
-                val capabilities = runCatching { info.getCapabilitiesForType("video/avc").videoCapabilities }.getOrNull()
+                val capabilities = runCatching { info.getCapabilitiesForType("video/avc") }.getOrNull()
+                val video = capabilities?.videoCapabilities
                 val checks = encoderChecks.joinToString { (w, h) ->
-                    "${w}x$h@60=${yesNoUnknown(context, capabilities?.let { runCatching { it.areSizeAndRateSupported(w, h, 60.0) }.getOrNull() })}"
+                    "${w}x$h@60=${yesNoUnknown(context, video?.let { runCatching { it.areSizeAndRateSupported(w, h, 60.0) }.getOrNull() })}"
                 }
                 val hardware = runCatching { info.isHardwareAccelerated }.getOrNull()
-                context.getString(R.string.camera_report_encoder_line, info.name, yesNoUnknown(context, hardware), checks)
+                val profiles = capabilities?.profileLevels.orEmpty()
+                    .mapNotNull { avcProfileLabel(it.profile) }.distinct().take(8)
+                val levels = capabilities?.profileLevels.orEmpty()
+                    .mapNotNull { avcLevelLabel(it.level) }.distinct().take(8)
+                val bitrate = video?.bitrateRange
+                val frameRates = runCatching { video?.supportedFrameRates }.getOrNull()
+                val instances = runCatching { capabilities?.maxSupportedInstances }.getOrNull()
+                buildString {
+                    appendLine(context.getString(R.string.camera_report_encoder_line,
+                        info.name, yesNoUnknown(context, hardware), checks))
+                    append(context.getString(R.string.camera_report_encoder_meta,
+                        profiles.joinToString().ifBlank { "?" },
+                        levels.joinToString().ifBlank { "?" },
+                        bitrate?.lower?.toString() ?: "?",
+                        bitrate?.upper?.toString() ?: "?",
+                        frameRates?.lower?.let { String.format(Locale.US, "%.1f", it) } ?: "?",
+                        frameRates?.upper?.let { String.format(Locale.US, "%.1f", it) } ?: "?",
+                        instances?.toString() ?: "?"))
+                }
             }.ifBlank { context.getString(R.string.camera_report_no_encoder) }
     }.getOrElse { context.getString(R.string.camera_report_encoder_failed, it.javaClass.simpleName) }
 
@@ -292,6 +312,31 @@ internal fun thermalLabel(context: Context, status: Int): String = when (status)
     PowerManager.THERMAL_STATUS_SEVERE -> context.getString(R.string.camera_thermal_severe)
     else -> context.getString(R.string.camera_thermal_critical, status)
 }
+
+/** CaptureResult state names for the recording report; unknown values stay numeric. */
+internal fun aeStateLabel(context: Context, state: Int): String = context.getString(when (state) {
+    CameraMetadata.CONTROL_AE_STATE_INACTIVE -> R.string.ae_state_inactive
+    CameraMetadata.CONTROL_AE_STATE_SEARCHING -> R.string.ae_state_searching
+    CameraMetadata.CONTROL_AE_STATE_CONVERGED -> R.string.ae_state_converged
+    CameraMetadata.CONTROL_AE_STATE_LOCKED -> R.string.ae_state_locked
+    CameraMetadata.CONTROL_AE_STATE_FLASH_REQUIRED -> R.string.ae_state_flash_required
+    CameraMetadata.CONTROL_AE_STATE_PRECAPTURE -> R.string.ae_state_precapture
+    else -> R.string.ae_state_unknown
+}, state)
+
+@SuppressLint("InlinedApi") // PREVIEW_STABILIZATION is a constant added in API 33; it is inlined, so it is safe to compare on older releases.
+internal fun videoStabilizationLabel(context: Context, mode: Int): String = context.getString(when (mode) {
+    CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF -> R.string.stabilization_off
+    CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON -> R.string.stabilization_on
+    CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION -> R.string.stabilization_preview
+    else -> R.string.ae_state_unknown
+}, mode)
+
+internal fun opticalStabilizationLabel(context: Context, mode: Int): String = context.getString(when (mode) {
+    CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_OFF -> R.string.stabilization_off
+    CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON -> R.string.stabilization_on
+    else -> R.string.ae_state_unknown
+}, mode)
 
 internal fun fpsCauseText(context: Context, cause: VideoNoteFpsCause): String = context.getString(when (cause) {
     VideoNoteFpsCause.AS_REQUESTED -> R.string.fps_cause_as_requested

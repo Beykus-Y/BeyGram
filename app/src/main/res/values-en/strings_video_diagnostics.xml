@@ -19,7 +19,8 @@
     <string name="camera_report_none">none</string>
     <string name="camera_report_failed">Camera survey failed: %1$s</string>
     <string name="camera_report_encoders">H.264 video encoders:</string>
-    <string name="camera_report_encoder_line">%1$s (hardware: %2$s): %3$s</string>
+    <string name="camera_report_encoder_line">%1$s (hardware: %2$s, MIME video/avc): %3$s</string>
+    <string name="camera_report_encoder_meta">  profiles: %1$s; levels: %2$s; bitrate: %3$s..%4$s bit/s; fps: %5$s..%6$s; instances: %7$s</string>
     <string name="camera_report_no_encoder">No H.264 encoder found</string>
     <string name="camera_report_encoder_failed">Could not read encoder capabilities: %1$s</string>
     <string name="camera_report_thermal">Heat right now: %1$s</string>
@@ -75,7 +76,7 @@
     <string name="fps_check_row_open_failed">camera did not open (%1$s)</string>
     <string name="fps_check_row_session_failed">camera rejected the mode (%1$s)</string>
     <string name="fps_check_row_timeout">camera did not respond in time</string>
-    <string name="fps_check_row_measured">measured %1$s fps (%2$d frames), interval p50/p95/max %3$s/%4$s/%5$s ms, long pauses %6$d, exposure ≈%7$s ms, failed captures %8$d</string>
+    <string name="fps_check_row_measured">measured %1$s fps (%2$d frames), interval p50/p95/max %3$s/%4$s/%5$s ms, long pauses %6$d, exposure ≈%7$s ms, frame duration p50/p95 %8$s/%9$s ms, over budget %10$d, failed captures %11$d</string>
     <string name="fps_verdict_reached">target %1$d reached</string>
     <string name="fps_verdict_low_light">below target: exposure is close to the frame interval, low light</string>
     <string name="fps_verdict_thermal">below target: the phone is very hot</string>
@@ -122,6 +123,10 @@
     <string name="vn_entry_bitrate">Recording target bitrate: %1$d bit/s; front mirroring: %2$s</string>
     <string name="vn_entry_start_requested">Recording start requested</string>
     <string name="vn_entry_camera">Camera %1$s; source stream size %2$dx%3$d; preview and recording share one session, 1:1 centered frame</string>
+    <string name="vn_entry_light">Light at recording start: %1$s; enabled: %2$s</string>
+    <string name="vn_light_torch">torch</string>
+    <string name="vn_light_screen">screen light</string>
+    <string name="vn_light_unavailable">unavailable</string>
     <string name="vn_entry_recording_started">Recording started</string>
     <string name="vn_entry_recording_finalized">Recording finished: %1$d s, %2$d bytes, error code %3$d</string>
     <string name="vn_entry_switch_refused">Camera switch refused: the other camera does not support the recording frame-rate range</string>
@@ -142,7 +147,7 @@
     <string name="env_heading">Environment and build (report schema %1$d)</string>
     <string name="env_app">App: %1$s, version %2$s (%3$s)</string>
     <string name="env_build">Build: %1$s/%2$s, commit %3$s</string>
-    <string name="env_libraries">Libraries: camera %1$s, video processing %2$s</string>
+    <string name="env_libraries">Libraries: CameraX %1$s, Media3 %2$s; Camera2 API: Android SDK %3$d</string>
     <string name="env_device">Device: %1$s %2$s (%3$s), chip: %4$s</string>
     <string name="env_android">Android %1$s (SDK %2$d), security patch %3$s</string>
     <string name="env_fingerprint">Firmware: %1$s</string>
@@ -211,6 +216,18 @@
     <string name="diag_full_start">Start</string>
     <string name="vn_entry_sensor">Sensor while recording: %1$d results, %2$s fps, intervals p50/p95/max %3$s/%4$s/%5$s ms, long pauses %6$d, exposure %7$s ms, window coverage %8$d%%</string>
     <string name="vn_entry_sensor_none">Sensor while recording: no results received (this does not mean the camera delivers no frames)</string>
+    <string name="vn_entry_sensor_ae">Sensor AE results: range %1$s (%2$d variants: %3$s), frame duration p50/p95 %4$s/%5$s ms, over budget %6$d frames, AE states: %7$s</string>
+    <string name="vn_entry_sensor_stabilization">Stabilization in sensor results: video %1$s, optical %2$s</string>
+    <string name="ae_state_inactive">inactive</string>
+    <string name="ae_state_searching">seeking exposure</string>
+    <string name="ae_state_converged">converged</string>
+    <string name="ae_state_locked">locked</string>
+    <string name="ae_state_flash_required">flash required</string>
+    <string name="ae_state_precapture">pre-capture</string>
+    <string name="ae_state_unknown">unknown (%1$d)</string>
+    <string name="stabilization_off">off</string>
+    <string name="stabilization_on">on</string>
+    <string name="stabilization_preview">preview only</string>
     <string name="vn_entry_crop">Sensor crop region while recording: %1$s (position and size in pixels), zoom %2$s</string>
     <string name="vn_entry_sensor_truncated">The recording is longer than the sampling limit: only its first part is included</string>
     <string name="vn_entry_av">Audio: %1$s Hz, %2$s channels, %3$s kbps; audio offset against video at start %4$s ms, at end %5$s ms, drift %6$s ms: %7$s</string>
