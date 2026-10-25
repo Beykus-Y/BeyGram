@@ -86,10 +86,14 @@
     <string name="group_members_role_restricted">Ограничен</string>
     <string name="group_members_role_banned">Забанен</string>
     <string name="group_members_load_failed">Не удалось загрузить участников</string>
+    <string name="group_members_basic_limit">В обычной группе TDLib не поддерживает ограничения и список забаненных: удалённого участника можно добавить снова.</string>
 
     <string name="group_invites_title">Пригласительные ссылки</string>
     <string name="group_invites_create">Создать ссылку</string>
     <string name="group_invites_edit">Изменить ссылку</string>
+    <string name="group_invites_rename">Переименовать</string>
+    <string name="group_invites_rename_title">Название платной ссылки</string>
+    <string name="group_invites_renamed">Ссылка переименована</string>
     <string name="group_invites_copy">Скопировать ссылку</string>
     <string name="group_invites_share">Поделиться ссылкой</string>
     <string name="group_invites_copied">Ссылка скопирована</string>
@@ -139,6 +143,7 @@
     <string name="group_requests_approved">Заявка принята</string>
     <string name="group_requests_declined">Заявка отклонена</string>
     <string name="group_requests_load_failed">Не удалось загрузить заявки</string>
+    <string name="group_requests_load_more">Загрузить ещё</string>
     <string name="group_requests_date">Заявка от %1$s</string>
     <string name="group_requests_unknown_user">Пользователь</string>
 
@@ -185,6 +190,7 @@
     <string name="err_group_add_privacy">Пользователь запретил добавлять его в группы</string>
     <string name="err_group_invite_invalid">Ссылка недействительна или уже отозвана</string>
     <string name="err_group_invite_subscription">Параметры платной подписки нельзя изменить здесь</string>
+    <string name="err_group_invite_not_subscription">Это не ссылка платной подписки</string>
     <string name="err_group_title_required">Название не может быть пустым</string>
     <string name="err_group_title_too_long">Название слишком длинное</string>
     <string name="err_group_description_too_long">Описание слишком длинное</string>

@@ -148,7 +148,7 @@ data class GroupInviteLink(
     /** Ссылку своего аккаунта администратор может менять и отзывать; чужие — только владелец. */
     val creatorIsCurrentUser: Boolean = false
 ) {
-    val isSubscription: Boolean get() = subscriptionStarCount > 0L
+    val isSubscription: Boolean get() = subscriptionStarCount > 0L || subscriptionPeriodSeconds > 0
 }
 
 /** Параметры создания или изменения ссылки. [expiresAtSeconds] — абсолютная точка Unix; 0 — бессрочно. */
@@ -166,14 +166,20 @@ enum class GroupInviteLinkProblem { NameTooLong, MemberLimitOutOfRange, LimitWit
  * Управление конкретной ссылкой. Основную ссылку нельзя редактировать; чужие ссылки, включая
  * основную, меняет и отзывает только владелец чата. Платная подписка редактируется отдельно.
  */
-data class GroupInviteLinkPermissions(val canEdit: Boolean = false, val canRevoke: Boolean = false)
+data class GroupInviteLinkPermissions(
+    val canEdit: Boolean = false,
+    val canRevoke: Boolean = false,
+    /** Платную subscription-ссылку можно переименовать, но не менять её срок/лимит/заявки. */
+    val canRename: Boolean = false
+)
 
 fun groupInviteLinkPermissions(rights: GroupAdminRights, link: GroupInviteLink): GroupInviteLinkPermissions {
     if (!rights.canManageInviteLinks) return GroupInviteLinkPermissions()
     val ownOrOwner = rights.isOwner || link.creatorIsCurrentUser
     return GroupInviteLinkPermissions(
         canEdit = !link.isPrimary && !link.isSubscription && ownOrOwner,
-        canRevoke = ownOrOwner
+        canRevoke = ownOrOwner,
+        canRename = link.isSubscription && ownOrOwner
     )
 }
 
@@ -188,6 +194,55 @@ data class GroupJoinRequest(
 ) {
     val initials: String get() = initialsOf(name)
 }
+
+/** Страница заявок; [nextOffset] — курсор следующей страницы, null — страниц больше нет. */
+data class GroupJoinRequestsPage(
+    val total: Int,
+    val requests: List<GroupJoinRequest>,
+    val nextOffset: String?
+)
+
+/** Позиция заявки для TDLib offsetRequest; стабильна между approve/decline. */
+data class GroupJoinRequestCursor(val userId: Long, val dateSeconds: Int)
+
+fun GroupJoinRequest.cursor(): String = "$userId:$dateSeconds"
+
+fun parseGroupJoinRequestCursor(value: String?): GroupJoinRequestCursor? {
+    if (value.isNullOrBlank()) return null
+    val parts = value.split(':', limit = 2)
+    if (parts.size != 2) return null
+    val userId = parts[0].toLongOrNull()?.takeIf { it > 0L } ?: return null
+    val date = parts[1].toIntOrNull() ?: return null
+    return GroupJoinRequestCursor(userId, date)
+}
+
+/**
+ * Курсор после обработки заявки. Если обработан последний загруженный элемент, следующая
+ * страница начинается с предыдущего: иначе TDLib искал бы offset среди уже не существующих заявок.
+ */
+fun nextJoinRequestOffset(
+    loaded: List<GroupJoinRequest>,
+    processed: GroupJoinRequest,
+    currentOffset: String?
+): String? {
+    if (currentOffset != processed.cursor()) return currentOffset
+    return loaded.lastOrNull { it.userId != processed.userId }?.cursor()
+}
+
+fun joinRequestsHaveMore(loadedCount: Int, total: Int, nextOffset: String?): Boolean =
+    nextOffset != null && loadedCount < total
+
+/** Добавляет страницу без дублей; обработанные заявки не возвращаются из устаревшего ответа. */
+fun mergeJoinRequests(
+    loaded: List<GroupJoinRequest>,
+    incoming: List<GroupJoinRequest>,
+    processedUserIds: Set<Long>
+): List<GroupJoinRequest> =
+    (loaded + incoming)
+        .filterNot { it.userId in processedUserIds }
+        .distinctBy { it.userId }
+
+fun joinRequestTotalAfterProcessing(total: Int): Int = (total - 1).coerceAtLeast(0)
 
 /** Итог добавления участников: TDLib сообщает, кого добавить не удалось и почему. */
 data class GroupMemberAddition(
@@ -383,10 +438,15 @@ fun groupSettingsProblem(edit: GroupSettingsEdit): GroupSettingsProblem? {
     return null
 }
 
+fun groupInviteNameProblem(name: String): GroupInviteLinkProblem? {
+    val trimmed = name.trim()
+    return if (trimmed.codePointCount(0, trimmed.length) > GROUP_INVITE_NAME_MAX_LENGTH) {
+        GroupInviteLinkProblem.NameTooLong
+    } else null
+}
+
 fun groupInviteLinkProblem(draft: GroupInviteLinkDraft): GroupInviteLinkProblem? {
-    if (draft.name.trim().codePointCount(0, draft.name.trim().length) > GROUP_INVITE_NAME_MAX_LENGTH) {
-        return GroupInviteLinkProblem.NameTooLong
-    }
+    groupInviteNameProblem(draft.name)?.let { return it }
     if (draft.memberLimit !in 0..GROUP_INVITE_MEMBER_LIMIT_MAX) return GroupInviteLinkProblem.MemberLimitOutOfRange
     // TDLib отклоняет лимит вместе с заявками: заявка ещё не участник.
     if (draft.requiresApproval && draft.memberLimit != 0) return GroupInviteLinkProblem.LimitWithApproval

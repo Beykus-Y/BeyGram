@@ -24,6 +24,9 @@ class GroupManagementRulesTest {
         isCurrentUser = self
     )
 
+    private fun joinRequest(userId: Long, date: Int = 100) =
+        GroupJoinRequest(userId, "User $userId", "", date, null, 0L)
+
     @Test fun ownerManagesEverythingInASupergroup() {
         val rights = groupAdminRights(ManagedChatKind.Supergroup, GroupMemberStatus.Owner)
         assertTrue(rights.canAddMembers)
@@ -241,12 +244,69 @@ class GroupManagementRulesTest {
             subscriptionStarCount = 100
         )
         assertTrue(subscription.isSubscription)
-        assertEquals(GroupInviteLinkPermissions(canEdit = false, canRevoke = true), groupInviteLinkPermissions(admin, subscription))
+        assertEquals(
+            GroupInviteLinkPermissions(canEdit = false, canRevoke = true, canRename = true),
+            groupInviteLinkPermissions(admin, subscription)
+        )
+        val foreignSubscription = subscription.copy(creatorUserId = 2L, creatorIsCurrentUser = false)
+        assertEquals(GroupInviteLinkPermissions(), groupInviteLinkPermissions(admin, foreignSubscription))
+        assertEquals(
+            GroupInviteLinkPermissions(canEdit = false, canRevoke = true, canRename = true),
+            groupInviteLinkPermissions(groupAdminRights(ManagedChatKind.Channel, GroupMemberStatus.Owner), foreignSubscription)
+        )
+        val normalOwn = GroupInviteLink(link = "https://t.me/+normal", creatorIsCurrentUser = true)
+        assertFalse(groupInviteLinkPermissions(admin, normalOwn).canRename)
 
         val owner = groupAdminRights(ManagedChatKind.Supergroup, GroupMemberStatus.Owner)
         assertEquals(GroupInviteLinkPermissions(canEdit = true, canRevoke = true), groupInviteLinkPermissions(owner, foreign))
 
         val member = groupAdminRights(ManagedChatKind.Supergroup, GroupMemberStatus.Member)
         assertEquals(GroupInviteLinkPermissions(), groupInviteLinkPermissions(member, own))
+    }
+
+    @Test fun joinRequestCursorRoundTripsAndRejectsInvalidValues() {
+        val request = joinRequest(7L, 1_234)
+        assertEquals("7:1234", request.cursor())
+        assertEquals(GroupJoinRequestCursor(7L, 1_234), parseGroupJoinRequestCursor(request.cursor()))
+        assertNull(parseGroupJoinRequestCursor(null))
+        assertNull(parseGroupJoinRequestCursor(""))
+        assertNull(parseGroupJoinRequestCursor("7"))
+        assertNull(parseGroupJoinRequestCursor("0:1234"))
+        assertNull(parseGroupJoinRequestCursor("7:not-a-date"))
+    }
+
+    @Test fun processingLastLoadedJoinRequestMovesTheCursorToThePreviousOne() {
+        val first = joinRequest(1L, 10)
+        val second = joinRequest(2L, 20)
+        val third = joinRequest(3L, 30)
+        val loaded = listOf(first, second, third)
+        // Удалена последняя загруженная заявка: следующая страница начнётся с предыдущей.
+        assertEquals(second.cursor(), nextJoinRequestOffset(loaded, third, third.cursor()))
+        // Удалена не последняя: курсор последней страницы не меняется.
+        assertEquals(third.cursor(), nextJoinRequestOffset(loaded, second, third.cursor()))
+        // Единственная заявка: продолжать не с чего.
+        assertNull(nextJoinRequestOffset(listOf(first), first, first.cursor()))
+        assertNull(nextJoinRequestOffset(loaded, third, null))
+    }
+
+    @Test fun joinRequestPagesMergeWithoutDuplicatesOrProcessedRows() {
+        val first = joinRequest(1L)
+        val second = joinRequest(2L)
+        val merged = mergeJoinRequests(listOf(first), listOf(first, second, joinRequest(3L)), setOf(3L))
+        assertEquals(listOf(1L, 2L), merged.map { it.userId })
+        assertTrue(joinRequestsHaveMore(loadedCount = 2, total = 3, nextOffset = "2:100"))
+        assertFalse(joinRequestsHaveMore(loadedCount = 3, total = 3, nextOffset = "2:100"))
+        assertFalse(joinRequestsHaveMore(loadedCount = 0, total = 3, nextOffset = null))
+        assertEquals(2, joinRequestTotalAfterProcessing(3))
+        assertEquals(0, joinRequestTotalAfterProcessing(0))
+    }
+
+    @Test fun subscriptionRenameUsesTheSameNameValidationAsCreation() {
+        assertNull(groupInviteNameProblem(""))
+        assertNull(groupInviteNameProblem("x".repeat(GROUP_INVITE_NAME_MAX_LENGTH)))
+        assertEquals(
+            GroupInviteLinkProblem.NameTooLong,
+            groupInviteNameProblem("x".repeat(GROUP_INVITE_NAME_MAX_LENGTH + 1))
+        )
     }
 }

@@ -171,9 +171,19 @@ class UnavailableTelegramRepository : TelegramRepository {
         draft: com.beykus.beygram.domain.model.GroupInviteLinkDraft
     ): Result<com.beykus.beygram.domain.model.GroupInviteLink> = unavailable()
 
+    override suspend fun renameGroupSubscriptionInviteLink(
+        chatId: Long,
+        link: String,
+        name: String
+    ): Result<com.beykus.beygram.domain.model.GroupInviteLink> = unavailable()
+
     override suspend fun revokeGroupInviteLink(chatId: Long, link: String): Result<Unit> = unavailable()
 
-    override suspend fun loadGroupJoinRequests(chatId: Long): Result<List<com.beykus.beygram.domain.model.GroupJoinRequest>> = unavailable()
+    override suspend fun loadGroupJoinRequests(
+        chatId: Long,
+        offset: String?,
+        limit: Int
+    ): Result<com.beykus.beygram.domain.model.GroupJoinRequestsPage> = unavailable()
 
     override suspend fun processGroupJoinRequest(chatId: Long, userId: Long, approve: Boolean): Result<Unit> = unavailable()
 

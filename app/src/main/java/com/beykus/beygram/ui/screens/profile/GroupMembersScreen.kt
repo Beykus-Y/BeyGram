@@ -258,6 +258,13 @@ internal fun GroupMembersScreen(
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         GroupManagementMessage(error ?: actionError, error = true)
         GroupManagementMessage(notice)
+        if (info.kind == ManagedChatKind.BasicGroup && rights.canManageMembers) {
+            Text(
+                stringResource(R.string.group_members_basic_limit),
+                color = palette.textSecondary, fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+            )
+        }
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when {
                 members.isEmpty() && !loading && (error != null || actionError != null) -> TextButton(

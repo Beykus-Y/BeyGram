@@ -3,7 +3,7 @@ package com.beykus.beygram.domain.repository
 import com.beykus.beygram.domain.model.GroupAdministratorRights
 import com.beykus.beygram.domain.model.GroupInviteLink
 import com.beykus.beygram.domain.model.GroupInviteLinkDraft
-import com.beykus.beygram.domain.model.GroupJoinRequest
+import com.beykus.beygram.domain.model.GroupJoinRequestsPage
 import com.beykus.beygram.domain.model.GroupManagementInfo
 import com.beykus.beygram.domain.model.GroupMemberAddition
 import com.beykus.beygram.domain.model.GroupMemberFilter
@@ -45,10 +45,12 @@ interface GroupAdministrationRepository {
     suspend fun loadGroupInviteLinks(chatId: Long): Result<List<GroupInviteLink>>
     suspend fun createGroupInviteLink(chatId: Long, draft: GroupInviteLinkDraft): Result<GroupInviteLink>
     suspend fun editGroupInviteLink(chatId: Long, link: String, draft: GroupInviteLinkDraft): Result<GroupInviteLink>
+    /** Переименование платной subscription-ссылки; цена и срок не меняются. */
+    suspend fun renameGroupSubscriptionInviteLink(chatId: Long, link: String, name: String): Result<GroupInviteLink>
     suspend fun revokeGroupInviteLink(chatId: Long, link: String): Result<Unit>
 
-    /** Все ожидающие заявки, которые успел отдать TDLib (до 200). */
-    suspend fun loadGroupJoinRequests(chatId: Long): Result<List<GroupJoinRequest>>
+    /** Одна страница ожидающих заявок; [offset] — курсор [GroupJoinRequestsPage.nextOffset]. */
+    suspend fun loadGroupJoinRequests(chatId: Long, offset: String?, limit: Int = 50): Result<GroupJoinRequestsPage>
     suspend fun processGroupJoinRequest(chatId: Long, userId: Long, approve: Boolean): Result<Unit>
 
     /** Меняет только заполненные поля [edit], не затирая недоступные роли настройки. */

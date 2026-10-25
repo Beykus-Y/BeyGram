@@ -276,23 +276,25 @@ internal class TdGroupAdministration(
         requests(TdApi.RevokeChatInviteLink(chatId, link))
     }
 
-    suspend fun joinRequests(chatId: Long): List<GroupJoinRequest> {
-        val requestsList = mutableListOf<TdApi.ChatJoinRequest>()
-        var offset: TdApi.ChatJoinRequest? = null
-        var total = 0
-        var pages = 0
-        while (pages++ < MAX_JOIN_REQUEST_PAGES) {
-            val page = requests(TdApi.GetChatJoinRequests(chatId, "", "", offset, PAGE_SIZE))
-            total = page.totalCount
-            val batch = page.requests.orEmpty().filterNotNull()
-            requestsList += batch
-            if (batch.isEmpty() || requestsList.size >= total) break
-            val last = batch.last()
-            if (offset?.userId == last.userId && offset?.date == last.date) break
-            offset = last
+    suspend fun renameSubscriptionInviteLink(chatId: Long, link: String, name: String): GroupInviteLink {
+        groupInviteNameProblem(name)?.let { throw UserMessageException(it.toUiText()) }
+        val current = requests(TdApi.GetChatInviteLink(chatId, link))
+        if (current.subscriptionPricing == null) {
+            throw UserMessageException(UiText.Res(R.string.err_group_invite_not_subscription))
         }
-        val users = profiles.resolveUsers(requestsList.map { it.userId }.distinct())
-        return requestsList.distinctBy { it.userId }.map { request ->
+        val updated = requests(TdApi.EditChatSubscriptionInviteLink(chatId, link, name.trim()))
+        return updated.toGroupInviteLink()
+    }
+
+    suspend fun joinRequests(chatId: Long, offset: String?, limit: Int): GroupJoinRequestsPage {
+        val cursor = parseGroupJoinRequestCursor(offset)
+        val offsetRequest = cursor?.let { TdApi.ChatJoinRequest(it.userId, it.dateSeconds, "") }
+        val page = requests(
+            TdApi.GetChatJoinRequests(chatId, "", "", offsetRequest, limit.coerceIn(1, JOIN_REQUESTS_PAGE_MAX))
+        )
+        val batch = page.requests.orEmpty().filterNotNull()
+        val users = profiles.resolveUsers(batch.map { it.userId }.distinct())
+        val mapped = batch.map { request ->
             val user = users[request.userId]
             GroupJoinRequest(
                 userId = request.userId,
@@ -303,6 +305,11 @@ internal class TdGroupAdministration(
                 avatarColorArgb = request.userId.stableColor()
             )
         }
+        return GroupJoinRequestsPage(
+            total = page.totalCount,
+            requests = mapped,
+            nextOffset = mapped.lastOrNull()?.cursor()
+        )
     }
 
     suspend fun processJoinRequest(chatId: Long, userId: Long, approve: Boolean) {
@@ -356,7 +363,7 @@ internal class TdGroupAdministration(
 
 private const val PAGE_SIZE = 100
 private const val MAX_INVITE_PAGES = 5
-private const val MAX_JOIN_REQUEST_PAGES = 2
+private const val JOIN_REQUESTS_PAGE_MAX = 100
 private const val ADD_MEMBERS_BATCH_SIZE = 20
 private const val PHOTO_UPLOAD_TIMEOUT_MS = 60_000L
 

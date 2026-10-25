@@ -70,6 +70,9 @@ internal fun GroupInvitesScreen(
     var dialogError by remember(chatId) { mutableStateOf<String?>(null) }
     var revoking by remember(chatId) { mutableStateOf<GroupInviteLink?>(null) }
     var revokeBusy by remember(chatId) { mutableStateOf(false) }
+    var renaming by remember(chatId) { mutableStateOf<GroupInviteLink?>(null) }
+    var renameBusy by remember(chatId) { mutableStateOf(false) }
+    var renameError by remember(chatId) { mutableStateOf<String?>(null) }
 
     fun reload() { reloadToken++ }
 
@@ -89,9 +92,9 @@ internal fun GroupInvitesScreen(
         } else links
     }
 
-    BackHandler { if (!dialogBusy && !revokeBusy) onBack() }
+    BackHandler { if (!dialogBusy && !revokeBusy && !renameBusy) onBack() }
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(stringResource(R.string.group_invites_title), { if (!dialogBusy && !revokeBusy) onBack() }) {
+        ProfileToolbar(stringResource(R.string.group_invites_title), { if (!dialogBusy && !revokeBusy && !renameBusy) onBack() }) {
             IconButton(onClick = ::reload, enabled = !loading) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.group_manage_refresh), tint = palette.textPrimary)
             }
@@ -124,6 +127,7 @@ internal fun GroupInvitesScreen(
                         link = link,
                         canEdit = permissions.canEdit,
                         canRevoke = permissions.canRevoke,
+                        canRename = permissions.canRename,
                         onCopy = {
                             copyInviteLink(context, link.link)
                             notice = context.getString(R.string.group_invites_copied)
@@ -133,6 +137,7 @@ internal fun GroupInvitesScreen(
                             shareInviteLink(context, text)
                         },
                         onEdit = { dialogError = null; editor = InviteEditor(link) },
+                        onRename = { renameError = null; renaming = link },
                         onRevoke = { revoking = link }
                     )
                 }
@@ -205,6 +210,78 @@ internal fun GroupInvitesScreen(
             dismissButton = { TextButton(enabled = !revokeBusy, onClick = { revoking = null }) { Text(stringResource(R.string.common_cancel)) } }
         )
     }
+
+    renaming?.let { link ->
+        GroupSubscriptionRenameDialog(
+            link = link,
+            busy = renameBusy,
+            error = renameError,
+            onDismiss = { if (!renameBusy) { renaming = null; renameError = null } },
+            onSave = { name ->
+                scope.launch {
+                    renameBusy = true
+                    renameError = null
+                    repository.renameGroupSubscriptionInviteLink(chatId, link.link, name)
+                        .onSuccess {
+                            notice = context.getString(R.string.group_invites_renamed)
+                            renaming = null
+                            reload()
+                            onChanged()
+                        }
+                        .onFailure { renameError = it.userMessage(context, R.string.group_invites_save_failed) }
+                    renameBusy = false
+                }
+            }
+        )
+    }
+}
+
+/** Переименование платной ссылки: цена, срок и заявки у неё не меняются. */
+@Composable
+private fun GroupSubscriptionRenameDialog(
+    link: GroupInviteLink,
+    busy: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    val palette = beyGramPalette()
+    var name by rememberSaveable(link.link, link.name) { mutableStateOf(link.name) }
+    val problem = groupInviteNameProblem(name)
+    val problemText = when (problem) {
+        GroupInviteLinkProblem.NameTooLong -> stringResource(R.string.err_group_invite_name_too_long)
+        else -> null
+    }
+    val changed = name.trim() != link.name
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(stringResource(R.string.group_invites_rename_title)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(GROUP_INVITE_NAME_MAX_LENGTH + 8) },
+                    label = { Text(stringResource(R.string.group_invites_name_label)) },
+                    supportingText = { Text(stringResource(R.string.group_invites_name_hint)) },
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = beyGramTextFieldColors()
+                )
+                problemText?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.errorAnnouncement()) }
+                error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp).errorAnnouncement()) }
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp), color = palette.accent)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && changed && problem == null,
+                onClick = { onSave(name.trim()) }
+            ) { Text(stringResource(if (busy) R.string.common_saving else R.string.common_save)) }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+    )
 }
 
 /** Карточка ссылки: адрес, условия и действия. Основную ссылку TDLib не разрешает редактировать. */
@@ -213,9 +290,11 @@ private fun GroupInviteLinkCard(
     link: GroupInviteLink,
     canEdit: Boolean,
     canRevoke: Boolean,
+    canRename: Boolean,
     onCopy: () -> Unit,
     onShare: () -> Unit,
     onEdit: () -> Unit,
+    onRename: () -> Unit,
     onRevoke: () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -279,7 +358,10 @@ private fun GroupInviteLinkCard(
                 modifier = Modifier.padding(top = 6.dp)
             )
         }
-        if (canEdit || canRevoke) Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End) {
+        if (canRename || canEdit || canRevoke) Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End) {
+            if (canRename) TextButton(onClick = onRename) {
+                Text(stringResource(R.string.group_invites_rename))
+            }
             if (canEdit) TextButton(onClick = onEdit) {
                 Text(stringResource(R.string.group_invites_edit))
             }

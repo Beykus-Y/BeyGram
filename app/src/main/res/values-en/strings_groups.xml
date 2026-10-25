@@ -86,10 +86,14 @@
     <string name="group_members_role_restricted">Restricted</string>
     <string name="group_members_role_banned">Banned</string>
     <string name="group_members_load_failed">Could not load members</string>
+    <string name="group_members_basic_limit">TDLib does not support restrictions or a banned list in basic groups: a removed member can be added again.</string>
 
     <string name="group_invites_title">Invite links</string>
     <string name="group_invites_create">Create link</string>
     <string name="group_invites_edit">Edit link</string>
+    <string name="group_invites_rename">Rename</string>
+    <string name="group_invites_rename_title">Paid link name</string>
+    <string name="group_invites_renamed">Link renamed</string>
     <string name="group_invites_copy">Copy link</string>
     <string name="group_invites_share">Share link</string>
     <string name="group_invites_copied">Link copied</string>
@@ -139,6 +143,7 @@
     <string name="group_requests_approved">Request approved</string>
     <string name="group_requests_declined">Request declined</string>
     <string name="group_requests_load_failed">Could not load requests</string>
+    <string name="group_requests_load_more">Load more</string>
     <string name="group_requests_date">Requested on %1$s</string>
     <string name="group_requests_unknown_user">User</string>
 
@@ -185,6 +190,7 @@
     <string name="err_group_add_privacy">The user does not allow being added to groups</string>
     <string name="err_group_invite_invalid">The link is invalid or has been revoked</string>
     <string name="err_group_invite_subscription">Paid subscription settings cannot be changed here</string>
+    <string name="err_group_invite_not_subscription">This is not a paid subscription link</string>
     <string name="err_group_title_required">The title cannot be empty</string>
     <string name="err_group_title_too_long">The title is too long</string>
     <string name="err_group_description_too_long">The description is too long</string>

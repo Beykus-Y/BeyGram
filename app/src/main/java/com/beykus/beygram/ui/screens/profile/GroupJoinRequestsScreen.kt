@@ -26,12 +26,19 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.GroupJoinRequest
 import com.beykus.beygram.domain.model.GroupManagementInfo
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.joinRequestTotalAfterProcessing
+import com.beykus.beygram.domain.model.joinRequestsHaveMore
+import com.beykus.beygram.domain.model.mergeJoinRequests
+import com.beykus.beygram.domain.model.nextJoinRequestOffset
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+
+private const val REQUESTS_PAGE = 50
 
 /**
  * Заявки на вступление: принять или отклонить. Список доступен только роли с правом приглашать:
@@ -52,59 +59,123 @@ internal fun GroupJoinRequestsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var requests by remember(chatId) { mutableStateOf<List<GroupJoinRequest>>(emptyList()) }
+    var total by remember(chatId) { mutableIntStateOf(info.pendingJoinRequestCount) }
+    var nextOffset by remember(chatId) { mutableStateOf<String?>(null) }
+    var hasMore by remember(chatId) { mutableStateOf(false) }
     var loading by remember(chatId) { mutableStateOf(true) }
+    var loadingMore by remember(chatId) { mutableStateOf(false) }
     var error by remember(chatId) { mutableStateOf<String?>(null) }
     var notice by remember(chatId) { mutableStateOf<String?>(null) }
     var reloadToken by remember(chatId) { mutableIntStateOf(0) }
     var busyUserId by remember(chatId) { mutableStateOf<Long?>(null) }
+    var processedUserIds by remember(chatId) { mutableStateOf<Set<Long>>(emptySet()) }
+    var pageGeneration by remember(chatId) { mutableIntStateOf(0) }
+    var loadMoreJob by remember(chatId) { mutableStateOf<Job?>(null) }
+
+    fun reload() { reloadToken++ }
 
     LaunchedEffect(chatId, reloadToken) {
+        // Смена поколения отменяет старую догрузку: её ответ не должен попасть в новый список.
+        loadMoreJob?.cancel()
+        loadMoreJob = null
+        pageGeneration++
+        val generation = pageGeneration
         loading = true
+        loadingMore = false
         error = null
-        repository.loadGroupJoinRequests(chatId)
-            .onSuccess { requests = it }
-            .onFailure { error = it.userMessage(context, R.string.group_requests_load_failed) }
-        loading = false
+        requests = emptyList()
+        nextOffset = null
+        hasMore = false
+        processedUserIds = emptySet()
+        total = info.pendingJoinRequestCount
+        repository.loadGroupJoinRequests(chatId, null, REQUESTS_PAGE)
+            .onSuccess { page ->
+                if (generation != pageGeneration) return@onSuccess
+                val merged = mergeJoinRequests(emptyList(), page.requests, processedUserIds)
+                requests = merged
+                total = page.total
+                nextOffset = page.nextOffset
+                hasMore = joinRequestsHaveMore(merged.size, total, nextOffset)
+            }
+            .onFailure {
+                if (generation == pageGeneration) error = it.userMessage(context, R.string.group_requests_load_failed)
+            }
+        if (generation == pageGeneration) loading = false
+    }
+
+    fun loadMore() {
+        if (loading || loadingMore || busyUserId != null || !hasMore) return
+        val offset = nextOffset ?: return
+        val generation = pageGeneration
+        loadingMore = true
+        error = null
+        loadMoreJob = scope.launch {
+            val result = repository.loadGroupJoinRequests(chatId, offset, REQUESTS_PAGE)
+            if (generation != pageGeneration) return@launch
+            result.onSuccess { page ->
+                val merged = mergeJoinRequests(requests, page.requests, processedUserIds)
+                requests = merged
+                total = maxOf(page.total, merged.size)
+                nextOffset = page.nextOffset
+                // Если сервер вернул тот же курсор, повторная догрузка зациклится.
+                hasMore = page.nextOffset != offset && joinRequestsHaveMore(merged.size, total, nextOffset)
+            }.onFailure { error = it.userMessage(context, R.string.group_requests_load_failed) }
+            loadingMore = false
+        }
     }
 
     fun process(request: GroupJoinRequest, approve: Boolean) {
-        if (busyUserId != null) return
+        if (busyUserId != null || loadingMore) return
         busyUserId = request.userId
         error = null
+        val generation = pageGeneration
         scope.launch {
-            repository.processGroupJoinRequest(chatId, request.userId, approve)
-                .onSuccess {
-                    requests = requests.filterNot { it.userId == request.userId }
-                    notice = context.getString(if (approve) R.string.group_requests_approved else R.string.group_requests_declined)
-                    onChanged()
-                }
-                .onFailure { error = it.userMessage(context, R.string.err_group_action_failed) }
+            val result = repository.processGroupJoinRequest(chatId, request.userId, approve)
+            // Пока запрос выполнялся, список могли обновить: не применяем результат к новому поколению.
+            if (generation != pageGeneration) {
+                busyUserId = null
+                return@launch
+            }
+            result.onSuccess {
+                // Курсор сдвигаем до удаления: если обработан последний загруженный элемент,
+                // следующая страница начнётся с предыдущего, а не с исчезнувшей заявки.
+                val newOffset = nextJoinRequestOffset(requests, request, nextOffset)
+                processedUserIds = processedUserIds + request.userId
+                requests = requests.filterNot { it.userId == request.userId }
+                total = joinRequestTotalAfterProcessing(total)
+                nextOffset = newOffset
+                hasMore = joinRequestsHaveMore(requests.size, total, newOffset)
+                notice = context.getString(if (approve) R.string.group_requests_approved else R.string.group_requests_declined)
+                onChanged()
+                // Если обработали всю загруженную страницу, начнём новую с начала.
+                if (requests.isEmpty() && total > 0) reload()
+            }.onFailure { error = it.userMessage(context, R.string.err_group_action_failed) }
             busyUserId = null
         }
     }
 
-    // Пока заявка обрабатывается, Back не должен закрывать всё приложение.
+    // Пока заявка обрабатывается, Back не должен закрывать всё приложение; догрузку можно прервать.
     BackHandler { if (busyUserId == null) onBack() }
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.group_requests_title), { if (busyUserId == null) onBack() }) {
-            IconButton(onClick = { reloadToken++ }, enabled = !loading) {
+            IconButton(onClick = ::reload, enabled = !loading) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.group_manage_refresh), tint = palette.textPrimary)
             }
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         GroupManagementMessage(error, error = true)
         GroupManagementMessage(notice)
-        if (info.pendingJoinRequestCount > 0) Text(
-            stringResource(R.string.group_requests_count, maxOf(info.pendingJoinRequestCount, requests.size)),
+        if (total > 0) Text(
+            stringResource(R.string.group_requests_count, total),
             color = palette.textSecondary, fontSize = 13.sp,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
         )
         if (error != null && requests.isEmpty() && !loading) TextButton(
-            onClick = { reloadToken++ },
+            onClick = ::reload,
             modifier = Modifier.padding(horizontal = 12.dp)
         ) { Text(stringResource(R.string.common_retry)) }
         when {
-            requests.isEmpty() && !loading && error == null -> Text(
+            requests.isEmpty() && !loading && error == null && total == 0 -> Text(
                 stringResource(R.string.group_requests_empty),
                 color = palette.textSecondary,
                 modifier = Modifier.fillMaxWidth().padding(24.dp)
@@ -117,7 +188,7 @@ internal fun GroupJoinRequestsScreen(
                     GroupJoinRequestRow(
                         request = request,
                         busy = busyUserId == request.userId,
-                        enabled = busyUserId == null,
+                        enabled = busyUserId == null && !loadingMore,
                         observeFile = observeFile,
                         downloadFile = downloadFile,
                         onOpenUser = { onOpenUser(request.userId) },
@@ -125,6 +196,16 @@ internal fun GroupJoinRequestsScreen(
                         onDecline = { process(request, false) }
                     )
                     HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 72.dp))
+                }
+                if (hasMore || loadingMore) item(key = "more") {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                        if (loadingMore) CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent, strokeWidth = 2.dp)
+                        else TextButton(
+                            onClick = ::loadMore,
+                            enabled = busyUserId == null,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) { Text(stringResource(R.string.group_requests_load_more), fontWeight = FontWeight.SemiBold) }
+                    }
                 }
             }
         }

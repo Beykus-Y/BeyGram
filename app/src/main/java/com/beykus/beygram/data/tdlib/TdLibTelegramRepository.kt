@@ -39,7 +39,7 @@ import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.GroupAdministratorRights
 import com.beykus.beygram.domain.model.GroupInviteLink
 import com.beykus.beygram.domain.model.GroupInviteLinkDraft
-import com.beykus.beygram.domain.model.GroupJoinRequest
+import com.beykus.beygram.domain.model.GroupJoinRequestsPage
 import com.beykus.beygram.domain.model.GroupManagementInfo
 import com.beykus.beygram.domain.model.GroupMemberAddition
 import com.beykus.beygram.domain.model.GroupMemberFilter
@@ -1275,11 +1275,14 @@ class TdLibTelegramRepository private constructor(
     override suspend fun editGroupInviteLink(chatId: Long, link: String, draft: GroupInviteLinkDraft): Result<GroupInviteLink> =
         groupResult { groupAdministration.editInviteLink(chatId, link, draft) }
 
+    override suspend fun renameGroupSubscriptionInviteLink(chatId: Long, link: String, name: String): Result<GroupInviteLink> =
+        groupResult { groupAdministration.renameSubscriptionInviteLink(chatId, link, name) }
+
     override suspend fun revokeGroupInviteLink(chatId: Long, link: String): Result<Unit> =
         groupResult { groupAdministration.revokeInviteLink(chatId, link) }
 
-    override suspend fun loadGroupJoinRequests(chatId: Long): Result<List<GroupJoinRequest>> =
-        groupResult { groupAdministration.joinRequests(chatId) }
+    override suspend fun loadGroupJoinRequests(chatId: Long, offset: String?, limit: Int): Result<GroupJoinRequestsPage> =
+        groupResult { groupAdministration.joinRequests(chatId, offset, limit) }
 
     override suspend fun processGroupJoinRequest(chatId: Long, userId: Long, approve: Boolean): Result<Unit> =
         groupResult { groupAdministration.processJoinRequest(chatId, userId, approve) }

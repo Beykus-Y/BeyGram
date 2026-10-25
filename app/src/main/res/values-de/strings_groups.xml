@@ -86,10 +86,14 @@
     <string name="group_members_role_restricted">Eingeschränkt</string>
     <string name="group_members_role_banned">Gebannt</string>
     <string name="group_members_load_failed">Mitglieder konnten nicht geladen werden</string>
+    <string name="group_members_basic_limit">TDLib unterstützt in einfachen Gruppen keine Einschränkungen und keine Bannliste: Ein entferntes Mitglied kann erneut hinzugefügt werden.</string>
 
     <string name="group_invites_title">Einladungslinks</string>
     <string name="group_invites_create">Link erstellen</string>
     <string name="group_invites_edit">Link bearbeiten</string>
+    <string name="group_invites_rename">Umbenennen</string>
+    <string name="group_invites_rename_title">Name des kostenpflichtigen Links</string>
+    <string name="group_invites_renamed">Link umbenannt</string>
     <string name="group_invites_copy">Link kopieren</string>
     <string name="group_invites_share">Link teilen</string>
     <string name="group_invites_copied">Link kopiert</string>
@@ -139,6 +143,7 @@
     <string name="group_requests_approved">Anfrage angenommen</string>
     <string name="group_requests_declined">Anfrage abgelehnt</string>
     <string name="group_requests_load_failed">Anfragen konnten nicht geladen werden</string>
+    <string name="group_requests_load_more">Mehr laden</string>
     <string name="group_requests_date">Angefragt am %1$s</string>
     <string name="group_requests_unknown_user">Benutzer</string>
 
@@ -185,6 +190,7 @@
     <string name="err_group_add_privacy">Der Benutzer erlaubt es nicht, zu Gruppen hinzugefügt zu werden</string>
     <string name="err_group_invite_invalid">Der Link ist ungültig oder wurde widerrufen</string>
     <string name="err_group_invite_subscription">Einstellungen für das kostenpflichtige Abo können hier nicht geändert werden</string>
+    <string name="err_group_invite_not_subscription">Dies ist kein Link für ein kostenpflichtiges Abo</string>
     <string name="err_group_title_required">Der Name darf nicht leer sein</string>
     <string name="err_group_title_too_long">Der Name ist zu lang</string>
     <string name="err_group_description_too_long">Die Beschreibung ist zu lang</string>
