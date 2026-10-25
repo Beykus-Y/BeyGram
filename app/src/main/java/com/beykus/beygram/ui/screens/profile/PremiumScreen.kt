@@ -322,6 +322,7 @@ private fun PremiumGiftCodeSection(
         code = normalized
         validation = null
         message = null
+        checkedCode = ""
         step = step.next(PremiumGiftCodeEvent.Check)
         scope.launch {
             val checked = try {
@@ -415,6 +416,7 @@ private fun PremiumGiftCodeSection(
                     code = value.take(256)
                     validation = null
                     if (step !is PremiumGiftCodeStep.Checking && step !is PremiumGiftCodeStep.Applying) {
+                        checkedCode = ""
                         message = null
                         messageIsError = false
                     }
