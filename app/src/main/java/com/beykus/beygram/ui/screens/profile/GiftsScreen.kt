@@ -213,7 +213,7 @@ fun GiftsScreen(
     }
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        ProfileToolbar(title, onBack) {
+        ProfileToolbar(title, onBack = { if (!sending) onBack() }) {
             IconButton(onClick = { if (!loading && !sending) reload++ }, enabled = !loading && !sending) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
             }
