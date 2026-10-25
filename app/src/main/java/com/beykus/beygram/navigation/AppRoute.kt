@@ -44,7 +44,9 @@ enum class AppRoute {
     AppLock,
     NewChat,
     CreateGroup,
-    CreateChannel
+    CreateChannel,
+    Stories,
+    StoryPublisher
 }
 
 /**

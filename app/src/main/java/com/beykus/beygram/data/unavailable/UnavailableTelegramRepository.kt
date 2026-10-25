@@ -21,7 +21,16 @@ import com.beykus.beygram.domain.model.ChatNotificationPreferences
 import com.beykus.beygram.domain.model.NotificationSoundOption
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.StoryDetail
+import com.beykus.beygram.domain.model.StoryArchivePage
+import com.beykus.beygram.domain.model.StoryPostEvent
+import com.beykus.beygram.domain.model.StoryPostPermission
+import com.beykus.beygram.domain.model.StoryPostTarget
+import com.beykus.beygram.domain.model.StoryPostTicket
+import com.beykus.beygram.domain.model.StoryPrivacy
+import com.beykus.beygram.domain.model.StorySubmissionState
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.GlobalMessagePage
 import com.beykus.beygram.domain.model.GlobalSearchFilter
@@ -73,8 +82,11 @@ import com.beykus.beygram.domain.model.TelegramNotifications
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.repository.TelegramRepository
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
@@ -83,9 +95,12 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class UnavailableTelegramRepository : TelegramRepository {
     private val noChats = MutableStateFlow<List<ChatPreview>>(emptyList()).asStateFlow()
+    private val noStories = MutableStateFlow<List<ChatStories>>(emptyList()).asStateFlow()
+    private val noStoryPosts = MutableSharedFlow<StoryPostEvent>().asSharedFlow()
     private val noHistory = MutableStateFlow(ChatHistory()).asStateFlow()
     private val noDeletions = MutableStateFlow<Set<Long>>(emptySet()).asStateFlow()
     private val noProfile = MutableStateFlow(ProfileState()).asStateFlow()
+    private val noStorySubmission = MutableStateFlow<StorySubmissionState>(StorySubmissionState.Idle).asStateFlow()
     private val noTyping = MutableStateFlow<List<String>>(emptyList()).asStateFlow()
 
     override val authState: StateFlow<AuthState> = MutableStateFlow<AuthState>(AuthState.Idle).asStateFlow()
@@ -104,6 +119,39 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun saveFolderDraft(draft: com.beykus.beygram.domain.model.TelegramFolderDraft): Result<Int> = unavailable()
     override suspend fun deleteServerFolder(folderId: Int): Result<Unit> = unavailable()
     override suspend fun reorderServerFolders(ids: List<Int>, mainPosition: Int): Result<Unit> = unavailable()
+
+    override val activeStories: StateFlow<List<ChatStories>> = noStories
+    override fun refreshActiveStories() {}
+    override fun loadMoreActiveStories() {}
+    override val storyPostEvents: SharedFlow<StoryPostEvent> = noStoryPosts
+    override suspend fun loadStory(posterChatId: Long, storyId: Int): Result<StoryDetail> = unavailable()
+    override suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
+    override suspend fun closeStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
+    override suspend fun storyReactions(): Result<List<ReactionOption>> = Result.success(emptyList())
+    override suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?): Result<Unit> = unavailable()
+    override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit> = unavailable()
+    override suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
+    override suspend fun storyArchive(fromStoryId: Int): Result<StoryArchivePage> = Result.success(StoryArchivePage())
+    override suspend fun storyPostPermission(chatId: Long): Result<StoryPostPermission> = unavailable()
+    override suspend fun storyPostTargets(): Result<List<StoryPostTarget>> = Result.success(emptyList())
+    override fun storySubmissionState(submissionId: String): StateFlow<StorySubmissionState> = noStorySubmission
+    override fun abandonStoryUpload(posterChatId: Long, storyId: Int) {}
+    override fun abandonStorySubmission(submissionId: String) {}
+    override suspend fun storyCaptionLimit(): Result<Int> = Result.success(1_024)
+    override suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String): Result<Unit> = unavailable()
+    override suspend fun setStoryPrivacy(storyId: Int, privacy: StoryPrivacy, selectedUserIds: List<Long>): Result<Unit> = unavailable()
+    override suspend fun setStoryPostedToChatPage(posterChatId: Long, storyId: Int, posted: Boolean): Result<Unit> = unavailable()
+    override suspend fun publishStory(
+        submissionId: String,
+        targetChatId: Long,
+        media: OutgoingMedia,
+        caption: String,
+        privacy: StoryPrivacy,
+        selectedUserIds: List<Long>,
+        activePeriodSeconds: Int,
+        protectContent: Boolean,
+        keepInProfile: Boolean
+    ): Result<StoryPostTicket> = unavailable()
 
     override val connectionState: StateFlow<TelegramConnectionState> = MutableStateFlow(TelegramConnectionState.Unknown).asStateFlow()
     override val myProfile: StateFlow<ProfileState> = noProfile
@@ -254,6 +302,7 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = MutableStateFlow(MediaFileState(fileId)).asStateFlow()
     override fun downloadFile(fileId: Int) {}
+    override fun cancelFileDownload(fileId: Int) {}
     override fun autoDownloadFile(request: AutoDownloadRequest) {}
 
     override suspend fun dismissNotifications(groupId: Int, maxNotificationId: Int): Result<Unit> = Result.success(Unit)
