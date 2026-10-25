@@ -548,6 +548,10 @@
     <string name="channel_statistics_chart_content">Типы сообщений</string>
     <string name="channel_statistics_chart_actions">Активность участников</string>
     <string name="channel_statistics_chart_weekday">Просмотры по дням недели</string>
+    <string name="channel_statistics_chart_group_members">Рост участников</string>
+    <string name="channel_statistics_chart_group_joins">Вступления и выходы</string>
+    <string name="channel_statistics_chart_messages_by_hour">Сообщения по часам</string>
+    <string name="channel_statistics_chart_messages_by_weekday">Сообщения по дням недели</string>
     <string name="channel_statistics_chart_max">Максимум: %1$s</string>
     <string name="channel_statistics_chart_range">Максимум: %1$s · минимум: %2$s</string>
     <string name="channel_statistics_chart_scaled">Линии в своём масштабе</string>

@@ -787,7 +787,9 @@ private fun MediaViewerPage(
         if (tgs || media.mimeType.startsWith("image/") || media.mimeType.startsWith("video/") || media.kind == MediaKind.Audio) {
             previewId?.let { request(it, MediaKind.Photo, thumb.size) }
         }
-        if (!fullFileOnlyWhenActive || active) request(media.fileId, media.kind, file.size)
+        // The page the user opened is an explicit request, so only neighbouring pages go through the auto-download policy.
+        if (active) downloadFile(media.fileId)
+        else if (!fullFileOnlyWhenActive) request(media.fileId, media.kind, file.size)
     }
     // A fast-start MP4 can be played from the contiguous prefix that TDLib has already written.
     // The sender-provided supportsStreaming flag is only a hint; the local probe proves the index
@@ -819,6 +821,8 @@ private fun MediaViewerPage(
         }
     }
     val unlockedPath = progressivePath
+    // The player may keep an earlier source instance, so the lambda reads the latest page state.
+    val activeNow by rememberUpdatedState(active)
     val progressive = if (progressiveUnlocked && unlockedPath != null) {
         ProgressiveVideoSource(
             fileId = media.fileId,
@@ -827,13 +831,15 @@ private fun MediaViewerPage(
             completed = { observeFile(media.fileId).value.localPath != null },
             downloading = { observeFile(media.fileId).value.isDownloading },
             readablePrefix = { observeFile(media.fileId).value.downloadedPrefixBytes },
+            // The opened page is user-initiated and keeps downloading on any network. A neighbouring
+            // page that the player prepares in the background stays under the auto-download policy.
             onNeedMore = {
-                val latest = observeFile(media.fileId).value
-                autoDownloadFile(
+                if (activeNow) downloadFile(media.fileId)
+                else autoDownloadFile(
                     AutoDownloadRequest(
                         fileId = media.fileId,
                         kind = media.kind,
-                        sizeBytes = latest.size,
+                        sizeBytes = observeFile(media.fileId).value.size,
                         isSecret = media.isSecret,
                         isSecretChat = media.isSecretChat,
                         hasSpoiler = spoilerHidden

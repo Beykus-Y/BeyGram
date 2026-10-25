@@ -1,12 +1,8 @@
 package com.beykus.beygram.ui.screens.stories
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.Settings
-import android.view.WindowManager
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,7 +24,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -44,6 +39,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
+import com.beykus.beygram.ui.screens.chat.SecureWindowWhileVisible
 import java.io.File
 
 /**
@@ -52,12 +48,8 @@ import java.io.File
  */
 @Composable
 internal fun SecureStoryWindow() {
-    val view = LocalView.current
-    DisposableEffect(view) {
-        val window = view.context.storyActivity()?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-    }
+    // The shared hold keeps the flag while a secret chat, the app lock or other secret media still need it.
+    SecureWindowWhileVisible(true)
 }
 
 /** Reads Android's animation scale so progress and transitions can avoid motion when the user disabled it. */
@@ -176,14 +168,4 @@ internal fun StoryVideo(
             if (buffering) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(28.dp))
         }
     }
-}
-
-
-private fun Context.storyActivity(): Activity? {
-    var current: Context = this
-    while (current is ContextWrapper) {
-        if (current is Activity) return current
-        current = current.baseContext
-    }
-    return null
 }

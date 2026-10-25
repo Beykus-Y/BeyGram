@@ -135,7 +135,8 @@ fun MediaKind.autoDownloadCategory(): AutoDownloadCategory = when (this) {
 
 /**
  * Pure decision used both by the UI trigger and by the repository that talks to TDLib.
- * Secret chats, disappearing content and unrevealed spoilers are never downloaded automatically.
+ * Secret chats, disappearing content and unrevealed spoilers are never downloaded automatically;
+ * stickers are, on any network.
  */
 fun decideAutoDownload(
     settings: AutoDownloadSettings,
@@ -143,9 +144,11 @@ fun decideAutoDownload(
     request: AutoDownloadRequest
 ): AutoDownloadDecision {
     if (request.isSecret) return AutoDownloadDecision.Denied(AutoDownloadDenial.SecretContent)
+    if (network == AutoDownloadNetwork.None) return AutoDownloadDecision.Denied(AutoDownloadDenial.NoNetwork)
+    // Stickers and custom emoji are small and are the message itself, so the per-network media rules do not gate them.
+    if (request.kind == MediaKind.Sticker) return AutoDownloadDecision.Allowed
     if (request.isSecretChat) return AutoDownloadDecision.Denied(AutoDownloadDenial.SecretChat)
     if (request.hasSpoiler) return AutoDownloadDecision.Denied(AutoDownloadDenial.Spoiler)
-    if (network == AutoDownloadNetwork.None) return AutoDownloadDecision.Denied(AutoDownloadDenial.NoNetwork)
     if (settings.dataSaver && network.metered) return AutoDownloadDecision.Denied(AutoDownloadDenial.DataSaver)
     if (request.sizeBytes <= 0L) return AutoDownloadDecision.Denied(AutoDownloadDenial.SizeUnknown)
     val rule = settings.policyFor(network).rule(request.kind.autoDownloadCategory())

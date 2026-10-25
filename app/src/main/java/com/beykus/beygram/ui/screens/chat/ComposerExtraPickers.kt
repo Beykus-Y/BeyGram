@@ -14,6 +14,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.MessageExtraDraft
 import com.beykus.beygram.domain.repository.ConversationRepository
+import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 
@@ -55,6 +56,7 @@ internal fun ComposerExtraPickers(chatId: Long, isSecret: Boolean, conversation:
         }
     }
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        AppLockManager.get(context).clearExpectedExternalActivity()
         if (granted.values.any { it }) {
             locateNow()
         } else {
@@ -64,7 +66,10 @@ internal fun ComposerExtraPickers(chatId: Long, isSecret: Boolean, conversation:
     fun requestLocation() {
         if (attachments.sending || attachments.importing || attachments.locating) return
         if (hasLocationPermission(context)) locateNow()
-        else locationPermission.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+        else {
+            AppLockManager.get(context).expectExternalActivity()
+            locationPermission.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
     }
     attachments.pickPoll = { pollComposerOpen = true }
     attachments.pickLocation = { requestLocation() }

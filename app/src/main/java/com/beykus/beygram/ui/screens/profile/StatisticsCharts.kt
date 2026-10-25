@@ -181,6 +181,10 @@ private fun chartTitle(id: ChannelChartId): Int = when (id) {
     ChannelChartId.MessageContent -> R.string.channel_statistics_chart_content
     ChannelChartId.Actions -> R.string.channel_statistics_chart_actions
     ChannelChartId.ViewsByWeekday -> R.string.channel_statistics_chart_weekday
+    ChannelChartId.GroupMembers -> R.string.channel_statistics_chart_group_members
+    ChannelChartId.GroupJoins -> R.string.channel_statistics_chart_group_joins
+    ChannelChartId.MessagesByHour -> R.string.channel_statistics_chart_messages_by_hour
+    ChannelChartId.MessagesByWeekday -> R.string.channel_statistics_chart_messages_by_weekday
 }
 
 /** Uses the same range for the caption and the canvas, including stacked totals. */

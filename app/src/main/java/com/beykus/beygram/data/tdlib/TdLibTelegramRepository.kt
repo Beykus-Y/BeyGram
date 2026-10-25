@@ -1257,15 +1257,16 @@ class TdLibTelegramRepository private constructor(
         StatisticsGraphSpec(ChannelChartId.MessageReactions, ChannelChartKind.Line, statistics.messageReactionGraph)
     )
 
+    // Group graphs count members and messages, so they get their own titles instead of the channel ones.
     private fun supergroupGraphSpecs(statistics: TdApi.ChatStatisticsSupergroup) = listOf(
-        StatisticsGraphSpec(ChannelChartId.Members, ChannelChartKind.Line, statistics.memberCountGraph),
-        StatisticsGraphSpec(ChannelChartId.Joins, ChannelChartKind.Line, statistics.joinGraph),
-        StatisticsGraphSpec(ChannelChartId.ViewsByHour, ChannelChartKind.Bar, statistics.dayGraph),
+        StatisticsGraphSpec(ChannelChartId.GroupMembers, ChannelChartKind.Line, statistics.memberCountGraph),
+        StatisticsGraphSpec(ChannelChartId.GroupJoins, ChannelChartKind.Line, statistics.joinGraph),
+        StatisticsGraphSpec(ChannelChartId.MessagesByHour, ChannelChartKind.Bar, statistics.dayGraph),
         StatisticsGraphSpec(ChannelChartId.JoinsBySource, ChannelChartKind.Bar, statistics.joinBySourceGraph),
         StatisticsGraphSpec(ChannelChartId.Languages, ChannelChartKind.Area, statistics.languageGraph),
         StatisticsGraphSpec(ChannelChartId.MessageContent, ChannelChartKind.Bar, statistics.messageContentGraph),
         StatisticsGraphSpec(ChannelChartId.Actions, ChannelChartKind.Line, statistics.actionGraph),
-        StatisticsGraphSpec(ChannelChartId.ViewsByWeekday, ChannelChartKind.Bar, statistics.weekGraph)
+        StatisticsGraphSpec(ChannelChartId.MessagesByWeekday, ChannelChartKind.Bar, statistics.weekGraph)
     )
 
     /**

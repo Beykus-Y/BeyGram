@@ -111,6 +111,14 @@ class AutoDownloadPolicyTest {
         assertEquals(AutoDownloadCategory.Files, MediaKind.Sticker.autoDownloadCategory())
     }
 
+    @Test fun stickersDownloadOnEveryNetwork() {
+        assertEquals(AutoDownloadDecision.Allowed, decide(MediaKind.Sticker, 64 * 1024, AutoDownloadNetwork.Mobile))
+        assertEquals(AutoDownloadDecision.Allowed, decide(MediaKind.Sticker, 64 * 1024, AutoDownloadNetwork.Roaming))
+        assertEquals(AutoDownloadDecision.Allowed, decide(MediaKind.Sticker, 0, AutoDownloadNetwork.Mobile, secretChat = true))
+        assertEquals(AutoDownloadDenial.SecretContent, reason(decide(MediaKind.Sticker, 64 * 1024, AutoDownloadNetwork.Wifi, secret = true)))
+        assertEquals(AutoDownloadDenial.NoNetwork, reason(decide(MediaKind.Sticker, 64 * 1024, AutoDownloadNetwork.None)))
+    }
+
     @Test fun unlimitedRuleAllowsAnyKnownSize() {
         val unlimited = settings.copy(
             wifi = settings.wifi.with(AutoDownloadCategory.Photos, AutoDownloadRule(true, Long.MAX_VALUE))

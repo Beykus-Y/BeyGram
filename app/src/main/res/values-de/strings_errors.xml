@@ -145,6 +145,10 @@
     <string name="channel_statistics_chart_content">Nachrichtentypen</string>
     <string name="channel_statistics_chart_actions">Aktivität der Mitglieder</string>
     <string name="channel_statistics_chart_weekday">Aufrufe nach Wochentag</string>
+    <string name="channel_statistics_chart_group_members">Mitgliederwachstum</string>
+    <string name="channel_statistics_chart_group_joins">Beitritte und Austritte</string>
+    <string name="channel_statistics_chart_messages_by_hour">Nachrichten nach Uhrzeit</string>
+    <string name="channel_statistics_chart_messages_by_weekday">Nachrichten nach Wochentag</string>
     <string name="channel_statistics_chart_max">Maximum: %1$s</string>
     <string name="channel_statistics_chart_range">Maximum: %1$s · Minimum: %2$s</string>
     <string name="channel_statistics_chart_scaled">Linien mit eigener Skala</string>

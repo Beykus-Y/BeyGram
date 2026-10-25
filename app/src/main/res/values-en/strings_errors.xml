@@ -44,6 +44,10 @@
     <string name="channel_statistics_chart_content">Message types</string>
     <string name="channel_statistics_chart_actions">Member activity</string>
     <string name="channel_statistics_chart_weekday">Views by weekday</string>
+    <string name="channel_statistics_chart_group_members">Member growth</string>
+    <string name="channel_statistics_chart_group_joins">Joins and leaves</string>
+    <string name="channel_statistics_chart_messages_by_hour">Messages by hour</string>
+    <string name="channel_statistics_chart_messages_by_weekday">Messages by day of week</string>
     <string name="channel_statistics_chart_max">Maximum: %1$s</string>
     <string name="channel_statistics_chart_range">Maximum: %1$s · minimum: %2$s</string>
     <string name="channel_statistics_chart_scaled">Lines use separate scales</string>
