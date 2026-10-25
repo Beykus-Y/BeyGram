@@ -227,6 +227,8 @@
     <string name="chats_section_pinned">ЗАКРЕПЛЁННЫЕ</string>
     <string name="chats_start_conversation">Начните общение</string>
     <string name="chats_title">Сообщения</string>
+    <string name="chats_detail_empty_title">Выберите чат</string>
+    <string name="chats_detail_empty_hint">Откройте переписку в списке слева. Список останется под рукой.</string>
     <string name="saved_messages_title">Избранное</string>
     <string name="saved_messages_open_description">Открыть «Избранное»</string>
     <string name="common_back">Назад</string>

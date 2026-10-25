@@ -8,6 +8,8 @@
     <string name="recorder_light_failed">Kamerablitz konnte nicht eingeschaltet werden</string>
     <string name="recorder_light_off_failed">Kamerablitz konnte nicht ausgeschaltet werden. Versuchen Sie es erneut</string>
     <string name="chats_title">Chats</string>
+    <string name="chats_detail_empty_title">Chat auswählen</string>
+    <string name="chats_detail_empty_hint">Öffnen Sie links in der Liste eine Unterhaltung. Die Liste bleibt griffbereit.</string>
     <string name="settings_title">Einstellungen</string>
     <string name="settings_group_interface">Oberfläche</string>
     <string name="settings_group_devices_privacy">Geräte und Privatsphäre</string>

@@ -8,6 +8,8 @@
     <string name="recorder_light_failed">Unable to turn on camera flash</string>
     <string name="recorder_light_off_failed">Unable to turn off camera flash. Try again</string>
     <string name="chats_title">Chats</string>
+    <string name="chats_detail_empty_title">Select a chat</string>
+    <string name="chats_detail_empty_hint">Open a conversation from the list on the left. The list stays within reach.</string>
     <string name="settings_title">Settings</string>
     <string name="settings_group_interface">Interface</string>
     <string name="settings_group_devices_privacy">Devices and privacy</string>
