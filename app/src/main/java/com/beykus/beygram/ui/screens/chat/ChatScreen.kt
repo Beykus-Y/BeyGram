@@ -1380,6 +1380,7 @@ fun ChatScreen(
             if (composerDraftLaunchKey == it.key) composerDraftLaunchKey = null
         }
     )
+    AttachmentMediaHost(attachments)
     }
     // Each unacknowledged video draft remains in the app center. Only the oldest is shown;
     // later previews are retained, not overwritten by a second showPreview() call.

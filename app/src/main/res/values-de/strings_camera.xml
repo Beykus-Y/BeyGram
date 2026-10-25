@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="composer_type_camera">Kamera</string>
+
+    <string name="camera_close_description">Kamera schließen</string>
+    <string name="camera_mode_photo">Foto</string>
+    <string name="camera_mode_video">Video</string>
+    <string name="camera_mode_photo_description">Fotomodus</string>
+    <string name="camera_mode_video_description">Videomodus</string>
+    <string name="camera_capture_description">Foto aufnehmen</string>
+    <string name="camera_record_start_description">Videoaufnahme starten</string>
+    <string name="camera_record_stop_description">Aufnahme stoppen</string>
+    <string name="camera_recording_description">Videoaufnahme läuft</string>
+    <string name="camera_recording_time">%1$s / %2$s</string>
+    <string name="camera_switch_description">Kamera wechseln</string>
+
+    <string name="camera_timer_off">Timer aus</string>
+    <string name="camera_timer_three">3 s</string>
+    <string name="camera_timer_ten">10 s</string>
+    <string name="camera_timer_description">Timer: %1$s</string>
+    <string name="camera_timer_off_value">aus</string>
+    <string name="camera_timer_seconds_value">%1$d s</string>
+    <string name="camera_timer_cancel">Zum Abbrechen tippen</string>
+
+    <string name="camera_flash_on">Blitz einschalten</string>
+    <string name="camera_flash_off">Blitz ausschalten</string>
+    <string name="camera_flash_unavailable">Blitz ist für diese Kamera nicht verfügbar</string>
+    <string name="camera_flash_failed">Blitz konnte nicht umgeschaltet werden</string>
+
+    <string name="camera_duration_seconds">%1$d s</string>
+    <string name="camera_duration_minutes">%1$d Min.</string>
+    <string name="camera_video_limit_description">Dauer: %1$s</string>
+    <string name="camera_limit_summary">Fotos bis 10 MB · Videos bis 2 GB, 60 Minuten</string>
+
+    <string name="camera_permission_title">Kamerazugriff nötig</string>
+    <string name="camera_permission_message">Erlaube BeyGram den Kamerazugriff, um Fotos und Videos aufzunehmen, ohne den Chat zu verlassen.</string>
+    <string name="camera_permission_audio_missing">Ohne Mikrofonzugriff wird das Video ohne Ton aufgenommen.</string>
+    <string name="camera_permission_action">Erlauben</string>
+    <string name="camera_permission_denied">Kamerazugriff wurde nicht erlaubt</string>
+
+    <string name="camera_error_open">Kamera konnte nicht geöffnet werden</string>
+    <string name="camera_error_capture">Foto konnte nicht aufgenommen werden</string>
+    <string name="camera_error_record">Video konnte nicht aufgenommen werden</string>
+    <string name="camera_error_too_short">Aufnahme ist zu kurz</string>
+
+    <string name="err_video_compress_failed">Video konnte nicht komprimiert werden</string>
+</resources>

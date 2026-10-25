@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +42,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -50,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.MediaLimits
 import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
@@ -59,6 +63,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * Attachment flow state. The UI is inline (a panel above the input field), so the chat screen
@@ -74,6 +79,8 @@ internal class AttachmentState(
     private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>
 ) {
     var menuOpen by mutableStateOf(false)
+    var cameraOpen by mutableStateOf(false)
+        private set
     var importing by mutableStateOf(false)
         private set
     var sending by mutableStateOf(false)
@@ -89,7 +96,7 @@ internal class AttachmentState(
 
     fun prepare(uris: List<android.net.Uri>, asDocument: Boolean) {
         if (uris.isEmpty()) return
-        if (uris.size > 10) { errorState.value = context.getString(R.string.composer_too_many_attachments); return }
+        if (uris.size > MediaLimits.MAX_ATTACHMENTS) { errorState.value = context.getString(R.string.composer_too_many_attachments); return }
         importJob = scope.launch {
             importing = true
             errorState.value = null
@@ -101,6 +108,39 @@ internal class AttachmentState(
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { errorState.value = failure.userMessage(context, R.string.composer_prepare_failed) }
             finally { importing = false }
+        }
+    }
+
+    /** Full-screen camera entry; it hands one cache file back and closes without leaving the chat. */
+    fun openCamera() {
+        if (sending || importing) return
+        menuOpen = false
+        errorState.value = null
+        cameraOpen = true
+    }
+
+    fun closeCamera() {
+        cameraOpen = false
+    }
+
+    fun acceptCapture(file: File) {
+        cameraOpen = false
+        if (sending || importing) {
+            file.delete()
+            return
+        }
+        importJob = scope.launch {
+            importing = true
+            errorState.value = null
+            try {
+                val prepared = importer.prepareLocal(file)
+                pendingState.value = ArrayList(pending + prepared)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { errorState.value = failure.userMessage(context, R.string.composer_prepare_failed) }
+            finally {
+                importing = false
+                file.delete()
+            }
         }
     }
 
@@ -118,6 +158,7 @@ internal class AttachmentState(
         importing = false
         errorState.value = null
         menuOpen = false
+        cameraOpen = false
         scope.launch { discarded.forEach { importer.discard(it) } }
     }
 
@@ -179,6 +220,8 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
 internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLimit: Int) {
     val palette = beyGramPalette()
     val context = LocalContext.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
     val visible = state.menuOpen || state.active || state.error != null
     if (!visible) return
     Column(Modifier.fillMaxWidth().background(palette.surface).padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 2.dp)) {
@@ -191,6 +234,12 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        TypeChip(Icons.Rounded.PhotoCamera, stringResource(R.string.composer_type_camera)) {
+                            state.menuOpen = false
+                            focus.clearFocus()
+                            keyboard?.hide()
+                            state.openCamera()
+                        }
                         TypeChip(Icons.Rounded.Image, stringResource(R.string.composer_type_photo_video)) { state.menuOpen = false; state.pickPhotos() }
                         TypeChip(Icons.Rounded.Description, stringResource(R.string.composer_type_file)) { state.menuOpen = false; state.pickDocuments() }
                     }
