@@ -253,12 +253,15 @@ internal fun BotWebAppScreen(session: BotWebAppLaunch, title: String, onClose: (
 
 /** The only app data passed to TDLib is the active palette; nothing about the account or message is exposed. */
 internal fun BeyGramPalette.toBotWebAppTheme() = BotWebAppTheme(
-    background = screen.toArgb(),
-    surface = surface.toArgb(),
-    text = textPrimary.toArgb(),
-    textSecondary = textSecondary.toArgb(),
-    accent = accent.toArgb(),
-    onAccent = onAccent.toArgb(),
-    divider = divider.toArgb(),
-    danger = danger.toArgb()
+    background = screen.toArgb().rgb(),
+    surface = surface.toArgb().rgb(),
+    text = textPrimary.toArgb().rgb(),
+    textSecondary = textSecondary.toArgb().rgb(),
+    accent = accent.toArgb().rgb(),
+    onAccent = onAccent.toArgb().rgb(),
+    divider = divider.toArgb().rgb(),
+    danger = danger.toArgb().rgb()
 )
+
+/** TDLib ThemeParameters uses RGB, while Compose colors are ARGB. */
+private fun Int.rgb(): Int = this and 0xFFFFFF
