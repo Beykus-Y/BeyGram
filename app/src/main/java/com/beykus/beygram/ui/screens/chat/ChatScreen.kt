@@ -433,51 +433,7 @@ fun ChatScreen(
     // View-once is a regular-private-chat photo/video feature. TDLib rejects per-message self-destruct in secret chats,
     // groups, channels and Saved Messages, so those keep only the separate chat-wide TTL controls.
     val allowViewOnce = !chat.isSecret && !chat.isGroup && !chat.isChannel && !chat.isSavedMessages
-    attachments.allowsPolls = !chat.isSecret
-    var pollComposerOpen by remember(chat.id) { mutableStateOf(false) }
-    var contactPickerOpen by remember(chat.id) { mutableStateOf(false) }
-    var dicePickerOpen by remember(chat.id) { mutableStateOf(false) }
-    var contactPickerContacts by remember(chat.id) { mutableStateOf<List<ContactPreview>?>(null) }
-    var contactPickerLoading by remember(chat.id) { mutableStateOf(false) }
-    var contactPickerError by remember(chat.id) { mutableStateOf<String?>(null) }
-    fun loadContactPicker() {
-        if (contactPickerLoading) return
-        contactPickerLoading = true
-        contactPickerError = null
-        scope.launch {
-            conversation.contacts()
-                .onSuccess { contactPickerContacts = it }
-                .onFailure { contactPickerError = it.userMessage(context, R.string.contact_picker_load_failed) }
-            contactPickerLoading = false
-        }
-    }
-    LaunchedEffect(contactPickerOpen) {
-        if (contactPickerOpen && contactPickerContacts == null && !contactPickerLoading) loadContactPicker()
-    }
-    fun locateNow() {
-        val request = attachments.beginLocationRequest() ?: return
-        scope.launch {
-            val point = currentGeoPoint(context).getOrNull()
-            val accepted = attachments.completeLocationRequest(request, point?.let { MessageExtraDraft.Location(it) })
-            if (accepted && point == null) attachments.reportError(context.getString(R.string.chat_location_unavailable))
-        }
-    }
-    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        if (granted.values.any { it }) {
-            locateNow()
-        } else {
-            attachments.reportError(context.getString(R.string.chat_location_permission_denied))
-        }
-    }
-    fun requestLocation() {
-        if (attachments.sending || attachments.importing || attachments.locating) return
-        if (hasLocationPermission(context)) locateNow()
-        else locationPermission.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
-    }
-    attachments.pickPoll = { pollComposerOpen = true }
-    attachments.pickLocation = { requestLocation() }
-    attachments.pickContact = { contactPickerOpen = true }
-    attachments.pickDice = { dicePickerOpen = true }
+    ComposerExtraPickers(chat.id, chat.isSecret, conversation, attachments)
     val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, accountId = accountId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.
@@ -1966,31 +1922,6 @@ fun ChatScreen(
         onSendNow = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions()) },
         onSendSilently = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(disableNotification = true)) },
         onSchedule = { at -> sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(scheduledAtSeconds = at)) }
-    )
-    if (pollComposerOpen) PollComposerDialog(
-        onDismiss = { pollComposerOpen = false },
-        onSend = { poll ->
-            pollComposerOpen = false
-            attachments.prepareExtra(MessageExtraDraft.Poll(poll))
-        }
-    )
-    if (contactPickerOpen) ContactPickerDialog(
-        contacts = contactPickerContacts.orEmpty(),
-        loading = contactPickerLoading && contactPickerContacts == null,
-        error = contactPickerError,
-        onRetry = ::loadContactPicker,
-        onDismiss = { contactPickerOpen = false },
-        onPick = { contact ->
-            contactPickerOpen = false
-            attachments.prepareExtra(MessageExtraDraft.Contact(contact.userId, contact.title))
-        }
-    )
-    if (dicePickerOpen) DicePickerDialog(
-        onDismiss = { dicePickerOpen = false },
-        onPick = { emoji ->
-            dicePickerOpen = false
-            attachments.prepareExtra(MessageExtraDraft.Dice(emoji))
-        }
     )
     if (scheduledMessagesOpen) ScheduledMessagesDialog(
         chatId = chat.id,
