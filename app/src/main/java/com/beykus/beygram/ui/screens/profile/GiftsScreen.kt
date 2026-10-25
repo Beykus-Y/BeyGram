@@ -85,6 +85,7 @@ import java.util.Date
 
 @Composable
 fun GiftsScreen(
+    accountId: String,
     title: String,
     profileId: Long,
     profileTitle: String,
@@ -108,13 +109,14 @@ fun GiftsScreen(
     // A send runs in the process-scoped store below, so rotation and navigation cannot
     // cancel a purchase or lose its result. This marker only survives process death.
     var pendingGiftId by rememberSaveable { mutableStateOf(0L) }
-    val retained by RetainedGiftSendStore.state.collectAsState()
+    val retainedByAccount by RetainedGiftSendStore.states.collectAsState()
+    val retained = retainedByAccount[accountId]
     val retainedRelevant = retained?.let { it.profileId == profileId && it.isSelf == isSelf } == true
     val sending = step is GiftSendStep.Sending || retained?.inFlight == true
 
     BackHandler { if (!sending) onBack() }
     LaunchedEffect(Unit) {
-        if (RetainedGiftSendStore.state.value == null && pendingGiftId != 0L) {
+        if (RetainedGiftSendStore.states.value[accountId] == null && pendingGiftId != 0L) {
             notice = context.getString(R.string.gifts_send_uncertain)
             noticeIsError = true
             step = GiftSendStep.Failed(pendingGiftId, uncertain = true)
@@ -164,7 +166,9 @@ fun GiftsScreen(
             noticeIsError = true
         }
         selectedGift = null
-        RetainedGiftSendStore.acknowledge()
+        // An uncertain result stays in the retained store until the explicit acknowledgement;
+        // a definite result has already been delivered to the user.
+        if (outcome != GiftSendOutcome.Uncertain) RetainedGiftSendStore.acknowledge(accountId)
     }
     LaunchedEffect(reload) {
         loading = true
@@ -217,7 +221,7 @@ fun GiftsScreen(
             selectedGift = null
             return
         }
-        val started = RetainedGiftSendStore.start(profileId, isSelf, gift.id) { send(gift.id) }
+        val started = RetainedGiftSendStore.start(accountId, profileId, isSelf, gift.id) { send(gift.id) }
         if (!started) {
             notice = context.getString(R.string.gifts_block_busy)
             noticeIsError = true
@@ -279,7 +283,7 @@ fun GiftsScreen(
                                     TextButton(
                                         onClick = {
                                             pendingGiftId = 0L
-                                            RetainedGiftSendStore.acknowledge()
+                                            RetainedGiftSendStore.acknowledge(accountId)
                                             notice = null
                                             noticeIsError = false
                                             reload++
@@ -706,14 +710,19 @@ private data class RetainedGiftSend(
 
 private object RetainedGiftSendStore {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val _state = MutableStateFlow<RetainedGiftSend?>(null)
-    val state: StateFlow<RetainedGiftSend?> = _state.asStateFlow()
+    private val _states = MutableStateFlow<Map<String, RetainedGiftSend>>(emptyMap())
+    val states: StateFlow<Map<String, RetainedGiftSend>> = _states.asStateFlow()
 
-    /** Returns false when a previous operation or an unacknowledged result still exists. */
-    fun start(profileId: Long, isSelf: Boolean, giftId: Long, send: suspend () -> GiftSendOutcome): Boolean {
-        val current = _state.value
-        if (current != null) return false
-        _state.value = RetainedGiftSend(profileId, isSelf, giftId, inFlight = true)
+    /** Returns false when the same account already has an operation or an unacknowledged result. */
+    fun start(
+        accountId: String,
+        profileId: Long,
+        isSelf: Boolean,
+        giftId: Long,
+        send: suspend () -> GiftSendOutcome
+    ): Boolean {
+        if (_states.value[accountId] != null) return false
+        update(accountId, RetainedGiftSend(profileId, isSelf, giftId, inFlight = true))
         scope.launch {
             val outcome = try {
                 send()
@@ -725,12 +734,16 @@ private object RetainedGiftSendStore {
             } catch (_: Exception) {
                 GiftSendOutcome.Uncertain
             }
-            _state.value = RetainedGiftSend(profileId, isSelf, giftId, inFlight = false, outcome = outcome)
+            update(accountId, RetainedGiftSend(profileId, isSelf, giftId, inFlight = false, outcome = outcome))
         }
         return true
     }
 
-    fun acknowledge() {
-        _state.value = null
+    fun acknowledge(accountId: String) {
+        _states.value = _states.value - accountId
+    }
+
+    private fun update(accountId: String, value: RetainedGiftSend) {
+        _states.value = _states.value + (accountId to value)
     }
 }

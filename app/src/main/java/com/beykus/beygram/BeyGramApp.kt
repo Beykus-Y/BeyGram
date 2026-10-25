@@ -1722,6 +1722,7 @@ private fun BeyGramAppContent(
                     LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
                 } else {
                     GiftsScreen(
+                        accountId = selectedAccountId,
                         title = stringResource(
                             if (giftsProfileSelf) R.string.gifts_title_own else R.string.gifts_title
                         ),
