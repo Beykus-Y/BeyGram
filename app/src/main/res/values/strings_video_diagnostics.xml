@@ -133,7 +133,7 @@
     <string name="vn_report_timing_line">  интервал p50/p95/макс %1$s/%2$s/%3$s мс, покрытие %4$s мс, база %5$s, ожидалось кадров %6$s, оценка пропусков %7$s, повторных метк (возможных дубликатов) %8$d, обратный порядок %9$d</string>
     <string name="vn_report_timing_audio">  звук: отсчётов %1$d, интервал p50/p95/макс %2$s/%3$s/%4$s мс, повторных метк %5$d</string>
     <string name="vn_report_timing_av">  A/V: смещение в начале %1$s мс, в конце %2$s мс, дрейф %3$s мс: %4$s</string>
-    <string name="vn_report_timing_export">  Media3: кадров записано %1$d, в контейнере %2$d, разница %3$d; это не оценка визуального качества</string>
+    <string name="vn_report_timing_export">  Экспорт: кадров записано %1$d, в контейнере %2$d, разница %3$d; это не оценка визуального качества</string>
     <string name="vn_entry_timing_unknown">Тайминг кадров: недостаточно меток времени для оценки интервалов и пропусков (UNKNOWN)</string>
     <string name="vn_entry_av_unmeasured">A/V-синхронность не измерена: недостаточно корректных меток видео (UNKNOWN)</string>
     <string name="vn_timing_source_file">из файла</string>

@@ -132,7 +132,7 @@
     <string name="vn_report_timing_line">  Intervall p50/p95/max %1$s/%2$s/%3$s ms, Abdeckung %4$s ms, Basis %5$s, erwartete Frames %6$s, geschätzte fehlende Frames %7$s, wiederholte Zeitstempel (mögliche Duplikate) %8$d, ungeordnete Zeitstempel %9$d</string>
     <string name="vn_report_timing_audio">  Audio: Samples %1$d, Intervall p50/p95/max %2$s/%3$s/%4$s ms, wiederholte Zeitstempel %5$d</string>
     <string name="vn_report_timing_av">  A/V: Offset am Anfang %1$s ms, am Ende %2$s ms, Drift %3$s ms: %4$s</string>
-    <string name="vn_report_timing_export">  Media3: codierte Frames %1$d, Samples im Container %2$d, Differenz %3$d; das ist keine Schätzung der visuellen Qualität</string>
+    <string name="vn_report_timing_export">  Export: codierte Frames %1$d, Samples im Container %2$d, Differenz %3$d; das ist keine Schätzung der visuellen Qualität</string>
     <string name="vn_entry_timing_unknown">Frame-Timing: nicht genügend Zeitstempel für eine Schätzung von Intervallen und fehlenden Frames (UNKNOWN)</string>
     <string name="vn_entry_av_unmeasured">A/V-Synchronität nicht gemessen: nicht genügend gültige Video-Zeitstempel (UNKNOWN)</string>
     <string name="vn_timing_source_file">aus der Datei</string>

@@ -113,7 +113,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     var fullJson by rememberSaveable { mutableStateOf(false) }
     var compactFull by rememberSaveable { mutableStateOf(false) }
     var confirmClear by rememberSaveable { mutableStateOf(false) }
-    var cameraSurvey by rememberSaveable { mutableStateOf<String?>(null) }
+    var cameraSurvey by remember { mutableStateOf<String?>(null) }
     var cameraSurveyBusy by remember { mutableStateOf(false) }
     val fpsCheck by VideoNoteFpsCheck.state.collectAsStateWithLifecycle()
     var showFpsCheck by rememberSaveable { mutableStateOf(false) }
@@ -140,9 +140,9 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     }
     var showFullDiagnostics by rememberSaveable { mutableStateOf(false) }
     var fullExtended by rememberSaveable { mutableStateOf(false) }
-    var latestSurvey by rememberSaveable { mutableStateOf<String?>(null) }
+    var latestSurvey by remember { mutableStateOf<String?>(null) }
     var showFullReport by rememberSaveable { mutableStateOf(false) }
-    var highSpeedReport by rememberSaveable { mutableStateOf<String?>(null) }
+    var highSpeedReport by remember { mutableStateOf<String?>(null) }
     var highSpeedBusy by remember { mutableStateOf(false) }
     var showHighSpeed by rememberSaveable { mutableStateOf(false) }
     var qualityLenses by remember { mutableStateOf<List<RecordingLens>>(emptyList()) }
@@ -181,8 +181,8 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     val highSpeedPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) runHighSpeed()
     }
-    var fullRunActive by rememberSaveable { mutableStateOf(false) }
-    var fullRunStarted by rememberSaveable { mutableStateOf(false) }
+    var fullRunActive by remember { mutableStateOf(false) }
+    var fullRunStarted by remember { mutableStateOf(false) }
     suspend fun surveyReport(): String {
         cameraSurveyBusy = true
         return try {
