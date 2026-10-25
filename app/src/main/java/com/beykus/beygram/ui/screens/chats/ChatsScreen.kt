@@ -56,6 +56,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.Text
@@ -186,6 +187,13 @@ fun ChatsScreen(
     val folderLoad = activeFolderId?.let { folderLoadStates[it] } ?: TelegramFolderLoadState(hasMore = false)
     val palette = beyGramPalette()
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    // In the two-pane layout the list stays composed beside the open chat. Tapping a chat must
+    // still drop the search keyboard, as leaving the whole list does on a phone.
+    val openChat: (ChatPreview) -> Unit = { chat ->
+        focusManager.clearFocus()
+        onChatClick(chat)
+    }
     // The split list pane is narrower than a phone: the title and side paddings give room to the
     // header actions (saved messages, account switcher, avatar) without pushing them off-screen.
     val headerPadding = if (compactHeader) 14.dp else 20.dp
@@ -317,7 +325,7 @@ fun ChatsScreen(
                         modifier = Modifier.semantics { heading() })
                 }
                 (chats + archivedChats).firstOrNull { it.isSavedMessages }?.let { saved ->
-                    androidx.compose.material3.IconButton(onClick = { onChatClick(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
+                    androidx.compose.material3.IconButton(onClick = { openChat(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
                         Icon(Icons.Rounded.Bookmark, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                     }
                 }
@@ -406,7 +414,7 @@ fun ChatsScreen(
                         downloadFile = downloadFile,
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
-                        onClick = { onChatClick(chat) },
+                        onClick = { openChat(chat) },
                         onLongClick = { selectedActions = chat },
                         read = readAction.copy(enabled = showsUnreadIndicator(chat)),
                         primary = archiveAction,
@@ -454,7 +462,7 @@ fun ChatsScreen(
                         downloadFile = downloadFile,
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
-                        onClick = { onChatClick(chat) },
+                        onClick = { openChat(chat) },
                         onLongClick = { selectedActions = chat },
                         read = readAction.copy(enabled = showsUnreadIndicator(chat)),
                         primary = archiveAction,
