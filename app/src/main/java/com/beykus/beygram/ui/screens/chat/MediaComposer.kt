@@ -274,9 +274,12 @@ internal class AttachmentState(
                     }
                     val originalCopy = stagedOriginal
                     val replaced = session.replaceItem
-                    if (!keepOriginal && replaced != null) {
-                        pendingState.value = ArrayList(pending.filterNot { it.path == replaced.path } + edited + listOfNotNull(originalCopy))
-                        runCatching { importer.discard(replaced) }
+                    if (replaced != null) {
+                        val withoutReplaced = pending.filterNot { it.path == replaced.path }
+                        // "Keep original" promises a separate file, so a retained photo becomes a document.
+                        val retained = if (keepOriginal) replaced.copy(kind = MediaKind.Document) else null
+                        pendingState.value = ArrayList(withoutReplaced + edited + listOfNotNull(retained))
+                        if (!keepOriginal) runCatching { importer.discard(replaced) }
                     } else {
                         pendingState.value = ArrayList(pending + edited + listOfNotNull(originalCopy))
                     }

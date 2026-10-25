@@ -399,8 +399,8 @@ internal class CameraCaptureController(
         takeStopRequested = true
         clockJob?.cancel()
         clockJob = null
-        startingRecording = false
-        // Keep `recording` true until CameraX finalizes the file: the shutter must not start a second take.
+        // Keep both busy flags until Finalize: stopping before Start must not reopen the shutter.
+        // `recording` stays true after Start, `startingRecording` stays true before it.
         runCatching { activeRecording?.stop() }
             .onFailure { onError(context.getString(R.string.camera_error_record)) }
     }
@@ -422,7 +422,9 @@ internal class CameraCaptureController(
         clockJob = scope.launch {
             while (recording) {
                 elapsedMs = SystemClock.elapsedRealtime() - takeStartedAt
-                if (elapsedMs >= videoLimitSeconds * 1000L + 250L) {
+                // Stop with headroom: CameraX finalization adds samples, and the import pipeline
+                // rounds up to whole seconds. An auto-stopped 60-minute take must stay <= 60:00.
+                if (elapsedMs >= videoLimitSeconds * 1000L - AUTO_STOP_HEADROOM_MS) {
                     stopRecording()
                     break
                 }
@@ -486,5 +488,7 @@ internal class CameraCaptureController(
 
     companion object {
         private const val CAPTURE_DIRECTORY = "media-capture"
+        /** Leave room for CameraX finalization and the importer's ceil(duration) before the hard cap. */
+        private const val AUTO_STOP_HEADROOM_MS = 1_000L
     }
 }
