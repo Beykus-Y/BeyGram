@@ -44,4 +44,28 @@
     <string name="camera_error_too_short">Запись слишком короткая</string>
 
     <string name="err_video_compress_failed">Не удалось сжать видео</string>
+
+    <string name="composer_edit_photo_named">Изменить фото «%1$s»</string>
+    <string name="photo_editor_title">Редактор фото</string>
+    <string name="photo_editor_close_description">Закрыть редактор</string>
+    <string name="photo_editor_apply">Готово</string>
+    <string name="photo_editor_saving">Сохраняем фото…</string>
+    <string name="photo_editor_preview_failed">Не удалось открыть фото</string>
+    <string name="photo_editor_failed">Не удалось сохранить изменения</string>
+    <string name="photo_editor_original_failed">Не удалось приложить оригинал фото</string>
+    <string name="photo_editor_rotate_left">Влево</string>
+    <string name="photo_editor_rotate_right">Вправо</string>
+    <string name="photo_editor_crop_hint">Перетащите рамку или её углы</string>
+    <string name="photo_editor_crop_description">Область кадрирования</string>
+    <string name="photo_editor_aspect_free">Свободно</string>
+    <string name="photo_editor_aspect_square">1:1</string>
+    <string name="photo_editor_aspect_four_three">4:3</string>
+    <string name="photo_editor_aspect_sixteen_nine">16:9</string>
+    <string name="photo_editor_quality_title">Качество и размер</string>
+    <string name="photo_editor_quality_high">Высокое · 2560 px</string>
+    <string name="photo_editor_quality_balanced">Обычное · 1600 px</string>
+    <string name="photo_editor_quality_compact">Экономное · 1280 px</string>
+    <string name="photo_editor_keep_original">Сохранить оригинал</string>
+    <string name="photo_editor_keep_original_hint">Оригинал отправится отдельным файлом.</string>
+    <string name="photo_editor_send_original">Отправить без изменений</string>
 </resources>

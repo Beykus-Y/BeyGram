@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,7 +55,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.MediaLimits
+import com.beykus.beygram.data.media.NormalizedCrop
 import com.beykus.beygram.data.media.OutgoingMediaImporter
+import com.beykus.beygram.data.media.PhotoEditor
+import com.beykus.beygram.data.media.PhotoExportQuality
+import com.beykus.beygram.data.media.PhotoRotation
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -64,6 +69,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
+
+/** A photo opened in the editor: either a temporary camera take or an already staged attachment. */
+internal data class PhotoEditorSession(
+    val sourcePath: String,
+    val temporary: Boolean,
+    val replaceItem: OutgoingMedia? = null
+)
 
 /**
  * Attachment flow state. The UI is inline (a panel above the input field), so the chat screen
@@ -81,6 +93,12 @@ internal class AttachmentState(
     var menuOpen by mutableStateOf(false)
     var cameraOpen by mutableStateOf(false)
         private set
+    var editor by mutableStateOf<PhotoEditorSession?>(null)
+        private set
+    var editorSaving by mutableStateOf(false)
+        private set
+    var editorError by mutableStateOf<String?>(null)
+        private set
     var importing by mutableStateOf(false)
         private set
     var sending by mutableStateOf(false)
@@ -88,6 +106,7 @@ internal class AttachmentState(
     val pending: List<OutgoingMedia> get() = pendingState.value
     val error: String? get() = errorState.value
     private var importJob: Job? = null
+    private var editorJob: Job? = null
     var pickPhotos: () -> Unit = {}
     var pickDocuments: () -> Unit = {}
 
@@ -123,8 +142,80 @@ internal class AttachmentState(
         cameraOpen = false
     }
 
-    fun acceptCapture(file: File) {
+    /** A camera photo opens the editor first; "send original" is one tap away inside it. */
+    fun capturePhoto(file: File) {
         cameraOpen = false
+        editorError = null
+        editor = PhotoEditorSession(file.absolutePath, temporary = true)
+    }
+
+    fun acceptVideoCapture(file: File) {
+        cameraOpen = false
+        importCaptureFile(file)
+    }
+
+    fun editPhoto(item: OutgoingMedia) {
+        if (item.kind != com.beykus.beygram.domain.model.MediaKind.Photo || sending || importing) return
+        menuOpen = false
+        editorError = null
+        editor = PhotoEditorSession(item.path, temporary = false, replaceItem = item)
+    }
+
+    fun cancelPhotoEditor() {
+        if (editorSaving) return
+        val session = editor ?: return
+        editor = null
+        editorError = null
+        if (session.temporary) File(session.sourcePath).delete()
+    }
+
+    /** Sends the untouched camera take without creating an edited copy. */
+    fun sendEditorOriginal() {
+        val session = editor ?: return
+        if (editorSaving) return
+        editor = null
+        editorError = null
+        if (session.temporary) importCaptureFile(File(session.sourcePath))
+    }
+
+    fun savePhotoEdit(rotation: PhotoRotation, crop: NormalizedCrop, quality: PhotoExportQuality, keepOriginal: Boolean) {
+        val session = editor ?: return
+        if (editorSaving) return
+        editorJob = scope.launch {
+            editorSaving = true
+            editorError = null
+            try {
+                val exported = PhotoEditor(context).export(File(session.sourcePath), rotation, crop, quality)
+                try {
+                    val edited = importer.importEditedPhoto(exported.file, exported.mimeType, exported.width, exported.height)
+                    val additions = mutableListOf<OutgoingMedia>()
+                    if (keepOriginal && session.temporary) {
+                        // The user explicitly asked to keep the source: stage it as a separate file.
+                        val original = runCatching {
+                            importer.prepareLocal(File(session.sourcePath), asDocument = true, displayName = "original-${File(session.sourcePath).name}")
+                        }.getOrNull()
+                        if (original != null) additions += original
+                        else errorState.value = context.getString(R.string.photo_editor_original_failed)
+                    }
+                    val replaced = session.replaceItem
+                    if (!keepOriginal && replaced != null) {
+                        pendingState.value = ArrayList(pending.filterNot { it.path == replaced.path } + additions + edited)
+                        importer.discard(replaced)
+                    } else {
+                        pendingState.value = ArrayList(pending + additions + edited)
+                    }
+                    editor = null
+                    if (session.temporary) File(session.sourcePath).delete()
+                } finally {
+                    exported.file.delete()
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { editorError = failure.userMessage(context, R.string.photo_editor_failed) }
+            finally { editorSaving = false }
+        }
+    }
+
+    private fun importCaptureFile(file: File) {
         if (sending || importing) {
             file.delete()
             return
@@ -153,6 +244,11 @@ internal class AttachmentState(
     fun discardAll() {
         if (sending) return
         importJob?.cancel()
+        editorJob?.cancel()
+        editor?.let { session -> if (session.temporary) File(session.sourcePath).delete() }
+        editor = null
+        editorSaving = false
+        editorError = null
         val discarded = pending.toList()
         pendingState.value = arrayListOf()
         importing = false
@@ -264,6 +360,21 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                             Column(Modifier.padding(horizontal = 8.dp).width(112.dp)) {
                                 Text(item.fileName, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                 Text("${item.kind.label(context)} · ${formatMediaSize(item.size)}", color = palette.textSecondary, fontSize = 12.sp, maxLines = 1)
+                            }
+                            if (item.kind == com.beykus.beygram.domain.model.MediaKind.Photo) {
+                                IconButton(
+                                    onClick = { state.editPhoto(item) },
+                                    enabled = !state.sending && !state.importing,
+                                    modifier = Modifier.size(48.dp).semantics {
+                                        contentDescription = context.getString(R.string.composer_edit_photo_named, item.fileName)
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.Edit, contentDescription = null,
+                                        tint = palette.textSecondary.copy(alpha = if (state.sending || state.importing) 0.38f else 1f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                             AttachmentRemoveButton(
                                 fileName = item.fileName,

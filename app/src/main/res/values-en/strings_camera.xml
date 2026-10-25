@@ -44,4 +44,28 @@
     <string name="camera_error_too_short">Recording is too short</string>
 
     <string name="err_video_compress_failed">Could not compress the video</string>
+
+    <string name="composer_edit_photo_named">Edit photo “%1$s”</string>
+    <string name="photo_editor_title">Photo editor</string>
+    <string name="photo_editor_close_description">Close editor</string>
+    <string name="photo_editor_apply">Done</string>
+    <string name="photo_editor_saving">Saving photo…</string>
+    <string name="photo_editor_preview_failed">Could not open the photo</string>
+    <string name="photo_editor_failed">Could not save the changes</string>
+    <string name="photo_editor_original_failed">Could not attach the original photo</string>
+    <string name="photo_editor_rotate_left">Left</string>
+    <string name="photo_editor_rotate_right">Right</string>
+    <string name="photo_editor_crop_hint">Drag the frame or its corners</string>
+    <string name="photo_editor_crop_description">Crop area</string>
+    <string name="photo_editor_aspect_free">Free</string>
+    <string name="photo_editor_aspect_square">1:1</string>
+    <string name="photo_editor_aspect_four_three">4:3</string>
+    <string name="photo_editor_aspect_sixteen_nine">16:9</string>
+    <string name="photo_editor_quality_title">Quality and size</string>
+    <string name="photo_editor_quality_high">High · 2560 px</string>
+    <string name="photo_editor_quality_balanced">Balanced · 1600 px</string>
+    <string name="photo_editor_quality_compact">Compact · 1280 px</string>
+    <string name="photo_editor_keep_original">Keep original</string>
+    <string name="photo_editor_keep_original_hint">The original will be sent as a separate file.</string>
+    <string name="photo_editor_send_original">Send without changes</string>
 </resources>
