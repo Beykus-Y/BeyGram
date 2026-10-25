@@ -383,7 +383,7 @@ internal fun MediaPreview(
         return
     }
     if (media.kind == MediaKind.Sticker) {
-        StickerPreview(media, file, thumb, downloadFile, onOpen, onLongPress)
+        StickerPreview(media, file, thumb, downloadFile, onOpen, onLongPress, autoDownloadFile = autoDownload)
         return
     }
     if (isVisual) {

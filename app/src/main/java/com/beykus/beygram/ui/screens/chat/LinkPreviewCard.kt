@@ -106,7 +106,7 @@ private fun LinkPreviewPhoto(
     LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
     val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
     val file by remember(fileId) { observeFile(fileId) }.collectAsStateWithLifecycle()
-    LaunchedEffect(fileId, file.localPath, file.size, file.isDownloading, policySettings, policyNetwork) {
+    LaunchedEffect(fileId, file.localPath, file.size, policySettings, policyNetwork) {
         if (file.localPath == null && !file.isDownloading) {
             val request = AutoDownloadRequest(
                 fileId = fileId,
