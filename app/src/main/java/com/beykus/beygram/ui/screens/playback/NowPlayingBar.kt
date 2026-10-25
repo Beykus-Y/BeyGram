@@ -189,8 +189,8 @@ internal fun NowPlayingControls(
         if (state.failed) Text(stringResource(R.string.media_audio_play_failed), color = colors.secondary, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
         Slider(
             value = state.fraction,
-            onValueChange = { PlaybackEngine.seekTo(it) },
-            enabled = enabled && state.durationMs > 0,
+            onValueChange = { PlaybackEngine.seekTo(it, fallbackDurationMs = item.durationSeconds * 1000L) },
+            enabled = enabled && (state.durationMs > 0L || item.durationSeconds > 0),
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

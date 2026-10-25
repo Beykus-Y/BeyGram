@@ -71,6 +71,7 @@ fun ProfileScreen(
     setPreviousProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Previous photo unavailable")) },
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
     onManage: (() -> Unit)? = null,
+    onStatistics: (() -> Unit)? = null,
     onSetBlocked: suspend (Boolean) -> Result<Unit> = { Result.failure(IllegalStateException()) },
     onReportSpam: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
     onDelete: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
@@ -79,7 +80,9 @@ fun ProfileScreen(
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)? = null,
     confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
     forwardMessage: suspend (Long, Long) -> Result<Unit> = { _, _ -> Result.failure(IllegalStateException()) }, chats: List<ChatPreview> = emptyList(),
-    onContentOpened: (Long) -> Unit = {}, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit = { _, _ -> }
+    onContentOpened: (Long) -> Unit = {}, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit = { _, _ -> },
+    /** Repository-backed automatic download for shared media and profile galleries. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -105,9 +108,10 @@ fun ProfileScreen(
         info = groupInfo, state = state, lastSeenStyle = lastSeenStyle, observeFile = observeFile, downloadFile = downloadFile,
         onBack = { if (!saving && !preparing) onBack() }, onRefresh = onRefresh, onAvatarClick = { showPhoto = true },
         onDelete = onDelete, onDeleted = onDeleted,
-        onMembers = onMembers, onOpenUser = onOpenUser, sharedMessages = sharedMessages, confirmExport = confirmExport,
+        onMembers = onMembers, onOpenUser = onOpenUser, onStatistics = onStatistics,
+        sharedMessages = sharedMessages, confirmExport = confirmExport,
         messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
-        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage
+        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage, autoDownloadFile = autoDownloadFile
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
             if (!isOwnProfile) ChatInfoMenu(
@@ -161,7 +165,7 @@ fun ProfileScreen(
                 }
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
-                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage)
+                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
             }
@@ -176,7 +180,8 @@ fun ProfileScreen(
             profileId = state.info?.id ?: 0L, avatar = photo, own = isOwnProfile,
             observeFile = observeFile, downloadFile = downloadFile, loadPhotos = loadProfilePhotos,
             deletePhoto = deleteMyProfilePhoto, setAsMain = setPreviousProfilePhoto,
-            onChanged = onRefresh, onClose = { showPhoto = false }
+            onChanged = onRefresh, onClose = { showPhoto = false },
+            autoDownloadFile = autoDownloadFile
         )
     }
     pendingPhoto?.let { selected ->

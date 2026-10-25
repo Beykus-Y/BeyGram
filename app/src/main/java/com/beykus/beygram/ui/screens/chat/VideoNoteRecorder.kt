@@ -11,6 +11,7 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
+import android.os.Build
 import android.os.StatFs
 import android.os.SystemClock
 import android.util.Range
@@ -93,6 +94,7 @@ import com.beykus.beygram.data.media.VideoNoteFpsCheck
 import com.beykus.beygram.data.media.VideoNoteFpsDecision
 import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.data.media.previewFrameRateFor
+import com.beykus.beygram.data.media.yesNoUnknown
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.VideoQualityPreset
 import com.beykus.beygram.data.media.videoMirrorToggleSupported
@@ -560,6 +562,13 @@ internal class VideoNoteRecorder(
         current.recording?.stop()
     }
 
+    /** Localized light source for the diagnostics report; never claims that a torch was on. */
+    private fun lightSourceLabel(): String = context.getString(when (lightMode) {
+        VideoNoteLightMode.Torch -> R.string.vn_light_torch
+        VideoNoteLightMode.Screen -> R.string.vn_light_screen
+        VideoNoteLightMode.Unavailable -> R.string.vn_light_unavailable
+    })
+
     /**
      * Одно правило и для превью, и для записи: иначе отправленный кружок расходится с тем, что видно при съёмке.
      * До API 33 переключателя нет, и фронтальная запись отражается как превью PreviewView.
@@ -726,7 +735,14 @@ internal class VideoNoteRecorder(
                 sensorTap.record(
                     result.get(CaptureResult.SENSOR_TIMESTAMP), result.get(CaptureResult.SENSOR_EXPOSURE_TIME),
                     crop?.let { "${it.left},${it.top} ${it.width()}x${it.height()}" },
-                    if (android.os.Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null
+                    if (android.os.Build.VERSION.SDK_INT >= 30) result.get(CaptureResult.CONTROL_ZOOM_RATIO) else null,
+                    frameDurationNs = result.get(CaptureResult.SENSOR_FRAME_DURATION),
+                    targetFpsRange = result.get(CaptureResult.CONTROL_AE_TARGET_FPS_RANGE)?.let { it.lower..it.upper },
+                    aeState = result.get(CaptureResult.CONTROL_AE_STATE),
+                    videoStabilizationMode = if (Build.VERSION.SDK_INT >= 33) {
+                        result.get(CaptureResult.CONTROL_VIDEO_STABILIZATION_MODE)
+                    } else null,
+                    opticalStabilizationMode = result.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE)
                 )
             }
         })
@@ -751,6 +767,8 @@ internal class VideoNoteRecorder(
             captureBitrate = videoCameraBitrate(settings)
         )
         if (settings.diagnosticsEnabled) {
+            VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_light,
+                lightSourceLabel(), yesNoUnknown(context, lightEnabled)))
             VideoNoteDiagnostics.append(sessionName, context.getString(R.string.vn_entry_fov_viewport))
             VideoNoteDiagnostics.append(sessionName, context.getString(
                 if (captureFourThreeFallback) R.string.vn_entry_fov_capture_aspect_fallback
@@ -834,7 +852,10 @@ internal class VideoNoteRecorder(
             VideoNoteDiagnostics.recordCrop(current.sessionName, sensor?.crop, sensor?.zoom,
                 sensor?.firstCrop, sensor?.firstZoom,
                 sensor?.cropChanged == true || sensor?.zoomChanged == true)
-            VideoNoteDiagnostics.recordSensor(current.sessionName, sensor?.stats, sensor?.truncated == true)
+            VideoNoteDiagnostics.recordSensor(current.sessionName, sensor?.stats, sensor?.truncated == true, sensor?.ae)
+            VideoNoteCameraSurvey.thermalLine(context)?.let {
+                VideoNoteDiagnostics.append(current.sessionName, it)
+            }
         }
         Log.i(TAG, "video_recording_finalized session=${current.file.parentFile?.name} durationSeconds=$seconds error=${event.error} bytes=${current.file.length()}")
         val outcome = videoTakeOutcome(event.error, current.discard, seconds, current.stopRequested)

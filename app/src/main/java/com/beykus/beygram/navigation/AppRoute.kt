@@ -31,6 +31,7 @@ enum class AppRoute {
     Updates,
     VideoMessageSettings,
     StorageSettings,
+    AutoDownloadSettings,
     Diagnostics,
     Resources,
     GlobalSearch,
