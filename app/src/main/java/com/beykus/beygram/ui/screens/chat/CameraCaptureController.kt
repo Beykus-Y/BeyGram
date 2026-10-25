@@ -376,12 +376,13 @@ internal class CameraCaptureController(
     }
 
     private fun stopRecording() {
+        if (takeStopRequested) return
         if (!recording && !startingRecording) return
         takeStopRequested = true
         clockJob?.cancel()
         clockJob = null
         startingRecording = false
-        recording = false
+        // Keep `recording` true until CameraX finalizes the file: the shutter must not start a second take.
         runCatching { activeRecording?.stop() }
             .onFailure { onError(context.getString(R.string.camera_error_record)) }
     }

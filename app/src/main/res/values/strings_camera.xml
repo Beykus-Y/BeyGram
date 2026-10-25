@@ -13,6 +13,9 @@
     <string name="camera_recording_description">Идёт запись видео</string>
     <string name="camera_recording_time">%1$s / %2$s</string>
     <string name="camera_switch_description">Переключить камеру</string>
+    <string name="camera_preview_description">Видоискатель камеры</string>
+    <string name="camera_zoom_in">Приблизить</string>
+    <string name="camera_zoom_out">Отдалить</string>
 
     <string name="camera_timer_off">Таймер выкл.</string>
     <string name="camera_timer_three">3 с</string>

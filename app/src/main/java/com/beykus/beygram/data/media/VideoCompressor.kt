@@ -91,10 +91,11 @@ internal class VideoCompressor(private val context: Context) {
                     val holder = ProgressHolder()
                     while (isActive) {
                         val current = transformer
-                        if (current != null &&
-                            current.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE
-                        ) {
-                            onProgress((holder.progress / 100f).coerceIn(0f, 1f))
+                        if (current != null) {
+                            val state = runCatching { current.getProgress(holder) }.getOrNull()
+                            if (state == Transformer.PROGRESS_STATE_AVAILABLE) {
+                                onProgress((holder.progress / 100f).coerceIn(0f, 1f))
+                            }
                         }
                         delay(PROGRESS_INTERVAL_MS)
                     }

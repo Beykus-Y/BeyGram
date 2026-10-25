@@ -53,8 +53,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -91,6 +93,7 @@ internal fun CameraCaptureScreen(
     var audioGranted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
+    val cameraPreviewDescription = stringResource(R.string.camera_preview_description)
     val currentPhoto by rememberUpdatedState(onPhoto)
     val currentVideo by rememberUpdatedState(onVideo)
     val controller = remember(context, lifecycleOwner) {
@@ -126,9 +129,17 @@ internal fun CameraCaptureScreen(
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (cameraGranted) {
+            val zoomIn = stringResource(R.string.camera_zoom_in)
+            val zoomOut = stringResource(R.string.camera_zoom_out)
             Box(
                 Modifier.fillMaxSize().pointerInput(controller) {
                     detectTransformGestures { _, _, zoom, _ -> controller.zoomBy(zoom) }
+                }.semantics {
+                    contentDescription = cameraPreviewDescription
+                    customActions = listOf(
+                        CustomAccessibilityAction(zoomIn) { controller.zoomBy(1.5f); true },
+                        CustomAccessibilityAction(zoomOut) { controller.zoomBy(1f / 1.5f); true }
+                    )
                 }
             ) {
                 AndroidView(factory = { controller.previewView }, modifier = Modifier.fillMaxSize())

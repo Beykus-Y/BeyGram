@@ -109,7 +109,7 @@ internal fun PhotoEditorScreen(
         preview = loaded?.bitmap
         loadFailed = loaded == null
     }
-    BackHandler(enabled = !saving) { onCancel() }
+    BackHandler { if (!saving) onCancel() }
 
     // The preview is rotated in memory; the source bitmap stays untouched for repeated rotations.
     val shown = remember(preview, rotation) { preview?.let { editor.rotatePreview(it, rotation) } }

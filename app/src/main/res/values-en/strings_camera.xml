@@ -13,6 +13,9 @@
     <string name="camera_recording_description">Recording video</string>
     <string name="camera_recording_time">%1$s / %2$s</string>
     <string name="camera_switch_description">Switch camera</string>
+    <string name="camera_preview_description">Camera viewfinder</string>
+    <string name="camera_zoom_in">Zoom in</string>
+    <string name="camera_zoom_out">Zoom out</string>
 
     <string name="camera_timer_off">Timer off</string>
     <string name="camera_timer_three">3 s</string>

@@ -13,6 +13,9 @@
     <string name="camera_recording_description">Videoaufnahme läuft</string>
     <string name="camera_recording_time">%1$s / %2$s</string>
     <string name="camera_switch_description">Kamera wechseln</string>
+    <string name="camera_preview_description">Kamera-Sucher</string>
+    <string name="camera_zoom_in">Vergrößern</string>
+    <string name="camera_zoom_out">Verkleinern</string>
 
     <string name="camera_timer_off">Timer aus</string>
     <string name="camera_timer_three">3 s</string>
