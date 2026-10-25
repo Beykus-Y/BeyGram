@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
@@ -94,7 +95,9 @@ internal fun MessageAlbumBubble(
     onReaction: (Long, ReactionOption) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     onRetry: () -> Unit = {},
-    commentsBar: (@Composable () -> Unit)? = null
+    commentsBar: (@Composable () -> Unit)? = null,
+    /** Repository-backed automatic preview download; null falls back to the manual callback for previews. */
+    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     if (messages.isEmpty()) return
     val palette = beyGramPalette()
@@ -127,7 +130,7 @@ internal fun MessageAlbumBubble(
                             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                 rowMessages.forEach { message ->
                                     val media = message.media ?: return@forEach
-                                    AlbumMediaTile(media, observeFile, onDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) }, Modifier.weight(1f))
+                                    AlbumMediaTile(media, observeFile, onDownloadFile, onAutoDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) }, Modifier.weight(1f))
                                 }
                                 repeat(columns - rowMessages.size) { SpacerTile(Modifier.weight(1f)) }
                             }
@@ -166,6 +169,7 @@ private fun AlbumMediaTile(
     media: MessageMedia,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
+    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)?,
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
     modifier: Modifier = Modifier
@@ -181,9 +185,22 @@ private fun AlbumMediaTile(
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val visual = media.kind in setOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
+    val autoDownload = onAutoDownloadFile ?: LocalAutoDownloadFile.current
     // Секретное вложение в альбоме не грузим и не показываем до открытия, как в ленте.
     val imagePath = if (media.isSecret) null else if (media.mimeType.startsWith("image/") && file.size <= 300_000) file.localPath ?: thumb.localPath else thumb.localPath
-    LaunchedEffect(thumbId, revealed) { if (!media.isSecret && revealed && visual) onDownloadFile(thumbId) }
+    LaunchedEffect(thumbId, revealed, thumb.size, media.isSecret, media.isSecretChat, media.hasSpoiler) {
+        if (!media.isSecret && !media.isSecretChat && revealed && visual) {
+            val request = AutoDownloadRequest(
+                fileId = thumbId,
+                kind = MediaKind.Photo,
+                sizeBytes = thumb.size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat,
+                hasSpoiler = media.hasSpoiler
+            )
+            if (autoDownload != null) autoDownload(request) else onDownloadFile(thumbId)
+        }
+    }
 
     Box(modifier.aspectRatio(1f).padding(1.dp).clip(RoundedCornerShape(5.dp)).background(palette.disabled)
         .combinedClickable(

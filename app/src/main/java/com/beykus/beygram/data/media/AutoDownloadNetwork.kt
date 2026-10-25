@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import kotlinx.coroutines.CoroutineScope
@@ -42,23 +43,18 @@ internal fun currentAutoDownloadNetwork(context: Context): AutoDownloadNetwork {
     val manager = context.getSystemService(ConnectivityManager::class.java) ?: return AutoDownloadNetwork.None
     val active = manager.activeNetwork ?: return AutoDownloadNetwork.None
     val activeCaps = manager.getNetworkCapabilities(active) ?: return AutoDownloadNetwork.None
-    val candidates = buildList {
-        add(activeCaps)
-        manager.allNetworks.forEach { network ->
-            manager.getNetworkCapabilities(network)?.let(::add)
-        }
-    }
-    val activeTransport = activeCaps.takeIf {
-        !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-            (it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || it.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR))
-    }
-    val transport = activeTransport ?: candidates.firstOrNull {
-        it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) && !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-            it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-    } ?: candidates.firstOrNull {
-        it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) && !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-            it.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-    }
+    val vpn = activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+    // For a VPN, only its own reported underlying networks are authoritative. Looking at every
+    // connected network can pick an unrelated captive-portal Wi-Fi while traffic goes over cellular.
+    val underlying = if (vpn && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        activeCaps.underlyingNetworks.orEmpty()
+            .mapNotNull { manager.getNetworkCapabilities(it) }
+            .filter {
+                !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    (it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || it.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR))
+            }
+    } else emptyList()
+    val transport = if (!vpn) activeCaps else underlying.firstOrNull()
     val wifi = transport?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
     val mobile = transport?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
     val wifiMetered = wifi && transport?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
@@ -68,7 +64,7 @@ internal fun currentAutoDownloadNetwork(context: Context): AutoDownloadNetwork {
         hasInternet = activeCaps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
         wifi = wifi,
         mobile = mobile,
-        vpn = activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+        vpn = vpn,
         roaming = roaming,
         wifiMetered = wifiMetered
     )

@@ -1125,7 +1125,8 @@ fun ChatScreen(
                                 onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
                                 commentsBar = albumComments?.let { post ->
                                     { ChannelCommentsBar(listItem.messages.maxOfOrNull { it.replyCount } ?: 0) { onOpenComments(post) } }
-                                })
+                                },
+                                onAutoDownloadFile = onAutoDownloadFile)
                         }
                     }
                 } else {

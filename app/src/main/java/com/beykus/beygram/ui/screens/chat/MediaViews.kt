@@ -753,6 +753,7 @@ private fun MediaViewerPage(
             totalSize = file.size,
             completed = { observeFile(media.fileId).value.localPath != null },
             downloading = { observeFile(media.fileId).value.isDownloading },
+            readablePrefix = { observeFile(media.fileId).value.downloadedPrefixBytes },
             onNeedMore = {
                 val latest = observeFile(media.fileId).value
                 autoDownloadFile(
@@ -940,6 +941,8 @@ private data class ProgressiveVideoSource(
     val totalSize: Long,
     val completed: () -> Boolean,
     val downloading: () -> Boolean,
+    /** TDLib's contiguous readable prefix; bytes beyond it may be unwritten or garbage. */
+    val readablePrefix: () -> Long,
     val onNeedMore: () -> Unit
 )
 
@@ -955,6 +958,7 @@ private class ProgressiveFileDataSource(
     private val totalSize: Long,
     private val isComplete: () -> Boolean,
     private val isDownloading: () -> Boolean,
+    private val readablePrefix: () -> Long,
     private val onNeedMore: () -> Unit
 ) : DataSource {
     private var file: RandomAccessFile? = null
@@ -982,7 +986,11 @@ private class ProgressiveFileDataSource(
         val startedAt = SystemClock.elapsedRealtime()
         var requestedAt = 0L
         while (true) {
-            val available = opened.length() - position
+            // TDLib documents that an incomplete file may contain unavailable/garbage regions:
+            // only downloadedPrefixSize is guaranteed readable. Never use file.length() as a boundary
+            // before completion.
+            val readable = if (isComplete()) opened.length() else minOf(readablePrefix(), opened.length())
+            val available = readable - position
             if (available > 0L) {
                 val toRead = minOf(available, length.toLong()).toInt()
                 val read = opened.read(buffer, offset, toRead)
@@ -1076,6 +1084,7 @@ private fun LocalVideo(
                     totalSize = growth.totalSize,
                     isComplete = growth.completed,
                     isDownloading = growth.downloading,
+                    readablePrefix = growth.readablePrefix,
                     onNeedMore = growth.onNeedMore
                 )
             }

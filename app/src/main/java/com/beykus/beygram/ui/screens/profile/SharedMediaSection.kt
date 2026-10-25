@@ -69,6 +69,7 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
+import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.MediaViewer
 import com.beykus.beygram.ui.screens.chat.MediaViewerActions
 import com.beykus.beygram.ui.screens.chat.MediaViewerItem
@@ -509,14 +510,27 @@ internal fun sharedRowAction(media: MessageMedia, localPath: String?): SharedRow
  * Видео без превью не грузим: TDLib отдал бы весь файл, а картинки нет. Секретные вложения не грузим и не показываем.
  */
 @Composable
-internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit, modifier: Modifier = Modifier, autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null) {
     val palette = beyGramPalette()
     val thumbId = media.thumbnailFileId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
     // У секретного вложения превью не показываем, поэтому спойлер ему не нужен: сразу открываем.
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler || media.isSecret) }
     val loadPreview = shouldLoadSharedPreview(media, revealed)
-    LaunchedEffect(thumbId, loadPreview) { if (loadPreview) downloadFile(thumbId) }
+    val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
+    LaunchedEffect(thumbId, loadPreview, thumb.size, media.isSecret, media.isSecretChat, media.hasSpoiler) {
+        if (loadPreview) {
+            val request = AutoDownloadRequest(
+                fileId = thumbId,
+                kind = MediaKind.Photo,
+                sizeBytes = thumb.size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat,
+                hasSpoiler = media.hasSpoiler
+            )
+            if (autoDownload != null) autoDownload(request) else downloadFile(thumbId)
+        }
+    }
     Box(
         modifier.aspectRatio(1f).clip(RoundedCornerShape(4.dp)).background(palette.disabled)
             .clickable(onClick = { if (!revealed) revealed = true else onClick() }),
