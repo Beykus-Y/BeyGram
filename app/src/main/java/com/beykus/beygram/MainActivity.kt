@@ -53,6 +53,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
 import com.beykus.beygram.ui.screens.chat.LocalChatWallpaper
+import com.beykus.beygram.ui.screens.chat.SecureWindowFlags
 import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.chats.LocalChatListDensity
 import com.beykus.beygram.ui.screens.chats.chatListDensityFor
@@ -83,6 +84,8 @@ class MainActivity : FragmentActivity() {
         // must not produce an unprotected frame just because the new composition has not run yet.
         screenSecure = savedInstanceState?.getBoolean("secure_screen", false) ?: false
         secretPlayback = savedInstanceState?.getBoolean("secret_playback", false) ?: false
+        // Secret chat screens and view-once viewers hold FLAG_SECURE too; the app lock must not clear it under them.
+        SecureWindowFlags.registerPolicy(window) { applyWindowPrivacy() }
         // Protect the very first frame: a locked cold start must not flash the task snapshot
         // of a previous, already authenticated session.
         applyWindowPrivacy()
@@ -287,13 +290,18 @@ class MainActivity : FragmentActivity() {
      * secret playback all require FLAG_SECURE; the optional Recents setting additionally
      * hides the task snapshot while the app is in the background.
      */
+    override fun onDestroy() {
+        SecureWindowFlags.unregisterPolicy(window)
+        super.onDestroy()
+    }
+
     private fun applyWindowPrivacy() {
         val settings = appLock.store.settings.value
         val protectRecents = settings.isActive || settings.hideRecents
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             setRecentsScreenshotEnabled(!protectRecents)
         }
-        val secure = (appLock.locked.value && settings.isActive) || screenSecure || secretPlayback ||
+        val secure = (appLock.locked.value && settings.isActive) || screenSecure || secretPlayback || SecureWindowFlags.isHeld(window) ||
             (!windowResumed && protectRecents && !isChangingConfigurations)
         if (secure) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)

@@ -7,7 +7,12 @@ package com.beykus.beygram.domain.model
 data class MessageSendOptions(
     val disableNotification: Boolean = false,
     /** Unix timestamp in seconds, or null to send immediately. */
-    val scheduledAtSeconds: Long? = null
+    val scheduledAtSeconds: Long? = null,
+    /**
+     * Sends a single photo/video as self-destructing "view once" media. This is TDLib's per-message
+     * MessageSelfDestructTypeImmediately, not the chat-wide auto-delete timer.
+     */
+    val viewOnce: Boolean = false
 ) {
     companion object {
         /**

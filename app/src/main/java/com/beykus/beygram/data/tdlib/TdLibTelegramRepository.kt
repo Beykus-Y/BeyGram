@@ -75,6 +75,7 @@ import com.beykus.beygram.domain.model.StorageCategory
 import com.beykus.beygram.domain.model.StorageUsage
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
+import com.beykus.beygram.domain.model.SecretChatDetails
 import com.beykus.beygram.domain.model.QrLoginLinkTracker
 import com.beykus.beygram.domain.model.QrLoginLinkUpdate
 import com.beykus.beygram.domain.model.QR_LOGIN_REFRESH_TIMEOUT_MS
@@ -202,6 +203,8 @@ class TdLibTelegramRepository private constructor(
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
     private val accountSecurity = TdAccountSecurity(tdRequests)
+    private val secretChatDirectory = TdSecretChats(tdRequests)
+    @Volatile private var secretChatSession = 0L
     private val payments = TdPayments(tdRequests)
     private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
     private val messageDrafts = TdChatDrafts(appContext, accountId) { client }
@@ -981,6 +984,41 @@ class TdLibTelegramRepository private constructor(
         val chat = TdRequests { client }(TdApi.CreatePrivateChat(userId, false))
         handleNewChat(chat)
         chat.id
+    }
+
+    /** Device-specific E2E chat; TDLib validates the partner again before creating the keys. */
+    override suspend fun createSecretChat(userId: Long): Result<Long> = requestResult {
+        val chat = secretChatDirectory.create(userId)
+        handleNewChat(chat)
+        chat.id
+    }
+
+    override val secretChats: StateFlow<Map<Long, SecretChatDetails>> = secretChatDirectory.details
+
+    override fun refreshSecretChat(chatId: Long) {
+        val session = secretChatSession
+        chatListScope.launch {
+            if (session != secretChatSession) return@launch
+            try {
+                secretChatDirectory.load(chatId)
+            } catch (_: TimeoutCancellationException) {
+                // TDLib did not answer in time; a later open retries.
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Details are advisory; the chat remains usable and a later open retries the refresh.
+            }
+            // A response that raced with logout must not resurrect in-memory secret metadata.
+            if (session != secretChatSession) secretChatDirectory.remove(chatId)
+        }
+    }
+
+    override suspend fun setSecretChatTtl(chatId: Long, seconds: Int): Result<Unit> = requestResult {
+        secretChatDirectory.setTtl(chatId, seconds)
+    }
+
+    override suspend fun closeSecretChat(chatId: Long): Result<Unit> = requestResult {
+        secretChatDirectory.close(chatId)
     }
 
     /**
@@ -2386,6 +2424,17 @@ class TdLibTelegramRepository private constructor(
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(hasProtectedContent = update.hasProtectedContent) }
                 publishChat(update.chatId)
             }
+            is TdApi.UpdateSecretChat -> {
+                if (_authState.value == AuthState.Ready) {
+                    val chatId = chatCache.keys.firstOrNull { profiles.chat(it)?.type?.secretChatIdOrNull() == update.secretChat.id }
+                    if (chatId != null) {
+                        secretChatDirectory.apply(chatId, update.secretChat, profiles.chat(chatId)?.messageAutoDeleteTime ?: 0)
+                    }
+                }
+            }
+            is TdApi.UpdateChatMessageAutoDeleteTime -> {
+                if (_authState.value == AuthState.Ready) secretChatDirectory.applyTtl(update.chatId, update.messageAutoDeleteTime)
+            }
             is TdApi.UpdateChatPhoto -> {
                 chatCache[update.chatId]?.let { chatCache[update.chatId] = it.copy(photo = profiles.photo(update.photo)) }
                 publishChat(update.chatId)
@@ -2651,6 +2700,8 @@ class TdLibTelegramRepository private constructor(
                 groupRequestGeneration.incrementAndGet()
                 groupCreationPrefs.edit().remove("unconfirmed").apply()
                 _groupCreation.value = GroupCreationState.Idle
+                secretChatSession++
+                secretChatDirectory.clear()
                 clearFolderState()
                 messageDrafts.signedOut()
                 stories.signedOut()
@@ -2679,6 +2730,8 @@ class TdLibTelegramRepository private constructor(
                 // While the replacement client starts, the phone button must not send SetAuthenticationPhoneNumber
                 // to the closed client. WaitTdlibParameters -> WaitPhoneNumber will publish WaitingForPhone again.
                 _authState.value = if (reopeningLegacyClient) AuthState.Loading else AuthState.WaitingForPhone
+                secretChatSession++
+                secretChatDirectory.clear()
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
                 stories.signedOut()
@@ -2982,6 +3035,10 @@ class TdLibTelegramRepository private constructor(
         replyCount = interactionInfo?.replyInfo?.replyCount ?: 0,
         linkPreview = if (event == null) mediaMapper.linkPreview(content, secretChat) else null,
         scheduledAtSeconds = scheduledAt,
+        selfDestruct = messageSelfDestructOf(selfDestructType),
+        selfDestructInSeconds = selfDestructIn.takeIf { it > 0.0 }?.toLong(),
+        autoDeleteInSeconds = autoDeleteIn.takeIf { it > 0.0 }?.toLong(),
+        expiredMediaKind = expiredMediaKindOf(content),
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
                 reply.quote?.text?.text?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: reply.content?.let { replyText(it) } ?: UiText.Res(R.string.message_title))

@@ -226,6 +226,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Отправляет контакт в чат сообщением TDLib с карточкой и vCard. */
     suspend fun sendContact(chatId: Long, userId: Long): Result<Unit>
 
+    /**
+     * Creates a device-specific E2E secret chat with a regular user through CreateNewSecretChat and returns its chat id.
+     * The caller must not create one with itself or a bot; the implementation validates this again with TDLib.
+     */
+    suspend fun createSecretChat(userId: Long): Result<Long>
+
     /** Открывает личный чат с пользователем и возвращает идентификатор чата. */
     suspend fun openPrivateChat(userId: Long): Result<Long>
 

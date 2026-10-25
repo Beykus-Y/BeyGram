@@ -1,10 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.view.TextureView
-import android.view.WindowManager
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
@@ -72,14 +68,6 @@ private val NoThumbnailState = MutableStateFlow(MediaFileState(0)).asStateFlow()
 /** Голосовое и кружок играют прямо в ленте, поэтому тап по пузырю для них не открывает просмотрщик. */
 internal fun MediaKind.playsInline(): Boolean = this == MediaKind.Voice || this == MediaKind.VideoNote
 
-private fun Context.findActivity(): Activity? {
-    var context = this
-    while (context is ContextWrapper) {
-        if (context is Activity) return context
-        context = context.baseContext
-    }
-    return null
-}
 
 /** Кольцо прогресса поверх кружка: серая дорожка и дуга, которая заполняется до [fraction]. */
 @Composable
@@ -182,11 +170,7 @@ internal fun VideoNoteBubble(
     val size by animateDpAsState(targetValue = if (showing) playingSize else IDLE_SIZE, label = "video note size")
     // Секретный кружок во время проигрывания не должен попасть на скриншот или запись экрана.
     val secureWhilePlaying = media.isSecret && showing
-    DisposableEffect(secureWhilePlaying) {
-        val window = hostContext.findActivity()?.window
-        if (secureWhilePlaying) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { if (secureWhilePlaying) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-    }
+    SecureWindowWhileVisible(secureWhilePlaying)
     // Секретный кружок не играет, когда пузырь ушёл из списка.
     DisposableEffect(key) {
         onDispose { if (media.isSecret && PlaybackEngine.state.value.item?.key == key) PlaybackEngine.stopSecret() }
