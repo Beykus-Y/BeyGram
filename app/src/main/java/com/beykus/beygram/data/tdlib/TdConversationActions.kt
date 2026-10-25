@@ -312,6 +312,7 @@ internal class TdConversationActions(
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         requireFutureSchedule(options)
+        if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_media_only))
         val bounded = boundTelegramText(text, entities, limits.value.text)
         if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft }, replyId, forumTopicId, options)
@@ -322,14 +323,16 @@ internal class TdConversationActions(
     }.onFailure { recordSendFailure("contact", it) }
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         requireFutureSchedule(options)
+        requireViewOnceSupported(media, options)
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         val bounded = boundTelegramText(caption, entities, limits.value.caption)
-        send(chatId, media.toInputContent(bounded.text, bounded.entities), replyId, forumTopicId, options)
+        send(chatId, media.toInputContent(bounded.text, bounded.entities, selfDestructType(options)), replyId, forumTopicId, options)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
         requireFutureSchedule(options)
+        if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_single_media))
         val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
@@ -655,6 +658,18 @@ internal fun sendOptions(options: MessageSendOptions): TdApi.MessageSendOptions 
 
 private fun requireFutureSchedule(options: MessageSendOptions) {
     if (!options.scheduledTimeIsFuture()) throw UserMessageException(UiText.Res(R.string.err_schedule_time_future))
+}
+
+/** View-once is TDLib's per-message immediately-self-destructing photo/video. */
+internal fun selfDestructType(options: MessageSendOptions): TdApi.MessageSelfDestructType? =
+    if (options.viewOnce) TdApi.MessageSelfDestructTypeImmediately() else null
+
+private fun requireViewOnceSupported(media: OutgoingMedia, options: MessageSendOptions) {
+    if (!options.viewOnce) return
+    if (options.scheduledAtSeconds != null) throw UserMessageException(UiText.Res(R.string.err_view_once_scheduled))
+    if (media.kind !in setOf(MediaKind.Photo, MediaKind.Video)) {
+        throw UserMessageException(UiText.Res(R.string.err_view_once_media_only))
+    }
 }
 
 internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(text.take(180)) else UiText.Res(when (media?.kind) {

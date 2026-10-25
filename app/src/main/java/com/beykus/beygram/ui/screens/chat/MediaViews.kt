@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -250,7 +251,9 @@ internal fun MediaPreview(
     transcriptionRequestError: String? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
-    onRateTranscription: ((Boolean) -> Unit)? = null
+    onRateTranscription: ((Boolean) -> Unit)? = null,
+    /** A per-message view-once attachment: conceal it until the viewer is opened, even outside secret chats. */
+    viewOnce: Boolean = false
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -260,10 +263,11 @@ internal fun MediaPreview(
     val context = LocalContext.current
     val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
     // Секретное вложение в ленте не грузим и не показываем до открытия: превью иначе видно раньше просмотрщика.
-    val imageFile = if (media.isSecret) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
-    LaunchedEffect(thumbId, revealed) {
-        if (!media.isSecret && revealed && isVisual && (thumbId != media.fileId || media.mimeType.startsWith("image/") && file.size <= 300_000)) downloadFile(thumbId)
-        if (!media.isSecret && media.kind == MediaKind.Audio && thumbId != media.fileId) downloadFile(thumbId)
+    val concealed = media.isSecret || viewOnce
+    val imageFile = if (concealed) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
+    LaunchedEffect(thumbId, revealed, concealed) {
+        if (!concealed && revealed && isVisual && (thumbId != media.fileId || media.mimeType.startsWith("image/") && file.size <= 300_000)) downloadFile(thumbId)
+        if (!concealed && media.kind == MediaKind.Audio && thumbId != media.fileId) downloadFile(thumbId)
     }
     LaunchedEffect(media.fileId, thumb.localPath) {
         if (media.kind == MediaKind.Audio && thumbId != media.fileId) {
@@ -338,33 +342,47 @@ internal fun MediaPreview(
         val downloadLabel = stringResource(R.string.a11y_media_download, mediaLabel)
         val spoilerLabel = stringResource(R.string.media_spoiler_hint)
         val longPressLabel = stringResource(R.string.a11y_message_actions)
+        val viewOnceLabel = stringResource(R.string.media_view_once_label)
+        val viewOnceHint = stringResource(R.string.media_view_once_hint, mediaLabel)
         // Полного файла ещё нет: вместо растянутой миниатюры показываем размытую заглушку и кнопку загрузки.
-        val awaitingFile = revealed && !media.isSecret && file.localPath == null
+        val awaitingFile = revealed && !concealed && file.localPath == null
         Box(
             Modifier.width(244.dp).height((244 / ratio).coerceIn(120f, 280f).dp)
                 .background(palette.disabled)
                 .combinedClickable(
-                    onClickLabel = if (revealed) openLabel else spoilerLabel,
+                    onClickLabel = if (viewOnce) viewOnceLabel else if (revealed) openLabel else spoilerLabel,
                     onLongClickLabel = longPressLabel,
-                    onClick = { if (!revealed) revealed = true else onOpen() },
+                    onClick = { if (viewOnce || revealed) onOpen() else revealed = true },
                     onLongClick = onLongPress
                 ),
             contentAlignment = Alignment.Center
         ) {
-            if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
+            if (viewOnce) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Rounded.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                    Text(
+                        viewOnceHint,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            } else if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
             else if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize())
-            if (!revealed) Text(spoilerLabel, color = palette.textPrimary, modifier = Modifier.padding(16.dp))
-            else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
-            else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
-                val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
-                Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
-                    modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
+            if (!viewOnce) {
+                if (!revealed) Text(spoilerLabel, color = palette.textPrimary, modifier = Modifier.padding(16.dp))
+                else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
+                else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
+                    val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
+                    Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
+                        modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
+                }
+                if (revealed) Text(
+                    media.kind.label(context) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
+                    color = Color.White, fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
+                )
             }
-            if (revealed) Text(
-                media.kind.label(context) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
-                color = Color.White, fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
-            )
             if (file.isDownloading || file.isUploading) LinearProgressIndicator(
                 progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
                 modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
@@ -445,7 +463,7 @@ internal class MediaViewerActions(
 )
 
 /** Вложение в листаемом просмотрщике; [messageId] нужен для отметки «просмотрено» и действий над сообщением. */
-internal data class MediaViewerItem(val messageId: Long, val media: MessageMedia)
+internal data class MediaViewerItem(val messageId: Long, val media: MessageMedia, val viewOnce: Boolean = false)
 
 /** Фото и видео листаются вместе, и счётчик «N из M» считает их тоже вместе. */
 internal val viewerSwipeKinds = setOf(MediaKind.Photo, MediaKind.Video)
@@ -513,6 +531,7 @@ internal fun MediaViewer(
     val safeSettledPage = pagerState.settledPage.coerceIn(0, currentPages.lastIndex)
     // The secure flag must correspond to the actually visible media, not to a stale position.
     val settledMedia = currentPages[safeSettledPage].media
+    val settledViewOnce = currentPages[safeSettledPage].viewOnce
     val shownFile by remember(shown.media.fileId) { observeFile(shown.media.fileId) }.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -524,7 +543,7 @@ internal fun MediaViewer(
     LaunchedEffect(pagerState.settledPage) { controlsVisible = true }
     // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
     val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
-    val exportPath = if (canExport && !shown.media.isSecret && !shownHidden) shownFile.localPath else null
+    val exportPath = if (canExport && !shown.media.isSecret && !shown.viewOnce && !shownHidden) shownFile.localPath else null
     // Кнопки могут показывать право, пришедшее для соседнего вложения, поэтому каждое действие сверяет право заново.
     fun exportIfAllowed(messageId: Long, action: suspend () -> String?) {
         scope.launch { fileNotice = if (confirmExport(messageId)) action() else context.getString(R.string.media_export_denied) }
@@ -536,7 +555,7 @@ internal fun MediaViewer(
             if (externalError == null) onViewed(item.messageId)
         }
     }
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia, settledViewOnce)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         // Верхняя панель лежит поверх страницы: тап по картинке её прячет, крестик закрытия виден всегда.
         // Панель действий и сообщения стоят под страницей, потому что поверх неё лежит управление видео и аудио.
         Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -621,7 +640,7 @@ private fun MediaViewerPage(
     // Спойлер не грузится и не показывается, пока пользователь не раскроет именно эту страницу.
     val spoilerHidden = media.hasSpoiler && !media.isSecret && !revealed
     // Соседняя секретная страница при свайпе не грузится и ничего не показывает, даже если файл уже на диске.
-    val concealed = MediaViewerPolicy.concealed(media, active) || spoilerHidden
+    val concealed = MediaViewerPolicy.concealed(media, active) || (item.viewOnce && !active) || spoilerHidden
     val currentOnViewed by rememberUpdatedState(onViewed)
     // A spoiler page counts as opened only once the user reveals it, even when its file is already on disk.
     LaunchedEffect(media.fileId, file.localPath, active, spoilerHidden) {

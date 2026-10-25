@@ -18,6 +18,7 @@ data class MessageMedia(
     val height: Int = 0,
     val durationSeconds: Int = 0,
     val hasSpoiler: Boolean = false,
+    /** TDLib marks media that must stay hidden until opened (secret-chat or self-destructing content). */
     val isSecret: Boolean = false,
     /** Отсчёты волны голосового сообщения, каждый 0…31; для остальных типов пусто. */
     val waveform: List<Int> = emptyList(),

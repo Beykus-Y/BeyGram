@@ -14,21 +14,25 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -53,6 +57,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.ViewOncePolicy
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
@@ -78,6 +83,8 @@ internal class AttachmentState(
         private set
     var sending by mutableStateOf(false)
         private set
+    /** Per-message view-once flag; cleared whenever the pending set no longer supports it. */
+    var viewOnce by mutableStateOf(false)
     val pending: List<OutgoingMedia> get() = pendingState.value
     val error: String? get() = errorState.value
     private var importJob: Job? = null
@@ -176,10 +183,14 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
 
 /** Inline strip above the input: type picker, then the list of prepared attachments. */
 @Composable
-internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLimit: Int) {
+internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLimit: Int, allowViewOnce: Boolean = false) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val visible = state.menuOpen || state.active || state.error != null
+    val viewOnceAvailable = ViewOncePolicy.canSend(state.pending, allowViewOnce, scheduled = false)
+    LaunchedEffect(viewOnceAvailable, state.pending) {
+        if (!viewOnceAvailable) state.viewOnce = false
+    }
     if (!visible) return
     Column(Modifier.fillMaxWidth().background(palette.surface).padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 2.dp)) {
         if (!state.active) {
@@ -230,6 +241,20 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                 }
             }
             val count = caption.codePointCount(0, caption.length)
+            if (viewOnceAvailable) {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .toggleable(value = state.viewOnce, enabled = !state.sending, role = Role.Checkbox) { state.viewOnce = it }
+                        .padding(end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(checked = state.viewOnce, onCheckedChange = null, enabled = !state.sending)
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.composer_view_once), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.composer_view_once_hint), color = palette.textSecondary, fontSize = 12.sp)
+                    }
+                }
+            }
             Text("$count / $captionLimit", color = if (count > captionLimit) palette.danger else palette.textSecondary, fontSize = 12.sp,
                 modifier = Modifier.padding(start = 2.dp, bottom = 2.dp))
         }

@@ -80,6 +80,20 @@ interface ConversationRepository {
     suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences>
     /** Updates only sound/preview/mentions; mute and unrelated TDLib settings are preserved. */
     suspend fun setChatNotificationPreferences(chatId: Long, preferences: ChatNotificationPreferences): Result<Unit>
+    /**
+     * Secret-chat lifecycle and TTL by chat id. The map contains only chats whose details were requested or updated;
+     * a secret chat is device-specific, so this state is never persisted locally.
+     */
+    val secretChats: StateFlow<Map<Long, SecretChatDetails>>
+    /** Asks TDLib for SecretChat state and the current Chat.messageAutoDeleteTime; safe to call while opening. */
+    fun refreshSecretChat(chatId: Long)
+    /**
+     * Changes the chat-wide self-destruct timer for messages sent from now on (SetChatMessageAutoDeleteTime).
+     * Already delivered messages keep the TTL TDLib assigned them; this is not per-message view-once.
+     */
+    suspend fun setSecretChatTtl(chatId: Long, seconds: Int): Result<Unit>
+    /** CloseSecretChat; TDLib deletes the conversation and its messages, so callers must confirm first. */
+    suspend fun closeSecretChat(chatId: Long): Result<Unit>
     /** Notification sounds already saved in this Telegram account. */
     suspend fun savedNotificationSounds(): Result<List<NotificationSoundOption>>
     /** Translates a message with TDLib, preserving its formatting entities. Secret chats are refused locally. */

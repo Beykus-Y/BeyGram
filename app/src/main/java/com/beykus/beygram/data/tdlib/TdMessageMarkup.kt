@@ -64,6 +64,7 @@ internal fun ChatMessage.withUpdatedContent(
     isCallEvent = content is TdApi.MessageCall,
     entities = entities,
     media = media,
+    expiredMediaKind = expiredMediaKindOf(content),
     linkPreview = linkPreview
 )
 

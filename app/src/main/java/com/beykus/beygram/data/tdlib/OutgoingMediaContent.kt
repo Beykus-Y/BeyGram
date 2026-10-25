@@ -5,7 +5,11 @@ import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.OutgoingMedia
 import org.drinkless.tdlib.TdApi
 
-internal fun OutgoingMedia.toInputContent(caption: String, entities: List<MessageTextEntity> = emptyList()): TdApi.InputMessageContent {
+internal fun OutgoingMedia.toInputContent(
+    caption: String,
+    entities: List<MessageTextEntity> = emptyList(),
+    selfDestructType: TdApi.MessageSelfDestructType? = null
+): TdApi.InputMessageContent {
     val local = TdApi.InputFileLocal(path)
     val formattedCaption = formattedText(caption, entities)
     val thumb = thumbnailPath?.let { TdApi.InputThumbnail(TdApi.InputFileLocal(it), thumbnailWidth, thumbnailHeight) }
@@ -19,6 +23,7 @@ internal fun OutgoingMedia.toInputContent(caption: String, entities: List<Messag
                 addedStickerFileIds = intArrayOf()
             }
             this.caption = formattedCaption
+            this.selfDestructType = selfDestructType
         }
         MediaKind.Video -> TdApi.InputMessageVideo().apply {
             video = TdApi.InputVideo().apply {
@@ -32,6 +37,7 @@ internal fun OutgoingMedia.toInputContent(caption: String, entities: List<Messag
                 addedStickerFileIds = intArrayOf()
             }
             this.caption = formattedCaption
+            this.selfDestructType = selfDestructType
         }
         MediaKind.VideoNote -> TdApi.InputMessageVideoNote().apply {
             videoNote = local

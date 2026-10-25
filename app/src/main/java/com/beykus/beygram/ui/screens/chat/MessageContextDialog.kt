@@ -87,8 +87,8 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
             }
         }
     }
-    selected?.let { message -> message.media?.let { media -> MediaViewer(pages = listOf(MediaViewerItem(message.id, media)), selectedId = message.id, onSelect = {},
+    selected?.let { message -> message.media?.let { media -> MediaViewer(pages = listOf(MediaViewerItem(message.id, media, message.isViewOnce)), selectedId = message.id, onSelect = {},
         observeFile = observeFile, downloadFile = downloadFile, onViewed = { id -> conversation.openMessageContent(message.chatId, id) }, onClose = { selected = null },
-        canExport = MediaViewerPolicy.rightsFor(message.id, rights)?.canSave == true,
+        canExport = MediaViewerPolicy.rightsFor(message.id, rights)?.canSave == true && !message.isViewOnce,
         confirmExport = { id -> conversation.messageCapabilities(message.chatId, id).getOrNull()?.canSave == true }) } }
 }

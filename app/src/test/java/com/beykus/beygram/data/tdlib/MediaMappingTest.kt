@@ -38,6 +38,13 @@ class MediaMappingTest {
         assertEquals(1000, content.photo.width)
         assertEquals(160, content.photo.thumbnail.height)
         assertEquals("hello", content.caption.text)
+        assertNull(content.selfDestructType)
+    }
+
+    @Test fun viewOncePhotoCarriesTheSelfDestructType() {
+        val media = OutgoingMedia("/photo.jpg", "photo.jpg", "image/jpeg", MediaKind.Photo, 1000, 500)
+        val content = media.toInputContent("", selfDestructType = TdApi.MessageSelfDestructTypeImmediately()) as TdApi.InputMessagePhoto
+        assertTrue(content.selfDestructType is TdApi.MessageSelfDestructTypeImmediately)
     }
 
     @Test fun videoRequestPreservesDimensionsAndDuration() {
