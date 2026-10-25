@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
@@ -609,6 +610,8 @@ private fun EmptyState(filter: ChatFilter, query: String) {
 /** Текст последнего сообщения с префиксом автора: «Вы» для своих и имя отправителя в группах. */
 @Composable
 private fun previewLine(chat: ChatPreview, emptyPreview: Boolean): String {
+    // A secret chat's text must not appear in the chat list, Recents or a notification shade; only the lock label is shown.
+    if (chat.isSecret) return stringResource(R.string.chats_secret_chat)
     if (emptyPreview) return stringResource(if (chat.isGroup) R.string.chats_group_preview else R.string.chats_start_conversation)
     val author = when {
         chat.lastMessageOutgoing -> stringResource(R.string.chat_you)
@@ -686,7 +689,8 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         time = chat.lastMessageTime,
         unreadLabel = unreadLabel,
         mutedLabel = if (chat.isMuted) stringResource(R.string.a11y_chat_muted) else null,
-        statusLabel = sendStatusLabel(chat)
+        statusLabel = sendStatusLabel(chat),
+        secretLabel = if (chat.isSecret) stringResource(R.string.chats_secret_chat) else null
     )
     Row(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick, role = Role.Button)
@@ -699,6 +703,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         Column(modifier = Modifier.weight(1f)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (chat.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.accent, modifier = Modifier.padding(start = 4.dp).size(14.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(chat.lastMessageTime, color = if (unread) palette.accent else palette.textSecondary, fontSize = 12.sp, fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal)
             }
