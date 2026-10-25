@@ -22,6 +22,12 @@ class VideoNoteSessionConfigurationTest {
         assertEquals(VideoNoteSessionReason.SETUP_CHECK_UNAVAILABLE, reason)
     }
 
+    @Test fun missingSetupAnswerIsUnknownEvenIfAConfigurationAnswerExists() {
+        val (support, reason) = sessionConfigurationOutcome(apiLevel = 35, setupSupported = null, configurationSupported = true)
+        assertEquals(VideoNoteSessionSupport.UNKNOWN, support)
+        assertEquals(VideoNoteSessionReason.SETUP_CHECK_UNAVAILABLE, reason)
+    }
+
     @Test fun rejectedCombinationIsUnsupported() {
         val (support, reason) = sessionConfigurationOutcome(apiLevel = 35, setupSupported = true, configurationSupported = false)
         assertEquals(VideoNoteSessionSupport.UNSUPPORTED, support)

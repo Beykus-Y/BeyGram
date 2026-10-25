@@ -688,7 +688,8 @@ private fun DiagnosticsReportActions(
     // e-mails, phone numbers or handles leave the app even if a future entry adds one.
     val safeReport = VideoNoteReportRedactor.redact(report)
     var pendingSave by remember { mutableStateOf<String?>(null) }
-    val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+    val documentContract = remember(mimeType) { ActivityResultContracts.CreateDocument(mimeType) }
+    val createDocument = rememberLauncherForActivityResult(documentContract) { uri ->
         val content = pendingSave
         pendingSave = null
         if (uri != null && content != null) {

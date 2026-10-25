@@ -42,7 +42,7 @@ internal fun sessionConfigurationOutcome(
 ): Pair<VideoNoteSessionSupport, VideoNoteSessionReason> = when {
     apiLevel < 35 -> VideoNoteSessionSupport.UNKNOWN to VideoNoteSessionReason.API_TOO_OLD
     error != null -> VideoNoteSessionSupport.UNKNOWN to VideoNoteSessionReason.EXCEPTION
-    setupSupported == false -> VideoNoteSessionSupport.UNKNOWN to VideoNoteSessionReason.SETUP_CHECK_UNAVAILABLE
+    setupSupported != true -> VideoNoteSessionSupport.UNKNOWN to VideoNoteSessionReason.SETUP_CHECK_UNAVAILABLE
     configurationSupported == null -> VideoNoteSessionSupport.UNKNOWN to VideoNoteSessionReason.SETUP_CHECK_UNAVAILABLE
     configurationSupported -> VideoNoteSessionSupport.SUPPORTED to VideoNoteSessionReason.CONFIGURATION_SUPPORTED
     else -> VideoNoteSessionSupport.UNSUPPORTED to VideoNoteSessionReason.CONFIGURATION_REJECTED
