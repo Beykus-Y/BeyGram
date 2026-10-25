@@ -95,7 +95,8 @@ internal fun ChatSettingsSheet(
             error = null
             try {
                 conversation.setChatNotificationPreferences(chatId, next)
-                    .onSuccess { preferences = next }
+                    // Inherited values come from the scope, so read back what TDLib applies instead of echoing [next].
+                    .onSuccess { preferences = conversation.chatNotificationPreferences(chatId).getOrDefault(next) }
                     .onFailure { error = it.userMessage(context, R.string.chat_settings_save_failed) }
             } finally {
                 busy = false
@@ -196,12 +197,12 @@ internal fun ChatSettingsSheet(
                         title = stringResource(R.string.chat_settings_preview),
                         checked = current.showPreview,
                         enabled = !busy
-                    ) { saveNotifications(current.copy(showPreview = it)) }
+                    ) { saveNotifications(current.copy(showPreview = it, useDefaultShowPreview = false)) }
                     SettingSwitch(
                         title = stringResource(R.string.chat_settings_mentions),
                         checked = !current.disableMentionNotifications,
                         enabled = !busy
-                    ) { saveNotifications(current.copy(disableMentionNotifications = !it)) }
+                    ) { saveNotifications(current.copy(disableMentionNotifications = !it, useDefaultDisableMentionNotifications = false)) }
                     TextButton(
                         onClick = {
                             chooseWallpaper(null)

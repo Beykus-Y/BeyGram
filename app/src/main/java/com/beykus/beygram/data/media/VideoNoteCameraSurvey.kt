@@ -1,11 +1,21 @@
 package com.beykus.beygram.data.media
 
 import android.content.Context
+import android.annotation.SuppressLint
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.SessionConfiguration
+import android.media.ImageReader
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaCodecList
+import android.media.MediaFormat
 import android.media.MediaRecorder
+import android.os.Build
 import android.os.PowerManager
 import android.util.Size
 import androidx.camera.camera2.interop.Camera2CameraInfo
@@ -16,6 +26,7 @@ import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
 import com.beykus.beygram.R
 import java.util.Locale
+import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
 /** The lens the recorder would use for one facing, as the recording pipeline sees it. */
@@ -175,6 +186,7 @@ internal object VideoNoteCameraSurvey {
     fun recordingDecisionsReport(context: Context, settings: VideoMessageSettings): String = buildString {
         appendLine(context.getString(R.string.camera_report_recording_heading, settings.requestedFrameRateRange().toText()))
         val lenses = recordingLenses(context)
+        val manager = context.getSystemService(CameraManager::class.java)
         if (lenses.isEmpty()) appendLine(context.getString(R.string.camera_report_recording_unavailable))
         lenses.forEach { lens ->
             val plan = recordingPlan(context, settings, lens.cameraId, lens.ranges, lens.cameraInfo)
@@ -187,7 +199,19 @@ internal object VideoNoteCameraSurvey {
             appendLine(context.getString(R.string.camera_report_recording_candidates,
                 decision.normalCandidates.joinToString { it.toText() }.ifBlank { "—" },
                 yesNoUnknown(context, decision.encoderSupports60)))
+            val camera2Ranges = lens.cameraId?.let { id ->
+                runCatching {
+                    manager.getCameraCharacteristics(id)
+                        .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+                        ?.joinToString { "${it.lower}..${it.upper}" }
+                }.getOrNull()
+            }?.takeIf { it.isNotBlank() } ?: context.getString(R.string.loss_no_data)
+            appendLine(context.getString(R.string.camera_report_camerax_vs_camera2,
+                lens.ranges.joinToString { it.toText() }.ifBlank { "—" }, camera2Ranges))
+            appendLine(sessionConfigurationText(context,
+                sessionConfigurationCheck(context, lens.cameraId, plan.width, plan.height)))
         }
+        appendLine(context.getString(R.string.camera_report_path_note))
     }
 
     fun describeCamera(context: Context, manager: CameraManager, id: String): String = runCatching {
@@ -254,14 +278,128 @@ internal object VideoNoteCameraSurvey {
         MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { it.isEncoder }
             .filter { info -> info.supportedTypes.any { it.equals("video/avc", ignoreCase = true) } }
             .joinToString(separator = "\n") { info ->
-                val capabilities = runCatching { info.getCapabilitiesForType("video/avc").videoCapabilities }.getOrNull()
+                val capabilities = runCatching { info.getCapabilitiesForType("video/avc") }.getOrNull()
+                val video = capabilities?.videoCapabilities
                 val checks = encoderChecks.joinToString { (w, h) ->
-                    "${w}x$h@60=${yesNoUnknown(context, capabilities?.let { runCatching { it.areSizeAndRateSupported(w, h, 60.0) }.getOrNull() })}"
+                    "${w}x$h@60=${yesNoUnknown(context, video?.let { runCatching { it.areSizeAndRateSupported(w, h, 60.0) }.getOrNull() })}"
                 }
                 val hardware = runCatching { info.isHardwareAccelerated }.getOrNull()
-                context.getString(R.string.camera_report_encoder_line, info.name, yesNoUnknown(context, hardware), checks)
+                val profiles = capabilities?.profileLevels.orEmpty()
+                    .mapNotNull { avcProfileLabel(it.profile) }.distinct().take(8)
+                val levels = capabilities?.profileLevels.orEmpty()
+                    .mapNotNull { avcLevelLabel(it.level) }.distinct().take(8)
+                val bitrate = video?.bitrateRange
+                val frameRates = runCatching { video?.supportedFrameRates }.getOrNull()
+                val instances = runCatching { capabilities?.maxSupportedInstances }.getOrNull()
+                buildString {
+                    appendLine(context.getString(R.string.camera_report_encoder_line,
+                        info.name, yesNoUnknown(context, hardware), checks))
+                    append(context.getString(R.string.camera_report_encoder_meta,
+                        profiles.joinToString().ifBlank { "?" },
+                        levels.joinToString().ifBlank { "?" },
+                        bitrate?.lower?.toString() ?: "?",
+                        bitrate?.upper?.toString() ?: "?",
+                        frameRates?.lower?.let { String.format(Locale.US, "%.1f", it) } ?: "?",
+                        frameRates?.upper?.let { String.format(Locale.US, "%.1f", it) } ?: "?",
+                        instances?.toString() ?: "?"))
+                }
             }.ifBlank { context.getString(R.string.camera_report_no_encoder) }
     }.getOrElse { context.getString(R.string.camera_report_encoder_failed, it.javaClass.simpleName) }
+
+    /**
+     * Android 15+ passive check of one planned Preview + VideoCapture(encoder) combination.
+     * It creates a private preview surface and a configured H.264 encoder input surface, asks
+     * [android.hardware.camera2.CameraDevice.CameraDeviceSetup] whether the combination is supported,
+     * then releases everything. The camera is never opened and no frame is encoded.
+     */
+    @SuppressLint("NewApi") // Guarded by the api >= 35 check at the top; keeps old SDKs safe.
+    fun sessionConfigurationCheck(
+        context: Context,
+        cameraId: String?,
+        videoWidth: Int,
+        videoHeight: Int
+    ): VideoNoteSessionCheck {
+        val api = Build.VERSION.SDK_INT
+        if (api < 35) {
+            return VideoNoteSessionCheck(VideoNoteSessionSupport.UNKNOWN, VideoNoteSessionReason.API_TOO_OLD,
+                api, videoWidth = videoWidth.takeIf { it > 0 }, videoHeight = videoHeight.takeIf { it > 0 })
+        }
+        if (cameraId == null || videoWidth <= 0 || videoHeight <= 0) {
+            return VideoNoteSessionCheck(VideoNoteSessionSupport.UNKNOWN, VideoNoteSessionReason.NO_SURFACE, api)
+        }
+        val manager = context.getSystemService(CameraManager::class.java)
+        val setupSupported = runCatching { manager.isCameraDeviceSetupSupported(cameraId) }.getOrNull()
+        if (setupSupported != true) {
+            return VideoNoteSessionCheck(VideoNoteSessionSupport.UNKNOWN,
+                VideoNoteSessionReason.SETUP_CHECK_UNAVAILABLE, api, videoWidth = videoWidth, videoHeight = videoHeight)
+        }
+        val preview = previewSizeForCheck(manager, cameraId, videoWidth, videoHeight)
+        if (preview == null) {
+            return VideoNoteSessionCheck(VideoNoteSessionSupport.UNKNOWN, VideoNoteSessionReason.NO_SURFACE,
+                api, videoWidth = videoWidth, videoHeight = videoHeight)
+        }
+        var reader: ImageReader? = null
+        var codec: MediaCodec? = null
+        var encoderSurface: android.view.Surface? = null
+        return try {
+            val previewReader = ImageReader.newInstance(preview.width, preview.height, ImageFormat.PRIVATE, 2)
+            reader = previewReader
+            val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, videoWidth, videoHeight).apply {
+                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                setInteger(MediaFormat.KEY_BIT_RATE, 2_000_000)
+                setInteger(MediaFormat.KEY_FRAME_RATE, 30)
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+            }
+            val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            codec = encoder
+            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            val surface = encoder.createInputSurface()
+            encoderSurface = surface
+            val configuration = SessionConfiguration(
+                SessionConfiguration.SESSION_REGULAR,
+                listOf(OutputConfiguration(previewReader.surface), OutputConfiguration(surface)),
+                Executor { it.run() },
+                object : CameraCaptureSession.StateCallback() {
+                    override fun onConfigured(session: CameraCaptureSession) { runCatching { session.close() } }
+                    override fun onConfigureFailed(session: CameraCaptureSession) {}
+                }
+            )
+            val supported = runCatching {
+                manager.getCameraDeviceSetup(cameraId).isSessionConfigurationSupported(configuration)
+            }.getOrNull()
+            val (support, reason) = sessionConfigurationOutcome(api, setupSupported, supported)
+            VideoNoteSessionCheck(support, reason, api, preview.width, preview.height,
+                videoWidth, videoHeight)
+        } catch (failure: Exception) {
+            VideoNoteSessionCheck(VideoNoteSessionSupport.UNKNOWN, VideoNoteSessionReason.EXCEPTION,
+                api, preview.width, preview.height, videoWidth, videoHeight,
+                failure.javaClass.simpleName)
+        } finally {
+            runCatching { encoderSurface?.release() }
+            runCatching { codec?.stop() }
+            runCatching { codec?.release() }
+            runCatching { reader?.close() }
+        }
+    }
+
+    /** A representative CameraX Preview size; the report names the size that was actually checked. */
+    private fun previewSizeForCheck(
+        manager: CameraManager,
+        cameraId: String,
+        videoWidth: Int,
+        videoHeight: Int
+    ): Size? = runCatching {
+        val map = manager.getCameraCharacteristics(cameraId)
+            .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return@runCatching null
+        val sizes = map.getOutputSizes(ImageFormat.PRIVATE)?.toList().orEmpty()
+        if (sizes.isEmpty()) return@runCatching null
+        sizes.firstOrNull { it.width == 1280 && it.height == 720 }
+            ?: sizes.firstOrNull { it.width == 640 && it.height == 480 }
+            ?: sizes.firstOrNull { it.width == videoWidth && it.height == videoHeight }
+            ?: sizes.filter { it.width <= 1920 && it.height <= 1080 }
+                .maxByOrNull { it.width * it.height }
+            ?: sizes.minByOrNull { it.width * it.height }
+    }.getOrNull()
 
     fun thermalLine(context: Context): String? {
         val status = runCatching { context.getSystemService(PowerManager::class.java)?.currentThermalStatus }.getOrNull()
@@ -292,6 +430,58 @@ internal fun thermalLabel(context: Context, status: Int): String = when (status)
     PowerManager.THERMAL_STATUS_SEVERE -> context.getString(R.string.camera_thermal_severe)
     else -> context.getString(R.string.camera_thermal_critical, status)
 }
+
+internal fun sessionConfigurationText(context: Context, check: VideoNoteSessionCheck): String {
+    val preview = if (check.previewWidth != null && check.previewHeight != null) {
+        "${check.previewWidth}x${check.previewHeight}"
+    } else "?"
+    val video = if (check.videoWidth != null && check.videoHeight != null) {
+        "${check.videoWidth}x${check.videoHeight}"
+    } else "?"
+    val reason = sessionReasonText(context, check)
+    return when (check.support) {
+        VideoNoteSessionSupport.SUPPORTED ->
+            context.getString(R.string.session_config_supported, preview, video)
+        VideoNoteSessionSupport.UNSUPPORTED ->
+            context.getString(R.string.session_config_unsupported, preview, video, reason)
+        VideoNoteSessionSupport.UNKNOWN ->
+            context.getString(R.string.session_config_unknown, preview, video, reason)
+    }
+}
+
+internal fun sessionReasonText(context: Context, check: VideoNoteSessionCheck): String = when (check.reason) {
+    VideoNoteSessionReason.CONFIGURATION_SUPPORTED -> context.getString(R.string.session_reason_supported)
+    VideoNoteSessionReason.CONFIGURATION_REJECTED -> context.getString(R.string.session_reason_rejected)
+    VideoNoteSessionReason.API_TOO_OLD -> context.getString(R.string.session_reason_api_old, check.apiLevel)
+    VideoNoteSessionReason.SETUP_CHECK_UNAVAILABLE -> context.getString(R.string.session_reason_setup_unavailable)
+    VideoNoteSessionReason.NO_SURFACE -> context.getString(R.string.session_reason_no_surface)
+    VideoNoteSessionReason.EXCEPTION -> context.getString(R.string.session_reason_exception, check.detail ?: "?")
+}
+
+/** CaptureResult state names for the recording report; unknown values stay numeric. */
+internal fun aeStateLabel(context: Context, state: Int): String = context.getString(when (state) {
+    CameraMetadata.CONTROL_AE_STATE_INACTIVE -> R.string.ae_state_inactive
+    CameraMetadata.CONTROL_AE_STATE_SEARCHING -> R.string.ae_state_searching
+    CameraMetadata.CONTROL_AE_STATE_CONVERGED -> R.string.ae_state_converged
+    CameraMetadata.CONTROL_AE_STATE_LOCKED -> R.string.ae_state_locked
+    CameraMetadata.CONTROL_AE_STATE_FLASH_REQUIRED -> R.string.ae_state_flash_required
+    CameraMetadata.CONTROL_AE_STATE_PRECAPTURE -> R.string.ae_state_precapture
+    else -> R.string.ae_state_unknown
+}, state)
+
+@SuppressLint("InlinedApi") // PREVIEW_STABILIZATION is a constant added in API 33; it is inlined, so it is safe to compare on older releases.
+internal fun videoStabilizationLabel(context: Context, mode: Int): String = context.getString(when (mode) {
+    CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF -> R.string.stabilization_off
+    CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON -> R.string.stabilization_on
+    CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION -> R.string.stabilization_preview
+    else -> R.string.ae_state_unknown
+}, mode)
+
+internal fun opticalStabilizationLabel(context: Context, mode: Int): String = context.getString(when (mode) {
+    CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_OFF -> R.string.stabilization_off
+    CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON -> R.string.stabilization_on
+    else -> R.string.ae_state_unknown
+}, mode)
 
 internal fun fpsCauseText(context: Context, cause: VideoNoteFpsCause): String = context.getString(when (cause) {
     VideoNoteFpsCause.AS_REQUESTED -> R.string.fps_cause_as_requested

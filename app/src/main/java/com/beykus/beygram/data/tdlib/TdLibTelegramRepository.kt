@@ -10,6 +10,7 @@ import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.export.ChatExportMessage
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatActivity
 import com.beykus.beygram.domain.model.ChatExportProgress
 import com.beykus.beygram.domain.model.ChatExportRequest
@@ -36,8 +37,17 @@ import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.media.VideoNoteSendTracking
+import com.beykus.beygram.data.media.AutoDownloadDecision
+import com.beykus.beygram.data.media.AutoDownloadNetwork
+import com.beykus.beygram.data.media.AutoDownloadNetworkMonitor
+import com.beykus.beygram.data.media.AutoDownloadSettings
+import com.beykus.beygram.data.media.AutoDownloadTdlibMapping
+import com.beykus.beygram.data.media.currentAutoDownloadNetwork
+import com.beykus.beygram.data.media.decideAutoDownload
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.storage.StorageSettingsStore
 import com.beykus.beygram.domain.model.CachePolicy
@@ -51,9 +61,13 @@ import com.beykus.beygram.domain.model.QR_LOGIN_REFRESH_TIMEOUT_MS
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChannelAdminEvent
 import com.beykus.beygram.domain.model.ChannelAdminEventPage
+import com.beykus.beygram.domain.model.ChannelChartId
+import com.beykus.beygram.domain.model.ChannelChartKind
 import com.beykus.beygram.domain.model.ChannelEventFilter
+import com.beykus.beygram.domain.model.ChannelStatisticsChart
 import com.beykus.beygram.domain.model.ChannelStatisticsPerson
 import com.beykus.beygram.domain.model.ChannelStatisticsSummary
+import com.beykus.beygram.domain.model.ChannelTopPost
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.StoryDetail
@@ -106,6 +120,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
@@ -368,7 +383,18 @@ class TdLibTelegramRepository private constructor(
         topicStores.filterKeys { it.first == chatId }.values.forEach { it.update(chatId, messageId, transform) }
     }
     private val mediaFiles = MediaFileStore()
+    private val autoDownloadSettingsStore = AutoDownloadSettingsStore.getInstance(appContext, accountId)
+    /** Files this repository started automatically; a network or settings change may cancel them. */
+    private val autoDownloads = ConcurrentHashMap<Int, AutoDownloadRequest>()
+    /** Automatic downloads stopped by policy; their late TDLib error must not replace the retry button with an error. */
+    private val cancelledAutoDownloads = ConcurrentHashMap.newKeySet<Int>()
+    private var autoDownloadSettingsJob: Job? = null
+    private val autoDownloadNetworkMonitor = AutoDownloadNetworkMonitor(appContext, authScope, ::reevaluateAutoDownloads)
     private val mediaMapper = TdMediaMapper(mediaFiles)
+
+    init {
+        autoDownloadNetworkMonitor.start()
+    }
     private val serviceMessages = TdServiceMessageMapper(appContext)
     private val pendingServiceUserRequests = ConcurrentHashMap.newKeySet<Triple<Long, Long, Long>>()
 
@@ -612,17 +638,15 @@ class TdLibTelegramRepository private constructor(
     }
 
     override suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences> = requestResult {
-        tdRequests(TdApi.GetChat(chatId)).notificationSettings.toChatNotificationPreferences()
+        val chat = tdRequests(TdApi.GetChat(chatId))
+        // An inherited preview or mention setting shows what the chat's notification scope currently uses.
+        val scopeSettings = tdRequests(TdApi.GetScopeNotificationSettings(NotificationScope.ofChat(chat.type).toTd()))
+        chat.notificationSettings.toChatNotificationPreferences(scopeSettings)
     }
 
     override suspend fun setChatNotificationPreferences(chatId: Long, preferences: ChatNotificationPreferences): Result<Unit> = requestResult {
-        val settings = tdRequests(TdApi.GetChat(chatId)).notificationSettings
-        settings.useDefaultSound = preferences.useDefaultSound
-        settings.soundId = preferences.soundId
-        settings.useDefaultShowPreview = false
-        settings.showPreview = preferences.showPreview
-        settings.useDefaultDisableMentionNotifications = false
-        settings.disableMentionNotifications = preferences.disableMentionNotifications
+        // Only the fields the user changed become explicit; the others keep following the scope.
+        val settings = tdRequests(TdApi.GetChat(chatId)).notificationSettings.withChatNotificationPreferences(preferences)
         tdRequests(TdApi.SetChatNotificationSettings(chatId, settings))
         Unit
     }
@@ -1062,30 +1086,173 @@ class TdLibTelegramRepository private constructor(
     }
     override suspend fun channelStatistics(chatId: Long): Result<ChannelStatisticsSummary> = requestResult {
         when (val statistics = tdRequests(TdApi.GetChatStatistics(chatId, false))) {
-            is TdApi.ChatStatisticsChannel -> ChannelStatisticsSummary(
-                periodStart = statistics.period.startDate,
-                periodEnd = statistics.period.endDate,
-                memberCount = statistics.memberCount.value.toInt(),
-                memberGrowthPercent = statistics.memberCount.growthRatePercentage,
-                meanViewCount = statistics.meanMessageViewCount.value.toInt(),
-                meanShareCount = statistics.meanMessageShareCount.value.toInt(),
-                meanReactionCount = statistics.meanMessageReactionCount.value.toInt(),
-                notificationsPercent = statistics.enabledNotificationsPercentage.toInt()
-            )
-            is TdApi.ChatStatisticsSupergroup -> ChannelStatisticsSummary(
-                periodStart = statistics.period.startDate,
-                periodEnd = statistics.period.endDate,
-                memberCount = statistics.memberCount.value.toInt(),
-                memberGrowthPercent = statistics.memberCount.growthRatePercentage,
-                meanViewCount = statistics.viewerCount.value.toInt(),
-                meanShareCount = statistics.messageCount.value.toInt(),
-                meanReactionCount = statistics.senderCount.value.toInt(),
-                topSenders = statistics.topSenders.orEmpty().take(5).map {
-                    ChannelStatisticsPerson(it.userId, profiles.senderName(TdApi.MessageSenderUser(it.userId)), it.sentMessageCount)
-                }
-            )
+            is TdApi.ChatStatisticsChannel -> channelStatisticsSummary(chatId, statistics)
+            is TdApi.ChatStatisticsSupergroup -> supergroupStatisticsSummary(chatId, statistics)
             else -> throw UserMessageException(UiText.Res(R.string.err_statistics_unavailable))
         }
+    }
+
+    private suspend fun channelStatisticsSummary(
+        chatId: Long,
+        statistics: TdApi.ChatStatisticsChannel
+    ): ChannelStatisticsSummary = coroutineScope {
+        val charts = async { loadStatisticsCharts(chatId, channelGraphSpecs(statistics)) }
+        val topPosts = async { channelTopPosts(chatId, statistics.recentInteractions.orEmpty()) }
+        ChannelStatisticsSummary(
+            periodStart = statistics.period.startDate,
+            periodEnd = statistics.period.endDate,
+            isChannel = true,
+            memberCount = statistics.memberCount.value.toInt(),
+            memberGrowthPercent = statistics.memberCount.growthRatePercentage,
+            meanViewCount = statistics.meanMessageViewCount.value.toInt(),
+            meanShareCount = statistics.meanMessageShareCount.value.toInt(),
+            meanReactionCount = statistics.meanMessageReactionCount.value.toInt(),
+            notificationsPercent = statistics.enabledNotificationsPercentage.toInt(),
+            charts = charts.await(),
+            topPosts = topPosts.await()
+        )
+    }
+
+    private suspend fun supergroupStatisticsSummary(
+        chatId: Long,
+        statistics: TdApi.ChatStatisticsSupergroup
+    ): ChannelStatisticsSummary {
+        val charts = loadStatisticsCharts(chatId, supergroupGraphSpecs(statistics))
+        return ChannelStatisticsSummary(
+            periodStart = statistics.period.startDate,
+            periodEnd = statistics.period.endDate,
+            isChannel = false,
+            memberCount = statistics.memberCount.value.toInt(),
+            memberGrowthPercent = statistics.memberCount.growthRatePercentage,
+            messageCount = statistics.messageCount.value.toInt(),
+            viewerCount = statistics.viewerCount.value.toInt(),
+            senderCount = statistics.senderCount.value.toInt(),
+            topSenders = statistics.topSenders.orEmpty().take(5).map {
+                ChannelStatisticsPerson(it.userId, profiles.senderName(TdApi.MessageSenderUser(it.userId)), it.sentMessageCount)
+            },
+            charts = charts
+        )
+    }
+
+    private data class StatisticsGraphSpec(
+        val id: ChannelChartId,
+        val fallbackKind: ChannelChartKind,
+        val graph: TdApi.StatisticalGraph?
+    )
+
+    private fun channelGraphSpecs(statistics: TdApi.ChatStatisticsChannel) = listOf(
+        StatisticsGraphSpec(ChannelChartId.Members, ChannelChartKind.Line, statistics.memberCountGraph),
+        StatisticsGraphSpec(ChannelChartId.Joins, ChannelChartKind.Line, statistics.joinGraph),
+        StatisticsGraphSpec(ChannelChartId.Mutes, ChannelChartKind.Line, statistics.muteGraph),
+        StatisticsGraphSpec(ChannelChartId.ViewsByHour, ChannelChartKind.Bar, statistics.viewCountByHourGraph),
+        StatisticsGraphSpec(ChannelChartId.ViewsBySource, ChannelChartKind.Bar, statistics.viewCountBySourceGraph),
+        StatisticsGraphSpec(ChannelChartId.JoinsBySource, ChannelChartKind.Bar, statistics.joinBySourceGraph),
+        StatisticsGraphSpec(ChannelChartId.Languages, ChannelChartKind.Area, statistics.languageGraph),
+        StatisticsGraphSpec(ChannelChartId.MessageInteractions, ChannelChartKind.Line, statistics.messageInteractionGraph),
+        StatisticsGraphSpec(ChannelChartId.MessageReactions, ChannelChartKind.Line, statistics.messageReactionGraph)
+    )
+
+    private fun supergroupGraphSpecs(statistics: TdApi.ChatStatisticsSupergroup) = listOf(
+        StatisticsGraphSpec(ChannelChartId.Members, ChannelChartKind.Line, statistics.memberCountGraph),
+        StatisticsGraphSpec(ChannelChartId.Joins, ChannelChartKind.Line, statistics.joinGraph),
+        StatisticsGraphSpec(ChannelChartId.ViewsByHour, ChannelChartKind.Bar, statistics.dayGraph),
+        StatisticsGraphSpec(ChannelChartId.JoinsBySource, ChannelChartKind.Bar, statistics.joinBySourceGraph),
+        StatisticsGraphSpec(ChannelChartId.Languages, ChannelChartKind.Area, statistics.languageGraph),
+        StatisticsGraphSpec(ChannelChartId.MessageContent, ChannelChartKind.Bar, statistics.messageContentGraph),
+        StatisticsGraphSpec(ChannelChartId.Actions, ChannelChartKind.Line, statistics.actionGraph),
+        StatisticsGraphSpec(ChannelChartId.ViewsByWeekday, ChannelChartKind.Bar, statistics.weekGraph)
+    )
+
+    /**
+     * TDLib returns some graphs either inline or as tokens that need a second request. A failed
+     * secondary graph is skipped: one missing chart must not hide the rest of the statistics.
+     */
+    private suspend fun loadStatisticsCharts(
+        chatId: Long,
+        specs: List<StatisticsGraphSpec>
+    ): List<ChannelStatisticsChart> = coroutineScope {
+        val gate = Semaphore(4)
+        specs.filter { it.graph != null }.map { spec ->
+            async {
+                gate.withPermit {
+                    try {
+                        val graph = spec.graph ?: return@withPermit null
+                        val data = loadStatisticsGraph(chatId, graph)
+                        data?.let { parseChannelChart(spec.id, it.jsonData, spec.fallbackKind) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // An unknown graph format is not fatal: show the charts that did parse.
+                        null
+                    }
+                }
+            }
+        }.awaitAll().filterNotNull()
+    }
+
+    private suspend fun loadStatisticsGraph(
+        chatId: Long,
+        graph: TdApi.StatisticalGraph
+    ): TdApi.StatisticalGraphData? = when (graph) {
+        is TdApi.StatisticalGraphData -> graph
+        is TdApi.StatisticalGraphAsync -> {
+            val loaded = try {
+                tdRequests(TdApi.GetStatisticalGraph(chatId, graph.token, 0L))
+            } catch (timeout: TimeoutCancellationException) {
+                null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            loaded as? TdApi.StatisticalGraphData
+        }
+        else -> null
+    }
+
+    /**
+     * TDLib lists only recent interactions, so "top posts" cannot cover the whole period. The
+     * metrics come with the statistics; message text and date need one best-effort lookup.
+     */
+    private suspend fun channelTopPosts(
+        chatId: Long,
+        interactions: Array<out TdApi.ChatStatisticsInteractionInfo>
+    ): List<ChannelTopPost> {
+        val ranked = rankTopPosts(
+            interactions.mapNotNull { info ->
+                val messageId = (info.objectType as? TdApi.ChatStatisticsObjectTypeMessage)?.messageId
+                    ?: return@mapNotNull null
+                ChannelTopPost(
+                    messageId = messageId,
+                    viewCount = info.viewCount,
+                    forwardCount = info.forwardCount,
+                    reactionCount = info.reactionCount
+                )
+            }
+        )
+        if (ranked.isEmpty()) return emptyList()
+        val messages: Array<out TdApi.Message> = try {
+            tdRequests(TdApi.GetMessages(chatId, ranked.map { it.messageId }.toLongArray())).messages.orEmpty()
+        } catch (timeout: TimeoutCancellationException) {
+            emptyArray<TdApi.Message>()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyArray<TdApi.Message>()
+        }
+        val byId = messages.filterNotNull().associateBy { it.id }
+        return ranked.map { post ->
+            val message = byId[post.messageId]
+            post.copy(
+                preview = message?.topPostPreview() ?: UiText.Raw(""),
+                date = message?.date ?: 0
+            )
+        }
+    }
+
+    private fun TdApi.Message.topPostPreview(): UiText = when (val text = previewText(content)) {
+        is UiText.Raw -> UiText.Raw(text.text.trim().take(TOP_POST_PREVIEW_LENGTH))
+        else -> text
     }
 
     override suspend fun channelAdminEvents(chatId: Long, fromEventId: Long, filter: ChannelEventFilter): Result<ChannelAdminEventPage> = requestResult {
@@ -1177,8 +1344,25 @@ class TdLibTelegramRepository private constructor(
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>) = conversationActions.edit(chatId, messageId, text, entities)
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope) =
         conversationActions.delete(chatId, messageId, scope).onSuccess { conversationEffects.uploadFinished(chatId, messageId) }
-    override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean) =
-        conversationActions.forward(fromChatId, messageId, toChatId, asCopy)
+    override suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, scope: DeleteMessageScope) =
+        conversationActions.deleteMessages(chatId, messageIds, scope)
+            .onSuccess { messageIds.forEach { conversationEffects.uploadFinished(chatId, it) } }
+    override suspend fun forwardMessage(
+        fromChatId: Long,
+        messageId: Long,
+        toChatId: Long,
+        asCopy: Boolean,
+        messageThreadId: Long?,
+        options: MessageSendOptions
+    ) = conversationActions.forward(fromChatId, messageId, toChatId, asCopy, messageThreadId, options)
+    override suspend fun forwardMessages(
+        fromChatId: Long,
+        messageIds: List<Long>,
+        toChatId: Long,
+        asCopy: Boolean,
+        messageThreadId: Long?,
+        options: MessageSendOptions
+    ) = conversationActions.forwardMessages(fromChatId, messageIds, toChatId, asCopy, messageThreadId, options)
     override suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean) =
         conversationActions.messageLink(chatId, messageId, inMessageThread)
     override suspend fun availableReactions(chatId: Long, messageId: Long) = conversationActions.availableReactions(chatId, messageId)
@@ -1287,6 +1471,11 @@ class TdLibTelegramRepository private constructor(
             secondaryDisposed = true
         }
         networkMonitor.stop()
+        autoDownloadNetworkMonitor.stop()
+        autoDownloadSettingsJob?.cancel()
+        autoDownloadSettingsJob = null
+        autoDownloads.clear()
+        cancelledAutoDownloads.clear()
         messageDrafts.dispose()
         notificationFeed.dispose()
         com.beykus.beygram.data.media.VideoNoteLossDiagnostics.releaseRepository(this)
@@ -1377,6 +1566,7 @@ class TdLibTelegramRepository private constructor(
                 client = createLegacyClient()
                 networkMonitor.start()
                 networkMonitor.reconnect()
+                autoDownloadNetworkMonitor.start()
             } catch (error: Throwable) {
                 StructuredEventLog.shared.record(
                     kind = EventKind.TDLIB,
@@ -1648,22 +1838,109 @@ class TdLibTelegramRepository private constructor(
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = mediaFiles.observe(fileId)
 
     override fun downloadFile(fileId: Int) {
+        // A manual tap takes ownership of a file that was being downloaded automatically.
+        autoDownloads.remove(fileId)
+        cancelledAutoDownloads.remove(fileId)
         if (!mediaFiles.beginDownload(fileId)) return
+        sendDownload(fileId)
+    }
+
+    override fun autoDownloadFile(request: AutoDownloadRequest) {
+        val decision = decideAutoDownload(
+            settings = autoDownloadSettingsStore.settings.value,
+            network = currentAutoDownloadNetwork(appContext),
+            request = request
+        )
+        if (decision != AutoDownloadDecision.Allowed) return
+        if (!mediaFiles.beginDownload(request.fileId)) return
+        autoDownloads[request.fileId] = request
+        sendDownload(request.fileId)
+    }
+
+    private fun sendDownload(fileId: Int) {
         client.send(TdApi.DownloadFile(fileId, 16, 0, 0, false), Client.ResultHandler { result ->
             when (result) {
-                is TdApi.File -> mediaFiles.update(result.toMediaFileState())
+                is TdApi.File -> {
+                    mediaFiles.update(result.toMediaFileState())
+                    if (result.local?.isDownloadingCompleted == true) {
+                        autoDownloads.remove(fileId)
+                        cancelledAutoDownloads.remove(fileId)
+                    }
+                }
                 is TdApi.Error -> {
-                    recordAppEvent(
-                        kind = EventKind.TDLIB,
-                        code = "file_download_failed",
-                        text = "Файл не загрузился, код ${result.code}",
-                        severity = Severity.WARNING,
-                        attrs = mapOf("error_code" to result.code.toString())
-                    )
-                    mediaFiles.fail(fileId, UiText.Res(R.string.err_media_download_failed))
+                    if (cancelledAutoDownloads.remove(fileId)) {
+                        mediaFiles.cancel(fileId)
+                    } else {
+                        autoDownloads.remove(fileId)
+                        recordAppEvent(
+                            kind = EventKind.TDLIB,
+                            code = "file_download_failed",
+                            text = "Файл не загрузился, код ${result.code}",
+                            severity = Severity.WARNING,
+                            attrs = mapOf("error_code" to result.code.toString())
+                        )
+                        mediaFiles.fail(fileId, UiText.Res(R.string.err_media_download_failed))
+                    }
                 }
             }
         })
+    }
+
+    /** Cancels automatic downloads that the current network or settings no longer allow. */
+    private fun reevaluateAutoDownloads(network: AutoDownloadNetwork) {
+        if (autoDownloads.isEmpty()) return
+        val settings = autoDownloadSettingsStore.settings.value
+        autoDownloads.values.toList().forEach { request ->
+            val state = mediaFiles.snapshot(request.fileId)
+            if (state?.localPath != null) {
+                autoDownloads.remove(request.fileId)
+                return@forEach
+            }
+            val current = if (state != null && state.size > 0L) request.copy(sizeBytes = state.size) else request
+            if (decideAutoDownload(settings, network, current) == AutoDownloadDecision.Allowed) return@forEach
+            if (autoDownloads.remove(request.fileId) == null) return@forEach
+            cancelledAutoDownloads += request.fileId
+            mediaFiles.cancel(request.fileId)
+            // The transfer may already be active: onlyIfPending=true would leave it consuming data.
+            client.send(TdApi.CancelDownloadFile(request.fileId, /* onlyIfPending = */ false), Client.ResultHandler { })
+        }
+    }
+
+    /** Pushes the local policy to TDLib for its own preloading and applies it to downloads already running. */
+    private fun startAutoDownloadSettingsSync() {
+        if (autoDownloadSettingsJob?.isActive != true) {
+            autoDownloadSettingsJob = authScope.launch {
+                autoDownloadSettingsStore.settings.collectLatest { settings ->
+                    applyAutoDownloadSettings(settings)
+                }
+            }
+        } else {
+            // Re-authorization after logout does not re-emit an unchanged flow value.
+            authScope.launch { applyAutoDownloadSettings(autoDownloadSettingsStore.settings.value) }
+        }
+    }
+
+    private suspend fun applyAutoDownloadSettings(settings: AutoDownloadSettings) {
+        reevaluateAutoDownloads(currentAutoDownloadNetwork(appContext))
+        if (_authState.value != AuthState.Ready) return
+        val presets = try {
+            tdRequests(TdApi.GetAutoDownloadSettingsPresets())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        val template = presets?.high ?: TdApi.AutoDownloadSettings()
+        AutoDownloadTdlibMapping.configuredNetworks.forEach { (network, type) ->
+            val mapped = AutoDownloadTdlibMapping.toTdlib(settings, network, template)
+            try {
+                tdRequests(TdApi.SetAutoDownloadSettings(mapped, type))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A failed TDLib update does not change the local policy or the manual button.
+            }
+        }
     }
 
     override fun openMessageContent(chatId: Long, messageId: Long) {
@@ -1874,7 +2151,10 @@ class TdLibTelegramRepository private constructor(
                 publishChat(update.chatId)
             }
             is TdApi.UpdateMessageContent -> {
-                val attachment = mediaMapper.media(update.newContent)
+                val secretChat = isSecretChat(update.chatId)
+                val attachment = mediaMapper.media(update.newContent)?.let {
+                    if (secretChat) it.copy(isSecretChat = true) else it
+                }
                 val service = serviceMessages.text(update.newContent)
                 val transform: (ChatMessage) -> ChatMessage = { message ->
                     val rendered = (update.newContent as? TdApi.MessageCall)?.let {
@@ -1883,7 +2163,7 @@ class TdLibTelegramRepository private constructor(
                     message.withUpdatedContent(update.newContent, attachment,
                         contentText(update.newContent, attachment != null),
                         messageFormattedText(update.newContent)?.domainEntities().orEmpty(), rendered,
-                        linkPreview = mediaMapper.linkPreview(update.newContent, isSecretChat(update.chatId)))
+                        linkPreview = mediaMapper.linkPreview(update.newContent, secretChat))
                 }
                 messageHistory.update(update.chatId, update.messageId, transform)
                 updateForumMessage(update.chatId, update.messageId, transform)
@@ -1943,7 +2223,24 @@ class TdLibTelegramRepository private constructor(
                     VideoNoteSendTracking.tracker.onPending(update.message.chatId, update.message.id)
                 }
             }
-            is TdApi.UpdateFile -> mediaFiles.update(update.file.toMediaFileState())
+            is TdApi.UpdateFile -> {
+                val state = update.file.toMediaFileState()
+                mediaFiles.update(state)
+                val fileId = update.file.id
+                if (!state.isDownloading && state.localPath == null && cancelledAutoDownloads.remove(fileId)) {
+                    mediaFiles.cancel(fileId)
+                }
+                val tracked = autoDownloads[fileId]
+                if (tracked != null) {
+                    if (state.localPath != null) {
+                        autoDownloads.remove(fileId)
+                        cancelledAutoDownloads.remove(fileId)
+                    } else if (state.size > 0L && state.size != tracked.sizeBytes) {
+                        autoDownloads[fileId] = tracked.copy(sizeBytes = state.size)
+                        reevaluateAutoDownloads(currentAutoDownloadNetwork(appContext))
+                    }
+                }
+            }
             is TdApi.UpdateMessageSendSucceeded -> {
                 videoNoteLossTransport.onSendSucceeded(update)
                 VideoNoteSendTracking.tracker.onSucceeded(update.message.chatId, update.oldMessageId)
@@ -2033,7 +2330,8 @@ class TdLibTelegramRepository private constructor(
                 if (content is TdApi.MessageVideoNote) {
                     // A session folder can hold segments that still wait to be sent, so only this segment's files and an emptied folder go.
                     file.delete()
-                    file.parentFile?.takeIf { it.listFiles().isNullOrEmpty() }?.delete()
+                    // The owner mark stays in the session folder until its last segment is sent, so an emptied folder holds only that mark.
+                    file.parentFile?.takeIf { it.parentFile == uploads }?.let { removeUploadFolderIfOnlyOwnerMarker(it) }
                 } else {
                     // A voice note has a folder of its own. Removing it also removes files TDLib does not report.
                     generateSequence(file) { it.parentFile }.first { it.parentFile == uploads }.deleteRecursively()
@@ -2127,6 +2425,7 @@ class TdLibTelegramRepository private constructor(
                     }
                 }
                 syncArchiveReturnSetting()
+                startAutoDownloadSettingsSync()
                 val analyticsGeneration = synchronized(analyticsAccountLock) {
                     analyticsSessionGeneration++
                     analyticsProfileJob?.cancel()
@@ -2159,6 +2458,8 @@ class TdLibTelegramRepository private constructor(
             }
             is TdApi.AuthorizationStateLoggingOut -> {
                 if (!isLegacyAccount) secondaryAuthorizationLost = true
+                autoDownloads.clear()
+                cancelledAutoDownloads.clear()
                 clearQrLoginState(resetCancellation = false)
                 synchronized(analyticsAccountLock) {
                     analyticsSessionGeneration++
@@ -2183,6 +2484,9 @@ class TdLibTelegramRepository private constructor(
             is TdApi.AuthorizationStateClosed -> {
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()
                 networkMonitor.stop()
+                autoDownloadNetworkMonitor.stop()
+                autoDownloads.clear()
+                cancelledAutoDownloads.clear()
                 clearQrLoginState(resetCancellation = false)
                 synchronized(analyticsAccountLock) {
                     analyticsSessionGeneration++
@@ -2466,6 +2770,7 @@ class TdLibTelegramRepository private constructor(
 
     private fun TdApi.Message.toChatMessage(): ChatMessage {
         val attachment = mediaMapper.media(content)
+        val secretChat = isSecretChat(chatId)
         val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
         val service = event?.text
         val scheduledAt = (schedulingState as? TdApi.MessageSchedulingStateSendAtDate)?.sendDate?.takeIf { it > 0 }?.toLong()
@@ -2478,7 +2783,7 @@ class TdLibTelegramRepository private constructor(
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
         sendState = sendingState.toSendState(),
-        media = attachment,
+        media = if (secretChat) attachment?.copy(isSecretChat = true) else attachment,
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
         senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
@@ -2494,7 +2799,7 @@ class TdLibTelegramRepository private constructor(
         isPinned = isPinned,
         isChannelPost = isChannelPost,
         replyCount = interactionInfo?.replyInfo?.replyCount ?: 0,
-        linkPreview = if (event == null) mediaMapper.linkPreview(content, isSecretChat(chatId)) else null,
+        linkPreview = if (event == null) mediaMapper.linkPreview(content, secretChat) else null,
         scheduledAtSeconds = scheduledAt,
         reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { reply ->
             MessageReply(reply.chatId.takeIf { it != 0L } ?: chatId, reply.messageId,
@@ -2787,6 +3092,7 @@ private fun publicChatJoinError(error: Exception): UiText {
 }
 
 private const val ADMIN_LOG_PAGE_SIZE = 50
+private const val TOP_POST_PREVIEW_LENGTH = 200
 
 /** Maps one UI filter to the TDLib switches; unselected groups stay false so no unrelated events are fetched. */
 internal fun adminLogFilters(filter: ChannelEventFilter): TdApi.ChatEventLogFilters =
@@ -2851,13 +3157,32 @@ internal fun markChatUnreadRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnr
 /** Снять маркер непрочитанного при открытии/прочтении чата. */
 internal fun markChatReadToggleRequest(chatId: Long) = TdApi.ToggleChatIsMarkedAsUnread(chatId, false)
 
-/** Only the fields exposed by the per-chat sheet are read; mute and story settings stay untouched. */
-internal fun TdApi.ChatNotificationSettings.toChatNotificationPreferences() = ChatNotificationPreferences(
+/**
+ * Only the fields exposed by the per-chat sheet are read; mute and story settings stay untouched. An inherited preview or
+ * mention setting takes the value of the chat's notification [scope], and its use-default flag is kept for saving.
+ */
+internal fun TdApi.ChatNotificationSettings.toChatNotificationPreferences(scope: TdApi.ScopeNotificationSettings) = ChatNotificationPreferences(
     useDefaultSound = useDefaultSound,
     soundId = soundId,
-    showPreview = useDefaultShowPreview || showPreview,
-    disableMentionNotifications = !useDefaultDisableMentionNotifications && disableMentionNotifications
+    showPreview = if (useDefaultShowPreview) scope.showPreview else showPreview,
+    useDefaultShowPreview = useDefaultShowPreview,
+    disableMentionNotifications = if (useDefaultDisableMentionNotifications) scope.disableMentionNotifications else disableMentionNotifications,
+    useDefaultDisableMentionNotifications = useDefaultDisableMentionNotifications
 )
+
+/**
+ * Writes the fields the sheet owns. A preview or mention setting that is still inherited stays inherited: its explicit
+ * value is not written, so changing another setting never turns the inherited one into an override. Mute and story
+ * settings are not touched.
+ */
+internal fun TdApi.ChatNotificationSettings.withChatNotificationPreferences(preferences: ChatNotificationPreferences): TdApi.ChatNotificationSettings = apply {
+    useDefaultSound = preferences.useDefaultSound
+    soundId = preferences.soundId
+    useDefaultShowPreview = preferences.useDefaultShowPreview
+    if (!preferences.useDefaultShowPreview) showPreview = preferences.showPreview
+    useDefaultDisableMentionNotifications = preferences.useDefaultDisableMentionNotifications
+    if (!preferences.useDefaultDisableMentionNotifications) disableMentionNotifications = preferences.disableMentionNotifications
+}
 
 // ---- Строковые утилиты ------------------------------------------------------
 

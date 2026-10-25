@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -51,11 +50,13 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.Text
@@ -64,7 +65,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -113,7 +113,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.accessibility.accessibleChatRowDescription
 import com.beykus.beygram.ui.accessibility.accessibleDescription
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
@@ -161,23 +164,47 @@ fun ChatsScreen(
     archiveHidden: Boolean,
     onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit,
-    onGlobalSearch: (String) -> Unit = {}
+    onGlobalSearch: (String) -> Unit = {},
+    /** Чат, открытый в правой панели: его строка подсвечена и помечена для TalkBack. */
+    highlightedChatId: Long? = null,
+    /**
+     * Узкая левая панель двухпанельного режима. Заголовок компактнее, а менеджер папок
+     * открывается поверх всего окна: в панели шириной 300 dp он был бы обрезан.
+     */
+    compactHeader: Boolean = false,
+    /**
+     * Поиск, папка и позиция списка. Владелец экрана держит это состояние выше раскладки,
+     * поэтому переход между телефоном и двумя панелями не сбрасывает список.
+     */
+    state: ChatsScreenState = rememberChatsScreenState()
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
+    val query = state.query
     // Server folders replace the old local All / People / Groups / Unread chips.
     // Applying local filtering again beneath server folders gave users two competing tab bars.
     val selectedFilter = ChatFilter.All
     var managingFolders by rememberSaveable { mutableStateOf(false) }
     // A folder is selected by server ID, never by its mutable index or local category name.
-    var selectedFolderId by rememberSaveable(myProfile?.id) { mutableIntStateOf(0) }
+    val selectedFolderId = state.selectedFolderId
     val activeFolderId = validTelegramFolderSelection(folderSnapshot, selectedFolderId.takeIf { it > 0 })
     LaunchedEffect(folderSnapshot.initialized, folderSnapshot.folders.map { it.id }) {
-        if (folderSnapshot.initialized && selectedFolderId != 0 && activeFolderId == null) selectedFolderId = 0
+        if (folderSnapshot.initialized && selectedFolderId != 0 && activeFolderId == null) state.selectFolder(0)
     }
     val displayedChats = activeFolderId?.let { folderChats[it].orEmpty() } ?: chats
     val folderLoad = activeFolderId?.let { folderLoadStates[it] } ?: TelegramFolderLoadState(hasMore = false)
     val palette = beyGramPalette()
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    // In the two-pane layout the list stays composed beside the open chat. Tapping a chat must
+    // still drop the search keyboard, as leaving the whole list does on a phone.
+    val openChat: (ChatPreview) -> Unit = { chat ->
+        focusManager.clearFocus()
+        onChatClick(chat)
+    }
+    // The split list pane is narrower than a phone: the title and side paddings give room to the
+    // header actions (saved messages, account switcher, avatar) without pushing them off-screen.
+    val headerPadding = if (compactHeader) 14.dp else 20.dp
+    val titleSize = if (compactHeader) 24.sp else 30.sp
+    val titleLineHeight = if (compactHeader) 27.sp else 33.sp
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
     var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
     val readAction = ChatSwipeAction(
@@ -207,7 +234,7 @@ fun ChatsScreen(
     val unreadTotal = remember(displayedChats) { displayedChats.sumOf { it.unreadCount } }
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
-    val listState = rememberSaveable(activeFolderId, saver = LazyListState.Saver) { LazyListState() }
+    val listState = state.listState
     val archivePullThresholdPx = with(density) { archivePullThreshold.toPx() }
     // Сколько протянуто вниз, пока архив скрыт. Подсказка растёт до порога, а за порогом архив возвращается при отпускании.
     var pullPx by remember { mutableFloatStateOf(0f) }
@@ -249,16 +276,35 @@ fun ChatsScreen(
     }
 
     if (managingFolders) {
-        FolderManagerScreen(
-            snapshot = folderSnapshot,
-            knownChats = (chats + archivedChats + folderChats.values.flatten()).distinctBy { it.id }
-                .sortedBy { it.title.lowercase() },
-            loadFolder = onLoadFolder,
-            saveFolder = onSaveFolder,
-            deleteFolder = onDeleteFolder,
-            reorderFolders = onReorderFolders,
-            onBack = { managingFolders = false }
-        )
+        val manager: @Composable () -> Unit = {
+            FolderManagerScreen(
+                snapshot = folderSnapshot,
+                knownChats = (chats + archivedChats + folderChats.values.flatten()).distinctBy { it.id }
+                    .sortedBy { it.title.lowercase() },
+                loadFolder = onLoadFolder,
+                saveFolder = onSaveFolder,
+                deleteFolder = onDeleteFolder,
+                reorderFolders = onReorderFolders,
+                onBack = { managingFolders = false }
+            )
+        }
+        if (compactHeader) {
+            // The list pane is only a third of a tablet window. Folder rules need the whole window,
+            // so in the two-pane layout the manager becomes a full-screen dialog instead of a pane.
+            Dialog(
+                onDismissRequest = { managingFolders = false },
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false,
+                    // FolderManagerScreen owns Back: it closes a draft picker before the manager itself.
+                    dismissOnBackPress = false
+                )
+            ) {
+                Surface(Modifier.fillMaxSize(), color = palette.screen) { manager() }
+            }
+        } else {
+            manager()
+        }
         return
     }
 
@@ -266,18 +312,26 @@ fun ChatsScreen(
     // persistent player. Its FAB is never drawn under the system navigation bar.
     Box(
         modifier = Modifier.fillMaxSize().background(palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(
+                    // In the two-pane layout the pane's right edge is in the middle of the window:
+                    // the end inset belongs to the chat pane, not to the list.
+                    if (compactHeader) WindowInsetsSides.Top + WindowInsetsSides.Start
+                    else WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                )
+            )
     ) {
       Column(Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(start = headerPadding, end = headerPadding, top = 8.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.app_name).uppercase(), color = palette.accent, style = MaterialTheme.typography.labelMedium, letterSpacing = 0.8.sp)
-                    Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
+                    Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() })
                 }
                 (chats + archivedChats).firstOrNull { it.isSavedMessages }?.let { saved ->
-                    androidx.compose.material3.IconButton(onClick = { onChatClick(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
+                    androidx.compose.material3.IconButton(onClick = { openChat(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
                         Icon(Icons.Rounded.Bookmark, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                     }
                 }
@@ -300,7 +354,7 @@ fun ChatsScreen(
             }
 
             Spacer(Modifier.height(14.dp))
-            SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
+            SearchField(query = query, onChange = { state.query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
             Spacer(Modifier.height(12.dp))
             // Only one source of folder navigation: server-backed Telegram lists.
             // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
@@ -322,7 +376,7 @@ fun ChatsScreen(
                                     title = stringResource(R.string.chat_folders_all),
                                     selected = activeFolderId == null,
                                     unreadCount = null,
-                                    onClick = { selectedFolderId = 0 }
+                                    onClick = { state.selectFolder(0) }
                                 )
                                 is TelegramFolderTab.Folder -> {
                                     val folder = folderSnapshot.folders.firstOrNull { it.id == tab.id }
@@ -330,7 +384,7 @@ fun ChatsScreen(
                                         title = folder.title,
                                         selected = activeFolderId == folder.id,
                                         unreadCount = folder.unreadChats,
-                                        onClick = { selectedFolderId = folder.id }
+                                        onClick = { state.selectFolder(folder.id) }
                                     )
                                 }
                             }
@@ -379,10 +433,11 @@ fun ChatsScreen(
                         downloadFile = downloadFile,
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
-                        onClick = { onChatClick(chat) },
+                        onClick = { openChat(chat) },
                         onLongClick = { selectedActions = chat },
                         read = readAction.copy(enabled = showsUnreadIndicator(chat)),
-                        primary = archiveAction
+                        primary = archiveAction,
+                        highlighted = chat.id == highlightedChatId
                     )
                 }
             }
@@ -426,10 +481,11 @@ fun ChatsScreen(
                         downloadFile = downloadFile,
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
-                        onClick = { onChatClick(chat) },
+                        onClick = { openChat(chat) },
                         onLongClick = { selectedActions = chat },
                         read = readAction.copy(enabled = showsUnreadIndicator(chat)),
-                        primary = archiveAction
+                        primary = archiveAction,
+                        highlighted = chat.id == highlightedChatId
                     )
                 }
             }
@@ -689,7 +745,7 @@ internal fun showsUnreadIndicator(chat: ChatPreview): Boolean = chat.unreadCount
 
 @Composable
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    onClick: () -> Unit, onLongClick: (() -> Unit)? = null) {
+    onClick: () -> Unit, onLongClick: (() -> Unit)? = null, highlighted: Boolean = false) {
     val palette = beyGramPalette()
     val listDensity = LocalChatListDensity.current
     val unread = showsUnreadIndicator(chat)
@@ -708,8 +764,14 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         statusLabel = sendStatusLabel(chat)
     )
     Row(
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick, role = Role.Button)
-            .semantics(mergeDescendants = true) { contentDescription = description }
+        modifier = Modifier.fillMaxWidth()
+            .background(if (highlighted) palette.accentSoft else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick, role = Role.Button)
+            .semantics(mergeDescendants = true) {
+                contentDescription = description
+                // TalkBack announces which conversation is already open in the right pane.
+                if (highlighted) selected = true
+            }
             .padding(horizontal = 20.dp, vertical = listDensity.rowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
