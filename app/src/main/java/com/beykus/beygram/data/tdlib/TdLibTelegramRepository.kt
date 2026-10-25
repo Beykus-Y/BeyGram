@@ -35,6 +35,11 @@ import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
+import com.beykus.beygram.domain.model.BotCommandMenu
+import com.beykus.beygram.domain.model.BotWebAppLaunch
+import com.beykus.beygram.domain.model.BotWebAppSource
+import com.beykus.beygram.domain.model.BotWebAppTheme
+import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.media.VideoNoteSendTracking
@@ -1062,9 +1067,31 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
+    private val botFeatures = TdBotFeatures { client }
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
+    override suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?> = botFeatures.commandMenu(chatId)
+    override suspend fun inlineBotQuery(chatId: Long, username: String, query: String): Result<InlineBotResults> =
+        botFeatures.inlineQuery(chatId, username, query)
+    override suspend fun sendInlineBotResult(
+        chatId: Long,
+        queryId: Long,
+        resultId: String,
+        replyToMessageId: Long?,
+        forumTopicId: Long,
+        options: MessageSendOptions
+    ): Result<Unit> = botFeatures.sendInlineResult(chatId, queryId, resultId, replyToMessageId, forumTopicId, options)
+    override suspend fun openBotWebApp(
+        chatId: Long,
+        botUserId: Long,
+        url: String,
+        source: BotWebAppSource,
+        forumTopicId: Long,
+        replyToMessageId: Long?,
+        theme: BotWebAppTheme
+    ): Result<BotWebAppLaunch> = botFeatures.openWebApp(chatId, botUserId, url, source, forumTopicId, replyToMessageId, theme)
+    override suspend fun closeBotWebApp(launchId: Long): Result<Unit> = botFeatures.closeWebApp(launchId)
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })

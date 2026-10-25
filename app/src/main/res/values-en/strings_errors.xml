@@ -72,6 +72,9 @@
     <string name="err_message_original_unavailable">Original message unavailable</string>
     <string name="err_message_too_long">Message is too long</string>
     <string name="err_contact_not_found">This contact is no longer available in Telegram</string>
+    <string name="err_inline_bot_unavailable">This bot does not support inline mode</string>
+    <string name="err_webapp_insecure_url">The Mini App returned an insecure URL</string>
+    <string name="err_webapp_unavailable">The Mini App is unavailable in this chat</string>
     <string name="err_name_empty">Enter a name</string>
     <string name="err_name_too_long">First and last names cannot exceed %1$d characters</string>
     <string name="err_notif_background_denied">Android blocked the background connection. Open the app and check your notification settings.</string>

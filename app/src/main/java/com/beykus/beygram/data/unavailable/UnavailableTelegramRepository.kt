@@ -47,6 +47,11 @@ import com.beykus.beygram.domain.model.PinnedMessagePage
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
+import com.beykus.beygram.domain.model.BotCommandMenu
+import com.beykus.beygram.domain.model.BotWebAppLaunch
+import com.beykus.beygram.domain.model.BotWebAppSource
+import com.beykus.beygram.domain.model.BotWebAppTheme
+import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
@@ -192,6 +197,26 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?> = MutableStateFlow<BotKeyboard?>(null).asStateFlow()
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit> = unavailable()
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer> = unavailable()
+    override suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?> = unavailable()
+    override suspend fun inlineBotQuery(chatId: Long, username: String, query: String): Result<InlineBotResults> = unavailable()
+    override suspend fun sendInlineBotResult(
+        chatId: Long,
+        queryId: Long,
+        resultId: String,
+        replyToMessageId: Long?,
+        forumTopicId: Long,
+        options: MessageSendOptions
+    ): Result<Unit> = unavailable()
+    override suspend fun openBotWebApp(
+        chatId: Long,
+        botUserId: Long,
+        url: String,
+        source: BotWebAppSource,
+        forumTopicId: Long,
+        replyToMessageId: Long?,
+        theme: BotWebAppTheme
+    ): Result<BotWebAppLaunch> = unavailable()
+    override suspend fun closeBotWebApp(launchId: Long): Result<Unit> = unavailable()
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long): Result<PinnedMessagePage> = unavailable()
     override suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit> = unavailable()
