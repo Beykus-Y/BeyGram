@@ -40,6 +40,8 @@
     <string name="chat_webapp_navigation_blocked">Navigation outside the Mini App was blocked</string>
     <string name="chat_webapp_download_blocked">Downloads from Mini Apps are blocked</string>
     <string name="chat_webapp_crashed">Mini App stopped</string>
+    <string name="chat_webapp_data_sent">Data sent to the bot</string>
+    <string name="chat_webapp_invoice_unsupported">Payments in Mini Apps are not supported yet</string>
     <string name="chat_cancel_reply_description">Cancel reply</string>
     <string name="chat_caption_placeholder">Caption</string>
     <string name="chat_date_today">Today</string>

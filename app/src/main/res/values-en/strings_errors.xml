@@ -115,6 +115,9 @@
     <string name="err_contact_not_found">This contact is no longer available in Telegram</string>
     <string name="err_webapp_insecure_url">The Mini App returned an insecure URL</string>
     <string name="err_webapp_unavailable">The Mini App is unavailable in this chat</string>
+    <string name="err_webapp_data_failed">Could not send data to the bot</string>
+    <string name="err_webapp_data_invalid">The Mini App sent invalid data</string>
+    <string name="err_webapp_data_too_large">The Mini App sent too much data (4096 bytes max)</string>
     <string name="err_name_empty">Enter a name</string>
     <string name="err_name_too_long">First and last names cannot exceed %1$d characters</string>
     <string name="err_notif_background_denied">Android blocked the background connection. Open the app and check your notification settings.</string>

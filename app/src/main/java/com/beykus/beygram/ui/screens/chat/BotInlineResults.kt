@@ -66,7 +66,7 @@ internal fun BotInlineResultsPanel(
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
-    onOpenWebApp: (url: String, botUserId: Long, messageId: Long, source: BotWebAppSource) -> Unit,
+    onOpenWebApp: (url: String, botUserId: Long, messageId: Long, source: BotWebAppSource, buttonText: String) -> Unit,
     onSendingChange: (Boolean) -> Unit,
     onSent: (String) -> Unit
 ) {
@@ -187,7 +187,7 @@ internal fun BotInlineResultsPanel(
         if (answer != null && answer.buttonWebAppUrl.isNotBlank()) {
             val openLabel = stringResource(R.string.chat_inline_open_webapp)
             TextButton(
-                onClick = { onOpenWebApp(answer.buttonWebAppUrl, answer.botUserId, 0L, BotWebAppSource.InlineQueryButton) },
+                onClick = { onOpenWebApp(answer.buttonWebAppUrl, answer.botUserId, 0L, BotWebAppSource.InlineQueryButton, answer.buttonText) },
                 enabled = !sending,
                 modifier = Modifier.padding(start = 6.dp)
             ) {

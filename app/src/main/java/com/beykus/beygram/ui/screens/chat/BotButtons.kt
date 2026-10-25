@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
 internal fun InlineBotButtons(
     message: ChatMessage,
     conversation: ConversationRepository,
-    onOpenWebApp: ((url: String, botUserId: Long, messageId: Long, source: BotWebAppSource) -> Unit)? = null
+    onOpenWebApp: ((url: String, botUserId: Long, messageId: Long, source: BotWebAppSource, buttonText: String) -> Unit)? = null
 ) {
     if (message.inlineKeyboard.isEmpty()) return
     val context = LocalContext.current
@@ -59,7 +59,7 @@ internal fun InlineBotButtons(
             }
             // The raw button URL is handed to the repository, never to an Intent: TDLib must open the Web App and
             // return the final https URL together with its same-origin requirement.
-            BotButtonKind.WebApp -> onOpenWebApp?.invoke(button.value, message.senderId, message.id, BotWebAppSource.InlineKeyboard) ?: unsupported()
+            BotButtonKind.WebApp -> onOpenWebApp?.invoke(button.value, message.senderId, message.id, BotWebAppSource.InlineKeyboard, button.text) ?: unsupported()
             else -> unsupported()
         }
     }
@@ -87,7 +87,7 @@ internal fun BotReplyKeyboard(
     chatId: Long,
     keyboard: BotKeyboard?,
     conversation: ConversationRepository,
-    onOpenWebApp: ((url: String, botUserId: Long, messageId: Long, source: BotWebAppSource) -> Unit)? = null
+    onOpenWebApp: ((url: String, botUserId: Long, messageId: Long, source: BotWebAppSource, buttonText: String) -> Unit)? = null
 ) {
     if (keyboard == null || keyboard.forceReply || keyboard.rows.isEmpty()) return
     var visible by remember(chatId, keyboard.messageId) { mutableStateOf(true) }
@@ -115,7 +115,7 @@ internal fun BotReplyKeyboard(
                     } finally { busy = false }
                 }
                 // Reply-keyboard Web Apps belong to the bot of this private chat; zero tells TDLib to resolve it there.
-                BotButtonKind.WebApp -> onOpenWebApp?.invoke(button.value, 0L, keyboard.messageId, BotWebAppSource.KeyboardButton)
+                BotButtonKind.WebApp -> onOpenWebApp?.invoke(button.value, 0L, keyboard.messageId, BotWebAppSource.KeyboardButton, button.text)
                     ?: Toast.makeText(context, R.string.chat_bot_unsupported, Toast.LENGTH_LONG).show()
                 else -> Toast.makeText(context, R.string.chat_bot_unsupported, Toast.LENGTH_LONG).show()
             }

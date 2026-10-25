@@ -46,6 +46,9 @@
     <string name="err_contact_not_found">Dieser Kontakt ist in Telegram nicht mehr verfügbar</string>
     <string name="err_webapp_insecure_url">Die Mini App hat eine unsichere URL zurückgegeben</string>
     <string name="err_webapp_unavailable">Die Mini App ist in diesem Chat nicht verfügbar</string>
+    <string name="err_webapp_data_failed">Daten konnten nicht an den Bot gesendet werden</string>
+    <string name="err_webapp_data_invalid">Die Mini App hat ungültige Daten gesendet</string>
+    <string name="err_webapp_data_too_large">Die Mini App hat zu viele Daten gesendet (maximal 4096 Byte)</string>
     <string name="err_name_empty">Geben Sie einen Namen ein</string>
     <string name="err_name_too_long">Vor- und Nachname dürfen nicht länger als %1$d Zeichen sein</string>
     <string name="err_notif_background_denied">Android hat die Hintergrundverbindung blockiert. Öffnen Sie die App und überprüfen Sie Ihre Benachrichtigungseinstellungen.</string>

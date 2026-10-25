@@ -11,8 +11,8 @@ import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Bot commands, inline mode and Mini App launches. TDLib is the only source of commands/results and the only
- * component that turns a bot button into a Web App URL; the UI never opens a button's raw URL.
+ * Bot commands, inline mode, Mini App launches and Web App data. TDLib is the only source of commands/results and the
+ * only component that turns a bot button into a Web App URL; the UI never opens a button's raw URL.
  */
 internal class TdBotFeatures(client: () -> Client) {
     private val request = TdRequests(client)
@@ -81,6 +81,7 @@ internal class TdBotFeatures(client: () -> Client) {
     /**
      * Opens a Web App through TDLib. [botUserId] may be zero for a reply-keyboard button, in which case the private
      * chat must resolve to a bot. TDLib returns the final URL and its same-origin requirement; only https is accepted.
+     * [buttonText] is the text of the button that opened the Web App and is needed later by SendWebAppData.
      */
     suspend fun openWebApp(
         chatId: Long,
@@ -89,7 +90,8 @@ internal class TdBotFeatures(client: () -> Client) {
         source: BotWebAppSource,
         forumTopicId: Long,
         replyToMessageId: Long?,
-        theme: BotWebAppTheme
+        theme: BotWebAppTheme,
+        buttonText: String
     ): Result<BotWebAppLaunch> = requestResult {
         val requestedUrl = normalizedWebAppUrl(url) ?: throw UserMessageException(UiText.Res(R.string.err_webapp_insecure_url))
         val botId = resolveBotUserId(chatId, botUserId)
@@ -108,14 +110,41 @@ internal class TdBotFeatures(client: () -> Client) {
             })
             val resolvedUrl = normalizedWebAppUrl(info.url?.url.orEmpty())
                 ?: throw UserMessageException(UiText.Res(R.string.err_webapp_insecure_url))
-            BotWebAppLaunch(info.launchId, resolvedUrl, info.url?.requireSameOrigin == true)
+            BotWebAppLaunch(info.launchId, resolvedUrl, info.url?.requireSameOrigin == true, botId, buttonText)
         } else {
             // Reply-keyboard and inline-result buttons are resolved with GetWebAppUrl and have no launch id.
             val info = request(TdApi.GetWebAppUrl(botId, requestedUrl, openParameters))
             val resolvedUrl = normalizedWebAppUrl(info.url.orEmpty())
                 ?: throw UserMessageException(UiText.Res(R.string.err_webapp_insecure_url))
-            BotWebAppLaunch(0L, resolvedUrl, info.requireSameOrigin)
+            BotWebAppLaunch(0L, resolvedUrl, info.requireSameOrigin, botId, buttonText)
         }
+    }
+
+    /**
+     * Forwards Mini App data to the bot. TDLib requires the bot id and the text of the button that opened the Web App;
+     * the UI has already checked event shape, while this layer re-checks size, JSON and TDLib limits. TDLib documents
+     * this flow for keyboard Web Apps; other sources are attempted and any refusal is shown to the user.
+     */
+    suspend fun sendWebAppData(botUserId: Long, buttonText: String, data: String): Result<Unit> = requestResult {
+        if (botUserId <= 0L) throw UserMessageException(UiText.Res(R.string.err_webapp_unavailable))
+        if (buttonText.isBlank()) throw UserMessageException(UiText.Res(R.string.err_webapp_data_failed))
+        when (validateBotWebAppData(data)) {
+            BotWebAppDataError.Empty, BotWebAppDataError.InvalidJson ->
+                throw UserMessageException(UiText.Res(R.string.err_webapp_data_invalid))
+            BotWebAppDataError.TooLarge ->
+                throw UserMessageException(UiText.Res(R.string.err_webapp_data_too_large))
+            null -> Unit
+        }
+        try {
+            request(TdApi.SendWebAppData(botUserId, buttonText, data))
+        } catch (error: TdRequestError) {
+            val tooLarge = error.message?.contains("TOO_LONG") == true
+            throw UserMessageException(
+                UiText.Res(if (tooLarge) R.string.err_webapp_data_too_large else R.string.err_webapp_data_failed),
+                error
+            )
+        }
+        Unit
     }
 
     suspend fun closeWebApp(launchId: Long): Result<Unit> =

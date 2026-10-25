@@ -113,7 +113,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 /** More than one transition can be in flight, but an accidental tap storm must not create an unbounded overlay. */
 private const val MAX_ACTIVE_COMPOSER_LAUNCHES = 4
 
-private data class PendingBotWebApp(val url: String, val botUserId: Long, val messageId: Long, val source: BotWebAppSource)
+private data class PendingBotWebApp(val url: String, val botUserId: Long, val messageId: Long, val source: BotWebAppSource, val buttonText: String)
 
 /** A zero-watermark jump walks history to its beginning; this guard keeps a huge chat from loading forever. */
 private const val MAX_UNREAD_HISTORY_PAGES = 50
@@ -310,16 +310,25 @@ fun ChatScreen(
         replyFocusRequest++
         botCommandMenuOpen = false
     }
-    fun requestBotWebApp(url: String, botUserId: Long, messageId: Long, source: BotWebAppSource) {
+    fun requestBotWebApp(url: String, botUserId: Long, messageId: Long, source: BotWebAppSource, buttonText: String) {
         if (webAppSession != null || webAppOpening || pendingWebApp != null) return
-        pendingWebApp = PendingBotWebApp(url, botUserId, messageId, source)
+        pendingWebApp = PendingBotWebApp(url, botUserId, messageId, source, buttonText)
     }
     fun launchBotWebApp(request: PendingBotWebApp) {
         val theme = palette.toBotWebAppTheme()
         scope.launch {
             webAppOpening = true
             try {
-                conversation.openBotWebApp(chat.id, request.botUserId, request.url, request.source, forumTopicId, request.messageId.takeIf { it > 0L }, theme)
+                conversation.openBotWebApp(
+                    chat.id,
+                    request.botUserId,
+                    request.url,
+                    request.source,
+                    forumTopicId,
+                    request.messageId.takeIf { it > 0L },
+                    theme,
+                    request.buttonText
+                )
                     .onSuccess { webAppSession = it }
                     .onFailure { error = it.userMessage(context, R.string.chat_webapp_open_failed) }
             } finally {
@@ -1987,7 +1996,13 @@ fun ChatScreen(
     }
     webAppSession?.let { session ->
         // DisposableEffect above closes the TDLib launch when this state is cleared or the screen is disposed.
-        BotWebAppScreen(session, title = chat.title, onClose = { webAppSession = null })
+        BotWebAppScreen(
+            session = session,
+            title = chat.title,
+            theme = palette.toBotWebAppTheme(),
+            onSendData = { data -> conversation.sendBotWebAppData(session.botUserId, session.buttonText, data) },
+            onClose = { webAppSession = null }
+        )
     }
 }
 

@@ -237,6 +237,8 @@
     <string name="chat_webapp_navigation_blocked">Se bloqueó la navegación fuera de la Mini App</string>
     <string name="chat_webapp_download_blocked">Las descargas desde Mini Apps están bloqueadas</string>
     <string name="chat_webapp_crashed">La Mini App se detuvo</string>
+    <string name="chat_webapp_data_sent">Datos enviados al bot</string>
+    <string name="chat_webapp_invoice_unsupported">Los pagos en Mini Apps aún no son compatibles</string>
     <plurals name="chat_poll_votes">
         <item quantity="one">%1$d voto</item>
         <item quantity="other">%1$d votos</item>
