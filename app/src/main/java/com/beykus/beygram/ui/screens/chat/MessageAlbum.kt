@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -54,6 +56,7 @@ import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.reactionMessage
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
@@ -183,12 +186,18 @@ private fun AlbumMediaTile(
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val visual = media.kind in setOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
     val autoDownload = onAutoDownloadFile ?: LocalAutoDownloadFile.current
     // Секретное вложение в альбоме не грузим и не показываем до открытия, как в ленте.
     val imagePath = if (media.isSecret) null else if (media.mimeType.startsWith("image/") && file.size <= 300_000) file.localPath ?: thumb.localPath else thumb.localPath
-    LaunchedEffect(thumbId, revealed, thumb.size, media.isSecret, media.isSecretChat, media.hasSpoiler) {
+    LaunchedEffect(thumbId, revealed, thumb.size, media.isSecret, media.isSecretChat, media.hasSpoiler, policySettings, policyNetwork) {
         if (!media.isSecret && !media.isSecretChat && revealed && visual) {
             val request = AutoDownloadRequest(
                 fileId = thumbId,
@@ -196,7 +205,7 @@ private fun AlbumMediaTile(
                 sizeBytes = thumb.size,
                 isSecret = media.isSecret,
                 isSecretChat = media.isSecretChat,
-                hasSpoiler = media.hasSpoiler
+                hasSpoiler = media.hasSpoiler && !revealed
             )
             if (autoDownload != null) autoDownload(request) else onDownloadFile(thumbId)
         }

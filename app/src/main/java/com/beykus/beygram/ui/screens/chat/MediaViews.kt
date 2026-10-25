@@ -306,7 +306,7 @@ internal fun MediaPreview(
                 sizeBytes = size,
                 isSecret = media.isSecret,
                 isSecretChat = media.isSecretChat,
-                hasSpoiler = media.hasSpoiler
+                hasSpoiler = media.hasSpoiler && !revealed
             )
         )
         if (revealed && isVisual) {
@@ -707,7 +707,7 @@ private fun MediaViewerPage(
                 sizeBytes = size,
                 isSecret = media.isSecret,
                 isSecretChat = media.isSecretChat,
-                hasSpoiler = media.hasSpoiler
+                hasSpoiler = spoilerHidden
             )
         )
         // The profile gallery downloads adjacent previews; the full file waits for an active page.
@@ -763,7 +763,7 @@ private fun MediaViewerPage(
                         sizeBytes = latest.size,
                         isSecret = media.isSecret,
                         isSecretChat = media.isSecretChat,
-                        hasSpoiler = media.hasSpoiler
+                        hasSpoiler = spoilerHidden
                     )
                 )
             }

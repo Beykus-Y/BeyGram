@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
@@ -512,13 +514,20 @@ internal fun sharedRowAction(media: MessageMedia, localPath: String?): SharedRow
 @Composable
 internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit, modifier: Modifier = Modifier, autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
     val thumbId = media.thumbnailFileId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
     // У секретного вложения превью не показываем, поэтому спойлер ему не нужен: сразу открываем.
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler || media.isSecret) }
     val loadPreview = shouldLoadSharedPreview(media, revealed)
     val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
-    LaunchedEffect(thumbId, loadPreview, thumb.size, media.isSecret, media.isSecretChat, media.hasSpoiler) {
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
+    LaunchedEffect(thumbId, loadPreview, thumb.size, media.isSecret, media.isSecretChat, media.hasSpoiler, policySettings, policyNetwork) {
         if (loadPreview) {
             val request = AutoDownloadRequest(
                 fileId = thumbId,
@@ -526,7 +535,7 @@ internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlo
                 sizeBytes = thumb.size,
                 isSecret = media.isSecret,
                 isSecretChat = media.isSecretChat,
-                hasSpoiler = media.hasSpoiler
+                hasSpoiler = media.hasSpoiler && !revealed
             )
             if (autoDownload != null) autoDownload(request) else downloadFile(thumbId)
         }
