@@ -147,17 +147,17 @@ private fun PollCard(
                 option = option,
                 index = index,
                 poll = poll,
-                selected = index in selected,
+                selected = option.optionIndex in selected,
                 showResults = showResults,
-                correct = poll.isCorrect(index) && (poll.isClosed || poll.hasVoted),
+                correct = poll.isCorrect(option.optionIndex) && (poll.isClosed || poll.hasVoted),
                 enabled = canInteract,
                 onClick = {
                     if (!canInteract) return@PollOptionRow
                     if (poll.allowsMultipleAnswers) {
-                        selected = if (index in selected) selected - index else selected + index
+                        selected = if (option.optionIndex in selected) selected - option.optionIndex else selected + option.optionIndex
                     } else {
-                        selected = setOf(index)
-                        onVote?.invoke(message.id, listOf(index))
+                        selected = setOf(option.optionIndex)
+                        onVote?.invoke(message.id, listOf(option.optionIndex))
                     }
                 }
             )

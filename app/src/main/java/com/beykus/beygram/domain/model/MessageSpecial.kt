@@ -17,7 +17,9 @@ data class MessagePollOption(
     /** Server-provided 0..100. [MessagePoll.percentageOf] covers older servers that only send vote counts. */
     val percentage: Int = 0,
     val isChosen: Boolean = false,
-    val isBeingChosen: Boolean = false
+    val isBeingChosen: Boolean = false,
+    /** 0-based position in TDLib's original options array; vote requests and quiz answers use it. */
+    val optionIndex: Int = 0
 )
 
 /** Why TDLib says this account cannot vote right now. [None] means voting is allowed by the server. */
@@ -42,7 +44,7 @@ data class MessagePoll(
     val voteRestriction: PollVoteRestriction = PollVoteRestriction.None
 ) {
     val chosenOptionIndices: List<Int>
-        get() = options.mapIndexedNotNull { index, option -> index.takeIf { option.isChosen } }
+        get() = options.filter { it.isChosen }.map { it.optionIndex }
 
     val hasVoted: Boolean get() = options.any { it.isChosen }
 

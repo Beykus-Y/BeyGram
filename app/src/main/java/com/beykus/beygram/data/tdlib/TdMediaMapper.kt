@@ -138,21 +138,27 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
 
     private fun TdApi.MessagePoll.toSpecialPoll(): MessageSpecialContent.Poll {
         val quiz = poll.type as? TdApi.PollTypeQuiz
+        val options = poll.options.orEmpty().mapIndexed { index, option ->
+            MessagePollOption(
+                id = option.id.orEmpty(),
+                text = option.text?.text.orEmpty(),
+                voterCount = option.voterCount,
+                percentage = option.votePercentage,
+                isChosen = option.isChosen,
+                isBeingChosen = option.isBeingChosen,
+                optionIndex = index
+            )
+        }
+        // TDLib can shuffle option display order for anti-bias; votes still use the original 0-based ids.
+        val order = poll.optionOrder.orEmpty()
+        val displayed = if (order.size == options.size && order.distinct().size == order.size &&
+            order.all { it in options.indices }) order.map { options[it] } else options
         return MessageSpecialContent.Poll(
             MessagePoll(
                 id = poll.id,
                 question = poll.question?.text.orEmpty(),
                 description = description?.text.orEmpty(),
-                options = poll.options.orEmpty().map { option ->
-                    MessagePollOption(
-                        id = option.id.orEmpty(),
-                        text = option.text?.text.orEmpty(),
-                        voterCount = option.voterCount,
-                        percentage = option.votePercentage,
-                        isChosen = option.isChosen,
-                        isBeingChosen = option.isBeingChosen
-                    )
-                },
+                options = displayed,
                 totalVoterCount = poll.totalVoterCount,
                 isAnonymous = poll.isAnonymous,
                 allowsMultipleAnswers = poll.allowsMultipleAnswers,

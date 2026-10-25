@@ -11,8 +11,9 @@ class MessageSpecialTest {
         text: String,
         votes: Int = 0,
         percentage: Int = 0,
-        chosen: Boolean = false
-    ) = MessagePollOption(text, text, voterCount = votes, percentage = percentage, isChosen = chosen)
+        chosen: Boolean = false,
+        optionIndex: Int = 0
+    ) = MessagePollOption(text, text, voterCount = votes, percentage = percentage, isChosen = chosen, optionIndex = optionIndex)
 
     @Test
     fun `percentage falls back to vote counts when the server omits it`() {
@@ -44,7 +45,7 @@ class MessageSpecialTest {
             canSeeResults = false,
             correctOptionIndices = setOf(1)
         )
-        val answered = unanswered.copy(options = listOf(option("a"), option("b", chosen = true)))
+        val answered = unanswered.copy(options = listOf(option("a"), option("b", chosen = true, optionIndex = 1)))
 
         assertTrue(unanswered.canVote)
         assertFalse(answered.canVote)
