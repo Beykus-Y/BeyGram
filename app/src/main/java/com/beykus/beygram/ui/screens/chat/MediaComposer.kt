@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Compress
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Refresh
@@ -40,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,6 +59,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.AudioCompressionPreferences
+import com.beykus.beygram.data.media.AudioCompressor
+import com.beykus.beygram.data.media.AudioPlanReason
+import com.beykus.beygram.data.media.AudioQualityOption
+import com.beykus.beygram.data.media.CaptureRetryState
 import com.beykus.beygram.data.media.MediaLimits
 import com.beykus.beygram.data.media.NormalizedCrop
 import com.beykus.beygram.data.media.OutgoingMediaImporter
@@ -67,6 +74,7 @@ import com.beykus.beygram.data.media.VideoCompressionPreferences
 import com.beykus.beygram.data.media.VideoCompressor
 import com.beykus.beygram.data.media.VideoLimitIssue
 import com.beykus.beygram.data.media.VideoQualityOption
+import com.beykus.beygram.data.media.audioCompressionPlan
 import com.beykus.beygram.data.media.videoCompressionPlan
 import com.beykus.beygram.data.media.videoLimitIssue
 import com.beykus.beygram.domain.model.MediaKind
@@ -96,8 +104,20 @@ internal data class PhotoEditorSession(
     val keepOriginal: Boolean = false
 ) : java.io.Serializable
 
-/** Visible progress for one video that is being re-encoded before it can be sent. */
-internal data class MediaProcessing(val path: String, val fileName: String, val progress: Float?)
+/** Visible progress for one attachment that is being re-encoded before it can be sent. */
+internal enum class MediaProcessingKind { Video, Audio }
+
+internal data class MediaProcessing(
+    val path: String,
+    val fileName: String,
+    val progress: Float?,
+    val kind: MediaProcessingKind
+)
+
+private val CaptureRetrySaver = Saver<CaptureRetryState, String>(
+    save = { it.failedPath.orEmpty() },
+    restore = { CaptureRetryState(it.takeIf(String::isNotBlank)) }
+)
 
 /**
  * Attachment flow state. The UI is inline (a panel above the input field), so the chat screen
@@ -111,6 +131,7 @@ internal class AttachmentState(
     private val pendingState: MutableState<ArrayList<OutgoingMedia>>,
     private val errorState: MutableState<String?>,
     private val editorState: MutableState<PhotoEditorSession?>,
+    private val captureRetry: MutableState<CaptureRetryState>,
     private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>
 ) {
     var menuOpen by mutableStateOf(false)
@@ -131,19 +152,22 @@ internal class AttachmentState(
         private set
     var notice by mutableStateOf<String?>(null)
         private set
-    var canRetryCapture by mutableStateOf(false)
-        private set
+    val canRetryCapture: Boolean get() = captureRetry.value.canRetry
     var videoQuality by mutableStateOf(VideoCompressionPreferences(context).load())
+        private set
+    var audioQuality by mutableStateOf(AudioCompressionPreferences(context).load())
         private set
     val pending: List<OutgoingMedia> get() = pendingState.value
     val error: String? get() = errorState.value
     private val videoPreferences = VideoCompressionPreferences(context)
+    private val audioPreferences = AudioCompressionPreferences(context)
     private val compressor = VideoCompressor(context)
+    private val audioCompressor = AudioCompressor(context)
     private var compressionCancelled = false
     private var compressionJob: Job? = null
     private var importJob: Job? = null
     private var editorJob: Job? = null
-    private var failedCapture: File? = null
+    private val failedCapturePath: String? get() = captureRetry.value.failedPath
     var pickPhotos: () -> Unit = {}
     var pickDocuments: () -> Unit = {}
 
@@ -167,7 +191,12 @@ internal class AttachmentState(
                         throw cancelled
                     }
                     pendingState.value = ArrayList(pending + prepared)
-                    if (!asDocument && prepared.kind == MediaKind.Video) maybeCompressVideo(prepared)
+                    when {
+                        !asDocument && prepared.kind == MediaKind.Video -> maybeCompressVideo(prepared)
+                        prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("audio/") -> maybeCompressAudio(prepared)
+                        !asDocument && prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("video/") ->
+                            notice = context.getString(R.string.video_container_as_file)
+                    }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { errorState.value = failure.userMessage(context, R.string.composer_prepare_failed) }
@@ -316,8 +345,7 @@ internal class AttachmentState(
     private fun importCaptureFile(file: File) {
         if (sending || importing) {
             // Keep the only copy of the take available for a retry instead of deleting it.
-            failedCapture = file
-            canRetryCapture = true
+            setFailedCapture(file.absolutePath)
             return
         }
         importJob = scope.launch {
@@ -326,35 +354,46 @@ internal class AttachmentState(
             try {
                 val prepared = importer.prepareLocal(file)
                 file.delete()
-                failedCapture?.takeIf { it.absolutePath != file.absolutePath }?.delete()
-                failedCapture = null
-                canRetryCapture = false
+                failedCapturePath?.takeIf { it != file.absolutePath }?.let { File(it).delete() }
+                setFailedCapture(null)
                 try { coroutineContext.ensureActive() } catch (cancelled: CancellationException) {
                     importer.discard(prepared)
                     throw cancelled
                 }
                 pendingState.value = ArrayList(pending + prepared)
-                if (prepared.kind == MediaKind.Video) maybeCompressVideo(prepared)
+                when {
+                    prepared.kind == MediaKind.Video -> maybeCompressVideo(prepared)
+                    prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("video/") ->
+                        notice = context.getString(R.string.video_container_as_file)
+                }
             } catch (cancelled: CancellationException) {
                 file.delete()
                 throw cancelled
             }
             catch (failure: Exception) {
                 // The camera/editor is already closed; retain the take so the user can retry it.
-                failedCapture?.takeIf { it.absolutePath != file.absolutePath }?.delete()
-                failedCapture = file
-                canRetryCapture = true
+                failedCapturePath?.takeIf { it != file.absolutePath }?.let { File(it).delete() }
+                setFailedCapture(file.absolutePath)
                 errorState.value = failure.userMessage(context, R.string.composer_prepare_failed)
             }
             finally { importing = false }
         }
     }
 
+    private fun setFailedCapture(path: String?) {
+        captureRetry.value = if (path == null) CaptureRetryState.Empty else captureRetry.value.failed(path)
+    }
+
     fun retryCapture() {
-        val file = failedCapture ?: return
+        val path = failedCapturePath ?: return
         if (importing || sending) return
-        failedCapture = null
-        canRetryCapture = false
+        val file = File(path)
+        if (!file.isFile || file.length() <= 0L) {
+            setFailedCapture(null)
+            errorState.value = context.getString(R.string.capture_retry_missing)
+            return
+        }
+        setFailedCapture(null)
         importCaptureFile(file)
     }
 
@@ -374,6 +413,17 @@ internal class AttachmentState(
         videoQuality = next
         videoPreferences.save(next)
         notice = context.getString(R.string.video_quality_notice, context.getString(next.labelRes()))
+    }
+
+    fun cycleAudioQuality() {
+        val next = when (audioQuality) {
+            AudioQualityOption.Compact -> AudioQualityOption.Balanced
+            AudioQualityOption.Balanced -> AudioQualityOption.Original
+            AudioQualityOption.Original -> AudioQualityOption.Compact
+        }
+        audioQuality = next
+        audioPreferences.save(next)
+        notice = context.getString(R.string.audio_quality_notice, context.getString(next.labelRes()))
     }
 
     fun dismissNotice() {
@@ -409,7 +459,7 @@ internal class AttachmentState(
         val plan = videoCompressionPlan(info, option)
         if (!plan.transcode) return
         compressionCancelled = false
-        processing = MediaProcessing(original.path, original.fileName, progress = 0f)
+        processing = MediaProcessing(original.path, original.fileName, progress = 0f, kind = MediaProcessingKind.Video)
         val output = File(source.parentFile, "compressed-${UUID.randomUUID()}.mp4")
         // Never let a failed child cancel the composer scope: the failure is a normal result and the
         // original attachment must stay usable.
@@ -459,14 +509,73 @@ internal class AttachmentState(
         pendingState.value = ArrayList(pending.map { if (it.path == original.path) replacement else it })
     }
 
+    /**
+     * Same safe contract as video: only plain audio documents are candidates, tagged files and
+     * efficient files are kept, and the original stays pending until the AAC export is adopted.
+     * Voice/video notes never reach this method.
+     */
+    private suspend fun maybeCompressAudio(original: OutgoingMedia) {
+        if (original.kind != MediaKind.Document || !original.mimeType.startsWith("audio/")) return
+        val option = audioQuality
+        if (option == AudioQualityOption.Original) return
+        val source = File(original.path)
+        val info = runCatching { audioCompressor.inspect(source, original.mimeType) }.getOrNull() ?: return
+        val plan = audioCompressionPlan(info, option)
+        if (plan.reason == AudioPlanReason.MetadataPresent) {
+            notice = context.getString(R.string.audio_metadata_kept)
+            return
+        }
+        if (!plan.transcode) return
+        compressionCancelled = false
+        processing = MediaProcessing(original.path, original.fileName, progress = 0f, kind = MediaProcessingKind.Audio)
+        val output = File(source.parentFile, "compressed-${UUID.randomUUID()}.m4a")
+        val task = scope.async<Result<OutgoingMedia>> {
+            try {
+                audioCompressor.compress(source, output, plan) { progress ->
+                    processing = processing?.copy(progress = progress)
+                }
+                Result.success(importer.adoptCompressedAudio(original, output))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Result.failure(failure)
+            }
+        }
+        compressionJob = task
+        try {
+            val compressed = task.await().getOrElse {
+                output.delete()
+                notice = context.getString(R.string.audio_compression_failed_original)
+                return
+            }
+            coroutineContext.ensureActive()
+            replacePending(original, compressed)
+            File(original.path).takeIf { it.absolutePath != compressed.path }?.delete()
+            notice = context.getString(
+                R.string.audio_compressed,
+                android.text.format.Formatter.formatShortFileSize(context, original.size),
+                android.text.format.Formatter.formatShortFileSize(context, compressed.size)
+            )
+        } catch (cancelled: CancellationException) {
+            output.delete()
+            if (!compressionCancelled) {
+                task.cancel()
+                throw cancelled
+            }
+            notice = context.getString(R.string.audio_compression_cancelled)
+        } finally {
+            if (compressionJob === task) compressionJob = null
+            processing = null
+        }
+    }
+
     fun discardAll() {
         if (sending) return
         importJob?.cancel()
         compressionJob?.cancel()
         editorJob?.cancel()
-        failedCapture?.delete()
-        failedCapture = null
-        canRetryCapture = false
+        failedCapturePath?.let { File(it).delete() }
+        setFailedCapture(null)
         editor?.let { session -> if (session.temporary) File(session.sourcePath).delete() }
         editor = null
         editorSaving = false
@@ -519,8 +628,12 @@ internal fun rememberAttachmentState(
     val error = rememberSaveable(accountId, chatId) { mutableStateOf<String?>(null) }
     // The editor owns the only reference to an un-staged camera take; keep it across rotation.
     val editor = rememberSaveable(accountId, chatId) { mutableStateOf<PhotoEditorSession?>(null) }
+    // A failed camera import keeps its cache path across activity recreation too.
+    val captureRetry = rememberSaveable(accountId, chatId, stateSaver = CaptureRetrySaver) {
+        mutableStateOf(CaptureRetryState.Empty)
+    }
     val currentSend by androidx.compose.runtime.rememberUpdatedState(sendMedia)
-    val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error, editor) { media, caption, options -> currentSend(media, caption, options) } }
+    val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error, editor, captureRetry) { media, caption, options -> currentSend(media, caption, options) } }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MediaLimits.MAX_ATTACHMENTS)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
     state.pickPhotos = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
@@ -572,6 +685,14 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                             focus.clearFocus()
                             keyboard?.hide()
                             state.cycleVideoQuality()
+                        }
+                        TypeChip(
+                            Icons.Rounded.GraphicEq,
+                            stringResource(R.string.audio_quality_chip, stringResource(state.audioQuality.labelRes()))
+                        ) {
+                            focus.clearFocus()
+                            keyboard?.hide()
+                            state.cycleAudioQuality()
                         }
                     }
                 } else {
@@ -630,11 +751,14 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
         }
         state.processing?.let { progress ->
             val fraction = progress.progress
+            val audio = progress.kind == MediaProcessingKind.Audio
             Row(Modifier.fillMaxWidth().padding(end = 8.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (fraction != null) stringResource(R.string.video_compressing, (fraction * 100).toInt().coerceIn(0, 100))
-                        else stringResource(R.string.video_compressing_indeterminate),
+                        if (fraction != null) stringResource(
+                            if (audio) R.string.audio_compressing else R.string.video_compressing,
+                            (fraction * 100).toInt().coerceIn(0, 100)
+                        ) else stringResource(if (audio) R.string.audio_compressing_indeterminate else R.string.video_compressing_indeterminate),
                         color = palette.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                         modifier = Modifier.errorAnnouncement()
                     )
@@ -656,7 +780,11 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                     Text(progress.fileName, color = palette.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IconButton(onClick = { state.cancelCompression() }, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Rounded.Close, stringResource(R.string.video_compression_cancel), tint = palette.textSecondary)
+                    Icon(
+                        Icons.Rounded.Close,
+                        stringResource(if (audio) R.string.audio_compression_cancel else R.string.video_compression_cancel),
+                        tint = palette.textSecondary
+                    )
                 }
             }
         }
@@ -723,4 +851,10 @@ private fun VideoQualityOption.labelRes(): Int = when (this) {
     VideoQualityOption.Compact -> R.string.video_quality_compact
     VideoQualityOption.Balanced -> R.string.video_quality_balanced
     VideoQualityOption.Original -> R.string.video_quality_original
+}
+
+private fun AudioQualityOption.labelRes(): Int = when (this) {
+    AudioQualityOption.Compact -> R.string.audio_quality_compact
+    AudioQualityOption.Balanced -> R.string.audio_quality_balanced
+    AudioQualityOption.Original -> R.string.audio_quality_original
 }

@@ -47,8 +47,11 @@
     <string name="camera_error_too_short">Aufnahme ist zu kurz</string>
     <string name="capture_retry">Erneut versuchen</string>
     <string name="capture_retry_hint">Die Aufnahme ist auf diesem Gerät gespeichert. Import erneut versuchen oder Anhänge schließen.</string>
+    <string name="capture_retry_missing">Die Aufnahme ist nicht mehr verfügbar. Nimm erneut ein Foto oder Video auf.</string>
 
     <string name="err_video_compress_failed">Video konnte nicht komprimiert werden</string>
+    <string name="err_audio_compress_failed">Audio konnte nicht komprimiert werden</string>
+    <string name="video_container_as_file">Dieses Videoformat wird als Datei gesendet: Komprimierung wird nur für MP4/H.264 unterstützt.</string>
 
     <string name="composer_edit_photo_named">Foto „%1$s“ bearbeiten</string>
     <string name="photo_editor_title">Foto-Editor</string>
@@ -91,4 +94,17 @@
     <string name="video_compressed">Video komprimiert: %1$s → %2$s</string>
     <string name="video_too_long_as_file">Das Video ist länger als 60 Minuten — wird als Datei gesendet</string>
     <string name="video_too_large_as_file">Das Video ist größer als 2 GB — wird als Datei gesendet</string>
+
+    <string name="audio_quality_chip">Audio: %1$s</string>
+    <string name="audio_quality_compact">kompakt</string>
+    <string name="audio_quality_balanced">mittel</string>
+    <string name="audio_quality_original">Original</string>
+    <string name="audio_quality_notice">Neue Audiodateien: %1$s</string>
+    <string name="audio_compressing">Audio wird komprimiert… %1$d%%</string>
+    <string name="audio_compressing_indeterminate">Audio wird komprimiert…</string>
+    <string name="audio_compression_cancel">Audiokomprimierung abbrechen</string>
+    <string name="audio_compression_cancelled">Audiokomprimierung abgebrochen, Original wird gesendet</string>
+    <string name="audio_compression_failed_original">Audio konnte nicht komprimiert werden. Das Original wird gesendet.</string>
+    <string name="audio_metadata_kept">Audio mit Tags oder Cover wird nicht komprimiert, damit die Metadaten erhalten bleiben.</string>
+    <string name="audio_compressed">Audio komprimiert: %1$s → %2$s</string>
 </resources>

@@ -47,8 +47,11 @@
     <string name="camera_error_too_short">Recording is too short</string>
     <string name="capture_retry">Retry</string>
     <string name="capture_retry_hint">The capture is saved on this device. Retry the import or close the attachments.</string>
+    <string name="capture_retry_missing">The captured file is no longer available. Take a photo or video again.</string>
 
     <string name="err_video_compress_failed">Could not compress the video</string>
+    <string name="err_audio_compress_failed">Could not compress the audio</string>
+    <string name="video_container_as_file">This video format is sent as a file: compression is supported for MP4/H.264 only.</string>
 
     <string name="composer_edit_photo_named">Edit photo “%1$s”</string>
     <string name="photo_editor_title">Photo editor</string>
@@ -91,4 +94,17 @@
     <string name="video_compressed">Video compressed: %1$s → %2$s</string>
     <string name="video_too_long_as_file">The video is longer than 60 minutes — sending it as a file</string>
     <string name="video_too_large_as_file">The video is larger than 2 GB — sending it as a file</string>
+
+    <string name="audio_quality_chip">Audio: %1$s</string>
+    <string name="audio_quality_compact">compact</string>
+    <string name="audio_quality_balanced">balanced</string>
+    <string name="audio_quality_original">original</string>
+    <string name="audio_quality_notice">New audio files: %1$s</string>
+    <string name="audio_compressing">Compressing audio… %1$d%%</string>
+    <string name="audio_compressing_indeterminate">Compressing audio…</string>
+    <string name="audio_compression_cancel">Cancel audio compression</string>
+    <string name="audio_compression_cancelled">Audio compression cancelled, sending the original</string>
+    <string name="audio_compression_failed_original">Could not compress the audio. Sending the original.</string>
+    <string name="audio_metadata_kept">Audio with tags or cover art is not compressed so its metadata is preserved.</string>
+    <string name="audio_compressed">Audio compressed: %1$s → %2$s</string>
 </resources>

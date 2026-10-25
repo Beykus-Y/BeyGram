@@ -47,8 +47,11 @@
     <string name="camera_error_too_short">Запись слишком короткая</string>
     <string name="capture_retry">Повторить</string>
     <string name="capture_retry_hint">Снимок сохранён на устройстве. Повторите импорт или закройте вложения.</string>
+    <string name="capture_retry_missing">Файл снимка больше недоступен. Снимите фото или видео ещё раз.</string>
 
     <string name="err_video_compress_failed">Не удалось сжать видео</string>
+    <string name="err_audio_compress_failed">Не удалось сжать аудио</string>
+    <string name="video_container_as_file">Этот видеоформат отправляется файлом: сжатие поддерживается только для MP4/H.264.</string>
 
     <string name="composer_edit_photo_named">Изменить фото «%1$s»</string>
     <string name="photo_editor_title">Редактор фото</string>
@@ -91,4 +94,17 @@
     <string name="video_compressed">Видео сжато: %1$s → %2$s</string>
     <string name="video_too_long_as_file">Видео длиннее 60 минут — отправим файлом</string>
     <string name="video_too_large_as_file">Видео больше 2 ГБ — отправим файлом</string>
+
+    <string name="audio_quality_chip">Аудио: %1$s</string>
+    <string name="audio_quality_compact">экономное</string>
+    <string name="audio_quality_balanced">обычное</string>
+    <string name="audio_quality_original">оригинал</string>
+    <string name="audio_quality_notice">Новые аудиофайлы: %1$s</string>
+    <string name="audio_compressing">Сжимаем аудио… %1$d%%</string>
+    <string name="audio_compressing_indeterminate">Сжимаем аудио…</string>
+    <string name="audio_compression_cancel">Отменить сжатие аудио</string>
+    <string name="audio_compression_cancelled">Сжатие аудио отменено, отправляем оригинал</string>
+    <string name="audio_compression_failed_original">Не удалось сжать аудио. Отправим оригинал.</string>
+    <string name="audio_metadata_kept">Аудио с тегами или обложкой не сжимаем, чтобы сохранить метаданные.</string>
+    <string name="audio_compressed">Аудио сжато: %1$s → %2$s</string>
 </resources>
