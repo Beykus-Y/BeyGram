@@ -37,7 +37,7 @@ internal class TdBotFeatures(client: () -> Client) {
         InlineBotResults(
             queryId = answer.inlineQueryId,
             botUserId = botUserId,
-            results = answer.results.orEmpty().mapNotNull(::inlineResult),
+            results = answer.results.orEmpty().mapNotNull { inlineResult(it)?.copy(queryId = answer.inlineQueryId) },
             nextOffset = answer.nextOffset.orEmpty(),
             buttonText = if (buttonUrl == null) "" else button?.text.orEmpty().trim(),
             buttonWebAppUrl = buttonUrl.orEmpty()

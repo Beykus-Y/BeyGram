@@ -74,14 +74,15 @@ internal fun BotInlineResultsPanel(
     val context = LocalContext.current
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
-    var results by remember(chatId, parsed.username) { mutableStateOf<InlineBotResults?>(null) }
-    var loading by remember(chatId, parsed.username) { mutableStateOf(false) }
-    var loadingMore by remember(chatId, parsed.username) { mutableStateOf(false) }
-    var sending by remember(chatId, parsed.username) { mutableStateOf(false) }
-    var sendingResultId by remember(chatId, parsed.username) { mutableStateOf<String?>(null) }
-    var loadError by remember(chatId, parsed.username) { mutableStateOf<String?>(null) }
-    var pageError by remember(chatId, parsed.username) { mutableStateOf<String?>(null) }
-    var sendError by remember(chatId, parsed.username) { mutableStateOf<String?>(null) }
+    // State belongs to one query: a changed query immediately hides the previous page instead of allowing a stale tap.
+    var results by remember(chatId, parsed.username, parsed.query) { mutableStateOf<InlineBotResults?>(null) }
+    var loading by remember(chatId, parsed.username, parsed.query) { mutableStateOf(false) }
+    var loadingMore by remember(chatId, parsed.username, parsed.query) { mutableStateOf(false) }
+    var sending by remember(chatId, parsed.username, parsed.query) { mutableStateOf(false) }
+    var sendingResultId by remember(chatId, parsed.username, parsed.query) { mutableStateOf<String?>(null) }
+    var loadError by remember(chatId, parsed.username, parsed.query) { mutableStateOf<String?>(null) }
+    var pageError by remember(chatId, parsed.username, parsed.query) { mutableStateOf<String?>(null) }
+    var sendError by remember(chatId, parsed.username, parsed.query) { mutableStateOf<String?>(null) }
     var attempt by remember(chatId) { mutableIntStateOf(0) }
     // Every new query owns a generation; late pages from a previous query are ignored instead of being appended.
     var generation by remember(chatId, parsed.username) { mutableIntStateOf(0) }
@@ -142,7 +143,7 @@ internal fun BotInlineResultsPanel(
         scope.launch {
             sendError = null
             try {
-                conversation.sendInlineBotResult(chatId, answer.queryId, result.id, replyToMessageId, forumTopicId)
+                conversation.sendInlineBotResult(chatId, result.queryId.takeIf { it != 0L } ?: answer.queryId, result.id, replyToMessageId, forumTopicId)
                     .onSuccess { results = null; onSent(text) }
                     .onFailure { sendError = it.userMessage(context, R.string.chat_inline_send_failed) }
             } finally {

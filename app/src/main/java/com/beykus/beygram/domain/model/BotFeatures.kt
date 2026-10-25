@@ -35,7 +35,9 @@ data class InlineBotResult(
     val title: String,
     val description: String,
     val kind: InlineBotResultKind,
-    val thumbnailFileId: Int? = null
+    val thumbnailFileId: Int? = null,
+    /** Each paginated request has its own TDLib query id; keep it with the result instead of using the last page's. */
+    val queryId: Long = 0L
 )
 
 data class InlineBotResults(

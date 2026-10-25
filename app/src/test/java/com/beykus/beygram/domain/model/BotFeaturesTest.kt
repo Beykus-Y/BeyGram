@@ -26,9 +26,12 @@ class BotFeaturesTest {
 
     @Test
     fun `inline pages accumulate in order and duplicate ids are dropped`() {
-        val first = listOf(inlineResult("a"), inlineResult("b"), inlineResult("a"))
-        val second = listOf(inlineResult("b"), inlineResult("c"), inlineResult("d"), inlineResult("c"))
-        assertEquals(listOf("a", "b", "c", "d"), mergeInlineBotResults(first, second).map { it.id })
+        val first = listOf(inlineResult("a").copy(queryId = 11L), inlineResult("b").copy(queryId = 11L), inlineResult("a"))
+        val second = listOf(inlineResult("b").copy(queryId = 22L), inlineResult("c").copy(queryId = 22L), inlineResult("d").copy(queryId = 22L), inlineResult("c"))
+        val merged = mergeInlineBotResults(first, second)
+        assertEquals(listOf("a", "b", "c", "d"), merged.map { it.id })
+        // Every page owns a distinct TDLib query id, so merging must not rewrite results from earlier pages.
+        assertEquals(listOf(11L, 11L, 22L, 22L), merged.map { it.queryId })
         assertEquals(listOf("a", "b"), mergeInlineBotResults(first, emptyList()).map { it.id })
         assertEquals(listOf("c"), mergeInlineBotResults(emptyList(), listOf(inlineResult("c"))).map { it.id })
     }
