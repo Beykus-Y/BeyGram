@@ -133,7 +133,9 @@ fun ChatScreen(
     threadOpen: Boolean = false,
     messageAnimations: MessageAnimationConfig = MessageAnimationConfig(),
     accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
-    accountLabel: String = ""
+    accountLabel: String = "",
+    /** Repository-backed automatic download; absent means the local policy gates the plain download callback. */
+    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val canPostHere = chat.canPost && topicCanPost
@@ -1315,7 +1317,8 @@ fun ChatScreen(
                                 onToggleSelection = { listItem.messages.firstOrNull()?.let(::toggleSelection) },
                                 commentsBar = albumComments?.let { post ->
                                     { ChannelCommentsBar(listItem.messages.maxOfOrNull { it.replyCount } ?: 0) { onOpenComments(post) } }
-                                })
+                                },
+                                onAutoDownloadFile = onAutoDownloadFile)
                         }
                     }
                 } else {
@@ -1360,6 +1363,7 @@ fun ChatScreen(
                                 } else {
                                     { isGood -> rateTranscription(message, isGood) }
                                 },
+                                onAutoDownloadFile = onAutoDownloadFile,
                                 selectionMode = selectionMode,
                                 selected = message.id in selectionIds,
                                 onToggleSelection = { toggleSelection(message) },
@@ -1657,7 +1661,8 @@ fun ChatScreen(
             onForward = { forwardAsCopy = false; forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
             onDelete = { deleteEveryone = viewedRights?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
-        ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) })
+        ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) },
+            autoDownloadFile = onAutoDownloadFile)
     val forwardIds = when {
         forwardId != null -> listOf(forwardId!!)
         selectionForwardOpen -> forwardIdsForSelection(messages, selectionIds)
@@ -1719,7 +1724,7 @@ fun ChatScreen(
         },
         onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
     )
-    contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }) }
+    contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile) }
     if (pinConfirm && actionMessage != null) AlertDialog(
         onDismissRequest = { pinConfirm = false },
         title = { Text(stringResource(R.string.chat_pin_channel_title)) },
@@ -1879,6 +1884,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
     onRateTranscription: ((Boolean) -> Unit)? = null,
+    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     commentsBar: (@Composable () -> Unit)? = null,
     selectionMode: Boolean = false,
     selected: Boolean = false,
@@ -1954,7 +1960,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 transcriptionRequestError = transcriptionRequestError,
                                 transcriptionRated = transcriptionRated,
                                 onTranscribe = onTranscribe,
-                                onRateTranscription = onRateTranscription)
+                                onRateTranscription = onRateTranscription,
+                                autoDownloadFile = onAutoDownloadFile)
                             else MediaPreview(media, observeFile, onDownloadFile,
                                 onOpen = if (selectionMode) onToggleSelection else onOpen,
                                 onLongPress = if (selectionMode) onToggleSelection else onActions,
@@ -1963,7 +1970,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 transcriptionRequestError = transcriptionRequestError,
                                 transcriptionRated = transcriptionRated,
                                 onTranscribe = onTranscribe,
-                                onRateTranscription = onRateTranscription)
+                                onRateTranscription = onRateTranscription,
+                                autoDownloadFile = onAutoDownloadFile)
                         }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
@@ -1976,7 +1984,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 }
                             }
                             if (hasText) FormattedMessageText(message)
-                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile) }
+                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile) }
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,

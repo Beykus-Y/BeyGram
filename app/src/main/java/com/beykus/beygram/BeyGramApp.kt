@@ -77,6 +77,7 @@ import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
 import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
+import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
@@ -102,6 +103,7 @@ import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.PrivacySettingsScreen
 import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
+import com.beykus.beygram.ui.screens.settings.AutoDownloadSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherSheet
@@ -1170,6 +1172,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.NewChat) { routeName = AppRoute.Chats.name }
     BackHandler(enabled = route == AppRoute.CreateChannel) { routeName = AppRoute.NewChat.name }
@@ -1416,6 +1419,7 @@ private fun BeyGramAppContent(
                         chats = chats,
                         observeFile = repository::observeFile,
                         onDownloadFile = repository::downloadFile,
+                        onAutoDownloadFile = repository::autoDownloadFile,
                         onBack = {
                             if (chatBackRouteName == AppRoute.GlobalSearch.name) {
                                 chatFocusMessageId = 0L
@@ -1478,7 +1482,8 @@ private fun BeyGramAppContent(
                                 threadDraftReplyId = replyId
                             },
                             onBack = { routeName = AppRoute.Chat.name },
-                            onOpenProfile = { userId -> openUserProfile(userId, AppRoute.MessageThread) }
+                            onOpenProfile = { userId -> openUserProfile(userId, AppRoute.MessageThread) },
+                            autoDownloadFile = repository::autoDownloadFile
                         )
                     }
                 }
@@ -1529,7 +1534,8 @@ private fun BeyGramAppContent(
                 }
                 chatFocusMessageId = messageId
                 routeName = AppRoute.Chat.name
-            })
+            },
+            autoDownloadFile = repository::autoDownloadFile)
     }
 
     val chatMembersRoute: @Composable () -> Unit = {
@@ -1559,10 +1565,14 @@ private fun BeyGramAppContent(
             onOpenLinkedChannel = { channelId ->
                 selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
             },
-            lastSeenStyle = lastSeenStyle)
+            lastSeenStyle = lastSeenStyle,
+            autoDownloadFile = repository::autoDownloadFile)
     }
 
-    CompositionLocalProvider(LocalPlaybackAccountId provides selectedAccountId) {
+    CompositionLocalProvider(
+        LocalPlaybackAccountId provides selectedAccountId,
+        LocalAutoDownloadFile provides repository::autoDownloadFile
+    ) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
@@ -1761,7 +1771,8 @@ private fun BeyGramAppContent(
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
                         onOpenLinkedChannel = { channelId ->
                             selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
-                        }, lastSeenStyle = lastSeenStyle)
+                        }, lastSeenStyle = lastSeenStyle,
+                        autoDownloadFile = repository::autoDownloadFile)
                 }
                 AppRoute.Appearance -> ThemeSettingsScreen(
                     saved = appearance,
@@ -1819,6 +1830,7 @@ private fun BeyGramAppContent(
                         onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
                         onNotifications = { openNotifications(AppRoute.Settings) },
                         onStorage = { routeName = AppRoute.StorageSettings.name },
+                        onAutoDownload = { routeName = AppRoute.AutoDownloadSettings.name },
                         onProxy = { openProxy(AppRoute.Settings) },
                         onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
                         onDiagnostics = { routeName = AppRoute.Diagnostics.name },
@@ -1995,6 +2007,10 @@ private fun BeyGramAppContent(
                 AppRoute.VideoMessageSettings -> VideoMessageSettingsScreen(recordingSettings, repository, selectedAccountId) { routeName = AppRoute.Settings.name }
                 AppRoute.StorageSettings -> StorageSettingsScreen(
                     repository = repository,
+                    accountId = selectedAccountId,
+                    onBack = { routeName = AppRoute.Settings.name }
+                )
+                AppRoute.AutoDownloadSettings -> AutoDownloadSettingsScreen(
                     accountId = selectedAccountId,
                     onBack = { routeName = AppRoute.Settings.name }
                 )

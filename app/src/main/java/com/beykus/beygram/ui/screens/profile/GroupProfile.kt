@@ -83,7 +83,9 @@ internal fun GroupProfileScreen(
     onStatistics: (() -> Unit)?,
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)?, confirmExport: suspend (Long) -> Boolean,
     messageRights: suspend (Long) -> MessageCapabilities?, forwardMessage: suspend (Long, Long) -> Result<Unit>, chats: List<ChatPreview>,
-    onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit,
+    /** Repository-backed automatic download for the shared-media viewer. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -162,7 +164,7 @@ internal fun GroupProfileScreen(
     SharedMediaViewer(media = windows.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
         observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
-        onContentOpened = onContentOpened)
+        onContentOpened = onContentOpened, autoDownloadFile = autoDownloadFile)
 }
 
 /** Entry point shown only when TDLib's canGetStatistics allowed the current admin to open stats. */

@@ -47,6 +47,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
@@ -68,6 +71,7 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
+import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.MediaViewer
 import com.beykus.beygram.ui.screens.chat.MediaViewerActions
 import com.beykus.beygram.ui.screens.chat.MediaViewerItem
@@ -102,7 +106,9 @@ internal fun SharedMediaSection(
     chatId: Long, counts: SharedCounts?, load: suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
     messageRights: suspend (Long) -> MessageCapabilities?, forwardMessage: suspend (Long, Long) -> Result<Unit>, chats: List<ChatPreview>,
-    onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit,
+    /** Repository-backed automatic download for the shared-media viewer. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -134,7 +140,7 @@ internal fun SharedMediaSection(
     SharedMediaViewer(media = tabs.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
         observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
-        onContentOpened = onContentOpened)
+        onContentOpened = onContentOpened, autoDownloadFile = autoDownloadFile)
 }
 
 /** A forum message opens in its own topic, not in the topic list. */
@@ -165,7 +171,9 @@ internal fun SharedMediaViewer(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit,
     confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
     forwardMessage: suspend (Long, Long) -> Result<Unit> = { _, _ -> Result.failure(IllegalStateException()) }, chats: List<ChatPreview> = emptyList(),
-    onContentOpened: (Long) -> Unit = {}
+    onContentOpened: (Long) -> Unit = {},
+    /** Repository-backed automatic download; keeps viewer preview/full requests cancellable by policy. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -189,7 +197,7 @@ internal fun SharedMediaViewer(
             onViewing(id)
             scope.launch { media.loadNear(id) { it.media?.isSecret == false } }
         },
-        observeFile = observeFile, downloadFile = downloadFile, onViewed = onContentOpened, onClose = { onViewing(null) },
+        observeFile = observeFile, downloadFile = downloadFile, autoDownloadFile = autoDownloadFile, onViewed = onContentOpened, onClose = { onViewing(null) },
         // Сохранение заново проверяет право на сообщение перед каждым действием, как строки списка.
         canExport = viewedRights?.canSave == true, confirmExport = confirmExport,
         actions = if (viewedRights?.canForward == true) MediaViewerActions(
@@ -504,14 +512,34 @@ internal fun sharedRowAction(media: MessageMedia, localPath: String?): SharedRow
  * Видео без превью не грузим: TDLib отдал бы весь файл, а картинки нет. Секретные вложения не грузим и не показываем.
  */
 @Composable
-internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClick: () -> Unit, modifier: Modifier = Modifier, autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
     val thumbId = media.thumbnailFileId ?: media.fileId
     val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
     // У секретного вложения превью не показываем, поэтому спойлер ему не нужен: сразу открываем.
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler || media.isSecret) }
     val loadPreview = shouldLoadSharedPreview(media, revealed)
-    LaunchedEffect(thumbId, loadPreview) { if (loadPreview) downloadFile(thumbId) }
+    val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
+    LaunchedEffect(thumbId, loadPreview, thumb.size, media.isSecret, media.isSecretChat, media.hasSpoiler, policySettings, policyNetwork) {
+        if (loadPreview) {
+            val request = AutoDownloadRequest(
+                fileId = thumbId,
+                kind = MediaKind.Photo,
+                sizeBytes = thumb.size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat,
+                hasSpoiler = media.hasSpoiler && !revealed
+            )
+            if (autoDownload != null) autoDownload(request) else downloadFile(thumbId)
+        }
+    }
     Box(
         modifier.aspectRatio(1f).clip(RoundedCornerShape(4.dp)).background(palette.disabled)
             .clickable(onClick = { if (!revealed) revealed = true else onClick() }),

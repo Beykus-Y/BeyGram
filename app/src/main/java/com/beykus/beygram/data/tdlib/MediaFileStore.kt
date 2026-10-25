@@ -14,6 +14,8 @@ internal class MediaFileStore {
     private fun flow(id: Int) = states.computeIfAbsent(id) { MutableStateFlow(MediaFileState(id)) }
     fun observe(id: Int): StateFlow<MediaFileState> = flow(id).asStateFlow()
 
+    fun snapshot(id: Int): MediaFileState? = synchronized(lock) { states[id]?.value }
+
     // History snapshots must not roll back a newer UpdateFile download/upload state.
     fun register(file: MediaFileState) = synchronized(lock) {
         if (known.add(file.id)) flow(file.id).value = file
@@ -35,5 +37,11 @@ internal class MediaFileStore {
     fun fail(id: Int, message: UiText) = synchronized(lock) {
         val state = flow(id)
         state.value = state.value.copy(isDownloading = false, error = message)
+    }
+
+    /** Stops showing an automatic download as active after TDLib cancelled it; a manual retry is still possible. */
+    fun cancel(id: Int) = synchronized(lock) {
+        val state = flow(id)
+        state.value = state.value.copy(isDownloading = false, error = null)
     }
 }

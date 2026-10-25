@@ -13,6 +13,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -26,10 +27,15 @@ import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.animateLottieCompositionAsState
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.media.readTgsJson
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.beyGramPalette
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -49,13 +55,41 @@ private const val WEBP_MIME = "image/webp"
 @Composable
 internal fun StickerPreview(
     media: MessageMedia, file: MediaFileState, thumbnail: MediaFileState,
-    downloadFile: (Int) -> Unit, onOpen: () -> Unit, onLongPress: (() -> Unit)?
+    downloadFile: (Int) -> Unit, onOpen: () -> Unit, onLongPress: (() -> Unit)?,
+    /** Repository-backed automatic sticker download; explicit viewer actions still use [downloadFile]. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val webm = media.mimeType == WEBM_MIME
     val description = stringResource(R.string.media_kind_sticker)
-    LaunchedEffect(media.fileId, media.thumbnailFileId) {
-        media.thumbnailFileId?.let(downloadFile)
-        if (!webm) downloadFile(media.fileId)
+    val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
+    val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
+    LaunchedEffect(media.fileId, media.thumbnailFileId, thumbnail.size, file.size, policySettings, policyNetwork) {
+        media.thumbnailFileId?.let { thumbnailId ->
+            val thumbnailRequest = AutoDownloadRequest(
+                fileId = thumbnailId,
+                kind = MediaKind.Photo,
+                sizeBytes = thumbnail.size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat
+            )
+            if (autoDownload != null) autoDownload(thumbnailRequest) else downloadFile(thumbnailId)
+        }
+        if (!webm) {
+            val stickerRequest = AutoDownloadRequest(
+                fileId = media.fileId,
+                kind = MediaKind.Sticker,
+                sizeBytes = file.size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat
+            )
+            if (autoDownload != null) autoDownload(stickerRequest) else downloadFile(media.fileId)
+        }
     }
     Box(
         Modifier.size(STICKER_SIZE)
@@ -114,7 +148,20 @@ private fun LottieSticker(json: String, modifier: Modifier, playing: Boolean, fa
 @Composable
 internal fun CustomEmojiImage(emoji: CustomEmoji, size: Dp, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, fallback: @Composable () -> Unit) {
     val file by remember(emoji.fileId) { observeFile(emoji.fileId) }.collectAsStateWithLifecycle()
-    LaunchedEffect(emoji.fileId) { if (emoji.mimeType != WEBM_MIME) downloadFile(emoji.fileId) }
+    val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
+    val autoDownload = LocalAutoDownloadFile.current
+    LaunchedEffect(emoji.fileId, file.size, file.localPath, policySettings, policyNetwork) {
+        if (emoji.mimeType != WEBM_MIME && !file.isDownloading && file.localPath == null) {
+            val request = AutoDownloadRequest(fileId = emoji.fileId, kind = MediaKind.Sticker, sizeBytes = file.size)
+            if (autoDownload != null) autoDownload(request) else downloadFile(emoji.fileId)
+        }
+    }
     val path = file.localPath
     val modifier = Modifier.size(size)
     when {

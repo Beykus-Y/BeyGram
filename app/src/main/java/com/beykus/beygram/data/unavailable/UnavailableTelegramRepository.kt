@@ -4,6 +4,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChannelAdminEventPage
 import com.beykus.beygram.domain.model.ChannelEventFilter
@@ -179,6 +180,7 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = MutableStateFlow(MediaFileState(fileId)).asStateFlow()
     override fun downloadFile(fileId: Int) {}
+    override fun autoDownloadFile(request: AutoDownloadRequest) {}
 
     override suspend fun dismissNotifications(groupId: Int, maxNotificationId: Int): Result<Unit> = Result.success(Unit)
     override fun observeChat(chatId: Long): StateFlow<ChatPreview?> = MutableStateFlow<ChatPreview?>(null).asStateFlow()
