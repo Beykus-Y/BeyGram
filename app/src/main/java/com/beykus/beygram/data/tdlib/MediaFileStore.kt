@@ -42,7 +42,13 @@ internal class MediaFileStore(
             // TDLib also preloads thumbnails and media without an explicit DownloadFile request.
             // Such transfers have no app origin, so they are counted as automatic.
             if (!traffic.isActive(file.id)) {
-                traffic.begin(file.id, origins[file.id] ?: TrafficOrigin.Auto, previous.downloadedBytes)
+                val resuming = traffic.hasTransfer(file.id)
+                traffic.begin(
+                    file.id,
+                    origins[file.id] ?: TrafficOrigin.Auto,
+                    previous.downloadedBytes,
+                    preserveWatermark = resuming
+                )
             }
             traffic.progress(file.id, file.downloadedBytes)
         } else {
@@ -52,7 +58,10 @@ internal class MediaFileStore(
             if (traffic.hasTransfer(file.id)) {
                 traffic.progress(file.id, file.downloadedBytes)
                 traffic.finish(file.id)
-                if (file.localPath != null || settled.remove(file.id)) traffic.release(file.id)
+                if (file.localPath != null || settled.remove(file.id)) {
+                    traffic.release(file.id)
+                    origins.remove(file.id)
+                }
             }
             if (file.localPath != null) origins.remove(file.id)
         }
@@ -77,10 +86,11 @@ internal class MediaFileStore(
             }
             else -> {
                 val baseline = state.value.downloadedBytes
+                val resuming = traffic.hasTransfer(id)
                 state.value = state.value.copy(isDownloading = true, error = null)
                 origins[id] = origin
                 settled.remove(id)
-                traffic.begin(id, origin, baseline)
+                traffic.begin(id, origin, baseline, preserveWatermark = resuming)
                 true
             }
         }

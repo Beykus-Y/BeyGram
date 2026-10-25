@@ -98,6 +98,53 @@ class MediaFileStoreTrafficTest {
     }
 
     @Test
+    fun pauseWithLowerReportedProgressDoesNotDoubleCountOnResume() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginAutoDownload(9)
+        store.update(MediaFileState(9, size = 200, downloadedBytes = 100, isDownloading = true))
+        store.update(MediaFileState(9, size = 200, downloadedBytes = 40, isDownloading = false))
+        store.update(MediaFileState(9, size = 200, downloadedBytes = 100, isDownloading = true))
+
+        assertEquals(100L, traffic.snapshot.value.autoBytes)
+    }
+
+    @Test
+    fun manualTapOnAPausedTransferDoesNotDoubleCountItsBytes() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginDownload(11)
+        store.update(MediaFileState(11, size = 200, downloadedBytes = 100, isDownloading = true))
+        store.update(MediaFileState(11, size = 200, downloadedBytes = 40, isDownloading = false))
+        assertTrue(store.beginDownload(11))
+        store.update(MediaFileState(11, size = 200, downloadedBytes = 100, isDownloading = true))
+
+        assertEquals(100L, traffic.snapshot.value.manualBytes)
+        assertEquals(0L, traffic.snapshot.value.autoBytes)
+    }
+
+    @Test
+    fun settledCancellationClearsTheManualOriginBeforeABackgroundPreload() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginDownload(10)
+        store.update(MediaFileState(10, size = 100, downloadedBytes = 40, isDownloading = true))
+        store.cancel(10)
+        // Terminal update after the cancellation: the transfer is released and the manual hint is cleared.
+        store.update(MediaFileState(10, size = 100, downloadedBytes = 40, isDownloading = false))
+        // TDLib later preloads the same partial file without an application request.
+        store.update(MediaFileState(10, size = 100, downloadedBytes = 60, isDownloading = true))
+
+        val snapshot = traffic.snapshot.value
+        assertEquals(40L, snapshot.manualBytes)
+        assertEquals(20L, snapshot.autoBytes)
+        assertEquals(TrafficOrigin.Auto, snapshot.activeOrigins[10])
+    }
+
+    @Test
     fun backgroundPreloadWithoutARequestIsCountedAsAutomatic() {
         val traffic = TrafficUsageSession()
         val store = store(traffic)

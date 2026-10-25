@@ -85,6 +85,20 @@ class TrafficUsageTest {
     }
 
     @Test
+    fun resumingWithALowerReportedValueKeepsTheHighWaterMark() {
+        val usage = TrafficUsageAccumulator()
+        usage.begin(10, TrafficOrigin.Auto)
+        usage.progress(10, 100)
+        usage.progress(10, 40)
+        usage.finish(10)
+
+        usage.begin(10, TrafficOrigin.Auto, alreadyDownloadedBytes = 40, preserveWatermark = true)
+        usage.progress(10, 100)
+
+        assertEquals(100L, usage.snapshot().autoBytes)
+    }
+
+    @Test
     fun finishHidesTransferButKeepsWatermarkForTerminalProgress() {
         val usage = TrafficUsageAccumulator()
         usage.begin(8, TrafficOrigin.Auto)

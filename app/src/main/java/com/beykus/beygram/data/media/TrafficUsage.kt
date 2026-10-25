@@ -42,7 +42,12 @@ internal class TrafficUsageAccumulator {
      * counted again, while progress below it is ignored.
      */
     @Synchronized
-    fun begin(fileId: Int, origin: TrafficOrigin, alreadyDownloadedBytes: Long = 0L): TrafficUsageSnapshot {
+    fun begin(
+        fileId: Int,
+        origin: TrafficOrigin,
+        alreadyDownloadedBytes: Long = 0L,
+        preserveWatermark: Boolean = false
+    ): TrafficUsageSnapshot {
         val baseline = alreadyDownloadedBytes.coerceAtLeast(0L)
         val existing = transfers[fileId]
         if (existing == null) {
@@ -53,10 +58,10 @@ internal class TrafficUsageAccumulator {
             // demote a manual transfer.
             if (origin == TrafficOrigin.Manual) existing.origin = TrafficOrigin.Manual
         } else {
-            // Reactivating a paused transfer starts from the size TDLib already has, so resumed
-            // bytes are not counted twice.
+            // A pause/resume keeps the highest value already counted, even if TDLib briefly reports a
+            // lower size on reconnect. An explicit new attempt starts from the size TDLib has now.
             existing.origin = origin
-            existing.highWater = baseline
+            existing.highWater = if (preserveWatermark) maxOf(existing.highWater, baseline) else baseline
             existing.active = true
         }
         return snapshot()
@@ -121,8 +126,12 @@ internal class TrafficUsageSession {
     val snapshot: StateFlow<TrafficUsageSnapshot> = _snapshot.asStateFlow()
 
     @Synchronized
-    fun begin(fileId: Int, origin: TrafficOrigin, alreadyDownloadedBytes: Long = 0L) =
-        publish(accumulator.begin(fileId, origin, alreadyDownloadedBytes))
+    fun begin(
+        fileId: Int,
+        origin: TrafficOrigin,
+        alreadyDownloadedBytes: Long = 0L,
+        preserveWatermark: Boolean = false
+    ) = publish(accumulator.begin(fileId, origin, alreadyDownloadedBytes, preserveWatermark))
 
     @Synchronized
     fun promote(fileId: Int) = publish(accumulator.promote(fileId))
