@@ -3,18 +3,23 @@ package com.beykus.beygram.data.tdlib
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.ExternalPaymentMethod
 import com.beykus.beygram.domain.model.GiftCatalogItem
 import com.beykus.beygram.domain.model.GiftCollectionItem
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumFeatureKind
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeError
 import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
 import com.beykus.beygram.domain.model.PremiumInfo
 import com.beykus.beygram.domain.model.PremiumPlan
+import com.beykus.beygram.domain.model.StarsTopUpOutcome
 import com.beykus.beygram.domain.model.classifyPremiumGiftCodeError
 import com.beykus.beygram.domain.model.normalizePremiumGiftCode
+import com.beykus.beygram.domain.model.sanitizePaymentMethodTitle
+import com.beykus.beygram.domain.model.validateExternalPaymentUrl
 import com.beykus.beygram.domain.model.ReceivedGiftItem
 import com.beykus.beygram.domain.model.StarBalance
 import com.beykus.beygram.domain.model.StarTopUpOption
@@ -32,14 +37,17 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Premium/Stars/Gifts access, one explicit gift purchase and Premium gift code activation.
- * TDLib owns balances and prices; this class never invents payment data, logs codes or
- * retries a mutation on its own.
+ * Premium/Stars/Gifts access, one explicit gift purchase, Premium gift code activation and
+ * external checkout preparation. TDLib owns balances and prices; this class never invents
+ * payment data, logs codes or URLs, collects card details, calls SendPaymentForm, or retries
+ * a mutation on its own.
  */
 internal class TdPayments(private val requests: TdRequests) {
     @Volatile private var cachedUserId = 0L
     private val userNames = ConcurrentHashMap<Long, String>()
     private val sendInFlight = AtomicBoolean(false)
+    // Preparing a checkout is read-only, but one browser hand-off at a time prevents double taps.
+    private val checkoutPreparationInFlight = AtomicBoolean(false)
 
     suspend fun premiumInfo(): Result<PremiumInfo> = monetizationResult {
         val state = requests(TdApi.GetPremiumState())
@@ -58,10 +66,11 @@ internal class TdPayments(private val requests: TdRequests) {
                         currency = payment.currency.orEmpty(),
                         discountPercent = payment.discountPercentage,
                         isCurrent = option.isCurrent,
-                        isUpgrade = option.isUpgrade
+                        isUpgrade = option.isUpgrade,
+                        hasExternalPaymentLink = payment.paymentLink != null
                     )
                 }
-            }.sortedBy { it.monthCount }
+            }.sortedWith(compareBy({ it.monthCount }, { it.amountMinor }, { it.currency }))
         )
     }
 
@@ -146,6 +155,137 @@ internal class TdPayments(private val requests: TdRequests) {
             topUpOptions = options,
             topUpOptionsUnavailable = optionsUnavailable
         )
+    }
+
+    /**
+     * Re-reads Premium prices and resolves Telegram's own out-of-store payment link. This
+     * never charges anything and never calls SendPaymentForm: the browser owns the checkout.
+     */
+    suspend fun premiumPaymentUrl(plan: PremiumPlan): PremiumCheckoutOutcome {
+        if (!checkoutPreparationInFlight.compareAndSet(false, true)) return PremiumCheckoutOutcome.Busy
+        return try {
+            val state = requests(TdApi.GetPremiumState())
+            val option = state.paymentOptions.orEmpty()
+                .firstOrNull { candidate ->
+                    candidate.paymentOption?.matches(plan) == true &&
+                        candidate.isCurrent == plan.isCurrent &&
+                        candidate.isUpgrade == plan.isUpgrade
+                }
+                ?: return PremiumCheckoutOutcome.PlanChanged
+            val payment = option.paymentOption ?: return PremiumCheckoutOutcome.Unavailable
+            if (payment.amount <= 0L || payment.currency.orEmpty().isBlank()) {
+                return PremiumCheckoutOutcome.Unavailable
+            }
+            val paymentLink = payment.paymentLink ?: return PremiumCheckoutOutcome.Unavailable
+            val httpUrl = try {
+                requests(TdApi.GetInternalLink(paymentLink, true))
+            } catch (_: TimeoutCancellationException) {
+                return PremiumCheckoutOutcome.Failed(UiText.Res(R.string.err_monetization_timeout))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Auth/flood errors must stay visible; an unsupported link type is a safe fallback.
+                return if (isBlockingPaymentError(error)) {
+                    PremiumCheckoutOutcome.Failed(failureText(error))
+                } else {
+                    PremiumCheckoutOutcome.Unavailable
+                }
+            }
+            val url = validateExternalPaymentUrl(httpUrl.url) ?: return PremiumCheckoutOutcome.Unavailable
+            // Informational only, exactly once after the user confirmed the plan. A failure here
+            // must not hide the external checkout, and it never triggers a second call.
+            clickPremiumSubscriptionBestEffort()
+            PremiumCheckoutOutcome.Ready(url)
+        } catch (timeout: TimeoutCancellationException) {
+            PremiumCheckoutOutcome.Failed(UiText.Res(R.string.err_monetization_timeout))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (isPaymentUnavailableError(error)) PremiumCheckoutOutcome.Unavailable
+            else PremiumCheckoutOutcome.Failed(failureText(error))
+        } finally {
+            checkoutPreparationInFlight.set(false)
+        }
+    }
+
+    /**
+     * Prepares a Stars top-up through Telegram's out-of-store invoice. Only URLs that TDLib
+     * returns in additionalPaymentOptions are exposed; a card form or a Stars-spending form
+     * is rejected because neither can be completed safely in this app.
+     */
+    suspend fun starsTopUpPayment(option: StarTopUpOption): StarsTopUpOutcome {
+        if (!checkoutPreparationInFlight.compareAndSet(false, true)) return StarsTopUpOutcome.Busy
+        return try {
+            val current = requests(TdApi.GetStarPaymentOptions()).options.orEmpty()
+                .firstOrNull { candidate -> candidate.matches(option) }
+                ?: return StarsTopUpOutcome.PackageChanged
+            if (current.currency.orEmpty().isBlank() || current.amount <= 0L || current.starCount <= 0L) {
+                return StarsTopUpOutcome.Unavailable
+            }
+            val form = requests(
+                TdApi.GetPaymentForm(
+                    TdApi.InputInvoiceTelegram(
+                        TdApi.TelegramPaymentPurposeStars(
+                            current.currency,
+                            current.amount,
+                            current.starCount,
+                            0L
+                        )
+                    ),
+                    null
+                )
+            )
+            when (val type = form.type) {
+                is TdApi.PaymentFormTypeRegular -> {
+                    val invoice = type.invoice ?: return StarsTopUpOutcome.Unavailable
+                    // A test invoice or a recurring subscription must never be opened as a top-up.
+                    if (invoice.isTest) return StarsTopUpOutcome.Unavailable
+                    if (invoice.subscriptionPeriod > 0) return StarsTopUpOutcome.SubscriptionUnsupported
+                    if (!invoice.currency.orEmpty().equals(current.currency, ignoreCase = true)) {
+                        return StarsTopUpOutcome.PackageChanged
+                    }
+                    val total = invoice.priceParts.orEmpty().sumOf { it.amount }
+                    if (total != current.amount) return StarsTopUpOutcome.PackageChanged
+                    val methods = type.additionalPaymentOptions.orEmpty()
+                        .mapNotNull { paymentOption ->
+                            val url = validateExternalPaymentUrl(paymentOption.url) ?: return@mapNotNull null
+                            ExternalPaymentMethod(
+                                title = sanitizePaymentMethodTitle(paymentOption.title),
+                                url = url
+                            )
+                        }
+                        .distinctBy { it.url.value }
+                    // No URL means the provider expects card fields in the client. BeyGram does not
+                    // collect them and never fabricates an InputCredentials/SendPaymentForm call.
+                    if (methods.isEmpty()) StarsTopUpOutcome.Unavailable
+                    else StarsTopUpOutcome.Ready(methods)
+                }
+                is TdApi.PaymentFormTypeStars -> StarsTopUpOutcome.SpendsStars(type.starCount)
+                is TdApi.PaymentFormTypeStarSubscription -> StarsTopUpOutcome.SubscriptionUnsupported
+                else -> StarsTopUpOutcome.Unavailable
+            }
+        } catch (timeout: TimeoutCancellationException) {
+            StarsTopUpOutcome.Failed(UiText.Res(R.string.err_monetization_timeout))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (isPaymentUnavailableError(error)) StarsTopUpOutcome.Unavailable
+            else StarsTopUpOutcome.Failed(failureText(error))
+        } finally {
+            checkoutPreparationInFlight.set(false)
+        }
+    }
+
+    private suspend fun clickPremiumSubscriptionBestEffort() {
+        try {
+            requests(TdApi.ClickPremiumSubscriptionButton(), timeoutMillis = PREMIUM_CLICK_TIMEOUT_MS)
+        } catch (_: TimeoutCancellationException) {
+            // The link is already resolved; a missed analytics click must not block checkout.
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Best effort only.
+        }
     }
 
     suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = monetizationResult {
@@ -438,6 +578,35 @@ internal class TdPayments(private val requests: TdRequests) {
     }
 }
 
+private fun TdApi.PremiumPaymentOption.matches(plan: PremiumPlan): Boolean =
+    monthCount.coerceAtLeast(1) == plan.monthCount &&
+        amount == plan.amountMinor &&
+        currency.orEmpty().equals(plan.currency, ignoreCase = true)
+
+private fun TdApi.StarPaymentOption.matches(option: StarTopUpOption): Boolean =
+    starCount == option.starCount &&
+        amount == option.amountMinor &&
+        currency.orEmpty().equals(option.currency, ignoreCase = true)
+
+/** A provider/form refusal means this build has no safe external checkout, not that the network failed. */
+private fun isPaymentUnavailableError(error: Exception): Boolean {
+    val message = error.message.orEmpty()
+    return message.contains("PAYMENT_PROVIDER", ignoreCase = true) ||
+        message.contains("PAYMENT_FORM", ignoreCase = true) ||
+        message.contains("INVOICE", ignoreCase = true) ||
+        message.contains("CURRENCY", ignoreCase = true) ||
+        message.contains("AMOUNT", ignoreCase = true) ||
+        message.contains("PREMIUM_CURRENTLY_UNAVAILABLE", ignoreCase = true) ||
+        message.contains("PREMIUM_PURCHASE", ignoreCase = true)
+}
+
+private fun isBlockingPaymentError(error: Exception): Boolean {
+    val message = error.message.orEmpty()
+    return (error is TdRequestError && (error.code == 401 || error.code == 429)) ||
+        message.contains("FLOOD_WAIT", ignoreCase = true) ||
+        message.contains("AUTH", ignoreCase = true)
+}
+
 private fun TdApi.StarAmount?.toBalance(): StarBalance =
     StarBalance(starCount = this?.starCount ?: 0L, nanostarCount = this?.nanostarCount ?: 0)
 
@@ -563,3 +732,4 @@ private const val FIRST_PAGE_SIZE = 30
 private const val RECEIVED_LIMIT = 30
 private const val GIFT_SEND_TIMEOUT_MS = 60_000L
 private const val PREMIUM_GIFT_CODE_APPLY_TIMEOUT_MS = 60_000L
+private const val PREMIUM_CLICK_TIMEOUT_MS = 3_000L

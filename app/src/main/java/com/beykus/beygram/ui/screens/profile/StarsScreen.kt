@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.profile
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,37 +21,50 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
-import com.beykus.beygram.domain.model.MonetizationPayments
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.model.ExternalPaymentMethod
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
 import com.beykus.beygram.domain.model.StarBalance
 import com.beykus.beygram.domain.model.StarTopUpOption
@@ -58,13 +72,19 @@ import com.beykus.beygram.domain.model.StarTransactionItem
 import com.beykus.beygram.domain.model.StarTransactionKind
 import com.beykus.beygram.domain.model.StarTransactionsPage
 import com.beykus.beygram.domain.model.StarsInfo
+import com.beykus.beygram.domain.model.StarsTopUpEvent
+import com.beykus.beygram.domain.model.StarsTopUpOutcome
+import com.beykus.beygram.domain.model.StarsTopUpStep
 import com.beykus.beygram.domain.model.formatPriceMinorUnits
 import com.beykus.beygram.domain.model.formatStarAmount
+import com.beykus.beygram.domain.model.next
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -73,11 +93,13 @@ import java.util.Date
 fun StarsScreen(
     load: suspend () -> Result<StarsInfo>,
     loadMore: suspend (String) -> Result<StarTransactionsPage>,
+    topUp: suspend (StarTopUpOption) -> StarsTopUpOutcome,
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     var info by remember { mutableStateOf<StarsInfo?>(null) }
     var transactions by remember { mutableStateOf<List<StarTransactionItem>>(emptyList()) }
     var nextOffset by remember { mutableStateOf("") }
@@ -89,9 +111,51 @@ fun StarsScreen(
     var reload by remember { mutableIntStateOf(0) }
     // The token drops a "load more" response that arrives after a refresh started.
     var generation by remember { mutableIntStateOf(0) }
+    var checkout by remember { mutableStateOf<StarsTopUpStep>(StarsTopUpStep.Idle) }
+    var checkoutGeneration by remember { mutableIntStateOf(0) }
+    var notice by remember { mutableStateOf<PaymentNotice?>(null) }
+    var balanceBeforeTopUp by remember { mutableStateOf<Long?>(null) }
+    var checkAfterReturn by remember { mutableStateOf(false) }
+    // The browser can outlive this composition; only flags survive rotation. The URL never does.
+    var awaitingExternal by rememberSaveable { mutableStateOf(false) }
+    var leftApp by rememberSaveable { mutableStateOf(false) }
+    val checkoutBusy = awaitingExternal ||
+        checkout is StarsTopUpStep.Confirming ||
+        checkout is StarsTopUpStep.Preparing ||
+        checkout is StarsTopUpStep.Ready ||
+        checkout is StarsTopUpStep.Opening ||
+        checkout is StarsTopUpStep.AwaitingReturn
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(notice) {
+        if (notice != null) listState.animateScrollToItem(0)
+    }
+
+    fun refreshAfterPayment() {
+        checkoutGeneration++
+        awaitingExternal = false
+        leftApp = false
+        checkout = checkout.next(StarsTopUpEvent.Returned)
+        checkAfterReturn = true
+        reload++
+    }
+
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> if (awaitingExternal) leftApp = true
+                Lifecycle.Event.ON_RESUME -> if (awaitingExternal && leftApp) refreshAfterPayment()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
     BackHandler(onBack = onBack)
     LaunchedEffect(reload) {
+        val afterPayment = checkAfterReturn
+        checkAfterReturn = false
         val currentGeneration = generation + 1
         generation = currentGeneration
         loading = true
@@ -108,11 +172,27 @@ fun StarsScreen(
                     info = loaded
                     transactions = loaded.transactions
                     nextOffset = loaded.nextOffset
+                    if (afterPayment) {
+                        val before = balanceBeforeTopUp
+                        val delta = before?.let { loaded.balance.starCount - it }
+                        notice = if (delta != null && delta > 0L) {
+                            PaymentNotice(
+                                context.getString(R.string.stars_topup_success, formatStarAmount(delta)),
+                                PaymentTone.Success
+                            )
+                        } else {
+                            PaymentNotice(context.getString(R.string.stars_topup_refreshed), PaymentTone.Neutral)
+                        }
+                    }
+                    balanceBeforeTopUp = loaded.balance.starCount
                 }
                 .onFailure { failure ->
                     if (generation != currentGeneration) return@onFailure
                     if (failure is MonetizationUnavailableException) unsupported = true
                     else error = failure.userMessage(context, R.string.stars_load_error)
+                    if (afterPayment) {
+                        notice = PaymentNotice(context.getString(R.string.stars_topup_refreshed), PaymentTone.Neutral)
+                    }
                 }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -158,9 +238,127 @@ fun StarsScreen(
         }
     }
 
+    fun selectTopUp(option: StarTopUpOption) {
+        if (loading || checkoutBusy) return
+        notice = null
+        checkout = checkout.next(StarsTopUpEvent.Select(option))
+    }
+
+    fun dismissTopUp() {
+        checkoutGeneration++
+        checkout = checkout.next(StarsTopUpEvent.Dismiss)
+    }
+
+    fun confirmTopUp() {
+        val confirming = checkout as? StarsTopUpStep.Confirming ?: return
+        if (awaitingExternal) return
+        checkout = checkout.next(StarsTopUpEvent.Confirm)
+        val generation = ++checkoutGeneration
+        scope.launch {
+            val outcome = try {
+                topUp(confirming.option)
+            } catch (_: TimeoutCancellationException) {
+                StarsTopUpOutcome.Failed(UiText.Res(R.string.err_monetization_timeout))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                StarsTopUpOutcome.Failed(UiText.Res(R.string.err_monetization_failed))
+            }
+            // The dialog may have been dismissed while this read-only request was in flight.
+            if (!isActive || generation != checkoutGeneration) return@launch
+            when (outcome) {
+                is StarsTopUpOutcome.Ready -> {
+                    if (outcome.methods.isEmpty()) {
+                        checkout = checkout.next(
+                            StarsTopUpEvent.Failed(UiText.Res(R.string.stars_topup_unavailable_body))
+                        )
+                        notice = PaymentNotice(
+                            context.getString(R.string.stars_topup_unavailable_body),
+                            PaymentTone.Error
+                        )
+                    } else {
+                        checkout = checkout.next(StarsTopUpEvent.Ready(outcome.methods))
+                    }
+                }
+                StarsTopUpOutcome.PackageChanged -> {
+                    checkout = checkout.next(
+                        StarsTopUpEvent.Failed(UiText.Res(R.string.stars_topup_changed))
+                    )
+                    notice = PaymentNotice(context.getString(R.string.stars_topup_changed), PaymentTone.Error)
+                    reload++
+                }
+                StarsTopUpOutcome.Unavailable -> {
+                    checkout = checkout.next(
+                        StarsTopUpEvent.Failed(UiText.Res(R.string.stars_topup_unavailable_body))
+                    )
+                    notice = PaymentNotice(
+                        context.getString(R.string.stars_topup_unavailable_body),
+                        PaymentTone.Error
+                    )
+                    // Options may have changed server-side; refresh the package list.
+                    reload++
+                }
+                is StarsTopUpOutcome.SpendsStars -> {
+                    val amount = formatStarAmount(outcome.starCount)
+                    checkout = checkout.next(
+                        StarsTopUpEvent.Failed(UiText.Res(R.string.stars_topup_spends_stars, listOf(amount)))
+                    )
+                    notice = PaymentNotice(
+                        context.getString(R.string.stars_topup_spends_stars, amount),
+                        PaymentTone.Error
+                    )
+                }
+                StarsTopUpOutcome.SubscriptionUnsupported -> {
+                    checkout = checkout.next(
+                        StarsTopUpEvent.Failed(UiText.Res(R.string.stars_topup_subscription))
+                    )
+                    notice = PaymentNotice(
+                        context.getString(R.string.stars_topup_subscription),
+                        PaymentTone.Error
+                    )
+                }
+                StarsTopUpOutcome.Busy -> {
+                    checkout = checkout.next(StarsTopUpEvent.Failed(UiText.Res(R.string.stars_topup_busy)))
+                    notice = PaymentNotice(context.getString(R.string.stars_topup_busy), PaymentTone.Error)
+                }
+                is StarsTopUpOutcome.Failed -> {
+                    checkout = checkout.next(StarsTopUpEvent.Failed(outcome.reason))
+                    notice = PaymentNotice(outcome.reason.resolve(context), PaymentTone.Error)
+                }
+            }
+        }
+    }
+
+    fun openTopUpMethod(method: ExternalPaymentMethod) {
+        val ready = checkout as? StarsTopUpStep.Ready ?: return
+        if (method !in ready.methods) return
+        val opening = checkout.next(StarsTopUpEvent.Open(method))
+        if (opening !is StarsTopUpStep.Opening) return
+        checkout = opening
+        balanceBeforeTopUp = info?.balance?.starCount
+        if (openExternalPaymentPage(context, method.url.value)) {
+            checkout = checkout.next(StarsTopUpEvent.Opened)
+            awaitingExternal = true
+            leftApp = false
+            notice = PaymentNotice(context.getString(R.string.stars_topup_opened_title), PaymentTone.Neutral)
+        } else {
+            checkout = checkout.next(
+                StarsTopUpEvent.Failed(UiText.Res(R.string.stars_topup_open_failed))
+            )
+            notice = PaymentNotice(context.getString(R.string.stars_topup_open_failed), PaymentTone.Error)
+        }
+    }
+
+    val confirmOption = when (val step = checkout) {
+        is StarsTopUpStep.Confirming -> step.option
+        is StarsTopUpStep.Preparing -> step.option
+        else -> null
+    }
+    val readyStep = checkout as? StarsTopUpStep.Ready
+
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.stars_title), onBack) {
-            IconButton(onClick = { if (!loading) reload++ }, enabled = !loading) {
+            IconButton(onClick = { if (!loading && !checkoutBusy) reload++ }, enabled = !loading && !checkoutBusy) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
             }
         }
@@ -182,6 +380,7 @@ fun StarsScreen(
                 val stars = info!!
                 LazyColumn(
                     Modifier.fillMaxSize(),
+                    state = listState,
                     contentPadding = PaddingValues(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -194,25 +393,39 @@ fun StarsScreen(
                                 .errorAnnouncement()
                         )
                     }
+                    notice?.let { current ->
+                        item("payment_notice") { PaymentNoticeCard(current) }
+                    }
                     item("balance") { StarsBalanceCard(stars.balance, loading) }
                     item("topup_header") { MonetizationSectionHeader(stringResource(R.string.stars_topup_title)) }
-                    if (!MonetizationPayments.starTopUpSupported) {
-                        item("topup_fallback") {
+                    if (awaitingExternal || checkout is StarsTopUpStep.AwaitingReturn) {
+                        item("topup_awaiting") {
                             MonetizationStateCard(
-                                title = stringResource(R.string.stars_topup_unavailable_title),
-                                body = stringResource(R.string.stars_topup_unavailable_body),
-                                tone = MonetizationTone.Warning
+                                title = stringResource(R.string.stars_topup_opened_title),
+                                body = stringResource(R.string.stars_topup_opened_body),
+                                onRetry = if (loading) null else ({ refreshAfterPayment() }),
+                                retryLabel = R.string.stars_topup_check
                             )
                         }
                     }
                     if (stars.topUpOptions.isNotEmpty()) {
+                        item("topup_info") {
+                            MonetizationStateCard(
+                                title = stringResource(R.string.stars_topup_browser_title),
+                                body = stringResource(R.string.stars_topup_browser_body)
+                            )
+                        }
                         item("topup_options") {
                             MonetizationCard {
                                 stars.topUpOptions.forEachIndexed { index, option ->
                                     if (index > 0) {
                                         HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 18.dp))
                                     }
-                                    StarTopUpRow(option)
+                                    StarTopUpRow(
+                                        option = option,
+                                        enabled = !checkoutBusy && !loading,
+                                        onSelect = { selectTopUp(option) }
+                                    )
                                 }
                             }
                         }
@@ -281,6 +494,23 @@ fun StarsScreen(
             }
         }
     }
+    if (confirmOption != null) {
+        StarsTopUpConfirmDialog(
+            option = confirmOption,
+            balanceStars = info?.balance?.starCount,
+            preparing = checkout is StarsTopUpStep.Preparing,
+            onConfirm = ::confirmTopUp,
+            onDismiss = ::dismissTopUp
+        )
+    }
+    if (readyStep != null) {
+        StarsTopUpMethodsDialog(
+            option = readyStep.option,
+            methods = readyStep.methods,
+            onOpen = ::openTopUpMethod,
+            onDismiss = ::dismissTopUp
+        )
+    }
 }
 
 @Composable
@@ -323,16 +553,27 @@ private fun StarsBalanceCard(balance: StarBalance, loading: Boolean) {
 }
 
 @Composable
-private fun StarTopUpRow(option: StarTopUpOption) {
+private fun StarTopUpRow(
+    option: StarTopUpOption,
+    enabled: Boolean,
+    onSelect: () -> Unit
+) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 18.dp, vertical = 10.dp)
-            .semantics(mergeDescendants = true) {},
+        Modifier.fillMaxWidth()
+            .clickable(
+                enabled = enabled,
+                role = Role.Button,
+                onClickLabel = stringResource(R.string.stars_topup_select, formatStarAmount(option.starCount)),
+                onClick = onSelect
+            )
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             stringResource(R.string.stars_topup_option_stars, formatStarAmount(option.starCount)),
-            color = palette.textPrimary,
+            color = if (enabled) palette.textPrimary else palette.textSecondary,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f)
@@ -345,7 +586,149 @@ private fun StarTopUpRow(option: StarTopUpOption) {
             color = palette.textSecondary,
             fontSize = 14.sp
         )
+        if (enabled) {
+            Icon(
+                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                null,
+                tint = palette.textSecondary,
+                modifier = Modifier.padding(start = 6.dp).size(20.dp)
+            )
+        }
     }
+}
+
+@Composable
+private fun StarsTopUpConfirmDialog(
+    option: StarTopUpOption,
+    balanceStars: Long?,
+    preparing: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = beyGramPalette()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(R.string.stars_topup_confirm_title),
+                modifier = Modifier.semantics { heading() }
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    stringResource(
+                        R.string.stars_topup_confirm_body,
+                        formatStarAmount(option.starCount),
+                        formatPriceMinorUnits(option.amountMinor, option.currency)
+                    ),
+                    color = palette.textPrimary,
+                    fontSize = 15.sp,
+                    lineHeight = 21.sp
+                )
+                if (balanceStars != null) {
+                    Text(
+                        stringResource(R.string.stars_topup_confirm_balance, formatStarAmount(balanceStars)),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp
+                    )
+                }
+                Text(
+                    stringResource(R.string.stars_topup_external_hint),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+                if (preparing) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+                    Text(
+                        stringResource(R.string.stars_topup_preparing),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = !preparing,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text(
+                    if (preparing) stringResource(R.string.stars_topup_preparing)
+                    else stringResource(R.string.stars_topup_continue)
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun StarsTopUpMethodsDialog(
+    option: StarTopUpOption,
+    methods: List<ExternalPaymentMethod>,
+    onOpen: (ExternalPaymentMethod) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = beyGramPalette()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(R.string.stars_topup_methods_title),
+                modifier = Modifier.semantics { heading() }
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    stringResource(
+                        R.string.stars_topup_methods_summary,
+                        formatStarAmount(option.starCount),
+                        formatPriceMinorUnits(option.amountMinor, option.currency)
+                    ),
+                    color = palette.textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    stringResource(R.string.stars_topup_methods_hint),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+                methods.forEach { method ->
+                    FilledTonalButton(
+                        onClick = { onOpen(method) },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = palette.accentSoft,
+                            contentColor = palette.accentInk
+                        ),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) {
+                        Text(
+                            method.title.ifBlank { stringResource(R.string.stars_topup_method_fallback) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        }
+    )
 }
 
 @Composable

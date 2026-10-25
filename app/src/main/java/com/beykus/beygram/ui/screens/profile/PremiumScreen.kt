@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.profile
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.AlertDialog
@@ -37,12 +39,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -57,8 +62,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
+import com.beykus.beygram.domain.model.PremiumCheckoutEvent
+import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
+import com.beykus.beygram.domain.model.PremiumCheckoutStep
 import com.beykus.beygram.domain.model.PremiumFeatureKind
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeEvent
@@ -67,10 +79,12 @@ import com.beykus.beygram.domain.model.PremiumGiftCodeStep
 import com.beykus.beygram.domain.model.PremiumGiftCodeValidation
 import com.beykus.beygram.domain.model.PremiumInfo
 import com.beykus.beygram.domain.model.PremiumPlan
+import com.beykus.beygram.domain.model.PremiumPlanBlock
 import com.beykus.beygram.domain.model.formatPriceMinorUnits
 import com.beykus.beygram.domain.model.next
 import com.beykus.beygram.domain.model.normalizePremiumGiftCode
 import com.beykus.beygram.domain.model.premiumGiftDuration
+import com.beykus.beygram.domain.model.premiumPlanBlock
 import com.beykus.beygram.domain.model.validatePremiumGiftCode
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -79,6 +93,7 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -88,27 +103,79 @@ fun PremiumScreen(
     load: suspend () -> Result<PremiumInfo>,
     checkGiftCode: suspend (String) -> Result<PremiumGiftCodeInfo>,
     applyGiftCode: suspend (String) -> PremiumGiftCodeApplyOutcome,
+    purchaseLink: suspend (PremiumPlan) -> PremiumCheckoutOutcome,
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     var info by remember { mutableStateOf<PremiumInfo?>(null) }
     var loading by remember { mutableStateOf(true) }
     var unsupported by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableIntStateOf(0) }
+    var checkout by remember { mutableStateOf<PremiumCheckoutStep>(PremiumCheckoutStep.Idle) }
+    var checkoutGeneration by remember { mutableIntStateOf(0) }
+    var notice by remember { mutableStateOf<PaymentNotice?>(null) }
+    var previousPremium by remember { mutableStateOf<Boolean?>(null) }
+    var checkAfterReturn by remember { mutableStateOf(false) }
+    // The browser can outlive this composition; only flags survive rotation. The URL never does.
+    var awaitingExternal by rememberSaveable { mutableStateOf(false) }
+    var leftApp by rememberSaveable { mutableStateOf(false) }
+    val checkoutBusy = awaitingExternal ||
+        checkout is PremiumCheckoutStep.Confirming ||
+        checkout is PremiumCheckoutStep.Preparing ||
+        checkout is PremiumCheckoutStep.LinkReady ||
+        checkout is PremiumCheckoutStep.AwaitingReturn
+
+    fun refreshAfterPayment() {
+        checkoutGeneration++
+        awaitingExternal = false
+        leftApp = false
+        checkout = checkout.next(PremiumCheckoutEvent.Returned)
+        checkAfterReturn = true
+        reload++
+    }
+
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> if (awaitingExternal) leftApp = true
+                Lifecycle.Event.ON_RESUME -> if (awaitingExternal && leftApp) refreshAfterPayment()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
     BackHandler(onBack = onBack)
     LaunchedEffect(reload) {
+        val afterPayment = checkAfterReturn
+        checkAfterReturn = false
         loading = true
         error = null
         unsupported = false
         try {
             load()
-                .onSuccess { info = it }
+                .onSuccess { loaded ->
+                    info = loaded
+                    if (afterPayment) {
+                        notice = if (previousPremium == false && loaded.isPremium) {
+                            PaymentNotice(context.getString(R.string.premium_purchase_success), PaymentTone.Success)
+                        } else {
+                            PaymentNotice(context.getString(R.string.premium_purchase_refreshed), PaymentTone.Neutral)
+                        }
+                    }
+                    previousPremium = loaded.isPremium
+                }
                 .onFailure { failure ->
                     if (failure is MonetizationUnavailableException) unsupported = true
                     else error = failure.userMessage(context, R.string.premium_load_error)
+                    if (afterPayment) {
+                        notice = PaymentNotice(context.getString(R.string.premium_purchase_refreshed), PaymentTone.Neutral)
+                    }
                 }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -117,9 +184,99 @@ fun PremiumScreen(
         }
     }
 
+    fun selectPlan(plan: PremiumPlan) {
+        if (loading || checkoutBusy || premiumPlanBlock(plan, checkout) != null) return
+        notice = null
+        checkout = checkout.next(PremiumCheckoutEvent.Select(plan))
+    }
+
+    fun dismissCheckout() {
+        checkoutGeneration++
+        checkout = checkout.next(PremiumCheckoutEvent.Dismiss)
+    }
+
+    fun confirmCheckout() {
+        val confirming = checkout as? PremiumCheckoutStep.Confirming ?: return
+        if (awaitingExternal) return
+        checkout = checkout.next(PremiumCheckoutEvent.Confirm)
+        val generation = ++checkoutGeneration
+        scope.launch {
+            val outcome = try {
+                purchaseLink(confirming.plan)
+            } catch (_: TimeoutCancellationException) {
+                PremiumCheckoutOutcome.Failed(UiText.Res(R.string.err_monetization_timeout))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                PremiumCheckoutOutcome.Failed(UiText.Res(R.string.err_monetization_failed))
+            }
+            // The dialog may have been dismissed while this read-only request was in flight.
+            if (!isActive || generation != checkoutGeneration) return@launch
+            when (outcome) {
+                is PremiumCheckoutOutcome.Ready -> {
+                    val ready = checkout.next(PremiumCheckoutEvent.Ready(outcome.url))
+                    if (ready !is PremiumCheckoutStep.LinkReady) return@launch
+                    checkout = ready
+                    previousPremium = info?.isPremium ?: previousPremium
+                    if (openExternalPaymentPage(context, outcome.url.value)) {
+                        checkout = checkout.next(PremiumCheckoutEvent.Opened)
+                        awaitingExternal = true
+                        leftApp = false
+                        notice = PaymentNotice(
+                            context.getString(R.string.premium_purchase_opened_title),
+                            PaymentTone.Neutral
+                        )
+                    } else {
+                        checkout = checkout.next(
+                            PremiumCheckoutEvent.Failed(UiText.Res(R.string.premium_purchase_open_failed))
+                        )
+                        notice = PaymentNotice(
+                            context.getString(R.string.premium_purchase_open_failed),
+                            PaymentTone.Error
+                        )
+                    }
+                }
+                PremiumCheckoutOutcome.PlanChanged -> {
+                    checkout = checkout.next(
+                        PremiumCheckoutEvent.Failed(UiText.Res(R.string.premium_purchase_changed))
+                    )
+                    notice = PaymentNotice(context.getString(R.string.premium_purchase_changed), PaymentTone.Error)
+                    reload++
+                }
+                PremiumCheckoutOutcome.Unavailable -> {
+                    checkout = checkout.next(
+                        PremiumCheckoutEvent.Failed(UiText.Res(R.string.premium_purchase_unavailable_body))
+                    )
+                    notice = PaymentNotice(
+                        context.getString(R.string.premium_purchase_unavailable_body),
+                        PaymentTone.Error
+                    )
+                    // The link or plan may have disappeared server-side; refresh the rows.
+                    reload++
+                }
+                PremiumCheckoutOutcome.Busy -> {
+                    checkout = checkout.next(
+                        PremiumCheckoutEvent.Failed(UiText.Res(R.string.premium_purchase_busy))
+                    )
+                    notice = PaymentNotice(context.getString(R.string.premium_purchase_busy), PaymentTone.Error)
+                }
+                is PremiumCheckoutOutcome.Failed -> {
+                    checkout = checkout.next(PremiumCheckoutEvent.Failed(outcome.reason))
+                    notice = PaymentNotice(outcome.reason.resolve(context), PaymentTone.Error)
+                }
+            }
+        }
+    }
+
+    val dialogPlan = when (val step = checkout) {
+        is PremiumCheckoutStep.Confirming -> step.plan
+        is PremiumCheckoutStep.Preparing -> step.plan
+        else -> null
+    }
+
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.premium_title), onBack) {
-            IconButton(onClick = { if (!loading) reload++ }, enabled = !loading) {
+            IconButton(onClick = { if (!loading && !checkoutBusy) reload++ }, enabled = !loading && !checkoutBusy) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
             }
         }
@@ -142,11 +299,24 @@ fun PremiumScreen(
                 refreshError = error,
                 unsupported = unsupported,
                 loading = loading,
+                checkout = checkout,
+                awaitingExternal = awaitingExternal,
+                notice = notice,
                 checkGiftCode = checkGiftCode,
                 applyGiftCode = applyGiftCode,
-                onRetry = { reload++ }
+                onSelectPlan = ::selectPlan,
+                onRetry = { reload++ },
+                onCheckStatus = ::refreshAfterPayment
             )
         }
+    }
+    if (dialogPlan != null) {
+        PremiumCheckoutDialog(
+            plan = dialogPlan,
+            preparing = checkout is PremiumCheckoutStep.Preparing,
+            onConfirm = ::confirmCheckout,
+            onDismiss = ::dismissCheckout
+        )
     }
 }
 
@@ -156,14 +326,23 @@ private fun PremiumContent(
     refreshError: String?,
     unsupported: Boolean,
     loading: Boolean,
+    checkout: PremiumCheckoutStep,
+    awaitingExternal: Boolean,
+    notice: PaymentNotice?,
     checkGiftCode: suspend (String) -> Result<PremiumGiftCodeInfo>,
     applyGiftCode: suspend (String) -> PremiumGiftCodeApplyOutcome,
-    onRetry: () -> Unit
+    onSelectPlan: (PremiumPlan) -> Unit,
+    onRetry: () -> Unit,
+    onCheckStatus: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val scrollState = rememberScrollState()
+    LaunchedEffect(notice) {
+        if (notice != null) scrollState.animateScrollTo(0)
+    }
     // A plain scroll container keeps the gift-code workflow and its coroutine composed while
     // the user inspects features and plans; a lazy item would discard both when scrolled away.
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(bottom = 24.dp)) {
         if (refreshError != null) {
             Text(
                 refreshError,
@@ -172,10 +351,19 @@ private fun PremiumContent(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp).errorAnnouncement()
             )
         }
+        notice?.let { PaymentNoticeCard(it) }
         if (unsupported) {
             MonetizationStateCard(
                 title = stringResource(R.string.monetization_unsupported_title),
                 body = stringResource(R.string.monetization_unsupported_body)
+            )
+        }
+        if (awaitingExternal || checkout is PremiumCheckoutStep.AwaitingReturn) {
+            MonetizationStateCard(
+                title = stringResource(R.string.premium_purchase_opened_title),
+                body = stringResource(R.string.premium_purchase_opened_body),
+                onRetry = if (loading) null else onCheckStatus,
+                retryLabel = R.string.premium_purchase_check
             )
         }
         MonetizationCard {
@@ -205,11 +393,6 @@ private fun PremiumContent(
                 )
             }
         }
-        MonetizationStateCard(
-            title = stringResource(R.string.premium_purchase_unavailable_title),
-            body = stringResource(R.string.premium_purchase_unavailable_body),
-            tone = MonetizationTone.Warning
-        )
         PremiumGiftCodeSection(
             checkCode = checkGiftCode,
             applyCode = applyGiftCode,
@@ -245,10 +428,28 @@ private fun PremiumContent(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
             )
         } else {
+            val hasAnyExternalLink = info.plans.any { it.hasExternalPaymentLink }
+            if (!hasAnyExternalLink) {
+                MonetizationStateCard(
+                    title = stringResource(R.string.premium_purchase_unavailable_title),
+                    body = stringResource(R.string.premium_purchase_unavailable_body),
+                    tone = MonetizationTone.Warning
+                )
+            } else {
+                MonetizationStateCard(
+                    title = stringResource(R.string.premium_purchase_browser_title),
+                    body = stringResource(R.string.premium_purchase_browser_body)
+                )
+            }
             MonetizationCard {
                 info.plans.forEachIndexed { index, plan ->
                     if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 18.dp))
-                    PremiumPlanRow(plan)
+                    PremiumPlanRow(
+                        plan = plan,
+                        block = premiumPlanBlock(plan, checkout)
+                            ?: if (loading) PremiumPlanBlock.Busy else null,
+                        onSelect = { onSelectPlan(plan) }
+                    )
                 }
             }
         }
@@ -338,10 +539,10 @@ private fun PremiumGiftCodeSection(
         scope.launch {
             val outcome = try {
                 applyCode(checkedCode)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
             } catch (_: TimeoutCancellationException) {
                 PremiumGiftCodeApplyOutcome.Uncertain
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 PremiumGiftCodeApplyOutcome.Uncertain
             }
@@ -585,23 +786,46 @@ private fun giftCodeDate(seconds: Int): String =
         .format(Date(seconds.coerceAtLeast(0).toLong() * 1000L))
 
 @Composable
-private fun PremiumPlanRow(plan: PremiumPlan) {
+private fun PremiumPlanRow(
+    plan: PremiumPlan,
+    block: PremiumPlanBlock?,
+    onSelect: () -> Unit
+) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 18.dp, vertical = 12.dp)) {
+    val enabled = block == null
+    Column(
+        Modifier.fillMaxWidth()
+            .clickable(
+                enabled = enabled,
+                role = Role.Button,
+                onClickLabel = stringResource(R.string.premium_plan_select, plan.monthCount),
+                onClick = onSelect
+            )
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 18.dp, vertical = 12.dp)
+    ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 stringResource(R.string.premium_plan_months, plan.monthCount),
-                color = palette.textPrimary,
+                color = if (enabled) palette.textPrimary else palette.textSecondary,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
             )
             Text(
                 formatPriceMinorUnits(plan.amountMinor, plan.currency),
-                color = palette.textPrimary,
+                color = if (enabled) palette.textPrimary else palette.textSecondary,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold
             )
+            if (enabled) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    null,
+                    tint = palette.textSecondary,
+                    modifier = Modifier.padding(start = 6.dp).size(20.dp)
+                )
+            }
         }
         if (plan.isCurrent || plan.isUpgrade || plan.discountPercent > 0) {
             Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -612,7 +836,113 @@ private fun PremiumPlanRow(plan: PremiumPlan) {
                 }
             }
         }
+        if (block == PremiumPlanBlock.NoExternalCheckout) {
+            Text(
+                stringResource(R.string.premium_plan_no_payment),
+                color = palette.warningText,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+        }
     }
+}
+
+@Composable
+private fun PremiumCheckoutDialog(
+    plan: PremiumPlan,
+    preparing: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = beyGramPalette()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(R.string.premium_purchase_confirm_title),
+                modifier = Modifier.semantics { heading() }
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    stringResource(
+                        R.string.premium_purchase_confirm_body,
+                        stringResource(R.string.premium_plan_months, plan.monthCount),
+                        formatPriceMinorUnits(plan.amountMinor, plan.currency)
+                    ),
+                    color = palette.textPrimary,
+                    fontSize = 15.sp,
+                    lineHeight = 21.sp
+                )
+                Text(
+                    stringResource(R.string.premium_purchase_external_hint),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+                if (preparing) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
+                    Text(
+                        stringResource(R.string.premium_purchase_preparing),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = !preparing,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text(
+                    if (preparing) stringResource(R.string.premium_purchase_preparing)
+                    else stringResource(R.string.premium_purchase_open)
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        }
+    )
+}
+
+internal enum class PaymentTone { Neutral, Success, Error }
+
+internal data class PaymentNotice(val text: String, val tone: PaymentTone)
+
+@Composable
+internal fun PaymentNoticeCard(notice: PaymentNotice) {
+    val palette = beyGramPalette()
+    val background = when (notice.tone) {
+        PaymentTone.Success -> palette.successSurface
+        PaymentTone.Error -> palette.warningSurface
+        PaymentTone.Neutral -> palette.surface
+    }
+    val contentColor = when (notice.tone) {
+        PaymentTone.Success -> palette.successText
+        PaymentTone.Error -> palette.danger
+        PaymentTone.Neutral -> palette.textPrimary
+    }
+    Text(
+        notice.text,
+        color = contentColor,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        modifier = Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(background)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .errorAnnouncement()
+    )
 }
 
 @Composable
@@ -646,24 +976,27 @@ internal fun MonetizationCard(content: @Composable ColumnScope.() -> Unit) {
     )
 }
 
-internal enum class MonetizationTone { Neutral, Warning, Error }
+internal enum class MonetizationTone { Neutral, Warning, Error, Success }
 
 @Composable
 internal fun MonetizationStateCard(
     title: String,
     body: String,
     tone: MonetizationTone = MonetizationTone.Neutral,
-    onRetry: (() -> Unit)? = null
+    onRetry: (() -> Unit)? = null,
+    @StringRes retryLabel: Int = R.string.common_retry
 ) {
     val palette = beyGramPalette()
     val background = when (tone) {
         MonetizationTone.Warning -> palette.warningSurface
         MonetizationTone.Error -> palette.warningSurface
+        MonetizationTone.Success -> palette.successSurface
         MonetizationTone.Neutral -> palette.surface
     }
     val titleColor = when (tone) {
         MonetizationTone.Error -> palette.danger
         MonetizationTone.Warning -> palette.warningText
+        MonetizationTone.Success -> palette.successText
         MonetizationTone.Neutral -> palette.textPrimary
     }
     Column(
@@ -678,7 +1011,7 @@ internal fun MonetizationStateCard(
         Text(body, color = palette.textPrimary, fontSize = 14.sp, lineHeight = 20.sp)
         if (onRetry != null) {
             TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.common_retry))
+                Text(stringResource(retryLabel))
             }
         }
     }

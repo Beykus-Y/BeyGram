@@ -3,12 +3,13 @@ package com.beykus.beygram.domain.model
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import java.math.BigDecimal
+import java.net.URI
 import java.util.Currency
 import java.util.Locale
 
 /**
  * Telegram Premium state read from TDLib. This model is display-only: the app never
- * starts a payment from it and never stores card data.
+ * stores card data. Checkout, when Telegram offers it, is delegated to an external page.
  */
 data class PremiumInfo(
     val isPremium: Boolean,
@@ -58,8 +59,18 @@ data class PremiumPlan(
     val currency: String,
     val discountPercent: Int,
     val isCurrent: Boolean,
-    val isUpgrade: Boolean
-)
+    val isUpgrade: Boolean,
+    /** TDLib supplied an internal link that can be resolved to Telegram's external checkout page. */
+    val hasExternalPaymentLink: Boolean
+) {
+    /** Prices and flags must still match TDLib server-side data before a checkout is opened. */
+    fun isSameOfferAs(other: PremiumPlan): Boolean =
+        monthCount == other.monthCount &&
+            amountMinor == other.amountMinor &&
+            currency.equals(other.currency, ignoreCase = true) &&
+            isCurrent == other.isCurrent &&
+            isUpgrade == other.isUpgrade
+}
 
 /** Server-side information about a Premium gift code; the code itself is never part of this model. */
 data class PremiumGiftCodeInfo(
@@ -182,7 +193,7 @@ data class StarsInfo(
     val balance: StarBalance,
     val transactions: List<StarTransactionItem>,
     val nextOffset: String,
-    /** Informational options from TDLib. They are never purchased in this build. */
+    /** Current packages from TDLib; checkout is confirmed again before any external page opens. */
     val topUpOptions: List<StarTopUpOption>,
     val topUpOptionsUnavailable: Boolean
 )
@@ -199,7 +210,224 @@ data class StarTopUpOption(
     val amountMinor: Long,
     val currency: String,
     val isAdditional: Boolean
+) {
+    /** Re-check the exact package before a payment page is opened. */
+    fun isSameOfferAs(other: StarTopUpOption): Boolean =
+        starCount == other.starCount &&
+            amountMinor == other.amountMinor &&
+            currency.equals(other.currency, ignoreCase = true)
+}
+
+/**
+ * An HTTPS payment page resolved by TDLib. Only [validateExternalPaymentUrl] should create it:
+ * the app opens this URL in the system browser and never loads it into an embedded WebView.
+ */
+@JvmInline
+value class ExternalPaymentUrl internal constructor(val value: String)
+
+/** One external payment method returned by Telegram's payment form. Titles are display-only. */
+data class ExternalPaymentMethod(
+    val title: String,
+    val url: ExternalPaymentUrl
 )
+
+/**
+ * Fail-closed URL policy for a payment page. Payment links can contain invoice or session
+ * secrets, so they are never logged or persisted; only a validated value may reach an Intent.
+ */
+fun validateExternalPaymentUrl(raw: String?): ExternalPaymentUrl? {
+    val value = raw ?: return null
+    if (value.isEmpty() || value.length > PAYMENT_URL_MAX_LENGTH || value != value.trim()) return null
+    if (value.any { it.isWhitespace() || it.isISOControl() }) return null
+    // Encoded CR/LF is never needed by a checkout URL and is a classic redirect-injection trick.
+    if (value.contains("%0d", ignoreCase = true) || value.contains("%0a", ignoreCase = true)) return null
+    val uri = try {
+        URI(value)
+    } catch (_: Exception) {
+        return null
+    }
+    if (!"https".equals(uri.scheme, ignoreCase = true) || uri.isOpaque) return null
+    if (uri.rawUserInfo != null) return null
+    val host = uri.host ?: return null
+    if (!isSafePaymentHost(host)) return null
+    // Keep the default port only: an arbitrary port bypasses the expected web endpoint.
+    if (uri.port != -1 && uri.port != 443) return null
+    return ExternalPaymentUrl(value)
+}
+
+private fun isSafePaymentHost(host: String): Boolean {
+    if (host.length > PAYMENT_HOST_MAX_LENGTH || '.' !in host) return false
+    return host.split('.').all { label ->
+        label.isNotEmpty() && label.length <= PAYMENT_HOST_LABEL_MAX_LENGTH && PAYMENT_HOST_LABEL.matches(label)
+    }
+}
+
+/** TDLib titles are plain text, but controls and excessive length must not reach the UI. */
+fun sanitizePaymentMethodTitle(raw: String?): String {
+    val cleaned = raw.orEmpty()
+        .filterNot { it.isISOControl() || it.category == CharCategory.FORMAT }
+        .replace(WHITESPACE_RUN, " ")
+        .trim()
+    if (cleaned.codePointCount(0, cleaned.length) <= PAYMENT_METHOD_TITLE_MAX_LENGTH) return cleaned
+    return cleaned.substring(0, cleaned.offsetByCodePoints(0, PAYMENT_METHOD_TITLE_MAX_LENGTH))
+}
+
+/** Result of resolving an external Premium checkout page. No request is retried by the UI. */
+sealed interface PremiumCheckoutOutcome {
+    data class Ready(val url: ExternalPaymentUrl) : PremiumCheckoutOutcome
+    /** Telegram no longer offers the exact plan/price the user confirmed. */
+    data object PlanChanged : PremiumCheckoutOutcome
+    /** TDLib offered no link that this app can safely open outside a WebView. */
+    data object Unavailable : PremiumCheckoutOutcome
+    data object Busy : PremiumCheckoutOutcome
+    data class Failed(val reason: UiText) : PremiumCheckoutOutcome
+}
+
+/** Result of preparing a Stars top-up. A Stars-spending form is explicitly not a top-up. */
+sealed interface StarsTopUpOutcome {
+    data class Ready(val methods: List<ExternalPaymentMethod>) : StarsTopUpOutcome
+    /** Telegram no longer offers the exact package/price the user confirmed. */
+    data object PackageChanged : StarsTopUpOutcome
+    /** The payment form needs card fields or saved credentials, which this app deliberately lacks. */
+    data object Unavailable : StarsTopUpOutcome
+    /** The form would spend existing Stars instead of adding new ones; it must never be submitted. */
+    data class SpendsStars(val starCount: Long) : StarsTopUpOutcome
+    /** Recurring Star subscriptions are outside this flow. */
+    data object SubscriptionUnsupported : StarsTopUpOutcome
+    data object Busy : StarsTopUpOutcome
+    data class Failed(val reason: UiText) : StarsTopUpOutcome
+}
+
+enum class PremiumPlanBlock { Busy, CurrentPlan, NoExternalCheckout }
+
+/**
+ * Client-side gate for a plan row. [step] also blocks a second checkout while one is being
+ * prepared or while the browser is in front of the app.
+ */
+fun premiumPlanBlock(plan: PremiumPlan, step: PremiumCheckoutStep): PremiumPlanBlock? = when {
+    step !is PremiumCheckoutStep.Idle && step !is PremiumCheckoutStep.Failed -> PremiumPlanBlock.Busy
+    plan.isCurrent && !plan.isUpgrade -> PremiumPlanBlock.CurrentPlan
+    !plan.hasExternalPaymentLink -> PremiumPlanBlock.NoExternalCheckout
+    else -> null
+}
+
+/** A checkout must be confirmed, prepared and opened exactly once; the URL is dropped on open. */
+sealed interface PremiumCheckoutStep {
+    data object Idle : PremiumCheckoutStep
+    data class Confirming(val plan: PremiumPlan) : PremiumCheckoutStep
+    data class Preparing(val plan: PremiumPlan) : PremiumCheckoutStep
+    data class LinkReady(val plan: PremiumPlan, val url: ExternalPaymentUrl) : PremiumCheckoutStep
+    data class AwaitingReturn(val plan: PremiumPlan) : PremiumCheckoutStep
+    data class Failed(val plan: PremiumPlan, val reason: UiText) : PremiumCheckoutStep
+}
+
+sealed interface PremiumCheckoutEvent {
+    data class Select(val plan: PremiumPlan) : PremiumCheckoutEvent
+    data object Confirm : PremiumCheckoutEvent
+    data class Ready(val url: ExternalPaymentUrl) : PremiumCheckoutEvent
+    data object Opened : PremiumCheckoutEvent
+    data object Returned : PremiumCheckoutEvent
+    data class Failed(val reason: UiText) : PremiumCheckoutEvent
+    data object Dismiss : PremiumCheckoutEvent
+}
+
+fun PremiumCheckoutStep.next(event: PremiumCheckoutEvent): PremiumCheckoutStep = when (this) {
+    is PremiumCheckoutStep.Confirming -> when (event) {
+        PremiumCheckoutEvent.Confirm -> PremiumCheckoutStep.Preparing(plan)
+        PremiumCheckoutEvent.Dismiss, PremiumCheckoutEvent.Returned -> PremiumCheckoutStep.Idle
+        else -> this
+    }
+    is PremiumCheckoutStep.Preparing -> when (event) {
+        is PremiumCheckoutEvent.Ready -> PremiumCheckoutStep.LinkReady(plan, event.url)
+        is PremiumCheckoutEvent.Failed -> PremiumCheckoutStep.Failed(plan, event.reason)
+        PremiumCheckoutEvent.Dismiss -> PremiumCheckoutStep.Idle
+        else -> this
+    }
+    is PremiumCheckoutStep.LinkReady -> when (event) {
+        PremiumCheckoutEvent.Opened -> PremiumCheckoutStep.AwaitingReturn(plan)
+        is PremiumCheckoutEvent.Failed -> PremiumCheckoutStep.Failed(plan, event.reason)
+        else -> this
+    }
+    is PremiumCheckoutStep.AwaitingReturn -> when (event) {
+        PremiumCheckoutEvent.Returned -> PremiumCheckoutStep.Idle
+        // A new plan or a second confirmation cannot start while the browser may still be open.
+        else -> this
+    }
+    is PremiumCheckoutStep.Failed -> when (event) {
+        is PremiumCheckoutEvent.Select -> PremiumCheckoutStep.Confirming(event.plan)
+        PremiumCheckoutEvent.Dismiss, PremiumCheckoutEvent.Returned -> PremiumCheckoutStep.Idle
+        else -> this
+    }
+    is PremiumCheckoutStep.Idle -> when (event) {
+        is PremiumCheckoutEvent.Select -> PremiumCheckoutStep.Confirming(event.plan)
+        else -> this
+    }
+}
+
+/** The Stars top-up state machine mirrors Premium: one browser hand-off at a time. */
+sealed interface StarsTopUpStep {
+    data object Idle : StarsTopUpStep
+    data class Confirming(val option: StarTopUpOption) : StarsTopUpStep
+    data class Preparing(val option: StarTopUpOption) : StarsTopUpStep
+    data class Ready(val option: StarTopUpOption, val methods: List<ExternalPaymentMethod>) : StarsTopUpStep
+    data class Opening(val option: StarTopUpOption, val method: ExternalPaymentMethod) : StarsTopUpStep
+    data class AwaitingReturn(val option: StarTopUpOption) : StarsTopUpStep
+    data class Failed(val option: StarTopUpOption, val reason: UiText) : StarsTopUpStep
+}
+
+sealed interface StarsTopUpEvent {
+    data class Select(val option: StarTopUpOption) : StarsTopUpEvent
+    data object Confirm : StarsTopUpEvent
+    data class Ready(val methods: List<ExternalPaymentMethod>) : StarsTopUpEvent
+    data class Open(val method: ExternalPaymentMethod) : StarsTopUpEvent
+    data object Opened : StarsTopUpEvent
+    data object Returned : StarsTopUpEvent
+    data class Failed(val reason: UiText) : StarsTopUpEvent
+    data object Dismiss : StarsTopUpEvent
+}
+
+fun StarsTopUpStep.next(event: StarsTopUpEvent): StarsTopUpStep = when (this) {
+    is StarsTopUpStep.Confirming -> when (event) {
+        StarsTopUpEvent.Confirm -> StarsTopUpStep.Preparing(option)
+        StarsTopUpEvent.Dismiss, StarsTopUpEvent.Returned -> StarsTopUpStep.Idle
+        else -> this
+    }
+    is StarsTopUpStep.Preparing -> when (event) {
+        is StarsTopUpEvent.Ready -> StarsTopUpStep.Ready(option, event.methods)
+        is StarsTopUpEvent.Failed -> StarsTopUpStep.Failed(option, event.reason)
+        StarsTopUpEvent.Dismiss -> StarsTopUpStep.Idle
+        else -> this
+    }
+    is StarsTopUpStep.Ready -> when (event) {
+        // Only a method returned by this form may be opened; an arbitrary URL cannot be injected.
+        is StarsTopUpEvent.Open -> if (event.method in methods) {
+            StarsTopUpStep.Opening(option, event.method)
+        } else {
+            this
+        }
+        StarsTopUpEvent.Dismiss, StarsTopUpEvent.Returned -> StarsTopUpStep.Idle
+        is StarsTopUpEvent.Failed -> StarsTopUpStep.Failed(option, event.reason)
+        else -> this
+    }
+    is StarsTopUpStep.Opening -> when (event) {
+        StarsTopUpEvent.Opened -> StarsTopUpStep.AwaitingReturn(option)
+        is StarsTopUpEvent.Failed -> StarsTopUpStep.Failed(option, event.reason)
+        else -> this
+    }
+    is StarsTopUpStep.AwaitingReturn -> when (event) {
+        StarsTopUpEvent.Returned -> StarsTopUpStep.Idle
+        else -> this
+    }
+    is StarsTopUpStep.Failed -> when (event) {
+        is StarsTopUpEvent.Select -> StarsTopUpStep.Confirming(event.option)
+        StarsTopUpEvent.Dismiss, StarsTopUpEvent.Returned -> StarsTopUpStep.Idle
+        else -> this
+    }
+    is StarsTopUpStep.Idle -> when (event) {
+        is StarsTopUpEvent.Select -> StarsTopUpStep.Confirming(event.option)
+        else -> this
+    }
+}
 
 /**
  * A gift that TDLib currently sells directly. Resale and auction-only gifts are
@@ -291,13 +519,13 @@ fun giftBlockReason(
 }
 
 /**
- * Purchases require a payment provider and store billing integration that BeyGram
- * does not ship. Keeping the switches in one place makes accidental fake payments
- * harder: the UI can only show plans and packages while both values are false.
+ * Checkout is delegated to Telegram's payment page outside the app. The client implements
+ * the hand-off, but actual availability still depends on TDLib and the region. The app never
+ * collects card data and never calls SendPaymentForm with credentials or saved cards.
  */
 object MonetizationPayments {
-    const val premiumPurchaseSupported = false
-    const val starTopUpSupported = false
+    const val externalCheckoutHandoffImplemented = true
+    const val nativePaymentFormImplemented = false
 }
 
 /** The current build cannot use this section at all, as opposed to a transient request error. */
@@ -387,6 +615,8 @@ fun PremiumGiftCodeStep.next(event: PremiumGiftCodeEvent): PremiumGiftCodeStep =
 fun formatPriceMinorUnits(amountMinor: Long, currencyCode: String): String {
     val code = currencyCode.trim().uppercase(Locale.ROOT)
     if (code.isEmpty()) return amountMinor.toString()
+    // Telegram Stars (XTR) have no fractional unit, unlike ISO 4217 test currency defaults.
+    if (code == "XTR") return "${formatStarAmount(amountMinor)} Stars"
     val digits = runCatching { Currency.getInstance(code).defaultFractionDigits }
         .getOrNull()
         ?.takeIf { it in 0..3 }
@@ -403,6 +633,12 @@ fun formatStarAmount(starCount: Long, nanostarCount: Int = 0): String =
         .toPlainString()
 
 private const val PREMIUM_GIFT_CODE_MAX_LENGTH = 128
+private const val PAYMENT_URL_MAX_LENGTH = 4096
+private const val PAYMENT_HOST_MAX_LENGTH = 253
+private const val PAYMENT_HOST_LABEL_MAX_LENGTH = 63
+private const val PAYMENT_METHOD_TITLE_MAX_LENGTH = 80
+private val PAYMENT_HOST_LABEL = Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
+private val WHITESPACE_RUN = Regex("\\s+")
 private val PREMIUM_GIFT_CODE_PREFIXES = listOf(
     "https://t.me/giftcode/",
     "http://t.me/giftcode/",

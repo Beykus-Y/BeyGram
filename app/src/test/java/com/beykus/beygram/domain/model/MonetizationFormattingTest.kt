@@ -2,6 +2,7 @@ package com.beykus.beygram.domain.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MonetizationFormattingTest {
@@ -42,8 +43,14 @@ class MonetizationFormattingTest {
     }
 
     @Test
-    fun `payment switches stay disabled until a provider is integrated`() {
-        assertFalse(MonetizationPayments.premiumPurchaseSupported)
-        assertFalse(MonetizationPayments.starTopUpSupported)
+    fun `stars prices never use a fractional ISO test-currency amount`() {
+        assertEquals("250 Stars", formatPriceMinorUnits(250, "XTR"))
+        assertEquals("1000 Stars", formatPriceMinorUnits(1000, "xtr"))
+    }
+
+    @Test
+    fun `payment switches never enable a native card form`() {
+        assertTrue(MonetizationPayments.externalCheckoutHandoffImplemented)
+        assertFalse(MonetizationPayments.nativePaymentFormImplemented)
     }
 }

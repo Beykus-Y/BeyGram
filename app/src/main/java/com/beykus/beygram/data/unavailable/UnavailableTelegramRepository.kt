@@ -85,9 +85,13 @@ import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
+import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
 import com.beykus.beygram.domain.model.PremiumInfo
+import com.beykus.beygram.domain.model.PremiumPlan
+import com.beykus.beygram.domain.model.StarTopUpOption
+import com.beykus.beygram.domain.model.StarsTopUpOutcome
 import com.beykus.beygram.domain.model.StarTransactionsPage
 import com.beykus.beygram.domain.model.StarsInfo
 import com.beykus.beygram.diagnostics.report.BotConfirmation
@@ -184,10 +188,14 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit> = unavailable()
     override suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit> = unavailable()
     override suspend fun premiumInfo(): Result<PremiumInfo> = monetizationUnavailable()
+    override suspend fun premiumPaymentUrl(plan: PremiumPlan): PremiumCheckoutOutcome =
+        PremiumCheckoutOutcome.Failed(UiText.Res(R.string.err_monetization_unavailable))
     override suspend fun checkPremiumGiftCode(code: String): Result<PremiumGiftCodeInfo> = monetizationUnavailable()
     override suspend fun applyPremiumGiftCode(code: String): PremiumGiftCodeApplyOutcome =
         PremiumGiftCodeApplyOutcome.Blocked(UiText.Res(R.string.err_monetization_unavailable))
     override suspend fun starsInfo(): Result<StarsInfo> = monetizationUnavailable()
+    override suspend fun starsTopUpPayment(option: StarTopUpOption): StarsTopUpOutcome =
+        StarsTopUpOutcome.Failed(UiText.Res(R.string.err_monetization_unavailable))
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = monetizationUnavailable()
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = monetizationUnavailable()
     override suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome =
