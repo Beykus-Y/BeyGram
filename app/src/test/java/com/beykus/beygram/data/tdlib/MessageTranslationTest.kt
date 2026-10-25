@@ -67,7 +67,7 @@ class MessageTranslationTest {
         val original = ChatMessage(id = 7, chatId = 1, text = "caption", time = "12:00", isOutgoing = false,
             senderName = "Alice")
         val media = MessageMedia(MediaKind.Voice, 9, transcriptionText = "recognized")
-        val updated = original.withUpdatedContent(TdApi.MessageVoiceNote(), media, "caption", emptyList(), null)
+        val updated = original.withUpdatedContent(TdApi.MessageVoiceNote(), media, null, "caption", emptyList(), null)
         assertEquals("recognized", updated.media?.transcriptionText)
         assertEquals("Alice", updated.senderName)
         assertEquals("caption", updated.text)
