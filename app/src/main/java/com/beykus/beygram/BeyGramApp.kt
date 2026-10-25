@@ -3,6 +3,7 @@ package com.beykus.beygram
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,6 +67,7 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.ui.components.MainTabBar
 import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
@@ -79,6 +81,12 @@ import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
+import com.beykus.beygram.ui.screens.chats.ChatsDetailPlaceholder
+import com.beykus.beygram.ui.screens.chats.ChatsTwoPaneScaffold
+import com.beykus.beygram.ui.screens.chats.chatListHighlightedId
+import com.beykus.beygram.ui.screens.chats.chatListPaneWidthDp
+import com.beykus.beygram.ui.screens.chats.isTwoPaneChatsWidth
+import com.beykus.beygram.ui.screens.chats.rememberChatsScreenState
 import com.beykus.beygram.ui.screens.chats.CreateChannelScreen
 import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
 import com.beykus.beygram.ui.screens.chats.NewChatScreen
@@ -614,6 +622,10 @@ private fun BeyGramAppContent(
         tabPreferences.save(visibility)
     }
     val tabStateHolder = rememberSaveableStateHolder()
+    // Поиск, папка и позиция списка живут выше раскладки: телефон, две панели, поворот и
+    // складка переиспользуют одно состояние, а не создают список заново. Ключ аккаунта
+    // не даёт поиску и id папок прошлого аккаунта перейти в следующий.
+    val chatsScreenState = key(selectedAccountId) { rememberChatsScreenState() }
     // Куда вернуться из раздела нижнего меню и из уведомлений: их открывают из разных мест.
     var tabReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var notificationsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
@@ -1164,53 +1176,62 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Diagnostics || route == AppRoute.ReportProblem) { routeName = AppRoute.Settings.name }
 
     // Потоки собирает сам раздел, которому они нужны: обновление списка чатов перерисовывает только открытый раздел, а не всё приложение.
-    val chatsTab: @Composable () -> Unit = {
+    // [twoPane] true только на широком экране: тогда список стоит слева, а открытый чат — справа.
+    // [chatOpen] отмечает строку чата, который действительно открыт справа, а не просто выбран раньше.
+    val chatsList: @Composable (Boolean, Boolean) -> Unit = { twoPane, chatOpen ->
         val chats by repository.chats.collectAsStateWithLifecycle()
         val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
         val folders by repository.chatFolders.collectAsStateWithLifecycle()
         val folderLists by repository.folderChats.collectAsStateWithLifecycle()
         val folderLoading by repository.folderLoadStates.collectAsStateWithLifecycle()
+        ChatsScreen(
+            chats = chats,
+            archivedChats = archivedChats,
+            folderSnapshot = folders,
+            folderChats = folderLists,
+            folderLoadStates = folderLoading,
+            onFolderLoadMore = { id ->
+                archiveSettingsScope.launch { repository.loadMoreFolderChats(id) }
+            },
+            onPinFolderChat = repository::setFolderChatPinned,
+            onLoadFolder = repository::getFolderDraft,
+            onSaveFolder = repository::saveFolderDraft,
+            onDeleteFolder = repository::deleteServerFolder,
+            onReorderFolders = repository::reorderServerFolders,
+            myProfile = myProfile.info,
+            observeFile = repository::observeFile,
+            downloadFile = repository::downloadFile,
+            onMyProfile = { routeName = AppRoute.MyProfile.name },
+            onAccountPicker = { accountSwitcherVisible = true },
+            onArchiveClick = { routeName = AppRoute.Archive.name },
+            onMarkRead = markChatRead,
+            onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
+            onArchive = archiveChat,
+            onPinChat = repository::setChatPinned,
+            onMuteChat = repository::setChatMuted,
+            onDeleteChat = repository::deleteChatForSelf,
+            onNewChat = { routeName = AppRoute.NewChat.name },
+            archiveHidden = archiveHidden,
+            onArchiveHiddenChange = onArchiveHiddenChange,
+            onGlobalSearch = { typed ->
+                globalSearchQuery = typed
+                globalSearchSession.reset(typed)
+                routeName = AppRoute.GlobalSearch.name
+            },
+            onChatClick = { chat ->
+                selectedChatId = chat.id
+                chatBackRouteName = AppRoute.Chats.name
+                routeName = AppRoute.Chat.name
+            },
+            highlightedChatId = chatListHighlightedId(twoPane && chatOpen, selectedChatId),
+            compactHeader = twoPane,
+            state = chatsScreenState
+        )
+    }
+    // Телефонный раздел чатов: тот же список под нижним меню. Широкий экран собирает две панели ниже.
+    val chatsTab: @Composable () -> Unit = {
         MainTabsScaffold("${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
-            ChatsScreen(
-                chats = chats,
-                archivedChats = archivedChats,
-                folderSnapshot = folders,
-                folderChats = folderLists,
-                folderLoadStates = folderLoading,
-                onFolderLoadMore = { id ->
-                    archiveSettingsScope.launch { repository.loadMoreFolderChats(id) }
-                },
-                onPinFolderChat = repository::setFolderChatPinned,
-                onLoadFolder = repository::getFolderDraft,
-                onSaveFolder = repository::saveFolderDraft,
-                onDeleteFolder = repository::deleteServerFolder,
-                onReorderFolders = repository::reorderServerFolders,
-                myProfile = myProfile.info,
-                observeFile = repository::observeFile,
-                downloadFile = repository::downloadFile,
-                onMyProfile = { routeName = AppRoute.MyProfile.name },
-                onAccountPicker = { accountSwitcherVisible = true },
-                onArchiveClick = { routeName = AppRoute.Archive.name },
-                onMarkRead = markChatRead,
-                onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
-                onArchive = archiveChat,
-                onPinChat = repository::setChatPinned,
-                onMuteChat = repository::setChatMuted,
-                onDeleteChat = repository::deleteChatForSelf,
-                onNewChat = { routeName = AppRoute.NewChat.name },
-                archiveHidden = archiveHidden,
-                onArchiveHiddenChange = onArchiveHiddenChange,
-                onGlobalSearch = { typed ->
-                    globalSearchQuery = typed
-                    globalSearchSession.reset(typed)
-                    routeName = AppRoute.GlobalSearch.name
-                },
-                onChatClick = { chat ->
-                    selectedChatId = chat.id
-                    chatBackRouteName = AppRoute.Chats.name
-                    routeName = AppRoute.Chat.name
-                }
-            )
+            chatsList(false, false)
         }
     }
     val archiveRoute: @Composable () -> Unit = {
@@ -1237,7 +1258,9 @@ private fun BeyGramAppContent(
             }
         )
     }
-    val chatRoute: @Composable () -> Unit = {
+    // [twoPane] true when this chat is the right-hand pane of the wide layout. A chat that cannot be
+    // resolved must not replace the whole tab there: the list is already beside it.
+    val chatRoute: @Composable (Boolean) -> Unit = { twoPane ->
         val chats by repository.chats.collectAsStateWithLifecycle()
         val myAccount by repository.myProfile.collectAsStateWithLifecycle()
         val accountLabel = myAccount.info?.title?.takeIf { it.isNotBlank() } ?: myAccount.info?.phone.orEmpty()
@@ -1247,7 +1270,7 @@ private fun BeyGramAppContent(
             if (authState == AuthState.Ready && chat == null && selectedChatId != 0L) repository.loadChat(selectedChatId)
         }
         if (chat == null) {
-            chatsTab()
+            if (twoPane) ChatsDetailPlaceholder() else chatsTab()
         } else {
             var topicsResult by remember(repository, selectedChatId) {
                 mutableStateOf<Result<List<com.beykus.beygram.domain.model.ForumTopic>?>?>(null)
@@ -1656,11 +1679,41 @@ private fun BeyGramAppContent(
                     )
                 }
 
-                AppRoute.Chats -> chatsTab()
+                // Один композиционный слот для списка и открытого чата: на широком экране они
+                // стоят рядом, и переход между ними не пересоздаёт список.
+                AppRoute.Chats, AppRoute.Chat, AppRoute.MessageThread -> {
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val twoPane = isTwoPaneChatsWidth(maxWidth.value)
+                        if (twoPane) {
+                            ChatsTwoPaneScaffold(
+                                listPaneWidth = chatListPaneWidthDp(maxWidth.value).dp,
+                                showNavigation = route == AppRoute.Chats,
+                                navigation = {
+                                    // Нижнее меню остаётся прежним; на широком экране оно
+                                    // занимает всю ширину под обеими панелями.
+                                    NowPlayingBar()
+                                    MainTabBar(
+                                        tabs = MainTab.entries.filter { tabVisibility.isVisible(it) },
+                                        selected = MainTab.Chats,
+                                        onSelect = selectTab
+                                    )
+                                },
+                                list = { chatsList(true, route != AppRoute.Chats) },
+                                detail = {
+                                    if (route == AppRoute.Chats) ChatsDetailPlaceholder()
+                                    else chatRoute(true)
+                                }
+                            )
+                        } else if (route == AppRoute.Chats) {
+                            chatsTab()
+                        } else {
+                            chatRoute(false)
+                        }
+                    }
+                }
 
                 AppRoute.Archive -> archiveRoute()
 
-                AppRoute.Chat, AppRoute.MessageThread -> chatRoute()
                 AppRoute.ChatInfo -> chatInfoRoute()
                 AppRoute.ChannelStatistics -> {
                     val statsChat by repository.chats.collectAsStateWithLifecycle()

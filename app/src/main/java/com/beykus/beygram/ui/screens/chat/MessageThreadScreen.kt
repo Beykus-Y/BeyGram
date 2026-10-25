@@ -70,6 +70,7 @@ import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.ReactionOption
+import com.beykus.beygram.domain.model.mergeThreadHistory
 import com.beykus.beygram.domain.model.mergeThreadMessages
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -167,13 +168,9 @@ internal fun MessageThreadScreen(
             coroutineScope {
                 launch {
                     conversation.observeChatHistory(chatId).collect { history ->
-                        // The thread root is the group's automatic copy of the post: it is already shown at the top.
-                        val fresh = history.messages.filter {
-                            it.messageThreadId == currentThreadId && !it.isChannelPost && it.id != currentThreadId
-                        }
-                        if (fresh.isNotEmpty()) {
-                            messages = mergeThreadMessages(messages, fresh)
-                        }
+                        // A temporary comment that TDLib confirmed is replaced by its server copy, never shown beside it.
+                        val merged = mergeThreadHistory(messages, history, chatId, currentThreadId)
+                        if (merged != messages) messages = merged
                     }
                 }
                 launch {
@@ -284,7 +281,9 @@ internal fun MessageThreadScreen(
             try {
                 conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo)
                     .onSuccess { sent ->
-                        messages = mergeThreadMessages(messages, listOf(sent))
+                        // TDLib may already have confirmed this comment, so the snapshot must not bring its temporary copy back.
+                        val history = conversation.observeChatHistory(current.discussionChatId).value
+                        messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history, current.discussionChatId, current.threadId)
                         thread = current.copy(replyCount = current.replyCount + 1)
                         text = ""
                         entities = emptyList()

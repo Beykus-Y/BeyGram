@@ -169,7 +169,7 @@ class ChatExportStreamerTest {
         )
 
         assertEquals(1, summary.mediaFiles)
-        assertTrue(progress.any { it.phase == ChatExportPhase.Media && it.mediaCopied == 1 })
+        assertTrue(progress.any { it.phase == ChatExportPhase.Messages && it.mediaCopied == 1 })
         val entries = linkedMapOf<String, ByteArray>()
         ZipInputStream(ByteArrayInputStream(target.bytes.toByteArray())).use { zip ->
             while (true) {
@@ -224,5 +224,161 @@ class ChatExportStreamerTest {
         assertEquals(setOf("messages.json"), entries.keys)
         val json = JSONObject(String(entries.getValue("messages.json"), Charsets.UTF_8))
         assertTrue(json.getJSONArray("messages").getJSONObject(0).getJSONObject("media").isNull("exportedPath"))
+    }
+
+    /** Records the cursor of every page request, so a test can tell one pass over the history from two. */
+    private class RecordingSource(private val inner: ChatExportPageSource) : ChatExportPageSource {
+        val cursors = mutableListOf<Long>()
+
+        override suspend fun page(beforeMessageId: Long, limit: Int): ChatExportPage {
+            cursors += beforeMessageId
+            return inner.page(beforeMessageId, limit)
+        }
+    }
+
+    private fun zipEntries(bytes: ByteArray): List<Pair<String, ByteArray>> {
+        val entries = mutableListOf<Pair<String, ByteArray>>()
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                entries += entry.name to zip.readBytes()
+            }
+        }
+        return entries
+    }
+
+    /** Two history pages with one photo on the newest message; the photo is copied when that message is reached. */
+    private suspend fun mediaExport(documentBufferBytes: Int): Pair<List<Pair<String, ByteArray>>, RecordingSource> {
+        val target = RecordingTarget()
+        val media = ChatExportMedia(MediaKind.Photo, 7, "", "image/jpeg", size = 3)
+        val source = RecordingSource(
+            FakeSource(
+                listOf(
+                    page(listOf(message(3, 300).copy(media = media), message(2, 200)), 2, true),
+                    page(listOf(message(1, 100)), 0, false)
+                )
+            )
+        )
+        val provider = object : ChatExportMediaProvider {
+            override suspend fun open(media: ChatExportMedia) = ByteArrayInputStream(byteArrayOf(1, 2, 3))
+        }
+        ChatExportStreamer(target, source, provider, documentBufferBytes).export(
+            chat = chat(),
+            request = ChatExportRequest(includeMedia = true),
+            onProgress = {}
+        )
+        return zipEntries(target.bytes.toByteArray()) to source
+    }
+
+    @Test fun `media export walks the history once`() = runBlocking {
+        val (entries, source) = mediaExport(CHAT_EXPORT_DOCUMENT_BUFFER_BYTES)
+
+        assertEquals(listOf(0L, 2L), source.cursors)
+        assertEquals(listOf("media/3_photo.jpg", "messages.json"), entries.map { it.first })
+        val messages = JSONObject(String(entries.last().second, Charsets.UTF_8)).getJSONArray("messages")
+        assertEquals(3L, messages.getJSONObject(0).getLong("id"))
+        assertEquals("media/3_photo.jpg", messages.getJSONObject(0).getJSONObject("media").getString("exportedPath"))
+    }
+
+    @Test fun `a document over the memory budget is rendered again without copying media twice`() = runBlocking {
+        val (inMemory, inMemorySource) = mediaExport(CHAT_EXPORT_DOCUMENT_BUFFER_BYTES)
+        val (rendered, renderedSource) = mediaExport(documentBufferBytes = 16)
+
+        assertEquals(listOf(0L, 2L), inMemorySource.cursors)
+        assertEquals(listOf(0L, 2L, 0L, 2L), renderedSource.cursors)
+        assertEquals(listOf("media/3_photo.jpg", "messages.json"), rendered.map { it.first })
+        assertEquals(listOf<Byte>(1, 2, 3), rendered.first().second.toList())
+        val expected = JSONObject(String(inMemory.last().second, Charsets.UTF_8)).getJSONArray("messages").toString()
+        val actual = JSONObject(String(rendered.last().second, Charsets.UTF_8)).getJSONArray("messages").toString()
+        assertEquals(expected, actual)
+    }
+
+    @Test fun `media progress keeps the message count of the walk`() = runBlocking {
+        val media = ChatExportMedia(MediaKind.Photo, 7, "", "image/jpeg", size = 3)
+        val source = FakeSource(
+            listOf(
+                page(listOf(message(3, 300), message(2, 200)), 2, true),
+                page(listOf(message(1, 100).copy(media = media)), 0, false)
+            )
+        )
+        val provider = object : ChatExportMediaProvider {
+            override suspend fun open(media: ChatExportMedia) = ByteArrayInputStream(byteArrayOf(1, 2, 3))
+        }
+        val progress = mutableListOf<ChatExportProgress>()
+        ChatExportStreamer(RecordingTarget(), source, provider).export(
+            chat = chat(),
+            request = ChatExportRequest(includeMedia = true),
+            onProgress = { progress += it }
+        )
+
+        // The copy of the photo happens after the first page was reported, so its event must carry that page's count.
+        assertEquals(listOf(2, 2, 3), progress.filter { it.phase == ChatExportPhase.Messages }.map { it.messagesWritten })
+        assertEquals(1, progress.count { it.phase == ChatExportPhase.Media })
+    }
+
+    /** A whole chat served newest first with the cursor semantics of the TDLib page source; resolves date bounds on request. */
+    private class HistorySource(
+        private val messages: List<ChatExportMessage>,
+        private val resolvesDates: Boolean
+    ) : ChatExportPageSource {
+        val cursors = mutableListOf<Long>()
+
+        override suspend fun page(beforeMessageId: Long, limit: Int): ChatExportPage {
+            cursors += beforeMessageId
+            val older = messages
+                .filter { beforeMessageId == 0L || it.id < beforeMessageId }
+                .sortedByDescending { it.id }
+            val slice = older.take(limit)
+            return ChatExportPage(slice, nextBeforeMessageId = slice.lastOrNull()?.id ?: 0L, hasMore = older.size > slice.size)
+        }
+
+        override suspend fun newestMessageAtOrBefore(dateSeconds: Long): ChatExportMessage? =
+            if (resolvesDates) messages.filter { it.dateSeconds <= dateSeconds }.maxByOrNull { it.id } else null
+    }
+
+    private fun exportedIds(target: RecordingTarget): List<Long> {
+        val exported = JSONObject(String(target.bytes.toByteArray(), Charsets.UTF_8)).getJSONArray("messages")
+        return (0 until exported.length()).map { exported.getJSONObject(it).getLong("id") }
+    }
+
+    @Test fun `date bound starts the walk at the newest message before it`() = runBlocking {
+        val target = RecordingTarget()
+        val source = HistorySource((1L..10L).map { message(it, it * 10) }, resolvesDates = true)
+        val summary = ChatExportStreamer(target, source, NoMediaProvider).export(
+            chat = chat(),
+            request = ChatExportRequest(fromDateSeconds = 20L, toDateSeconds = 55L),
+            onProgress = {}
+        )
+
+        assertEquals(listOf(5L), source.cursors)
+        assertEquals(4, summary.messages)
+        assertEquals(listOf(5L, 4L, 3L, 2L), exportedIds(target))
+    }
+
+    @Test fun `date bound keeps paging older history from its anchor`() = runBlocking {
+        val target = RecordingTarget()
+        val source = HistorySource((1L..250L).map { message(it, it * 10) }, resolvesDates = true)
+        val summary = ChatExportStreamer(target, source, NoMediaProvider).export(
+            chat = chat(),
+            request = ChatExportRequest(toDateSeconds = 2_000L),
+            onProgress = {}
+        )
+
+        assertEquals(listOf(200L, 100L), source.cursors)
+        assertEquals(199, summary.messages)
+    }
+
+    @Test fun `date bound that cannot be resolved walks from the newest message as before`() = runBlocking {
+        val target = RecordingTarget()
+        val source = HistorySource((1L..10L).map { message(it, it * 10) }, resolvesDates = false)
+        val summary = ChatExportStreamer(target, source, NoMediaProvider).export(
+            chat = chat(),
+            request = ChatExportRequest(fromDateSeconds = 20L, toDateSeconds = 55L),
+            onProgress = {}
+        )
+
+        assertEquals(0L, source.cursors.first())
+        assertEquals(4, summary.messages)
+        assertEquals(listOf(5L, 4L, 3L, 2L), exportedIds(target))
     }
 }

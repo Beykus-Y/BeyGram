@@ -208,7 +208,7 @@ internal fun SharedMediaViewer(
     )
     forwardId?.let { id ->
         ForwardChatDialog(chats, forwardBusy, forwardError,
-            onPick = { target -> scope.launch {
+            onPick = { target, _ -> scope.launch {
                 forwardBusy = true; forwardError = null
                 try {
                     val result = forwardMessage(id, target.id)

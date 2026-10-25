@@ -50,4 +50,24 @@ class AccountUploadOwnershipTest {
         assertFalse(uploadFolderBelongsToAccount(first, "legacy"))
         assertTrue(uploadFolderBelongsToAccount(sibling, "a-second"))
     }
+
+    @Test fun videoNoteSessionLeftWithOnlyItsOwnerMarkIsRemovedAfterLastSegment() {
+        val session = folder.newFolder("video-note-session")
+        markUploadDirectoryOwner(session, "a-second")
+        val segment = File(session, "video-note-1.mp4").apply { writeText("segment") }
+        assertFalse(uploadFolderHasOnlyOwnerMarker(session))
+        assertFalse(removeUploadFolderIfOnlyOwnerMarker(session))
+        assertTrue(segment.exists())
+        segment.delete()
+        assertTrue(uploadFolderHasOnlyOwnerMarker(session))
+        assertTrue(removeUploadFolderIfOnlyOwnerMarker(session))
+        assertFalse(session.exists())
+    }
+
+    @Test fun emptyFolderWithoutOwnerMarkIsNotOwnerOnly() {
+        val empty = folder.newFolder("empty-upload")
+        assertFalse(uploadFolderHasOnlyOwnerMarker(empty))
+        assertFalse(removeUploadFolderIfOnlyOwnerMarker(empty))
+        assertTrue(empty.exists())
+    }
 }
