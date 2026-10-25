@@ -86,7 +86,7 @@
     <string name="group_members_role_restricted">Restricted</string>
     <string name="group_members_role_banned">Banned</string>
     <string name="group_members_load_failed">Could not load members</string>
-    <string name="group_members_basic_limit">TDLib does not support restrictions or a banned list in basic groups: a removed member can be added again.</string>
+    <string name="group_members_basic_limit">Telegram does not support restrictions or a banned list in basic groups: a removed member can be added again.</string>
 
     <string name="group_invites_title">Invite links</string>
     <string name="group_invites_create">Create link</string>
@@ -131,7 +131,7 @@
     <string name="group_invites_created">Link created</string>
     <string name="group_invites_updated">Link updated</string>
     <string name="group_invites_revoked">Link revoked</string>
-    <string name="group_invites_primary_hint">The primary link can only be revoked: TDLib does not allow editing it.</string>
+    <string name="group_invites_primary_hint">The primary link can only be revoked: it cannot be edited.</string>
     <string name="group_invites_share_chooser">Share link</string>
     <string name="group_invites_share_text">Join “%1$s” on Telegram: %2$s</string>
 

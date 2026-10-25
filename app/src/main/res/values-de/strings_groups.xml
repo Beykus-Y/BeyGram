@@ -86,7 +86,7 @@
     <string name="group_members_role_restricted">Eingeschränkt</string>
     <string name="group_members_role_banned">Gebannt</string>
     <string name="group_members_load_failed">Mitglieder konnten nicht geladen werden</string>
-    <string name="group_members_basic_limit">TDLib unterstützt in einfachen Gruppen keine Einschränkungen und keine Bannliste: Ein entferntes Mitglied kann erneut hinzugefügt werden.</string>
+    <string name="group_members_basic_limit">Telegram unterstützt in einfachen Gruppen keine Einschränkungen und keine Bannliste: Ein entferntes Mitglied kann erneut hinzugefügt werden.</string>
 
     <string name="group_invites_title">Einladungslinks</string>
     <string name="group_invites_create">Link erstellen</string>
@@ -131,7 +131,7 @@
     <string name="group_invites_created">Link erstellt</string>
     <string name="group_invites_updated">Link aktualisiert</string>
     <string name="group_invites_revoked">Link widerrufen</string>
-    <string name="group_invites_primary_hint">Der Hauptlink kann nur widerrufen werden: TDLib erlaubt keine Bearbeitung.</string>
+    <string name="group_invites_primary_hint">Der Hauptlink kann nur widerrufen werden: Eine Bearbeitung ist nicht möglich.</string>
     <string name="group_invites_share_chooser">Link teilen</string>
     <string name="group_invites_share_text">Treten Sie „%1$s“ auf Telegram bei: %2$s</string>
 

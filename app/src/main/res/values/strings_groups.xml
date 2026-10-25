@@ -86,7 +86,7 @@
     <string name="group_members_role_restricted">Ограничен</string>
     <string name="group_members_role_banned">Забанен</string>
     <string name="group_members_load_failed">Не удалось загрузить участников</string>
-    <string name="group_members_basic_limit">В обычной группе TDLib не поддерживает ограничения и список забаненных: удалённого участника можно добавить снова.</string>
+    <string name="group_members_basic_limit">В обычной группе Telegram не поддерживает ограничения и список забаненных: удалённого участника можно добавить снова.</string>
 
     <string name="group_invites_title">Пригласительные ссылки</string>
     <string name="group_invites_create">Создать ссылку</string>
@@ -131,7 +131,7 @@
     <string name="group_invites_created">Ссылка создана</string>
     <string name="group_invites_updated">Ссылка обновлена</string>
     <string name="group_invites_revoked">Ссылка отозвана</string>
-    <string name="group_invites_primary_hint">Основную ссылку можно только отозвать: TDLib не разрешает её редактировать.</string>
+    <string name="group_invites_primary_hint">Основную ссылку можно только отозвать: её нельзя редактировать.</string>
     <string name="group_invites_share_chooser">Поделиться ссылкой</string>
     <string name="group_invites_share_text">Присоединяйтесь к «%1$s» в Telegram: %2$s</string>
 
