@@ -336,7 +336,15 @@ internal class TdPayments(private val requests: TdRequests) {
 
     /** Resolves a private chat profile to the user who receives the gift; groups are not gift targets. */
     private suspend fun giftOwner(profileId: Long): TdApi.MessageSender {
-        val chat = requests(TdApi.GetChat(profileId))
+        val chat = try {
+            requests(TdApi.GetChat(profileId))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // A private chat id equals the user id; the chat may simply not be cached locally.
+            if (profileId > 0) return TdApi.MessageSenderUser(profileId)
+            throw error
+        }
         return when (val type = chat.type) {
             is TdApi.ChatTypePrivate -> TdApi.MessageSenderUser(type.userId)
             is TdApi.ChatTypeSecret -> TdApi.MessageSenderUser(type.userId)
