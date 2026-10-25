@@ -148,7 +148,14 @@ internal fun StoryEditDialog(
                 TextButton(enabled = !saving, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
                 TextButton(
                     enabled = canSave,
-                    onClick = { onSave(caption.trimEnd(), if (canEditPrivacy) privacy else null, selected.toList()) }
+                    onClick = {
+                        val privacyToSave = if (canEditPrivacy && (privacyChanged || selectionChanged)) privacy else null
+                        onSave(
+                            caption.trimEnd(),
+                            privacyToSave,
+                            if (privacyToSave != null) selected.toList() else emptyList()
+                        )
+                    }
                 ) {
                     if (saving) {
                         CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp)

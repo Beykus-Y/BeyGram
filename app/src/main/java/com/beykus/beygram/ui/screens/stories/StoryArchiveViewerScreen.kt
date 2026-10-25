@@ -104,7 +104,10 @@ internal fun StoryArchiveViewer(
         onDispose { downloaded.toList().forEach(repository::cancelFileDownload) }
     }
     LaunchedEffect(media?.fileId) {
-        listOfNotNull(media?.fileId, media?.thumbnailFileId).distinct().forEach {
+        val ids = listOfNotNull(media?.fileId, media?.thumbnailFileId).distinct()
+        (downloaded - ids.toSet()).forEach(repository::cancelFileDownload)
+        downloaded.clear()
+        ids.forEach {
             downloaded += it
             repository.downloadFile(it)
         }
@@ -129,16 +132,26 @@ internal fun StoryArchiveViewer(
                 color = Color.White.copy(alpha = 0.85f),
                 fontSize = 15.sp
             )
-            media.kind == StoryMediaKind.Photo -> StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
+            media.kind == StoryMediaKind.Photo -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
+                if (fullFile.error != null && fullFile.localPath == null) {
+                    StoryDownloadError(fullFile) { media?.fileId?.let(repository::downloadFile) }
+                }
+            }
             else -> {
                 val path = fullFile.localPath
-                if (path == null) StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
-                else StoryVideo(
-                    path = path,
-                    playing = playing,
-                    onFailure = { playing = false; error = context.getString(R.string.stories_media_unsupported) },
-                    onEnded = { playing = false }
-                )
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (path == null) StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
+                    else StoryVideo(
+                        path = path,
+                        playing = playing,
+                        onFailure = { playing = false; error = context.getString(R.string.stories_media_unsupported) },
+                        onEnded = { playing = false }
+                    )
+                    if (fullFile.error != null && fullFile.localPath == null) {
+                        StoryDownloadError(fullFile) { media?.fileId?.let(repository::downloadFile) }
+                    }
+                }
             }
         }
 

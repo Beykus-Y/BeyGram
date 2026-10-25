@@ -694,7 +694,7 @@ private fun StoryContent(
 }
 
 @Composable
-private fun StoryDownloadError(file: MediaFileState, onRetry: () -> Unit) {
+internal fun StoryDownloadError(file: MediaFileState, onRetry: () -> Unit) {
     Column(
         Modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xE62A2D34))
             .padding(horizontal = 20.dp, vertical = 16.dp),
