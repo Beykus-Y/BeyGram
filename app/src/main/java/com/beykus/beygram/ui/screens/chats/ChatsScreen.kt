@@ -166,7 +166,10 @@ fun ChatsScreen(
     onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit,
     onGlobalSearch: (String) -> Unit = {},
-    /** Чат, открытый в правой панели: его строка подсвечена и помечена для TalkBack. */
+    /**
+     * Чат, открытый в правой панели: его строка подсвечена и помечена для TalkBack.
+     * Пока панель показывает заглушку «Выберите чат», сюда приходит null.
+     */
     highlightedChatId: Long? = null,
     /**
      * Узкая левая панель двухпанельного режима. Заголовок компактнее, а менеджер папок
@@ -309,8 +312,8 @@ fun ChatsScreen(
         return
     }
 
-    // The root Box is bounded by MainTabsScaffold above the bottom navigation and
-    // persistent player. Its FAB is never drawn under the system navigation bar.
+    // The root Box is bounded by MainTabsScaffold: above the bottom navigation on phones,
+    // beside the navigation rail on wide screens. Its FAB is never drawn under the system navigation bar.
     Box(
         modifier = Modifier.fillMaxSize().background(palette.screen)
             .windowInsetsPadding(
