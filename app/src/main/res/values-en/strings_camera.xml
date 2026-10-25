@@ -49,6 +49,7 @@
     <string name="capture_retry">Retry</string>
     <string name="capture_retry_hint">The capture is saved on this device. Retry the import or close the attachments.</string>
     <string name="capture_retry_missing">The captured file is no longer available. Take a photo or video again.</string>
+    <string name="capture_retry_pending">Retry the saved capture or close the attachments first.</string>
 
     <string name="err_video_compress_failed">Could not compress the video</string>
     <string name="err_audio_compress_failed">Could not compress the audio</string>

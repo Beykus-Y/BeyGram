@@ -40,6 +40,12 @@ internal fun audioQualityBitrate(option: AudioQualityOption): Int = when (option
     AudioQualityOption.Original -> 0
 }
 
+/** Keeps the user-visible basename when the document is staged as AAC/M4A. */
+internal fun compressedAudioFileName(originalFileName: String): String {
+    val base = originalFileName.substringBeforeLast('.', originalFileName).ifBlank { "audio" }
+    return "$base.m4a"
+}
+
 internal fun estimatedAudioBytes(durationSeconds: Int, bitrate: Int): Long {
     if (durationSeconds <= 0 || bitrate <= 0) return 0L
     return bitrate.toLong() * durationSeconds / 8L

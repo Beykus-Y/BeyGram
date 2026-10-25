@@ -143,9 +143,16 @@ internal class OutgoingMediaImporter(context: Context, private val accountId: St
      * audio attachment, so send semantics do not change; duration and file name are refreshed.
      */
     suspend fun adoptCompressedAudio(original: OutgoingMedia, compressed: File, mime: String = "audio/mp4"): OutgoingMedia = withContext(Dispatchers.IO) {
-        val directory = File(original.path).parentFile?.canonicalFile
+        val sourceDirectory = File(original.path).parentFile?.canonicalFile
             ?: throw UserMessageException(UiText.Res(R.string.err_media_open_failed))
-        val destination = directory.resolve("compressed-audio.m4a")
+        // Keep the original basename in the staged file: InputDocument sends the local path, not
+        // OutgoingMedia.fileName, so a generic compressed-audio name would be visible to the peer.
+        val outputName = compressedAudioFileName(original.fileName)
+        val root = if (sourceDirectory.name == "original") sourceDirectory.parentFile ?: sourceDirectory else sourceDirectory
+        val outputDirectory = File(root, "compressed-audio").apply {
+            if (!isDirectory && !mkdirs()) throw UserMessageException(UiText.Res(R.string.err_media_directory_failed))
+        }
+        val destination = outputDirectory.resolve(outputName)
         if (destination == File(original.path).canonicalFile) {
             throw UserMessageException(UiText.Res(R.string.err_audio_compress_failed))
         }
@@ -163,10 +170,9 @@ internal class OutgoingMediaImporter(context: Context, private val accountId: St
                 ceil(ms / 1000.0).toInt()
             } finally { release() }
         }
-        val baseName = original.fileName.substringBeforeLast('.', original.fileName).ifBlank { "audio" }
         OutgoingMedia(
             path = destination.absolutePath,
-            fileName = "$baseName.m4a",
+            fileName = outputName,
             mimeType = mime,
             kind = MediaKind.Document,
             durationSeconds = duration.takeIf { it > 0 } ?: original.durationSeconds,

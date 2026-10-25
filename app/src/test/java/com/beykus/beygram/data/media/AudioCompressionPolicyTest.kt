@@ -87,4 +87,11 @@ class AudioCompressionPolicyTest {
         assertEquals(0L, estimatedAudioBytes(0, 96_000))
         assertEquals(0L, estimatedAudioBytes(180, 0))
     }
+
+    @Test
+    fun compressedNameKeepsTheOriginalBasename() {
+        assertEquals("track.m4a", compressedAudioFileName("track.mp3"))
+        assertEquals("recording.m4a", compressedAudioFileName("recording"))
+        assertEquals("audio.m4a", compressedAudioFileName(".mp3"))
+    }
 }

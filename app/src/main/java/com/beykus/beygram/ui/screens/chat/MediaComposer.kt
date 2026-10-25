@@ -209,6 +209,10 @@ internal class AttachmentState(
     /** Full-screen camera entry; it hands one cache file back and closes without leaving the chat. */
     fun openCamera() {
         if (sending || importing) return
+        if (canRetryCapture) {
+            errorState.value = context.getString(R.string.capture_retry_pending)
+            return
+        }
         if (pending.size >= MediaLimits.MAX_ATTACHMENTS) {
             errorState.value = context.getString(R.string.composer_too_many_attachments)
             return
@@ -346,7 +350,12 @@ internal class AttachmentState(
 
     private fun importCaptureFile(file: File) {
         val previous = failedCapturePath
-        if (previous != null && previous != file.absolutePath) File(previous).delete()
+        if (previous != null && previous != file.absolutePath) {
+            // Never replace an unreviewed failed take without an explicit retry/discard.
+            file.delete()
+            errorState.value = context.getString(R.string.capture_retry_pending)
+            return
+        }
         // Register before copying: activity recreation cancels the staging coroutine, and the path
         // must already be in saved state so the user can retry the only copy afterwards.
         setFailedCapture(file.absolutePath)
@@ -531,7 +540,7 @@ internal class AttachmentState(
         if (!plan.transcode) return
         compressionCancelled = false
         processing = MediaProcessing(original.path, original.fileName, progress = 0f, kind = MediaProcessingKind.Audio)
-        val output = File(source.parentFile, "compressed-${UUID.randomUUID()}.m4a")
+        val output = File(source.parentFile, "compressed-${UUID.randomUUID()}.mp4")
         val task = scope.async<Result<OutgoingMedia>> {
             try {
                 audioCompressor.compress(source, output, plan) { progress ->
@@ -663,7 +672,7 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
-    val visible = state.menuOpen || state.active || state.error != null || state.notice != null
+    val visible = state.menuOpen || state.active || state.error != null || state.notice != null || state.canRetryCapture
     if (!visible) return
     Column(Modifier.fillMaxWidth().background(palette.surface).padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 2.dp)) {
         if (!state.active) {
