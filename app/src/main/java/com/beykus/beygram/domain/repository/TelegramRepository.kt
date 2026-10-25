@@ -86,6 +86,8 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Expired stories of the signed-in user, newest first. Pass the last page's nextFromStoryId for more. */
     suspend fun storyArchive(fromStoryId: Int = 0): Result<StoryArchivePage>
     suspend fun storyPostPermission(): Result<StoryPostPermission>
+    /** Lets a closed publisher hand a still-uploading story's file cleanup to the repository. */
+    fun abandonStoryUpload(posterChatId: Long, storyId: Int)
     suspend fun storyCaptionLimit(): Result<Int>
     suspend fun publishStory(
         media: OutgoingMedia,

@@ -198,6 +198,7 @@ fun StoryPublisherScreen(
         // An accepted/still-running upload owns its staged file outside this screen. Never delete
         // it here; the repository's pending-upload observer marks it evictable on success.
         if (!publishing && pendingStoryId == 0) discard(media)
+        if (pendingStoryId != 0) repository.abandonStoryUpload(pendingPosterChatId, pendingStoryId)
         media = null
         onBack()
     }

@@ -117,6 +117,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
     override suspend fun storyArchive(fromStoryId: Int): Result<StoryArchivePage> = Result.success(StoryArchivePage())
     override suspend fun storyPostPermission(): Result<StoryPostPermission> = unavailable()
+    override fun abandonStoryUpload(posterChatId: Long, storyId: Int) {}
     override suspend fun storyCaptionLimit(): Result<Int> = Result.success(1_024)
     override suspend fun publishStory(
         media: OutgoingMedia,

@@ -41,6 +41,7 @@ import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToLong
 
 /**
@@ -54,7 +55,8 @@ internal class TdStories(
     private val client: () -> Client,
     private val profiles: TdProfiles,
     private val mediaFiles: MediaFileStore,
-    private val accountId: String
+    private val accountId: String,
+    private val uploadsRoot: File
 ) {
     private val requests = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -66,6 +68,7 @@ internal class TdStories(
     private val blockedChats = mutableSetOf<Long>()
     private val unblockedChats = mutableSetOf<Long>()
     private val uploadJobs = mutableMapOf<Pair<Long, Int>, Job>()
+    private val abandonedUploads = mutableSetOf<Pair<Long, Int>>()
     private var selfId = 0L
     private var selfChatId = 0L
     private var generation = 0
@@ -104,6 +107,7 @@ internal class TdStories(
             unblockedChats.clear()
             uploadJobs.values.forEach { it.cancel() }
             uploadJobs.clear()
+            abandonedUploads.clear()
             selfId = 0L
             selfChatId = 0L
             activeLoadInFlight = false
@@ -404,10 +408,18 @@ internal class TdStories(
     ): Result<StoryPostTicket> {
         // Submission is process-owned: leaving the publisher must not orphan an already submitted
         // PostStory request. The repository also tracks/handles its terminal update.
+        val ownerActive = AtomicBoolean(true)
         val operation = scope.async {
-            publishStoryRequest(media, caption, privacy, selectedUserIds, activePeriodSeconds, protectContent, keepInProfile)
+            publishStoryRequest(
+                media, caption, privacy, selectedUserIds, activePeriodSeconds, protectContent, keepInProfile, ownerActive
+            )
         }
-        return operation.await()
+        return try {
+            operation.await()
+        } catch (cancelled: CancellationException) {
+            ownerActive.set(false)
+            throw cancelled
+        }
     }
 
     private suspend fun publishStoryRequest(
@@ -417,76 +429,109 @@ internal class TdStories(
         selectedUserIds: List<Long>,
         activePeriodSeconds: Int,
         protectContent: Boolean,
-        keepInProfile: Boolean
-    ): Result<StoryPostTicket> = storyRequest(POST_TIMEOUT_MS) {
-        if (media.kind != MediaKind.Photo && media.kind != MediaKind.Video) {
-            throw UserMessageException(UiText.Res(R.string.stories_media_invalid))
-        }
-        if (media.kind == MediaKind.Photo && (media.width != 1_080 || media.height != 1_920)) {
-            throw UserMessageException(UiText.Res(R.string.stories_media_prepare_failed))
-        }
-        if (media.kind == MediaKind.Video && (media.width != 720 || media.height != 1_280)) {
-            throw UserMessageException(UiText.Res(R.string.stories_video_prepare_failed))
-        }
-        if (media.kind == MediaKind.Video && media.durationSeconds !in 1..60) {
-            throw UserMessageException(UiText.Res(R.string.stories_video_prepare_failed))
-        }
-        if (activePeriodSeconds !in STORY_ACTIVE_PERIODS) {
-            throw UserMessageException(UiText.Res(R.string.stories_period_invalid))
-        }
-        if (privacy == StoryPrivacy.SelectedUsers && selectedUserIds.none { it > 0L }) {
-            throw UserMessageException(UiText.Res(R.string.stories_selected_empty))
-        }
-        val chatId = ensureSelfChatId()
-        val content = when (media.kind) {
-            MediaKind.Photo -> TdApi.InputStoryContentPhoto(TdApi.InputFileLocal(media.path), intArrayOf())
-            else -> TdApi.InputStoryContentVideo(
-                TdApi.InputFileLocal(media.path),
+        keepInProfile: Boolean,
+        ownerActive: AtomicBoolean
+    ): Result<StoryPostTicket> {
+        val result = storyRequest(POST_TIMEOUT_MS) {
+            if (media.kind != MediaKind.Photo && media.kind != MediaKind.Video) {
+                throw UserMessageException(UiText.Res(R.string.stories_media_invalid))
+            }
+            if (media.kind == MediaKind.Photo && (media.width != 1_080 || media.height != 1_920)) {
+                throw UserMessageException(UiText.Res(R.string.stories_media_prepare_failed))
+            }
+            if (media.kind == MediaKind.Video && (media.width != 720 || media.height != 1_280)) {
+                throw UserMessageException(UiText.Res(R.string.stories_video_prepare_failed))
+            }
+            if (media.kind == MediaKind.Video && media.durationSeconds !in 1..60) {
+                throw UserMessageException(UiText.Res(R.string.stories_video_prepare_failed))
+            }
+            if (activePeriodSeconds !in STORY_ACTIVE_PERIODS) {
+                throw UserMessageException(UiText.Res(R.string.stories_period_invalid))
+            }
+            if (privacy == StoryPrivacy.SelectedUsers && selectedUserIds.none { it > 0L }) {
+                throw UserMessageException(UiText.Res(R.string.stories_selected_empty))
+            }
+            val chatId = ensureSelfChatId()
+            val content = when (media.kind) {
+                MediaKind.Photo -> TdApi.InputStoryContentPhoto(TdApi.InputFileLocal(media.path), intArrayOf())
+                else -> TdApi.InputStoryContentVideo(
+                    TdApi.InputFileLocal(media.path),
+                    intArrayOf(),
+                    media.durationSeconds.toDouble(),
+                    0.0,
+                    false
+                )
+            }
+            val trimmed = caption.trim().takeIf { it.isNotEmpty() }
+            val story = requests(TdApi.PostStory(
+                chatId,
+                content,
+                null,
+                trimmed?.let { TdApi.FormattedText(it, emptyArray()) },
+                privacy.toTdSettings(selectedUserIds),
                 intArrayOf(),
-                media.durationSeconds.toDouble(),
-                0.0,
-                false
-            )
+                activePeriodSeconds,
+                null,
+                keepInProfile,
+                protectContent
+            ), POST_TIMEOUT_MS)
+            val ticket = StoryPostTicket(chatId, story.id, story.isBeingPosted, story.content.uploadFileIds())
+            if (ticket.isPending) trackUpload(ticket, media, initiallyAbandoned = !ownerActive.get())
+            else markPublishedStoryUpload(media, ticket.fileIds)
+            ticket
         }
-        val trimmed = caption.trim().takeIf { it.isNotEmpty() }
-        val story = requests(TdApi.PostStory(
-            chatId,
-            content,
-            null,
-            trimmed?.let { TdApi.FormattedText(it, emptyArray()) },
-            privacy.toTdSettings(selectedUserIds),
-            intArrayOf(),
-            activePeriodSeconds,
-            null,
-            keepInProfile,
-            protectContent
-        ), POST_TIMEOUT_MS)
-        val ticket = StoryPostTicket(chatId, story.id, story.isBeingPosted, story.content.uploadFileIds())
-        if (ticket.isPending) trackUpload(ticket, media)
-        else markPublishedStoryUpload(media, ticket.fileIds)
-        ticket
+        if (result.isFailure && !ownerActive.get()) discardStoryUpload(media)
+        return result
     }
 
     /**
      * A pending story may be published after the publisher screen is gone. The repository keeps
      * listening for its terminal update and marks the staged upload evictable on success.
      */
-    private fun trackUpload(ticket: StoryPostTicket, media: OutgoingMedia) {
+    private fun trackUpload(ticket: StoryPostTicket, media: OutgoingMedia, initiallyAbandoned: Boolean = false) {
         val key = ticket.posterChatId to ticket.storyId
+        if (initiallyAbandoned) {
+            synchronized(lock) { abandonedUploads += key }
+        }
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 val event = postEvents.first {
                     matchesPendingStoryEvent(it, ticket.posterChatId, ticket.storyId)
                 }
-                if (event is StoryPostEvent.Published) markPublishedStoryUpload(media, event.fileIds)
+                val abandoned = synchronized(lock) { abandonedUploads.remove(key) != null }
+                when (event) {
+                    is StoryPostEvent.Published -> markPublishedStoryUpload(media, event.fileIds)
+                    is StoryPostEvent.Failed -> if (abandoned) discardStoryUpload(media)
+                }
             } finally {
-                synchronized(lock) { uploadJobs.remove(key) }
+                synchronized(lock) {
+                    uploadJobs.remove(key)
+                    abandonedUploads.remove(key)
+                }
             }
         }
         synchronized(lock) {
             uploadJobs.put(key, job)?.cancel()
         }
         job.start()
+    }
+
+    /** The publisher screen closed before the upload finished; cleanup is now the repository's job. */
+    fun abandonUpload(posterChatId: Long, storyId: Int) {
+        if (storyId == 0) return
+        val key = posterChatId to storyId
+        synchronized(lock) {
+            if (uploadJobs.containsKey(key)) abandonedUploads += key
+        }
+    }
+
+    private fun discardStoryUpload(media: OutgoingMedia) {
+        val source = runCatching { File(media.path).canonicalFile }.getOrNull() ?: return
+        val root = runCatching { uploadsRoot.canonicalFile }.getOrNull() ?: return
+        if (!source.path.startsWith(root.path + File.separator)) return
+        val parent = source.parentFile ?: return
+        val folder = if (parent.name == "original" && parent.parentFile != null) parent.parentFile!! else parent
+        if (folder.canonicalFile.parentFile == root) runCatching { folder.deleteRecursively() }
     }
 
     private fun markPublishedStoryUpload(media: OutgoingMedia, fileIds: List<Int>) {

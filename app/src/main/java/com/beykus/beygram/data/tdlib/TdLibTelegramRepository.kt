@@ -402,7 +402,7 @@ class TdLibTelegramRepository private constructor(
         })
     }
     private val profiles = TdProfiles({ client }, mediaFiles)
-    private val stories = TdStories({ client }, profiles, mediaFiles, accountId)
+    private val stories = TdStories({ client }, profiles, mediaFiles, accountId, File(appContext.filesDir, "uploads"))
     private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
     private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
@@ -538,6 +538,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun deleteStory(posterChatId: Long, storyId: Int) = stories.deleteStory(posterChatId, storyId)
     override suspend fun storyArchive(fromStoryId: Int) = stories.archive(fromStoryId)
     override suspend fun storyPostPermission() = stories.postPermission()
+    override fun abandonStoryUpload(posterChatId: Long, storyId: Int) = stories.abandonUpload(posterChatId, storyId)
     override suspend fun storyCaptionLimit() = stories.captionLimit()
     override suspend fun publishStory(
         media: OutgoingMedia,
