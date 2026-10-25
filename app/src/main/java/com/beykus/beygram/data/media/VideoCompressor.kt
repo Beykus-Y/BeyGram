@@ -83,6 +83,7 @@ internal class VideoCompressor(private val context: Context) {
         info: VideoSourceInfo,
         onProgress: (Float) -> Unit
     ): Unit = withContext(Dispatchers.Main.immediate) {
+        require(source.canonicalFile != output.canonicalFile) { "Compression output must differ from the source" }
         output.delete()
         var transformer: Transformer? = null
         try {

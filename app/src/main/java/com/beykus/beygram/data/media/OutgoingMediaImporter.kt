@@ -113,6 +113,9 @@ internal class OutgoingMediaImporter(context: Context, private val accountId: St
         val directory = File(original.path).parentFile?.canonicalFile
             ?: throw UserMessageException(UiText.Res(R.string.err_media_open_failed))
         val destination = directory.resolve("compressed.mp4")
+        if (destination == File(original.path).canonicalFile) {
+            throw UserMessageException(UiText.Res(R.string.err_video_compress_failed))
+        }
         if (compressed.canonicalFile != destination) {
             if (!compressed.renameTo(destination)) {
                 compressed.inputStream().use { from -> destination.outputStream().use { to -> copyActive(from, to) } }

@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -242,6 +243,7 @@ private fun CropEditor(
 ) {
     val density = LocalDensity.current
     val handleTouch = with(density) { 32.dp.toPx() }.toDouble()
+    val latestCrop = rememberUpdatedState(crop)
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val availableWidth = with(density) { maxWidth.toPx() }
         val availableHeight = with(density) { maxHeight.toPx() }
@@ -258,11 +260,16 @@ private fun CropEditor(
                 .pointerInput(bitmap.width, bitmap.height) {
                     var edge: CropEdge? = null
                     var dragging = false
+                    // A gesture accumulates against its own rectangle: recomposition may lag behind
+                    // high-frequency drag events, and re-reading the captured initial crop would
+                    // make every event apply to the very first selection.
+                    var workingCrop = latestCrop.value
                     detectDragGestures(
                         onDragStart = { offset ->
+                            workingCrop = latestCrop.value
                             val width = size.width.toInt().coerceAtLeast(1)
                             val height = size.height.toInt().coerceAtLeast(1)
-                            val rect = cropPixels(crop, width, height)
+                            val rect = cropPixels(workingCrop, width, height)
                             fun near(x: Int, y: Int) = hypot((offset.x - x).toDouble(), (offset.y - y).toDouble()) <= handleTouch
                             edge = when {
                                 near(rect.left, rect.top) -> CropEdge.TopLeft
@@ -283,7 +290,9 @@ private fun CropEditor(
                                 val dx = drag.x / width
                                 val dy = drag.y / height
                                 val currentEdge = edge
-                                onCropChange(if (currentEdge != null) resizeCrop(crop, currentEdge, dx, dy) else moveCrop(crop, dx, dy))
+                                val next = if (currentEdge != null) resizeCrop(workingCrop, currentEdge, dx, dy) else moveCrop(workingCrop, dx, dy)
+                                workingCrop = next
+                                onCropChange(next)
                             }
                         },
                         onDragEnd = { dragging = false; edge = null },

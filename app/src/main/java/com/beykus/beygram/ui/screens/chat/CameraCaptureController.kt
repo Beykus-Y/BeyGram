@@ -265,11 +265,21 @@ internal class CameraCaptureController(
         videoCapture = null
         runCatching {
             cameraProvider.unbindAll()
-            val selector = if (frontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
-            if (!cameraProvider.hasCamera(selector)) {
-                frontCamera = false
-                bindCurrentMode()
-                return
+            val requested = if (frontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+            val selector = if (cameraProvider.hasCamera(requested)) {
+                requested
+            } else {
+                // Rear cameras are optional in the manifest: fall back to the other lens once instead
+                // of recursing on the same unavailable selector.
+                val alternateFront = !frontCamera
+                val alternate = if (alternateFront) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+                if (!cameraProvider.hasCamera(alternate)) {
+                    ready = false
+                    onError(context.getString(R.string.camera_error_open))
+                    return
+                }
+                frontCamera = alternateFront
+                alternate
             }
             val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
             val previewUseCase = Preview.Builder()

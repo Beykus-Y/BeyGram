@@ -227,25 +227,40 @@ internal class AttachmentState(
         editorSaving = true
         editorError = null
         editorJob = scope.launch {
+            var stagedOriginal: OutgoingMedia? = null
             try {
+                if (keepOriginal && session.temporary) {
+                    // Stage the source before deleting anything. If this fails, keep the editor and
+                    // the camera file so the user can retry or disable the option.
+                    stagedOriginal = try {
+                        importer.prepareLocal(
+                            File(session.sourcePath),
+                            asDocument = true,
+                            displayName = "original-${File(session.sourcePath).name}"
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        editorError = failure.userMessage(context, R.string.photo_editor_original_failed)
+                        return@launch
+                    }
+                }
                 val exported = PhotoEditor(context).export(File(session.sourcePath), rotation, crop, quality)
                 try {
-                    val edited = importer.importEditedPhoto(exported.file, exported.mimeType, exported.width, exported.height)
-                    val additions = mutableListOf<OutgoingMedia>()
-                    if (keepOriginal && session.temporary) {
-                        // The user explicitly asked to keep the source: stage it as a separate file.
-                        val original = runCatching {
-                            importer.prepareLocal(File(session.sourcePath), asDocument = true, displayName = "original-${File(session.sourcePath).name}")
-                        }.getOrNull()
-                        if (original != null) additions += original
-                        else errorState.value = context.getString(R.string.photo_editor_original_failed)
+                    val edited = try {
+                        importer.importEditedPhoto(exported.file, exported.mimeType, exported.width, exported.height)
+                    } catch (failure: Exception) {
+                        stagedOriginal?.let { importer.discard(it) }
+                        stagedOriginal = null
+                        throw failure
                     }
+                    val originalCopy = stagedOriginal
                     val replaced = session.replaceItem
                     if (!keepOriginal && replaced != null) {
-                        pendingState.value = ArrayList(pending.filterNot { it.path == replaced.path } + edited + additions)
+                        pendingState.value = ArrayList(pending.filterNot { it.path == replaced.path } + edited + listOfNotNull(originalCopy))
                         importer.discard(replaced)
                     } else {
-                        pendingState.value = ArrayList(pending + edited + additions)
+                        pendingState.value = ArrayList(pending + edited + listOfNotNull(originalCopy))
                     }
                     editor = null
                     if (session.temporary) File(session.sourcePath).delete()
@@ -253,7 +268,10 @@ internal class AttachmentState(
                     exported.file.delete()
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { editorError = failure.userMessage(context, R.string.photo_editor_failed) }
+            catch (failure: Exception) {
+                stagedOriginal?.let { importer.discard(it) }
+                editorError = failure.userMessage(context, R.string.photo_editor_failed)
+            }
             finally { editorSaving = false }
         }
     }
@@ -332,16 +350,28 @@ internal class AttachmentState(
         if (!plan.transcode) return
         compressionCancelled = false
         processing = MediaProcessing(original.path, original.fileName, progress = 0f)
-        val output = File(source.parentFile, "compressed.mp4")
-        val task = scope.async {
-            compressor.compress(source, output, plan, info) { progress ->
-                processing = processing?.copy(progress = progress)
+        val output = File(source.parentFile, "compressed-${java.util.UUID.randomUUID()}.mp4")
+        // Never let a failed child cancel the composer scope: the failure is a normal result and the
+        // original attachment must stay usable.
+        val task = scope.async<Result<OutgoingMedia>> {
+            try {
+                compressor.compress(source, output, plan, info) { progress ->
+                    processing = processing?.copy(progress = progress)
+                }
+                Result.success(importer.adoptCompressedVideo(original, output))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Result.failure(failure)
             }
-            importer.adoptCompressedVideo(original, output)
         }
         compressionJob = task
         try {
-            val compressed = task.await()
+            val compressed = task.await().getOrElse {
+                output.delete()
+                notice = context.getString(R.string.video_compression_failed_original)
+                return
+            }
             replacePending(original, compressed)
             File(original.path).takeIf { it.absolutePath != compressed.path }?.delete()
             notice = context.getString(
@@ -357,9 +387,6 @@ internal class AttachmentState(
                 throw cancelled
             }
             notice = context.getString(R.string.video_compression_cancelled)
-        } catch (failure: Exception) {
-            output.delete()
-            notice = context.getString(R.string.video_compression_failed_original)
         } finally {
             if (compressionJob === task) compressionJob = null
             processing = null
