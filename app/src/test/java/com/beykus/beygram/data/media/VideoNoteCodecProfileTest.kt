@@ -14,9 +14,9 @@ class VideoNoteCodecProfileTest {
     }
 
     @Test fun avcLevelsAreNamedForReports() {
-        assertEquals("3.1", avcLevelLabel(MediaCodecInfo.CodecProfileLevel.AVCLevel3_1))
+        assertEquals("3.1", avcLevelLabel(MediaCodecInfo.CodecProfileLevel.AVCLevel31))
         assertEquals("4", avcLevelLabel(MediaCodecInfo.CodecProfileLevel.AVCLevel4))
-        assertEquals("5.2", avcLevelLabel(MediaCodecInfo.CodecProfileLevel.AVCLevel5_2))
+        assertEquals("5.2", avcLevelLabel(MediaCodecInfo.CodecProfileLevel.AVCLevel52))
         assertNull(avcLevelLabel(999))
     }
 
