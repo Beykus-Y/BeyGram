@@ -86,6 +86,7 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
+import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
@@ -366,7 +367,9 @@ fun StoryViewerScreen(
                         if (index < storyCount - 1) index++ else closeLatest()
                     }
                 },
+                restartToken = progressRestart,
                 onRetry = { retry++ },
+                onRetryDownload = { detail?.media?.fileId?.let(repository::downloadFile) },
                 onFailure = {
                     videoReady = false
                     notice = context.getString(R.string.stories_media_unsupported)
@@ -571,7 +574,9 @@ private fun StoryContent(
     onReady: () -> Unit,
     onPlayingChanged: (Boolean) -> Unit,
     onEnded: () -> Unit,
+    restartToken: Int,
     onRetry: () -> Unit,
+    onRetryDownload: () -> Unit,
     onFailure: () -> Unit
 ) {
     val media = detail?.media
@@ -598,11 +603,40 @@ private fun StoryContent(
                 modifier = Modifier.padding(top = 10.dp)
             )
         }
-        media.kind == StoryMediaKind.Photo -> StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
+        media.kind == StoryMediaKind.Photo -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
+            if (fullFile.error != null && fullFile.localPath == null) {
+                StoryDownloadError(fullFile, onRetryDownload)
+            }
+        }
         else -> {
             val path = fullFile.localPath
-            if (path == null) StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
-            else StoryVideo(path, playing, onFailure, onReady, onPlayingChanged, onEnded)
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                if (path == null) StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
+                else StoryVideo(path, playing, onFailure, onReady, onPlayingChanged, onEnded, restartToken)
+                if (fullFile.error != null && fullFile.localPath == null) {
+                    StoryDownloadError(fullFile, onRetryDownload)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StoryDownloadError(file: MediaFileState, onRetry: () -> Unit) {
+    Column(
+        Modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xE62A2D34))
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            file.error?.resolve().orEmpty(),
+            color = Color.White,
+            fontSize = 14.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        TextButton(onClick = onRetry) {
+            Text(stringResource(R.string.stories_retry), color = Color.White)
         }
     }
 }

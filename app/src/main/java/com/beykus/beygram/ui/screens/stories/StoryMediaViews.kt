@@ -104,6 +104,7 @@ internal fun StoryVideo(
     onReady: () -> Unit = {},
     onPlayingChanged: (Boolean) -> Unit = {},
     onEnded: () -> Unit = {},
+    restartToken: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -157,6 +158,9 @@ internal fun StoryVideo(
         } else {
             player.pause()
         }
+    }
+    LaunchedEffect(restartToken, player) {
+        if (restartToken > 0) player.seekToDefaultPosition()
     }
     if (!failed) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
