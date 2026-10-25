@@ -48,7 +48,7 @@ class GrowingAudioPlaybackTest {
             MediaFileState(3, size = 100, downloadPath = "/partial", downloadedPrefixBytes = 20, isDownloading = true)
         )
         var requested = 0
-        val source = growingAudioSource(state.value, 3, "audio/ogg", { state }) { requested++ }
+        val source = growingAudioSource(state.value, 3, "audio/ogg", { state }, onNeedMore = { requested++ })
         assertNotNull(source)
         source!!
         assertEquals(100L, source.totalSize)
@@ -66,25 +66,25 @@ class GrowingAudioPlaybackTest {
 
     @Test fun nonOggGrowthStillAdvertisesLengthForSeeking() {
         val state = MediaFileState(6, size = 100, downloadPath = "/partial", downloadedPrefixBytes = 20, isDownloading = true)
-        val source = growingAudioSource(state, 6, "audio/mpeg", { MutableStateFlow(state) }) {}
+        val source = growingAudioSource(state, 6, "audio/mpeg", { MutableStateFlow(state) }, onNeedMore = {})
         assertNotNull(source)
         assertTrue(source!!.advertiseLength)
     }
 
     @Test fun growingSourceRejectsCompleteOrUnknownFiles() {
         val completed = MediaFileState(4, size = 100, localPath = "/done", downloadPath = "/done", downloadedPrefixBytes = 100)
-        assertNull(growingAudioSource(completed, 4, "audio/ogg", { MutableStateFlow(completed) }) {})
+        assertNull(growingAudioSource(completed, 4, "audio/ogg", { MutableStateFlow(completed) }, onNeedMore = {}))
         val unknown = MediaFileState(5, size = 100, downloadPath = "/partial", downloadedPrefixBytes = 20, isDownloading = true)
-        assertNull(growingAudioSource(unknown, 5, "audio/x-unknown", { MutableStateFlow(unknown) }) {})
+        assertNull(growingAudioSource(unknown, 5, "audio/x-unknown", { MutableStateFlow(unknown) }, onNeedMore = {}))
     }
 
     @Test fun oggSeekIsDeferredUntilCompletionButMp3IsNot() {
         val partial = MediaFileState(7, size = 100, downloadPath = "/partial", downloadedPrefixBytes = 20, isDownloading = true)
-        val ogg = growingAudioSource(partial, 7, "audio/ogg", { MutableStateFlow(partial) }) {}
+        val ogg = growingAudioSource(partial, 7, "audio/ogg", { MutableStateFlow(partial) }, onNeedMore = {})
         assertNotNull(ogg)
         assertTrue(shouldDeferGrowingSeek(ogg, 5_000L))
         assertFalse(shouldDeferGrowingSeek(ogg, 0L))
-        val mp3 = growingAudioSource(partial, 7, "audio/mpeg", { MutableStateFlow(partial) }) {}
+        val mp3 = growingAudioSource(partial, 7, "audio/mpeg", { MutableStateFlow(partial) }, onNeedMore = {})
         assertNotNull(mp3)
         assertFalse(shouldDeferGrowingSeek(mp3, 5_000L))
     }
