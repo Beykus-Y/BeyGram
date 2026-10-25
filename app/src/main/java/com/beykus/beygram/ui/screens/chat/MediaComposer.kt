@@ -325,6 +325,7 @@ internal class AttachmentState(
             }
             catch (failure: Exception) {
                 // The camera/editor is already closed; retain the take so the user can retry it.
+                failedCapture?.takeIf { it.absolutePath != file.absolutePath }?.delete()
                 failedCapture = file
                 canRetryCapture = true
                 errorState.value = failure.userMessage(context, R.string.composer_prepare_failed)
