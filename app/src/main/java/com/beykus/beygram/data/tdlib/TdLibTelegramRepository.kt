@@ -1072,8 +1072,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
     override suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?> = botFeatures.commandMenu(chatId)
-    override suspend fun inlineBotQuery(chatId: Long, username: String, query: String): Result<InlineBotResults> =
-        botFeatures.inlineQuery(chatId, username, query)
+    override suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults> =
+        botFeatures.inlineQuery(chatId, username, query, offset)
     override suspend fun sendInlineBotResult(
         chatId: Long,
         queryId: Long,

@@ -3,7 +3,11 @@ package com.beykus.beygram.domain.model
 /** One command advertised by a bot for the current account. TDLib returns the text without a leading slash. */
 data class BotCommand(val command: String, val description: String)
 
-/** Commands of a private bot chat. A null menu means the chat is not a bot or the bot has no commands. */
+/**
+ * Commands of a private bot chat. A null menu means the chat is not a bot or the bot has no commands. This TDLib
+ * build has no `GetBotCommands`/`UpdateBotCommands`; `BotCommandScope`/`GetCommands` are owner-side APIs and cannot
+ * resolve another bot's group-scoped commands, so groups and channels deliberately get no command menu.
+ */
 data class BotCommandMenu(val botUserId: Long, val commands: List<BotCommand>)
 
 /** A draft that starts with `@bot` and optionally a query. */
@@ -38,7 +42,19 @@ data class InlineBotResults(
     val queryId: Long,
     val botUserId: Long,
     val results: List<InlineBotResult>,
+    /** TDLib's cursor for the next page; blank means this is the last page. */
+    val nextOffset: String = "",
     val buttonText: String = "",
     /** Only a validated https URL of an inline-results Web App button; never a t.me link or an arbitrary scheme. */
     val buttonWebAppUrl: String = ""
 )
+
+/** Appends a page while keeping the first occurrence of every result id, even if TDLib repeats an id across pages. */
+fun mergeInlineBotResults(existing: List<InlineBotResult>, page: List<InlineBotResult>): List<InlineBotResult> {
+    val seen = HashSet<String>(existing.size + page.size)
+    return (existing + page).filter { seen.add(it.id) }
+}
+
+/** Stops pagination when TDLib reports no cursor or repeats the cursor that produced the same page. */
+fun nextInlineQueryOffset(previousOffset: String, nextOffset: String): String =
+    if (nextOffset.isBlank() || nextOffset == previousOffset) "" else nextOffset

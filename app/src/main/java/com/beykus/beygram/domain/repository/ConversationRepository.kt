@@ -14,8 +14,11 @@ interface ConversationRepository {
     suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer>
     /** Commands advertised by the private chat's bot; null for a non-bot chat or a bot without commands. */
     suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?>
-    /** Resolves an inline bot by username and asks TDLib for results. No message is sent by this call. */
-    suspend fun inlineBotQuery(chatId: Long, username: String, query: String): Result<InlineBotResults>
+    /**
+     * Resolves an inline bot by username and asks TDLib for one results page. Pass "" first, then the previous
+     * [InlineBotResults.nextOffset]. No message is sent by this call.
+     */
+    suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String = ""): Result<InlineBotResults>
     /** Sends one inline result with the composer's reply, forum topic and delivery options. */
     suspend fun sendInlineBotResult(
         chatId: Long,

@@ -39,6 +39,8 @@ import com.beykus.beygram.domain.model.InlineBotResultKind
 import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.BotWebAppSource
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.mergeInlineBotResults
+import com.beykus.beygram.domain.model.nextInlineQueryOffset
 import com.beykus.beygram.domain.model.parseInlineQuery
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
@@ -74,24 +76,60 @@ internal fun BotInlineResultsPanel(
     val scope = rememberCoroutineScope()
     var results by remember(chatId, parsed.username) { mutableStateOf<InlineBotResults?>(null) }
     var loading by remember(chatId, parsed.username) { mutableStateOf(false) }
+    var loadingMore by remember(chatId, parsed.username) { mutableStateOf(false) }
     var sending by remember(chatId, parsed.username) { mutableStateOf(false) }
+    var sendingResultId by remember(chatId, parsed.username) { mutableStateOf<String?>(null) }
     var loadError by remember(chatId, parsed.username) { mutableStateOf<String?>(null) }
+    var pageError by remember(chatId, parsed.username) { mutableStateOf<String?>(null) }
     var sendError by remember(chatId, parsed.username) { mutableStateOf<String?>(null) }
     var attempt by remember(chatId) { mutableIntStateOf(0) }
+    // Every new query owns a generation; late pages from a previous query are ignored instead of being appended.
+    var generation by remember(chatId, parsed.username) { mutableIntStateOf(0) }
     // If the draft changes while TDLib is still sending, this panel leaves composition and must release the composer.
     DisposableEffect(Unit) { onDispose { onSendingChange(false) } }
 
     LaunchedEffect(chatId, parsed.username, parsed.query, active, attempt) {
         if (!active) return@LaunchedEffect
+        val token = ++generation
         loading = true
+        loadingMore = false
         loadError = null
+        pageError = null
         sendError = null
         results = null
         delay(INLINE_QUERY_DEBOUNCE_MS)
         val loaded = conversation.inlineBotQuery(chatId, parsed.username, parsed.query)
+        if (generation != token) return@LaunchedEffect
         loading = false
         loaded.onSuccess { results = it }
             .onFailure { loadError = it.userMessage(context, R.string.chat_inline_error) }
+    }
+
+    fun loadMore() {
+        val current = results ?: return
+        val offset = current.nextOffset
+        if (offset.isBlank() || loading || loadingMore || sending) return
+        val token = generation
+        val username = parsed.username
+        val query = parsed.query
+        loadingMore = true
+        pageError = null
+        scope.launch {
+            try {
+                val page = conversation.inlineBotQuery(chatId, username, query, offset)
+                if (generation != token) return@launch
+                page.onSuccess { next ->
+                    results = next.copy(
+                        results = mergeInlineBotResults(current.results, next.results),
+                        nextOffset = nextInlineQueryOffset(offset, next.nextOffset),
+                        buttonText = next.buttonText.ifBlank { current.buttonText },
+                        buttonWebAppUrl = next.buttonWebAppUrl.ifBlank { current.buttonWebAppUrl }
+                    )
+                }.onFailure { pageError = it.userMessage(context, R.string.chat_inline_error) }
+            } finally {
+                if (generation == token) loadingMore = false
+            }
+        }
     }
 
     fun send(result: InlineBotResult) {
@@ -99,6 +137,7 @@ internal fun BotInlineResultsPanel(
         if (sending) return
         // The composer also observes this flag, so a second tap cannot send the literal "@bot query" alongside the result.
         sending = true
+        sendingResultId = result.id
         onSendingChange(true)
         scope.launch {
             sendError = null
@@ -108,6 +147,7 @@ internal fun BotInlineResultsPanel(
                     .onFailure { sendError = it.userMessage(context, R.string.chat_inline_send_failed) }
             } finally {
                 sending = false
+                sendingResultId = null
                 onSendingChange(false)
             }
         }
@@ -166,9 +206,37 @@ internal fun BotInlineResultsPanel(
             )
             answer != null -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 236.dp)) {
                 items(answer.results, key = { it.id }) { result ->
-                    InlineResultRow(result, sending, observeFile, onDownloadFile) { send(result) }
+                    InlineResultRow(
+                        result = result,
+                        enabled = !sending,
+                        showProgress = sendingResultId == result.id,
+                        observeFile = observeFile,
+                        onDownloadFile = onDownloadFile,
+                        onClick = { send(result) }
+                    )
                     HorizontalDivider(color = palette.divider.copy(alpha = 0.5f))
                 }
+            }
+        }
+        answer?.let { page ->
+            pageError?.let { failure ->
+                Text(
+                    failure,
+                    color = palette.warningText,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp).errorAnnouncement()
+                )
+            }
+            if (page.nextOffset.isNotBlank()) TextButton(
+                onClick = ::loadMore,
+                enabled = !loading && !loadingMore && !sending,
+                modifier = Modifier.padding(start = 6.dp)
+            ) {
+                if (loadingMore) {
+                    CircularProgressIndicator(Modifier.size(16.dp), color = palette.accent, strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(stringResource(R.string.chat_inline_load_more), color = palette.accent)
             }
         }
     }
@@ -177,7 +245,8 @@ internal fun BotInlineResultsPanel(
 @Composable
 private fun InlineResultRow(
     result: InlineBotResult,
-    sending: Boolean,
+    enabled: Boolean,
+    showProgress: Boolean,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
     onClick: () -> Unit
@@ -188,7 +257,7 @@ private fun InlineResultRow(
     Row(
         Modifier.fillMaxWidth()
             .clickable(
-                enabled = !sending,
+                enabled = enabled,
                 role = Role.Button,
                 onClickLabel = stringResource(R.string.chat_inline_send_result, title),
                 onClick = onClick
@@ -205,7 +274,7 @@ private fun InlineResultRow(
                 Text(result.description, color = palette.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
-        if (sending) CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
+        if (showProgress) CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
     }
 }
 

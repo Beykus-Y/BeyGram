@@ -981,6 +981,7 @@
     <string name="chat_bot_commands_empty">Команды не найдены</string>
     <string name="chat_bot_commands_insert">Вставить /%1$s</string>
     <string name="chat_inline_loading">Загрузка inline-результатов…</string>
+    <string name="chat_inline_load_more">Загрузить ещё</string>
     <string name="chat_inline_empty">Нет inline-результатов</string>
     <string name="chat_inline_error">Не удалось загрузить inline-результаты</string>
     <string name="chat_inline_send_failed">Не удалось отправить результат</string>

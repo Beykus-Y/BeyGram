@@ -17,6 +17,8 @@ internal class TdBotFeatures(client: () -> Client) {
     private val inlineBots = ConcurrentHashMap<String, CachedInlineBot>()
 
     suspend fun commandMenu(chatId: Long): Result<BotCommandMenu?> = requestResult {
+        // This TDLib build exposes no GetBotCommands/UpdateBotCommands. BotCommandScope/GetCommands only manage the
+        // current user's own bot, so another bot's group/channel commands cannot be resolved here; return no menu.
         val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypePrivate ?: return@requestResult null
         val user = request(TdApi.GetUser(type.userId))
         if (user.type !is TdApi.UserTypeBot) return@requestResult null
@@ -27,15 +29,16 @@ internal class TdBotFeatures(client: () -> Client) {
         if (commands.isEmpty()) null else BotCommandMenu(type.userId, commands)
     }
 
-    suspend fun inlineQuery(chatId: Long, username: String, query: String): Result<InlineBotResults> = requestResult {
+    suspend fun inlineQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults> = requestResult {
         val botUserId = inlineBot(username)
-        val answer = request(TdApi.GetInlineQueryResults(botUserId, chatId, null, query, ""))
+        val answer = request(TdApi.GetInlineQueryResults(botUserId, chatId, null, query, offset))
         val button = answer.button
         val buttonUrl = (button?.type as? TdApi.InlineQueryResultsButtonTypeWebApp)?.url?.let(::normalizedWebAppUrl)
         InlineBotResults(
             queryId = answer.inlineQueryId,
             botUserId = botUserId,
             results = answer.results.orEmpty().mapNotNull(::inlineResult),
+            nextOffset = answer.nextOffset.orEmpty(),
             buttonText = if (buttonUrl == null) "" else button?.text.orEmpty().trim(),
             buttonWebAppUrl = buttonUrl.orEmpty()
         )

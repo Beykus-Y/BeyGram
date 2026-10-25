@@ -25,6 +25,22 @@ class BotFeaturesTest {
     }
 
     @Test
+    fun `inline pages accumulate in order and duplicate ids are dropped`() {
+        val first = listOf(inlineResult("a"), inlineResult("b"), inlineResult("a"))
+        val second = listOf(inlineResult("b"), inlineResult("c"), inlineResult("d"), inlineResult("c"))
+        assertEquals(listOf("a", "b", "c", "d"), mergeInlineBotResults(first, second).map { it.id })
+        assertEquals(listOf("a", "b"), mergeInlineBotResults(first, emptyList()).map { it.id })
+        assertEquals(listOf("c"), mergeInlineBotResults(emptyList(), listOf(inlineResult("c"))).map { it.id })
+    }
+
+    @Test
+    fun `pagination stops on a blank or repeated cursor`() {
+        assertEquals("next-page", nextInlineQueryOffset("", "next-page"))
+        assertEquals("", nextInlineQueryOffset("same", "same"))
+        assertEquals("", nextInlineQueryOffset("previous", ""))
+    }
+
+    @Test
     fun `web app accepts only https without credentials`() {
         assertEquals("https://mini.example/app?x=1", normalizedWebAppUrl("https://mini.example/app?x=1"))
         assertNull(normalizedWebAppUrl("http://mini.example/app"))
@@ -53,4 +69,6 @@ class BotFeaturesTest {
         assertFalse(isAllowedWebAppNavigation("https://mini.example/app", "http://auth.example/login", requireSameOrigin = false))
         assertFalse(isAllowedWebAppNavigation("https://mini.example/app", "intent://auth.example#Intent;end", requireSameOrigin = false))
     }
+
+    private fun inlineResult(id: String) = InlineBotResult(id, id, "", InlineBotResultKind.Article)
 }

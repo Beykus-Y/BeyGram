@@ -11,6 +11,7 @@
     <string name="chat_bot_commands_empty">No commands found</string>
     <string name="chat_bot_commands_insert">Insert /%1$s</string>
     <string name="chat_inline_loading">Loading inline results…</string>
+    <string name="chat_inline_load_more">Load more</string>
     <string name="chat_inline_empty">No inline results</string>
     <string name="chat_inline_error">Could not load inline results</string>
     <string name="chat_inline_send_failed">Could not send result</string>
