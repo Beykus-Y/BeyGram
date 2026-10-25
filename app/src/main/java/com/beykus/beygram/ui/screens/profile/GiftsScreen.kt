@@ -71,6 +71,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -155,6 +156,8 @@ fun GiftsScreen(
         scope.launch {
             val outcome = try {
                 send(gift.id)
+            } catch (_: TimeoutCancellationException) {
+                GiftSendOutcome.Uncertain
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

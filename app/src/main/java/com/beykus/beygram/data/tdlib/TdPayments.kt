@@ -72,6 +72,9 @@ internal class TdPayments(private val requests: TdRequests) {
                     isAdditional = option.isAdditional
                 )
             }
+        } catch (_: TimeoutCancellationException) {
+            optionsUnavailable = true
+            emptyList()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -100,6 +103,8 @@ internal class TdPayments(private val requests: TdRequests) {
             .sortedBy { it.starCount }
         val balance = try {
             currentBalanceOrNull()
+        } catch (_: TimeoutCancellationException) {
+            null
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -119,6 +124,8 @@ internal class TdPayments(private val requests: TdRequests) {
                     )
                 )
                 received = receivedItems(page.gifts.orEmpty().toList())
+            } catch (_: TimeoutCancellationException) {
+                receivedUnavailable = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -133,6 +140,8 @@ internal class TdPayments(private val requests: TdRequests) {
                         emoji = collection.icon?.emoji.orEmpty()
                     )
                 }
+            } catch (_: TimeoutCancellationException) {
+                collectionsUnavailable = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -161,6 +170,8 @@ internal class TdPayments(private val requests: TdRequests) {
         try {
             val owner = try {
                 if (isSelf) TdApi.MessageSenderUser(myUserId()) else giftOwner(profileId)
+            } catch (_: TimeoutCancellationException) {
+                return GiftSendOutcome.Failed(UiText.Res(R.string.err_monetization_timeout))
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -168,6 +179,8 @@ internal class TdPayments(private val requests: TdRequests) {
             }
             val gift = try {
                 availableGift(giftId)
+            } catch (_: TimeoutCancellationException) {
+                return GiftSendOutcome.Failed(UiText.Res(R.string.err_monetization_timeout))
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -175,6 +188,8 @@ internal class TdPayments(private val requests: TdRequests) {
             } ?: return GiftSendOutcome.Blocked(UiText.Res(R.string.err_gift_unavailable))
             val canSend = try {
                 requests(TdApi.CanSendGift(giftId))
+            } catch (_: TimeoutCancellationException) {
+                return GiftSendOutcome.Failed(UiText.Res(R.string.err_monetization_timeout))
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -190,6 +205,8 @@ internal class TdPayments(private val requests: TdRequests) {
             }
             val balance = try {
                 currentBalanceOrNull()
+            } catch (_: TimeoutCancellationException) {
+                return GiftSendOutcome.Failed(UiText.Res(R.string.err_monetization_timeout))
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -204,10 +221,10 @@ internal class TdPayments(private val requests: TdRequests) {
                     timeoutMillis = GIFT_SEND_TIMEOUT_MS
                 )
                 GiftSendOutcome.Sent
-            } catch (cancelled: CancellationException) {
-                throw cancelled
             } catch (_: TimeoutCancellationException) {
                 GiftSendOutcome.Uncertain
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: TdRequestError) {
                 when {
                     error.message?.contains("STARGIFT_USAGE_LIMITED", ignoreCase = true) == true ->
@@ -288,6 +305,8 @@ internal class TdPayments(private val requests: TdRequests) {
         userNames[userId]?.let { return it }
         val user = try {
             requests(TdApi.GetUser(userId))
+        } catch (_: TimeoutCancellationException) {
+            return null
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -302,6 +321,8 @@ internal class TdPayments(private val requests: TdRequests) {
 
     private suspend fun chatName(chatId: Long): String? = try {
         requests(TdApi.GetChat(chatId)).title?.takeIf { it.isNotBlank() }
+    } catch (_: TimeoutCancellationException) {
+        null
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
@@ -310,6 +331,8 @@ internal class TdPayments(private val requests: TdRequests) {
 
     private suspend fun <T> monetizationResult(block: suspend () -> T): Result<T> = try {
         Result.success(block())
+    } catch (timeout: TimeoutCancellationException) {
+        Result.failure(UserMessageException(UiText.Res(R.string.err_monetization_timeout), timeout))
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: UserMessageException) {
