@@ -111,10 +111,12 @@ internal fun CameraCaptureScreen(
         )
     }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        AppLockManager.get(context).clearExpectedExternalActivity()
         cameraGranted = granted
         error = if (granted) null else context.getString(R.string.camera_permission_denied)
     }
     val audioPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        AppLockManager.get(context).clearExpectedExternalActivity()
         audioGranted = granted
     }
     LaunchedEffect(Unit) {

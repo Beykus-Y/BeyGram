@@ -821,6 +821,8 @@ private fun MediaViewerPage(
         }
     }
     val unlockedPath = progressivePath
+    // The player may keep an earlier source instance, so the lambda reads the latest page state.
+    val activeNow by rememberUpdatedState(active)
     val progressive = if (progressiveUnlocked && unlockedPath != null) {
         ProgressiveVideoSource(
             fileId = media.fileId,
@@ -829,8 +831,21 @@ private fun MediaViewerPage(
             completed = { observeFile(media.fileId).value.localPath != null },
             downloading = { observeFile(media.fileId).value.isDownloading },
             readablePrefix = { observeFile(media.fileId).value.downloadedPrefixBytes },
-            // Playback in the viewer is user-initiated, so it keeps downloading on any network.
-            onNeedMore = { downloadFile(media.fileId) }
+            // The opened page is user-initiated and keeps downloading on any network. A neighbouring
+            // page that the player prepares in the background stays under the auto-download policy.
+            onNeedMore = {
+                if (activeNow) downloadFile(media.fileId)
+                else autoDownloadFile(
+                    AutoDownloadRequest(
+                        fileId = media.fileId,
+                        kind = media.kind,
+                        sizeBytes = observeFile(media.fileId).value.size,
+                        isSecret = media.isSecret,
+                        isSecretChat = media.isSecretChat,
+                        hasSpoiler = spoilerHidden
+                    )
+                )
+            }
         )
     } else null
     val audioSource = rememberAudioPlaybackSource(media, file, observeFile, downloadFile)

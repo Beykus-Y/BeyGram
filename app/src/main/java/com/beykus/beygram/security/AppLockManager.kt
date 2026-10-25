@@ -163,6 +163,15 @@ internal class AppLockManager private constructor(context: Context) {
     }
 
     /**
+     * Called from a permission result. A denied or already-answered request may never stop the
+     * Activity, so the armed exemption must not carry over to the user's next ordinary departure.
+     * After a real trip the stop has already consumed it, so clearing is a no-op then.
+     */
+    fun clearExpectedExternalActivity() {
+        synchronized(this) { externalLaunchRequestedAt = null }
+    }
+
+    /**
      * A screen-off is the user putting the phone away, not a return from the trip. It turns a trip
      * into an ordinary background period from this moment, so the timeout applies again.
      */

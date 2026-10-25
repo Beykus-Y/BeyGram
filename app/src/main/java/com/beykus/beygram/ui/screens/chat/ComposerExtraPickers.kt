@@ -56,6 +56,7 @@ internal fun ComposerExtraPickers(chatId: Long, isSecret: Boolean, conversation:
         }
     }
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        AppLockManager.get(context).clearExpectedExternalActivity()
         if (granted.values.any { it }) {
             locateNow()
         } else {
