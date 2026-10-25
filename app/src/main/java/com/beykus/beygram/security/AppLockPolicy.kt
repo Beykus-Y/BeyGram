@@ -40,6 +40,16 @@ internal object AppLockPolicy {
     const val BASE_LOCKOUT_MILLIS = 30_000L
     const val MAX_LOCKOUT_MILLIS = 300_000L
 
+    /**
+     * A foreign Activity that BeyGram starts itself (photo picker, camera, permission dialog,
+     * share sheet) stops MainActivity right after the launch request. Only a stop this close to
+     * such a request is that trip; any later stop is a real background period.
+     */
+    const val EXTERNAL_LAUNCH_WINDOW_MILLIS = 10_000L
+
+    /** A trip BeyGram started itself is not a background period, unless it lasts longer than this. */
+    const val EXTERNAL_HANDOFF_MAX_MILLIS = 600_000L
+
     fun isValidPin(pin: String): Boolean =
         pin.length in MIN_PIN_LENGTH..MAX_PIN_LENGTH && pin.all { it in '0'..'9' }
 
@@ -70,6 +80,16 @@ internal object AppLockPolicy {
         graceMillis: Long = 2_000L,
     ): Boolean = wasUnlocking && backgroundAgeMillis != null &&
         backgroundAgeMillis in 0L..graceMillis
+
+    fun isExternalHandoff(launchRequestedAtMillis: Long?, stoppedAtMillis: Long): Boolean =
+        launchRequestedAtMillis != null && stoppedAtMillis - launchRequestedAtMillis in 0L..EXTERNAL_LAUNCH_WINDOW_MILLIS
+
+    /**
+     * Returning from a short trip that BeyGram started keeps the session open, whatever the timeout.
+     * A long trip is an ordinary background period; a screen-off during the trip is handled separately.
+     */
+    fun isExternalHandoffReturn(wasExternalHandoff: Boolean, backgroundAgeMillis: Long?): Boolean =
+        wasExternalHandoff && backgroundAgeMillis != null && backgroundAgeMillis in 0L..EXTERNAL_HANDOFF_MAX_MILLIS
 
     /** Zero until the free attempts are used, then a doubling delay capped at five minutes. */
     fun lockoutMillisForFailures(failedAttempts: Int): Long {

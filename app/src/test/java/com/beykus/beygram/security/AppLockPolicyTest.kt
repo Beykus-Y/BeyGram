@@ -90,4 +90,23 @@ class AppLockPolicyTest {
         assertFalse(AppLockPolicy.isUnlockHandover(wasUnlocking = true, backgroundAgeMillis = 10_000L))
         assertFalse(AppLockPolicy.isUnlockHandover(wasUnlocking = true, backgroundAgeMillis = -1L))
     }
+
+    @Test
+    fun onlyAStopShortlyAfterAnAppLaunchIsAnExternalTrip() {
+        assertFalse(AppLockPolicy.isExternalHandoff(launchRequestedAtMillis = null, stoppedAtMillis = 1_000L))
+        assertTrue(AppLockPolicy.isExternalHandoff(launchRequestedAtMillis = 1_000L, stoppedAtMillis = 1_400L))
+        assertTrue(AppLockPolicy.isExternalHandoff(launchRequestedAtMillis = 1_000L, stoppedAtMillis = 11_000L))
+        assertFalse(AppLockPolicy.isExternalHandoff(launchRequestedAtMillis = 1_000L, stoppedAtMillis = 11_001L))
+        assertFalse(AppLockPolicy.isExternalHandoff(launchRequestedAtMillis = 5_000L, stoppedAtMillis = 4_999L))
+    }
+
+    @Test
+    fun aShortExternalTripKeepsTheSessionOpenUntilTenMinutes() {
+        assertTrue(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = true, backgroundAgeMillis = 30_000L))
+        assertTrue(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = true, backgroundAgeMillis = 600_000L))
+        assertFalse(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = true, backgroundAgeMillis = 600_001L))
+        assertFalse(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = false, backgroundAgeMillis = 30_000L))
+        assertFalse(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = true, backgroundAgeMillis = null))
+        assertFalse(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = true, backgroundAgeMillis = -1L))
+    }
 }

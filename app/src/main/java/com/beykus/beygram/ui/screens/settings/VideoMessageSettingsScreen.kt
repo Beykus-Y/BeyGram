@@ -63,6 +63,7 @@ import com.beykus.beygram.data.media.VideoQualityPreset
 import com.beykus.beygram.data.media.videoMirrorToggleSupported
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
+import com.beykus.beygram.security.AppLockManager
 import android.content.ClipData
 import android.widget.Toast
 import androidx.core.content.FileProvider
@@ -276,7 +277,10 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 DiagnosticsCenterRow("I", R.string.diag_center_i_title, R.string.diag_center_i_detail,
                     if (highSpeedBusy) R.string.fps_check_entry_running else R.string.diag_center_run, !highSpeedBusy && !fpsCheck.running) {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) runHighSpeed()
-                    else highSpeedPermission.launch(Manifest.permission.CAMERA)
+                    else {
+                        AppLockManager.get(context).expectExternalActivity()
+                        highSpeedPermission.launch(Manifest.permission.CAMERA)
+                    }
                 }
                 DiagnosticsCenterRow("H", R.string.diag_center_h_title, R.string.diag_center_h_detail, R.string.diag_center_open, true) { showFullReport = true }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -378,6 +382,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                             VideoNoteFpsCheck.start(context, fpsCheckScope, settings)
                         } else {
+                            AppLockManager.get(context).expectExternalActivity()
                             cameraPermission.launch(Manifest.permission.CAMERA)
                         }
                     }
@@ -421,6 +426,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                             VideoNoteFpsCheck.start(context, fpsCheckScope, settings)
                         } else {
+                            AppLockManager.get(context).expectExternalActivity()
                             cameraPermission.launch(Manifest.permission.CAMERA)
                         }
                     }) { Text(stringResource(R.string.fps_check_start)) }

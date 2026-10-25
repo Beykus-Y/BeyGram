@@ -245,6 +245,16 @@ class MainActivity : FragmentActivity() {
         overridePendingTransition(0, 0)
     }
 
+    /**
+     * Pickers, the camera, the share sheet and links that BeyGram opens take this Activity to the
+     * background, but the user did not leave BeyGram. ActivityResult launchers and startActivity both
+     * reach this method. The lock screen is the only in-app launch and is not such a trip.
+     */
+    override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
+        if (intent.component?.className != AppLockActivity::class.java.name) appLock.expectExternalActivity()
+        super.startActivityForResult(intent, requestCode, options)
+    }
+
     override fun onResume() {
         super.onResume()
         windowResumed = true

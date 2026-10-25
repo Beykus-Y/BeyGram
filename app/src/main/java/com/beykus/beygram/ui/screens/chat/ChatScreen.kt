@@ -80,6 +80,7 @@ import com.beykus.beygram.data.settings.translationTargetLanguage
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.ui.accessibility.accessibleTouchTarget
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ChatAvatar
@@ -383,13 +384,19 @@ fun ChatScreen(
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 PlaybackEngine.pause()
                 audioNote.press()
-            } else audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+            } else {
+                AppLockManager.get(context).expectExternalActivity()
+                audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+            }
         } else if (!VIDEO_NOTE_RECORDING_ENABLED) {
             error = context.getString(R.string.recorder_video_note_unavailable)
         } else if (videoNoteAllowed(context)) {
             PlaybackEngine.pause()
             videoNote.press()
-        } else videoPermissions.launch(videoNotePermissions)
+        } else {
+            AppLockManager.get(context).expectExternalActivity()
+            videoPermissions.launch(videoNotePermissions)
+        }
     }
     val messages = history.messages
     // Sender picker is built from the loaded history; no extra TDLib member request is needed in the search bar.

@@ -1,6 +1,10 @@
 package com.beykus.beygram.security
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +37,15 @@ internal class AppLockManager private constructor(context: Context) {
     private var backgroundedAtElapsed: Long? = null
     /** Set by a successful unlock; the gap before MainActivity starts must not re-lock. */
     private var unlockInProgress = false
+    /** When BeyGram last started a foreign Activity itself. Consumed by the next stop, or cleared on return. */
+    private var externalLaunchRequestedAt: Long? = null
+    /** The current background period is such a trip, so the timeout does not apply to it on return. */
+    private var externalBackground = false
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = onScreenOff()
+    }
+    /** Without the screen-off receiver a screen-off during a trip cannot be seen, so trips then lock as before. */
+    private val screenOffWatched: Boolean = registerScreenOffReceiver(context)
 
     init {
         scope.launch {
@@ -72,11 +85,18 @@ internal class AppLockManager private constructor(context: Context) {
                     ) {
                         session.lockNow()
                     }
-                    session.onForeground(now, settings.timeout)
+                    if (AppLockPolicy.isExternalHandoffReturn(externalBackground, backgroundAge)) {
+                        // Back from a picker, camera, permission prompt or share sheet that BeyGram opened itself.
+                        session.clearBackground()
+                    } else {
+                        session.onForeground(now, settings.timeout)
+                    }
                 }
                 backgrounded = false
                 activeWhenBackgrounded = false
             }
+            externalBackground = false
+            externalLaunchRequestedAt = null
             backgroundedAtElapsed = null
             unlockInProgress = false
             _locked.value = session.locked
@@ -94,16 +114,21 @@ internal class AppLockManager private constructor(context: Context) {
             foreground = false
             val now = SystemClock.elapsedRealtime()
             val settings = store.settings.value
+            // A stop right after BeyGram started a foreign Activity is that trip, not the user leaving.
+            val externalTrip = !unlockInProgress && AppLockPolicy.isExternalHandoff(externalLaunchRequestedAt, now)
+            externalLaunchRequestedAt = null
             backgrounded = true
             activeWhenBackgrounded = settings.isActive
             backgroundedAtElapsed = now
+            externalBackground = externalTrip
             if (unlockInProgress) {
                 // Authentication just succeeded. Keep a timestamp: if MainActivity starts
                 // immediately this is a hand-over; if the user actually left, the next start
                 // must apply the timeout and the immediate setting must lock again.
                 session.recordBackground(now)
             } else if (settings.isActive) {
-                session.onBackground(now, settings.timeout)
+                // A trip is judged on return: a short one keeps the session, a long one follows the timeout.
+                if (externalTrip) session.recordBackground(now) else session.onBackground(now, settings.timeout)
             } else {
                 session.onDisabled()
                 session.recordBackground(now)
@@ -124,6 +149,45 @@ internal class AppLockManager private constructor(context: Context) {
             _locked.value = false
         }
     }
+
+    /**
+     * Called right before BeyGram starts a foreign Activity itself (picker, camera, share sheet) or
+     * asks for a runtime permission. The stop that follows is that trip, not the user leaving.
+     * Permission requests never reach the Activity overrides in MainActivity, so their call sites
+     * call this directly.
+     */
+    fun expectExternalActivity() {
+        synchronized(this) {
+            if (screenOffWatched) externalLaunchRequestedAt = SystemClock.elapsedRealtime()
+        }
+    }
+
+    /**
+     * A screen-off is the user putting the phone away, not a return from the trip. It turns a trip
+     * into an ordinary background period from this moment, so the timeout applies again.
+     */
+    private fun onScreenOff() {
+        synchronized(this) {
+            externalLaunchRequestedAt = null
+            if (!externalBackground) return
+            externalBackground = false
+            val now = SystemClock.elapsedRealtime()
+            val settings = store.settings.value
+            backgroundedAtElapsed = now
+            if (settings.isActive) session.onBackground(now, settings.timeout)
+            else session.recordBackground(now)
+            _locked.value = session.locked
+        }
+    }
+
+    private fun registerScreenOffReceiver(context: Context): Boolean = runCatching {
+        val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.applicationContext.registerReceiver(screenOffReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.applicationContext.registerReceiver(screenOffReceiver, filter)
+        }
+    }.isSuccess
 
     companion object {
         @Volatile
