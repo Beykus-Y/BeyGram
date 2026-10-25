@@ -115,8 +115,8 @@ internal data class MediaProcessing(
 )
 
 private val CaptureRetrySaver = Saver<CaptureRetryState, String>(
-    save = { it.failedPath.orEmpty() },
-    restore = { CaptureRetryState(it.takeIf(String::isNotBlank)) }
+    save = { it.failedPaths.joinToString("\n") },
+    restore = { CaptureRetryState(it.split('\n').filter(String::isNotBlank)) }
 )
 
 /**
@@ -167,7 +167,8 @@ internal class AttachmentState(
     private var compressionJob: Job? = null
     private var importJob: Job? = null
     private var editorJob: Job? = null
-    private val failedCapturePath: String? get() = captureRetry.value.failedPath
+    private val failedCapturePaths: List<String> get() = captureRetry.value.failedPaths
+    private val nextFailedCapturePath: String? get() = captureRetry.value.nextPath
     var pickPhotos: () -> Unit = {}
     var pickDocuments: () -> Unit = {}
     var pickAudio: () -> Unit = {}
@@ -209,10 +210,6 @@ internal class AttachmentState(
     /** Full-screen camera entry; it hands one cache file back and closes without leaving the chat. */
     fun openCamera() {
         if (sending || importing) return
-        if (canRetryCapture) {
-            errorState.value = context.getString(R.string.capture_retry_pending)
-            return
-        }
         if (pending.size >= MediaLimits.MAX_ATTACHMENTS) {
             errorState.value = context.getString(R.string.composer_too_many_attachments)
             return
@@ -349,13 +346,6 @@ internal class AttachmentState(
     }
 
     private fun importCaptureFile(file: File) {
-        val previous = failedCapturePath
-        if (previous != null && previous != file.absolutePath) {
-            // Never replace an unreviewed failed take without an explicit retry/discard.
-            file.delete()
-            errorState.value = context.getString(R.string.capture_retry_pending)
-            return
-        }
         // Register before copying: activity recreation cancels the staging coroutine, and the path
         // must already be in saved state so the user can retry the only copy afterwards.
         setFailedCapture(file.absolutePath)
@@ -371,7 +361,7 @@ internal class AttachmentState(
                 }
                 pendingState.value = ArrayList(pending + prepared)
                 file.delete()
-                setFailedCapture(null)
+                clearFailedCapture(file.absolutePath)
                 when {
                     prepared.kind == MediaKind.Video -> maybeCompressVideo(prepared)
                     prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("video/") ->
@@ -380,7 +370,7 @@ internal class AttachmentState(
             } catch (cancelled: CancellationException) {
                 // Rotation/scope cancellation keeps the registered retry path. An explicit discard
                 // has already cleared it, so only then is deleting the file appropriate.
-                if (failedCapturePath != file.absolutePath) file.delete()
+                if (file.absolutePath !in failedCapturePaths) file.delete()
                 throw cancelled
             }
             catch (failure: Exception) {
@@ -392,20 +382,23 @@ internal class AttachmentState(
         }
     }
 
-    private fun setFailedCapture(path: String?) {
-        captureRetry.value = if (path == null) CaptureRetryState.Empty else captureRetry.value.failed(path)
+    private fun setFailedCapture(path: String) {
+        captureRetry.value = captureRetry.value.failed(path)
+    }
+
+    private fun clearFailedCapture(path: String) {
+        captureRetry.value = captureRetry.value.cleared(path)
     }
 
     fun retryCapture() {
-        val path = failedCapturePath ?: return
+        val path = nextFailedCapturePath ?: return
         if (importing || sending) return
         val file = File(path)
         if (!file.isFile || file.length() <= 0L) {
-            setFailedCapture(null)
+            clearFailedCapture(path)
             errorState.value = context.getString(R.string.capture_retry_missing)
             return
         }
-        setFailedCapture(null)
         importCaptureFile(file)
     }
 
@@ -586,8 +579,8 @@ internal class AttachmentState(
         importJob?.cancel()
         compressionJob?.cancel()
         editorJob?.cancel()
-        failedCapturePath?.let { File(it).delete() }
-        setFailedCapture(null)
+        failedCapturePaths.forEach { File(it).delete() }
+        captureRetry.value = CaptureRetryState.Empty
         editor?.let { session -> if (session.temporary) File(session.sourcePath).delete() }
         editor = null
         editorSaving = false

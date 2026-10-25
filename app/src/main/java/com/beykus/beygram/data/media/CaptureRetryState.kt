@@ -1,18 +1,25 @@
 package com.beykus.beygram.data.media
 
 /**
- * Persisted reference to a camera take whose staging failed. The composer keeps the file and lets
- * the user retry after rotation; only an explicit discard or a successful retry removes it.
+ * Persisted references to camera takes whose staging failed. Multiple captures can be retained:
+ * taking a new photo must never discard an older recoverable take. Only an explicit retry success
+ * or discard removes a path.
  */
-internal data class CaptureRetryState(val failedPath: String? = null) {
-    val canRetry: Boolean get() = !failedPath.isNullOrBlank()
+internal data class CaptureRetryState(val failedPaths: List<String> = emptyList()) {
+    val canRetry: Boolean get() = failedPaths.isNotEmpty()
+
+    /** The capture the UI offers to retry; the rest stay retained. */
+    val nextPath: String? get() = failedPaths.firstOrNull()
 
     fun failed(path: String): CaptureRetryState {
         val clean = path.trim()
-        return if (clean.isEmpty()) CaptureRetryState() else CaptureRetryState(clean)
+        if (clean.isEmpty() || clean in failedPaths) return this
+        return copy(failedPaths = failedPaths + clean)
     }
 
-    fun cleared(): CaptureRetryState = CaptureRetryState()
+    fun cleared(path: String): CaptureRetryState = copy(failedPaths = failedPaths.filterNot { it == path })
+
+    fun cleared(): CaptureRetryState = Empty
 
     companion object {
         val Empty = CaptureRetryState()

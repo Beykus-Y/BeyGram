@@ -49,7 +49,6 @@
     <string name="capture_retry">Повторить</string>
     <string name="capture_retry_hint">Снимок сохранён на устройстве. Повторите импорт или закройте вложения.</string>
     <string name="capture_retry_missing">Файл снимка больше недоступен. Снимите фото или видео ещё раз.</string>
-    <string name="capture_retry_pending">Сначала повторите импорт сохранённого снимка или закройте вложения.</string>
 
     <string name="err_video_compress_failed">Не удалось сжать видео</string>
     <string name="err_audio_compress_failed">Не удалось сжать аудио</string>

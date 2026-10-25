@@ -49,7 +49,6 @@
     <string name="capture_retry">Erneut versuchen</string>
     <string name="capture_retry_hint">Die Aufnahme ist auf diesem Gerät gespeichert. Import erneut versuchen oder Anhänge schließen.</string>
     <string name="capture_retry_missing">Die Aufnahme ist nicht mehr verfügbar. Nimm erneut ein Foto oder Video auf.</string>
-    <string name="capture_retry_pending">Versuche zuerst den gespeicherten Import erneut oder schließe die Anhänge.</string>
 
     <string name="err_video_compress_failed">Video konnte nicht komprimiert werden</string>
     <string name="err_audio_compress_failed">Audio konnte nicht komprimiert werden</string>
