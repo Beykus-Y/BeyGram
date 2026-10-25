@@ -76,6 +76,7 @@ internal class AttachmentState(
     private val scope: CoroutineScope,
     private val pendingState: MutableState<ArrayList<OutgoingMedia>>,
     private val errorState: MutableState<String?>,
+    private val viewOnceState: MutableState<Boolean>,
     private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>
 ) {
     var menuOpen by mutableStateOf(false)
@@ -83,8 +84,10 @@ internal class AttachmentState(
         private set
     var sending by mutableStateOf(false)
         private set
-    /** Per-message view-once flag; cleared whenever the pending set no longer supports it. */
-    var viewOnce by mutableStateOf(false)
+    /** Per-message view-once flag, saved with the pending attachments across activity recreation. */
+    var viewOnce: Boolean
+        get() = viewOnceState.value
+        set(value) { viewOnceState.value = value }
     val pending: List<OutgoingMedia> get() = pendingState.value
     val error: String? get() = errorState.value
     private var importJob: Job? = null
@@ -162,8 +165,9 @@ internal fun rememberAttachmentState(
     val scope = rememberCoroutineScope()
     val pending = rememberSaveable(accountId, chatId) { mutableStateOf(arrayListOf<OutgoingMedia>()) }
     val error = rememberSaveable(accountId, chatId) { mutableStateOf<String?>(null) }
+    val viewOnce = rememberSaveable(accountId, chatId) { mutableStateOf(false) }
     val currentSend by androidx.compose.runtime.rememberUpdatedState(sendMedia)
-    val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error) { media, caption, options -> currentSend(media, caption, options) } }
+    val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error, viewOnce) { media, caption, options -> currentSend(media, caption, options) } }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
     state.pickPhotos = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }

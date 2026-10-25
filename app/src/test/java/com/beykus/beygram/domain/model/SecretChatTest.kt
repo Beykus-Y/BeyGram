@@ -57,6 +57,7 @@ class SecretChatTest {
         assertTrue(ViewOncePolicy.canSend(listOf(photo), isPrivateChat = true, scheduled = false))
         assertTrue(ViewOncePolicy.canSend(listOf(video), isPrivateChat = true, scheduled = false))
         assertFalse(ViewOncePolicy.canSend(listOf(photo), isPrivateChat = false, scheduled = false))
+        assertFalse(ViewOncePolicy.canSend(listOf(photo), isPrivateChat = true, isSecretChat = true, scheduled = false))
         assertFalse(ViewOncePolicy.canSend(listOf(photo), isPrivateChat = true, scheduled = true))
         assertFalse(ViewOncePolicy.canSend(listOf(photo, video), isPrivateChat = true, scheduled = false))
         assertFalse(ViewOncePolicy.canSend(listOf(document), isPrivateChat = true, scheduled = false))

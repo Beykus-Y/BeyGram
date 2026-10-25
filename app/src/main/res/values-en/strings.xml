@@ -413,7 +413,7 @@
     <string name="secret_chat_ttl_unit_seconds">s</string>
     <string name="secret_chat_close_action">Close secret chat</string>
     <string name="secret_chat_close_title">Close secret chat?</string>
-    <string name="secret_chat_close_message">The chat and its messages will be deleted on both devices. This cannot be undone.</string>
+    <string name="secret_chat_close_message">The secret chat will be closed and no new messages can be sent. The message history stays on both devices.</string>
     <string name="secret_chat_close_confirm">Close</string>
     <string name="secret_chat_close_failed">Could not close the secret chat</string>
     <string name="composer_view_once">View once</string>

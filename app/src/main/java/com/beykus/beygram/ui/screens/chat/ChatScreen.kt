@@ -342,8 +342,9 @@ fun ChatScreen(
         if (result.isSuccess) clearReply()
         result
     }
-    // View-once is a private-chat photo/video feature; groups, channels and Saved Messages never show the toggle.
-    val allowViewOnce = !chat.isGroup && !chat.isChannel && !chat.isSavedMessages
+    // View-once is a regular-private-chat photo/video feature. TDLib rejects per-message self-destruct in secret chats,
+    // groups, channels and Saved Messages, so those keep only the separate chat-wide TTL controls.
+    val allowViewOnce = !chat.isSecret && !chat.isGroup && !chat.isChannel && !chat.isSavedMessages
     val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, accountId = accountId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.
@@ -972,7 +973,7 @@ fun ChatScreen(
         // View-once is selected in the attachment panel; scheduling or groups silently drop the flag instead of
         // producing a TDLib error, and the composer hides those paths for view-once media.
         val effectiveOptions = if (attachments.active) {
-            options.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, allowViewOnce, options.scheduledAtSeconds != null))
+            options.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, isPrivateChat = allowViewOnce, isSecretChat = chat.isSecret, scheduled = options.scheduledAtSeconds != null))
         } else options
         if (attachments.active) {
             attachments.send(draft, effectiveOptions) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
@@ -1431,10 +1432,23 @@ fun ChatScreen(
         onSend = { sendRecordedMedia(mediaList) }
     ) }
     val viewedRights = selectedMediaId?.let { MediaViewerPolicy.rightsFor(it, viewerRights) }
+    // A view-once message is deleted by TDLib right after OpenMessageContent. Keep the already opened item for this
+    // viewing session, otherwise the live history update would close the viewer before the user can finish looking.
+    var retainedViewOnce by remember(chat.id) { mutableStateOf<ChatMessage?>(null) }
+    var openedViewOnceIds by remember(chat.id) { mutableStateOf(emptySet<Long>()) }
     // Фото и видео листаются вместе; остальные вложения открываются по одному.
     // Действия над сообщением есть только у сообщений из загруженной истории: редактирование ищет их в ленте.
-    val viewedInChat = messages.firstOrNull { it.id == selectedMediaId }
-    val viewed = viewedInChat ?: mediaWindow.messages.firstOrNull { it.id == selectedMediaId }
+    val viewedInChat = messages.firstOrNull { it.id == selectedMediaId && it.media != null }
+    val liveViewed = viewedInChat ?: mediaWindow.messages.firstOrNull { it.id == selectedMediaId }
+    val retainedViewed = retainedViewOnce?.takeIf { it.id == selectedMediaId }
+    val viewed = liveViewed?.takeIf { it.media != null } ?: retainedViewed
+    LaunchedEffect(selectedMediaId, liveViewed?.media?.fileId, liveViewed?.isViewOnce) {
+        if (selectedMediaId == null) {
+            retainedViewOnce = null
+            return@LaunchedEffect
+        }
+        if (liveViewed?.media != null && liveViewed.isViewOnce) retainedViewOnce = liveViewed
+    }
     val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce) } }
     val historyPages = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce) } } }
     // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
@@ -1442,7 +1456,14 @@ fun ChatScreen(
         ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce) } })
     if (viewed != null && viewed.media != null) MediaViewer(
         pages = viewerPages, selectedId = viewed.id, onSelect = { selectedMediaId = it },
-        observeFile = observeFile, downloadFile = onDownloadFile, onViewed = { id -> conversation.openMessageContent(chat.id, id) }, onClose = { selectedMediaId = null },
+        observeFile = observeFile, downloadFile = onDownloadFile,
+        onViewed = { id ->
+            val once = (messages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
+            if (!once || id !in openedViewOnceIds) {
+                if (once) openedViewOnceIds = openedViewOnceIds + id
+                conversation.openMessageContent(chat.id, id)
+            }
+        }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
         canExport = viewedRights?.let { ViewOncePolicy.canExport(it.canSave, viewed.isViewOnce) } == true,
         confirmExport = { id -> conversation.messageCapabilities(chat.id, id).getOrNull()?.canSave == true },

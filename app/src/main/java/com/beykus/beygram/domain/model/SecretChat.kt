@@ -98,10 +98,15 @@ sealed interface MessageSelfDestruct {
     data class Timer(val seconds: Int) : MessageSelfDestruct
 }
 
-/** View-once is a private-chat photo/video feature; albums, groups and scheduled sends are not supported. */
+/** View-once is a regular-private-chat photo/video feature; albums, secret chats, groups and scheduled sends are not supported. */
 object ViewOncePolicy {
-    fun canSend(media: List<OutgoingMedia>, isPrivateChat: Boolean, scheduled: Boolean): Boolean =
-        isPrivateChat && !scheduled && media.size == 1 && media.single().kind in setOf(MediaKind.Photo, MediaKind.Video)
+    fun canSend(
+        media: List<OutgoingMedia>,
+        isPrivateChat: Boolean,
+        isSecretChat: Boolean = false,
+        scheduled: Boolean
+    ): Boolean = isPrivateChat && !isSecretChat && !scheduled && media.size == 1 &&
+        media.single().kind in setOf(MediaKind.Photo, MediaKind.Video)
 
     /** TDLib already refuses saving such media; the UI adds a local guard so a cached right can never export it. */
     fun canExport(canBeSaved: Boolean, isViewOnce: Boolean): Boolean = canBeSaved && !isViewOnce

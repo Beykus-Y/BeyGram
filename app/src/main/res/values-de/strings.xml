@@ -413,7 +413,7 @@
     <string name="secret_chat_ttl_unit_seconds">Sek</string>
     <string name="secret_chat_close_action">Geheimen Chat schließen</string>
     <string name="secret_chat_close_title">Geheimen Chat schließen?</string>
-    <string name="secret_chat_close_message">Der Chat und seine Nachrichten werden auf beiden Geräten gelöscht. Das kann nicht rückgängig gemacht werden.</string>
+    <string name="secret_chat_close_message">Der geheime Chat wird geschlossen; neue Nachrichten können nicht gesendet werden. Der Nachrichtenverlauf bleibt auf beiden Geräten.</string>
     <string name="secret_chat_close_confirm">Schließen</string>
     <string name="secret_chat_close_failed">Geheimer Chat konnte nicht geschlossen werden</string>
     <string name="composer_view_once">Einmalig</string>

@@ -1581,7 +1581,7 @@
     <string name="secret_chat_ttl_unit_seconds">с</string>
     <string name="secret_chat_close_action">Закрыть секретный чат</string>
     <string name="secret_chat_close_title">Закрыть секретный чат?</string>
-    <string name="secret_chat_close_message">Чат и его сообщения будут удалены на обоих устройствах. Это действие нельзя отменить.</string>
+    <string name="secret_chat_close_message">Секретный чат будет закрыт: новые сообщения отправить не получится. История сообщений останется на обоих устройствах.</string>
     <string name="secret_chat_close_confirm">Закрыть</string>
     <string name="secret_chat_close_failed">Не удалось закрыть секретный чат</string>
     <string name="composer_view_once">Одноразовое</string>

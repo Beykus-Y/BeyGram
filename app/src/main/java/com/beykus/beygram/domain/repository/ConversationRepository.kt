@@ -92,7 +92,7 @@ interface ConversationRepository {
      * Already delivered messages keep the TTL TDLib assigned them; this is not per-message view-once.
      */
     suspend fun setSecretChatTtl(chatId: Long, seconds: Int): Result<Unit>
-    /** CloseSecretChat; TDLib deletes the conversation and its messages, so callers must confirm first. */
+    /** CloseSecretChat; TDLib closes the session. History already delivered stays on the devices, so callers must confirm. */
     suspend fun closeSecretChat(chatId: Long): Result<Unit>
     /** Notification sounds already saved in this Telegram account. */
     suspend fun savedNotificationSounds(): Result<List<NotificationSoundOption>>
