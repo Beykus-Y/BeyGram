@@ -70,6 +70,7 @@ fun ProfileScreen(
     deleteMyProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Profile photo deletion unavailable")) },
     setPreviousProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Previous photo unavailable")) },
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
+    onStatistics: (() -> Unit)? = null,
     onSetBlocked: suspend (Boolean) -> Result<Unit> = { Result.failure(IllegalStateException()) },
     onReportSpam: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
     onDelete: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
@@ -104,7 +105,8 @@ fun ProfileScreen(
         info = groupInfo, state = state, lastSeenStyle = lastSeenStyle, observeFile = observeFile, downloadFile = downloadFile,
         onBack = { if (!saving && !preparing) onBack() }, onRefresh = onRefresh, onAvatarClick = { showPhoto = true },
         onDelete = onDelete, onDeleted = onDeleted,
-        onMembers = onMembers, onOpenUser = onOpenUser, sharedMessages = sharedMessages, confirmExport = confirmExport,
+        onMembers = onMembers, onOpenUser = onOpenUser, onStatistics = onStatistics,
+        sharedMessages = sharedMessages, confirmExport = confirmExport,
         messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened, onOpenMessage = onOpenMessage
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
