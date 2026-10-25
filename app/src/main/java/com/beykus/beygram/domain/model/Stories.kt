@@ -43,6 +43,8 @@ data class StoryMedia(
     val width: Int = 0,
     val height: Int = 0,
     val durationSeconds: Int = 0,
+    /** Precise TDLib duration for the viewer timer; avoids truncating fractional video lengths. */
+    val durationMillis: Long = durationSeconds * 1_000L,
     val minithumbnail: ByteArray? = null
 )
 

@@ -5,6 +5,8 @@ import com.beykus.beygram.domain.model.StoryCropRect
 import com.beykus.beygram.domain.model.StoryDetail
 import com.beykus.beygram.domain.model.StoryMedia
 import com.beykus.beygram.domain.model.StoryMediaKind
+import com.beykus.beygram.domain.model.StoryPostDenial
+import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPreview
 import com.beykus.beygram.domain.model.orderedStoryBar
 import com.beykus.beygram.domain.model.storyActivePeriodChoices
@@ -59,6 +61,35 @@ class StoryRulesTest {
         assertEquals(12_000L, storyDurationMillis(StoryDetail(1, 1, 0, media = video(10))))
         assertEquals(5_000L, storyDurationMillis(StoryDetail(1, 1, 0, media = video(10, duration = 0))))
         assertEquals(60_000L, storyDurationMillis(StoryDetail(1, 1, 0, media = video(10, duration = 600))))
+    }
+
+    @Test
+    fun fractionalVideoDurationKeepsSubSecondPrecision() {
+        val media = StoryMedia(
+            StoryMediaKind.Video,
+            fileId = 10,
+            thumbnailFileId = 11,
+            durationSeconds = 1,
+            durationMillis = 1_900L
+        )
+        assertEquals(1_900L, storyDurationMillis(StoryDetail(1, 1, 0, media = media)))
+    }
+
+    @Test
+    fun pendingTicketIgnoresFailuresOfOlderUploads() {
+        val olderFailure = StoryPostEvent.Failed(posterChatId = 7, storyId = 10, reason = StoryPostDenial.Unavailable)
+        assertFalse(matchesPendingStoryEvent(olderFailure, posterChatId = 7, storyId = 11))
+        assertTrue(matchesPendingStoryEvent(olderFailure, posterChatId = 7, storyId = 10))
+        assertFalse(matchesPendingStoryEvent(olderFailure, posterChatId = 8, storyId = 10))
+    }
+
+    @Test
+    fun publishedEventMatchesTemporaryOrFinalStoryId() {
+        val published = StoryPostEvent.Published(posterChatId = 7, storyId = 12, oldStoryId = 11)
+        assertTrue(matchesPendingStoryEvent(published, posterChatId = 7, storyId = 11))
+        assertTrue(matchesPendingStoryEvent(published, posterChatId = 7, storyId = 12))
+        assertFalse(matchesPendingStoryEvent(published, posterChatId = 7, storyId = 13))
+        assertFalse(matchesPendingStoryEvent(published, posterChatId = 8, storyId = 11))
     }
 
     @Test

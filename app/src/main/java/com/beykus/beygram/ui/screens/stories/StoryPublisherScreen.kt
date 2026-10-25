@@ -235,11 +235,7 @@ fun StoryPublisherScreen(
         if (storyId == 0) return@LaunchedEffect
         publishing = true
         val event = repository.storyPostEvents.first { candidate ->
-            when (candidate) {
-                is StoryPostEvent.Published -> candidate.posterChatId == posterChatId &&
-                    (candidate.storyId == storyId || candidate.oldStoryId == storyId)
-                is StoryPostEvent.Failed -> candidate.posterChatId == posterChatId
-            }
+            matchesPendingStoryEvent(candidate, posterChatId, storyId)
         }
         publishing = false
         pendingPosterChatId = 0L

@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
+import kotlin.math.roundToLong
 
 /**
  * Owns the account's active-story list and the requests for one story at a time.
@@ -482,15 +483,19 @@ internal class TdStories(
                 minithumbnail = photo.minithumbnail?.data
             )
         }
-        is TdApi.StoryContentVideo -> StoryMedia(
-            kind = StoryMediaKind.Video,
-            fileId = register(video.video),
-            thumbnailFileId = video.thumbnail?.file?.let(::register),
-            width = video.width,
-            height = video.height,
-            durationSeconds = video.duration.toInt(),
-            minithumbnail = video.minithumbnail?.data
-        )
+        is TdApi.StoryContentVideo -> {
+            val durationMillis = (video.duration * 1_000.0).roundToLong()
+            StoryMedia(
+                kind = StoryMediaKind.Video,
+                fileId = register(video.video),
+                thumbnailFileId = video.thumbnail?.file?.let(::register),
+                width = video.width,
+                height = video.height,
+                durationSeconds = video.duration.toInt(),
+                durationMillis = durationMillis,
+                minithumbnail = video.minithumbnail?.data
+            )
+        }
         else -> null
     }
 
