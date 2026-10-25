@@ -20,8 +20,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageLinkPreview
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.flow.StateFlow
 import java.net.URI
@@ -41,7 +46,8 @@ internal fun MessageLinkPreviewCard(
     preview: MessageLinkPreview,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -65,7 +71,7 @@ internal fun MessageLinkPreviewCard(
             val width = if (preview.photoWidth > 0 && preview.photoHeight > 0) {
                 (64f * preview.photoWidth / preview.photoHeight).coerceIn(48f, 96f).dp
             } else 64.dp
-            LinkPreviewPhoto(fileId, observeFile, onDownloadFile, Modifier.width(width).height(64.dp))
+            LinkPreviewPhoto(fileId, observeFile, onDownloadFile, autoDownloadFile, Modifier.width(width).height(64.dp))
             Spacer(Modifier.width(8.dp))
         }
         Column(Modifier.weight(1f).padding(horizontal = 2.dp, vertical = 1.dp)) {
@@ -87,12 +93,29 @@ private fun LinkPreviewPhoto(
     fileId: Int,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val palette = beyGramPalette()
+    val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
+    val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
     val file by remember(fileId) { observeFile(fileId) }.collectAsStateWithLifecycle()
-    LaunchedEffect(fileId) {
-        if (file.localPath == null && !file.isDownloading) onDownloadFile(fileId)
+    LaunchedEffect(fileId, file.localPath, file.size, file.isDownloading, policySettings, policyNetwork) {
+        if (file.localPath == null && !file.isDownloading) {
+            val request = AutoDownloadRequest(
+                fileId = fileId,
+                kind = MediaKind.Photo,
+                sizeBytes = file.size,
+                hasSpoiler = false
+            )
+            if (autoDownload != null) autoDownload(request) else onDownloadFile(fileId)
+        }
     }
     Box(modifier.clip(RoundedCornerShape(6.dp)).background(palette.surface2), contentAlignment = Alignment.Center) {
         val path = file.localPath

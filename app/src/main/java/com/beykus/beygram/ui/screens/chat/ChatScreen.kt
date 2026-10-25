@@ -1671,7 +1671,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 transcriptionRequestError = transcriptionRequestError,
                                 transcriptionRated = transcriptionRated,
                                 onTranscribe = onTranscribe,
-                                onRateTranscription = onRateTranscription)
+                                onRateTranscription = onRateTranscription,
+                                autoDownloadFile = onAutoDownloadFile)
                             else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed, origin = playbackOrigin,
                                 transcriptionRequestPending = transcriptionRequestPending,
                                 transcriptionRequestError = transcriptionRequestError,
@@ -1691,7 +1692,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 }
                             }
                             if (hasText) FormattedMessageText(message)
-                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile) }
+                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile) }
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,

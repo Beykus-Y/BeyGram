@@ -378,7 +378,8 @@ internal fun MediaPreview(
             transcriptionRequestError = transcriptionRequestError,
             transcriptionRated = transcriptionRated,
             onTranscribe = onTranscribe,
-            onRateTranscription = onRateTranscription)
+            onRateTranscription = onRateTranscription,
+            autoDownloadFile = autoDownload)
         return
     }
     if (media.kind == MediaKind.Sticker) {
