@@ -10,6 +10,7 @@ enum class AppRoute {
     Chat,
     MessageThread,
     ChatInfo,
+    ChatManagement,
     ChannelStatistics,
     ChatMembers,
     MemberProfile,
@@ -40,6 +41,7 @@ enum class AppRoute {
     Appearance,
     Language,
     Sessions,
+    AppLock,
     NewChat,
     CreateGroup,
     CreateChannel

@@ -20,6 +20,7 @@ import com.beykus.beygram.diagnostics.recordAppEvent
 import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.model.*
+import com.beykus.beygram.security.NotificationPreviewPolicy
 import com.beykus.beygram.ui.text.resolve
 import java.util.concurrent.ConcurrentHashMap
 
@@ -82,18 +83,28 @@ internal class AndroidNotificationRenderer(
                 if (authorized) preferences.handled(group.id, maxId)
                 continue
             }
-            val hideContent = group.isSecret || !group.metadataReady
+            val hideContent = NotificationPreviewPolicy.hideTitle(group.isSecret, group.metadataReady)
+            val hideSender = NotificationPreviewPolicy.hideSender(
+                group.isSecret, group.metadataReady, group.hasProtectedContent
+            )
             val title = if (hideContent) "BeyGram" else group.title
             val style = NotificationCompat.MessagingStyle(Person.Builder().setName(localizedContext.getString(R.string.chat_you)).build()).setConversationTitle(title).setGroupConversation(group.isGroup)
             notices.forEach { notice ->
-                val preview = config.previews && notice.previewAllowed && !hideContent
+                val preview = !NotificationPreviewPolicy.hideText(
+                    config.previews, notice.previewAllowed, group.isSecret,
+                    group.metadataReady, group.hasProtectedContent
+                )
                 style.addMessage(if (preview) notice.text.resolve(localizedContext) else localizedContext.getString(R.string.notif_new_message), notice.dateSeconds * 1000,
-                    Person.Builder().setName(if (hideContent) "Telegram" else notice.sender.ifBlank { title }).build())
+                    Person.Builder().setName(if (hideSender) "Telegram" else notice.sender.ifBlank { title }).build())
             }
             val latest = notices.last()
+            val latestPreview = !NotificationPreviewPolicy.hideText(
+                config.previews, latest.previewAllowed, group.isSecret,
+                group.metadataReady, group.hasProtectedContent
+            )
             val public = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle("BeyGram").setContentText(localizedContext.getString(R.string.notif_new_message)).build()
             val builder = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification).setContentTitle(title)
-                .setContentText(if (config.previews && latest.previewAllowed && !hideContent) latest.text.resolve(localizedContext) else localizedContext.getString(R.string.notif_new_message))
+                .setContentText(if (latestPreview) latest.text.resolve(localizedContext) else localizedContext.getString(R.string.notif_new_message))
                 .setStyle(style).setCategory(NotificationCompat.CATEGORY_MESSAGE).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
                 .setWhen(latest.dateSeconds * 1000).setShowWhen(true).setNumber(group.totalCount).setAutoCancel(true)
                 .setContentIntent(NotificationIntents.chat(context, group.chatId, group.id, maxId, latest.topicId, accountId)).setDeleteIntent(NotificationIntents.dismiss(context, group.id, maxId, accountId))

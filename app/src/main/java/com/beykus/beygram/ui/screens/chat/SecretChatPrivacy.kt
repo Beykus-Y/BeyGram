@@ -29,6 +29,8 @@ internal fun SecureWindowWhileVisible(enabled: Boolean) {
 
 internal object SecureWindowFlags {
     private val holds = WeakHashMap<Window, Int>()
+    // A window owner with its own privacy rules (the app lock in MainActivity) decides itself when the flag may go.
+    private val policies = WeakHashMap<Window, () -> Unit>()
 
     fun acquire(window: Window) = synchronized(this) {
         val count = holds[window] ?: 0
@@ -40,11 +42,19 @@ internal object SecureWindowFlags {
         val count = holds[window] ?: return@synchronized
         if (count <= 1) {
             holds.remove(window)
-            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            val policy = policies[window]
+            if (policy != null) policy() else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             holds[window] = count - 1
         }
     }
+
+    fun isHeld(window: Window): Boolean = synchronized(this) { (holds[window] ?: 0) > 0 }
+
+    /** [reapply] recomputes the window flags; it must keep FLAG_SECURE while [isHeld] is true. */
+    fun registerPolicy(window: Window, reapply: () -> Unit) = synchronized(this) { policies[window] = reapply }
+
+    fun unregisterPolicy(window: Window) = synchronized(this) { policies.remove(window); Unit }
 }
 
 private fun Context.hostActivity(): Activity? {
