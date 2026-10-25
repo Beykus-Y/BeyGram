@@ -68,6 +68,7 @@ import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageThread
+import com.beykus.beygram.domain.model.PollVotersPage
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.mergeThreadHistory
 import com.beykus.beygram.domain.model.mergeThreadMessages
@@ -380,7 +381,25 @@ internal fun MessageThreadScreen(
                             }
                         } else null,
                         onReaction = { option -> changeReaction(message.chatId, message, option, addToRecent = false) },
-                        observeCustomEmoji = conversation::observeCustomEmoji
+                        observeCustomEmoji = conversation::observeCustomEmoji,
+                        onPollVote = { chatId, messageId, choices ->
+                            scope.launch {
+                                conversation.votePoll(chatId, messageId, choices)
+                                    .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                            }
+                        },
+                        onPollStop = { chatId, messageId ->
+                            scope.launch {
+                                conversation.stopPoll(chatId, messageId)
+                                    .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                            }
+                        },
+                        onLoadPollVoters = { chatId, messageId, optionIndex, offset ->
+                            conversation.pollVoters(chatId, messageId, optionIndex, offset)
+                        },
+                        onAddPollOption = { chatId, messageId, text ->
+                            conversation.addPollOption(chatId, messageId, text)
+                        }
                     )
                 }
                 if (loadingOlder) item(key = "older_loading") {
@@ -416,6 +435,24 @@ internal fun MessageThreadScreen(
                                 onReplyClick = ::jump,
                                 onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
                                 observeCustomEmoji = conversation::observeCustomEmoji,
+                                onPollVote = { messageId, choices ->
+                                    scope.launch {
+                                        conversation.votePoll(channelChatId, messageId, choices)
+                                            .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                                    }
+                                },
+                                onPollStop = { messageId ->
+                                    scope.launch {
+                                        conversation.stopPoll(channelChatId, messageId)
+                                            .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                    }
+                                },
+                                onLoadPollVoters = { messageId, optionIndex, offset ->
+                                    conversation.pollVoters(channelChatId, messageId, optionIndex, offset)
+                                },
+                                onAddPollOption = { messageId, text ->
+                                    conversation.addPollOption(channelChatId, messageId, text)
+                                },
                                 onRetry = {}
                             )
                         }
@@ -549,6 +586,10 @@ private fun ThreadCommentRow(
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)?,
     onReaction: (ReactionOption) -> Unit,
+    onPollVote: (chatId: Long, messageId: Long, optionIndices: List<Int>) -> Unit,
+    onPollStop: (chatId: Long, messageId: Long) -> Unit,
+    onLoadPollVoters: suspend (chatId: Long, messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>,
+    onAddPollOption: suspend (chatId: Long, messageId: Long, text: String) -> Result<Unit>,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>
 ) {
     val palette = beyGramPalette()
@@ -585,7 +626,13 @@ private fun ThreadCommentRow(
                 onReaction = { _, option -> onReaction(option) },
                 observeCustomEmoji = observeCustomEmoji,
                 onRetry = onRetry,
-                onSenderClick = openSender
+                onSenderClick = openSender,
+                onPollVote = { messageId, choices -> onPollVote(message.chatId, messageId, choices) },
+                onPollStop = { messageId -> onPollStop(message.chatId, messageId) },
+                onLoadPollVoters = { messageId, optionIndex, offset ->
+                    onLoadPollVoters(message.chatId, messageId, optionIndex, offset)
+                },
+                onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) }
             )
         }
     }

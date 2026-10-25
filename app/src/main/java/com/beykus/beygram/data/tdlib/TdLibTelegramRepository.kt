@@ -80,6 +80,9 @@ import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSpecialContent
 import com.beykus.beygram.domain.model.GeoPoint
 import com.beykus.beygram.domain.model.OutgoingPoll
+import com.beykus.beygram.domain.model.PollVoterInfo
+import com.beykus.beygram.domain.model.PollVotersPage
+import com.beykus.beygram.domain.model.pollVotersNextOffset
 import com.beykus.beygram.domain.model.ChatNotificationPreferences
 import com.beykus.beygram.domain.model.NotificationPresentation
 import com.beykus.beygram.domain.model.NotificationSoundOption
@@ -1667,6 +1670,29 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun stopPoll(chatId: Long, messageId: Long): Result<Unit> =
         conversationActions.stopPoll(chatId, messageId)
+
+    override suspend fun pollVoters(chatId: Long, messageId: Long, optionIndex: Int, offset: Int, limit: Int): Result<PollVotersPage> = requestResult {
+        val page = tdRequests(TdApi.GetPollVoters(chatId, messageId, optionIndex, offset.coerceAtLeast(0), limit.coerceIn(1, 100)))
+        val voters = page.voters.orEmpty().mapNotNull { it.toPollVoterInfo() }
+        PollVotersPage(voters, page.totalCount, pollVotersNextOffset(offset, voters.size, page.totalCount))
+    }
+
+    override suspend fun addPollOption(chatId: Long, messageId: Long, text: String): Result<Unit> =
+        conversationActions.addPollOption(chatId, messageId, text)
+
+    private fun TdApi.PollVoter.toPollVoterInfo(): PollVoterInfo? {
+        val sender = voterId ?: return null
+        val userId = (sender as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L
+        val chatSenderId = (sender as? TdApi.MessageSenderChat)?.chatId ?: 0L
+        val senderId = userId.takeIf { it > 0L } ?: chatSenderId
+        if (senderId == 0L) return null
+        return PollVoterInfo(
+            senderId = senderId,
+            isUser = userId > 0L,
+            name = profiles.senderName(sender).ifBlank { appContext.getString(R.string.chat_poll_voter_unknown) },
+            dateSeconds = date.toLong()
+        )
+    }
 
     override suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit> =
         conversationActions.stopLiveLocation(chatId, messageId)

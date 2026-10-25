@@ -241,6 +241,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun sendDice(chatId: Long, emoji: String, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
     override suspend fun votePoll(chatId: Long, messageId: Long, optionIndices: List<Int>): Result<Unit> = unavailable()
     override suspend fun stopPoll(chatId: Long, messageId: Long): Result<Unit> = unavailable()
+    override suspend fun pollVoters(chatId: Long, messageId: Long, optionIndex: Int, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.PollVotersPage> = unavailable()
+    override suspend fun addPollOption(chatId: Long, messageId: Long, text: String): Result<Unit> = unavailable()
     override suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit> = unavailable()
     override suspend fun contacts(): Result<List<ContactPreview>> = Result.success(emptyList())
     override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()

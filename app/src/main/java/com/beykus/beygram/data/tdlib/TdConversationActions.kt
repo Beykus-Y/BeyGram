@@ -390,6 +390,27 @@ internal class TdConversationActions(
         refreshMappedMessage(chatId, messageId)
     }.onFailure { recordSendFailure("poll_stop", it) }
 
+    /**
+     * Appends an option only when TDLib reports canAddOption on the current message. The server can revoke that
+     * permission between the bubble render and this request, so the check is repeated here.
+     */
+    suspend fun addPollOption(chatId: Long, messageId: Long, text: String): Result<Unit> = conversationResult<Unit> {
+        val current = request(TdApi.GetMessage(chatId, messageId))
+        val poll = (map(current).special as? MessageSpecialContent.Poll)?.poll
+            ?: throw UserMessageException(UiText.Res(R.string.chat_poll_add_option_unavailable))
+        if (!poll.canAddOption || poll.isClosed) {
+            throw UserMessageException(UiText.Res(R.string.chat_poll_add_option_unavailable))
+        }
+        val value = text.trim()
+        poll.addOptionProblem(value)?.let { throw UserMessageException(it.message()) }
+        val option = TdApi.InputPollOption().apply {
+            this.text = formattedText(value, emptyList())
+            media = null
+        }
+        request(TdApi.AddPollOption(chatId, messageId, option))
+        refreshMappedMessage(chatId, messageId)
+    }.onFailure { recordSendFailure("poll_add_option", it) }
+
     /** TDLib stops a live-location share only when EditMessageLiveLocation.location is null. */
     suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit> = conversationResult<Unit> {
         val updated = request(stopLiveLocationRequest(chatId, messageId))
@@ -763,6 +784,17 @@ private fun PollDraftProblem.message(): UiText = when (this) {
     PollDraftProblem.CorrectAnswerMissing -> UiText.Res(R.string.poll_error_correct_missing)
     PollDraftProblem.CorrectAnswerInvalid -> UiText.Res(R.string.poll_error_correct_invalid)
     PollDraftProblem.CorrectAnswerCount -> UiText.Res(R.string.poll_error_correct_count)
+}
+
+private fun PollOptionAddProblem.message(): UiText = when (this) {
+    PollOptionAddProblem.Empty -> UiText.Res(R.string.poll_error_option_empty)
+    PollOptionAddProblem.TooLong -> UiText.Res(
+        R.string.poll_error_option_long, listOf(OutgoingPoll.MAX_POLL_OPTION_LENGTH)
+    )
+    PollOptionAddProblem.Duplicate -> UiText.Res(R.string.poll_option_error_duplicate)
+    PollOptionAddProblem.LimitReached -> UiText.Res(
+        R.string.poll_error_options_many, listOf(OutgoingPoll.MAX_POLL_OPTIONS)
+    )
 }
 
 /** TDLib scheduling state for a Unix timestamp in seconds; null keeps an immediate send. */

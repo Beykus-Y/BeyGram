@@ -58,7 +58,7 @@ class SpecialContentMappingTest {
             this.poll = poll
             description = TdApi.FormattedText("Details", emptyArray())
             media = null
-            canAddOption = false
+            canAddOption = true
         }
 
         val special = mapper.special(content) as MessageSpecialContent.Poll
@@ -72,6 +72,7 @@ class SpecialContentMappingTest {
         assertTrue(special.poll.isCorrect(1))
         assertEquals(PollVoteRestriction.MembershipRequired, special.poll.voteRestriction)
         assertEquals(42L, special.poll.id)
+        assertTrue(special.poll.canAddOption)
     }
 
     @Test

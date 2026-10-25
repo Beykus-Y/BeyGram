@@ -1243,6 +1243,12 @@ fun ChatScreen(
                                     }
                                 },
                                 onWriteContact = onOpenUserChat,
+                                onLoadPollVoters = { messageId, optionIndex, offset ->
+                                    conversation.pollVoters(chat.id, messageId, optionIndex, offset)
+                                },
+                                onAddPollOption = { messageId, text ->
+                                    conversation.addPollOption(chat.id, messageId, text)
+                                },
                                 commentsBar = if (showsChannelComments(chat.isChannel, message.isChannelPost, linkedDiscussionChatId)) {
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
                                 } else null)
@@ -1709,7 +1715,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onPollVote: ((Long, List<Int>) -> Unit)? = null,
     onPollStop: ((Long) -> Unit)? = null,
     onStopLiveLocation: ((ChatMessage) -> Unit)? = null,
-    onWriteContact: ((Long) -> Unit)? = null) {
+    onWriteContact: ((Long) -> Unit)? = null,
+    onLoadPollVoters: (suspend (messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>)? = null,
+    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
     val shape = bubbleShape(message.isOutgoing, metrics)
@@ -1799,7 +1807,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     onPollVote = onPollVote,
                                     onPollStop = onPollStop,
                                     onStopLiveLocation = onStopLiveLocation,
-                                    onWriteContact = onWriteContact
+                                    onWriteContact = onWriteContact,
+                                    onLoadPollVoters = onLoadPollVoters,
+                                    onAddPollOption = onAddPollOption
                                 )
                             }
                             if (showText) FormattedMessageText(message)

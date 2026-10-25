@@ -166,6 +166,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
                 isClosed = poll.isClosed,
                 canSeeResults = poll.canSeeResults,
                 canGetVoters = poll.canGetVoters,
+                canAddOption = content.canAddOption,
                 isQuiz = quiz != null,
                 correctOptionIndices = quiz?.correctOptionIds?.toSet().orEmpty(),
                 explanation = quiz?.explanation?.text.orEmpty(),

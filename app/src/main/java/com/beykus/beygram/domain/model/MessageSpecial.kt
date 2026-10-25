@@ -37,6 +37,8 @@ data class MessagePoll(
     val isClosed: Boolean = false,
     val canSeeResults: Boolean = true,
     val canGetVoters: Boolean = false,
+    /** TDLib allows this user (poll author or chat admin) to append another option. */
+    val canAddOption: Boolean = false,
     val isQuiz: Boolean = false,
     /** 0-based option indices of the correct quiz answers; empty for regular polls. */
     val correctOptionIndices: Set<Int> = emptySet(),
@@ -59,6 +61,20 @@ data class MessagePoll(
      */
     val revealsResults: Boolean get() = canSeeResults
 
+    /** Anonymous or hidden-result polls must not expose who voted, even when TDLib can return the list. */
+    val canShowVoters: Boolean get() = canGetVoters && !isAnonymous && revealsResults
+
+    fun addOptionProblem(text: String): PollOptionAddProblem? {
+        val value = text.trim()
+        return when {
+            value.isEmpty() -> PollOptionAddProblem.Empty
+            value.codePointCount(0, value.length) > OutgoingPoll.MAX_POLL_OPTION_LENGTH -> PollOptionAddProblem.TooLong
+            options.any { it.text.trim().equals(value, ignoreCase = true) } -> PollOptionAddProblem.Duplicate
+            options.size >= OutgoingPoll.MAX_POLL_OPTIONS -> PollOptionAddProblem.LimitReached
+            else -> null
+        }
+    }
+
     fun isCorrect(index: Int): Boolean = isQuiz && index in correctOptionIndices
 
     /**
@@ -73,6 +89,41 @@ data class MessagePoll(
         return (option.voterCount.coerceAtLeast(0) * 100.0 / counted).toInt().coerceIn(0, 100)
     }
 }
+
+enum class PollOptionAddProblem {
+    Empty,
+    TooLong,
+    Duplicate,
+    LimitReached
+}
+
+/** One named voter in a non-anonymous poll. [senderId] is a user id when [isUser], otherwise a chat id. */
+data class PollVoterInfo(
+    val senderId: Long,
+    val isUser: Boolean,
+    val name: String,
+    val dateSeconds: Long = 0L
+)
+
+/** One GetPollVoters page. [nextOffset] is -1 when the server returned no more rows. */
+data class PollVotersPage(
+    val voters: List<PollVoterInfo> = emptyList(),
+    val totalCount: Int = 0,
+    val nextOffset: Int = -1
+) {
+    val hasMore: Boolean get() = nextOffset >= 0
+}
+
+/** Keeps paging arithmetic testable; the UI still treats TDLib's totalCount as approximate. */
+internal fun pollVotersNextOffset(offset: Int, returned: Int, totalCount: Int): Int {
+    if (returned <= 0) return -1
+    val next = offset.coerceAtLeast(0) + returned
+    return if (totalCount > 0 && next >= totalCount) -1 else next
+}
+
+/** Appends a page without duplicating a sender that appears in several options of a multiple-answer poll. */
+internal fun appendPollVoters(current: List<PollVoterInfo>, page: PollVotersPage): List<PollVoterInfo> =
+    (current + page.voters).distinctBy { it.senderId }
 
 data class MessageLocationInfo(val point: GeoPoint)
 

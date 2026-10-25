@@ -73,6 +73,10 @@ interface ConversationRepository {
     /** Chosen option positions are 0-based, as TDLib expects. */
     suspend fun votePoll(chatId: Long, messageId: Long, optionIndices: List<Int>): Result<Unit>
     suspend fun stopPoll(chatId: Long, messageId: Long): Result<Unit>
+    /** Voters of one option in a non-anonymous poll; [offset] is the number of already loaded voters. */
+    suspend fun pollVoters(chatId: Long, messageId: Long, optionIndex: Int, offset: Int, limit: Int = 50): Result<PollVotersPage>
+    /** Appends an option when TDLib's MessagePoll.canAddOption allows it. */
+    suspend fun addPollOption(chatId: Long, messageId: Long, text: String): Result<Unit>
     /** Ends an outgoing live-location share by clearing EditMessageLiveLocation.location. */
     suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit>
     /** The account's Telegram address book, for the compose-contact picker. */

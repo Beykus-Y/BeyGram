@@ -113,4 +113,59 @@ class MessageSpecialTest {
         assertTrue(unsupported is MessageSpecialContent.Unsupported)
         assertEquals("MessagePaidMedia", (unsupported as MessageSpecialContent.Unsupported).contentName)
     }
+
+    @Test
+    fun `voters are hidden for anonymous or hidden-result polls`() {
+        val visible = MessagePoll(
+            question = "Q",
+            options = listOf(option("a", votes = 1), option("b")),
+            isAnonymous = false,
+            canGetVoters = true,
+            canSeeResults = true
+        )
+
+        assertTrue(visible.canShowVoters)
+        assertFalse(visible.copy(isAnonymous = true).canShowVoters)
+        assertFalse(visible.copy(canGetVoters = false).canShowVoters)
+        assertFalse(visible.copy(canSeeResults = false).canShowVoters)
+    }
+
+    @Test
+    fun `poll voter pagination stops on an empty page and avoids duplicate senders`() {
+        assertEquals(50, pollVotersNextOffset(offset = 0, returned = 50, totalCount = 120))
+        assertEquals(-1, pollVotersNextOffset(offset = 100, returned = 20, totalCount = 120))
+        assertEquals(-1, pollVotersNextOffset(offset = 40, returned = 0, totalCount = 120))
+
+        val first = PollVotersPage(
+            voters = listOf(PollVoterInfo(1L, true, "Alice"), PollVoterInfo(2L, true, "Bob")),
+            totalCount = 3,
+            nextOffset = 2
+        )
+        val second = PollVotersPage(
+            voters = listOf(PollVoterInfo(2L, true, "Bob"), PollVoterInfo(3L, true, "Carol")),
+            totalCount = 3,
+            nextOffset = -1
+        )
+
+        assertEquals(listOf(1L, 2L, 3L), appendPollVoters(first.voters, second).map { it.senderId })
+        assertFalse(second.hasMore)
+        assertTrue(first.hasMore)
+    }
+
+    @Test
+    fun `adding an option validates empty duplicate length and the option limit`() {
+        val poll = MessagePoll(
+            question = "Q",
+            options = listOf(option("One"), option("Two")),
+            canAddOption = true
+        )
+
+        assertEquals(PollOptionAddProblem.Empty, poll.addOptionProblem("  "))
+        assertEquals(PollOptionAddProblem.Duplicate, poll.addOptionProblem("one"))
+        assertEquals(PollOptionAddProblem.TooLong, poll.addOptionProblem("x".repeat(OutgoingPoll.MAX_POLL_OPTION_LENGTH + 1)))
+        assertNull(poll.addOptionProblem("Three"))
+
+        val full = poll.copy(options = (1..OutgoingPoll.MAX_POLL_OPTIONS).map { option(it.toString()) })
+        assertEquals(PollOptionAddProblem.LimitReached, full.addOptionProblem("New"))
+    }
 }
