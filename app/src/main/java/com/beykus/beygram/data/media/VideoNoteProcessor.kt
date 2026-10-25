@@ -63,7 +63,13 @@ class VideoNoteProcessor(private val context: Context) {
                         exported.videoFrameCount, exported.videoEncoderName ?: "?", exported.audioEncoderName ?: "?",
                         exported.fileSizeBytes, exported.averageVideoBitrate.coerceAtLeast(0) / 1000, exported.width, exported.height))
                     VideoNoteDiagnostics.append(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_entry_export_finished, android.os.SystemClock.elapsedRealtime() - exportStartMs))
-                    VideoNoteDiagnostics.inspect(diagnosticId, VideoNoteDiagnostics.text(R.string.vn_stage_final, index + 1), output, output = true)
+                    VideoNoteDiagnostics.inspect(
+                        diagnosticId,
+                        VideoNoteDiagnostics.text(R.string.vn_stage_final, index + 1),
+                        output,
+                        output = true,
+                        exportFrameCount = exported.videoFrameCount
+                    )
                 }
                 val info = withContext(Dispatchers.IO) { metadata(output) }
                 require(info.width == target.side && info.height == target.side) { "Кодировщик изменил размер видеокружка" }

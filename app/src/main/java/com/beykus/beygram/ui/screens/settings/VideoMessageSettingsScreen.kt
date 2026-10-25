@@ -64,8 +64,21 @@ import com.beykus.beygram.data.media.VideoNoteDiagnosticJsonSection
 import com.beykus.beygram.data.media.toJsonReport
 import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.data.media.VideoFrameRatePriority
+import com.beykus.beygram.data.media.VideoMessageSettings
 import com.beykus.beygram.data.media.VideoQualityPreset
+import com.beykus.beygram.data.media.VideoNoteRecordingPlan
+import com.beykus.beygram.data.media.RecordingLens
+import com.beykus.beygram.data.media.ProbeFacing
+import com.beykus.beygram.data.media.fpsCauseText
+import com.beykus.beygram.data.media.fpsLimitStageText
+import com.beykus.beygram.data.media.videoNoteFpsLimitStage
+import com.beykus.beygram.data.media.videoNoteOutputSide
+import com.beykus.beygram.data.media.requestedFrameRateRange
+import com.beykus.beygram.data.media.videoNoteQualityAdvice
+import com.beykus.beygram.data.media.videoNoteQualityAdviceText
 import com.beykus.beygram.data.media.videoMirrorToggleSupported
+import com.beykus.beygram.data.media.toText
+import com.beykus.beygram.data.media.yesNoUnknown
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.security.AppLockManager
@@ -89,44 +102,71 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     val context = LocalContext.current
     val diagnostics = remember(context) { VideoNoteDiagnostics.also { it.initialize(context) } }
     val reports by diagnostics.reports.collectAsStateWithLifecycle()
-    var selectedReport by remember { mutableStateOf<VideoNoteDiagnosticReport?>(null) }
-    var compactReport by remember { mutableStateOf(false) }
-    var jsonReport by remember { mutableStateOf(false) }
-    var fullJson by remember { mutableStateOf(false) }
-    var compactFull by remember { mutableStateOf(false) }
-    var confirmClear by remember { mutableStateOf(false) }
-    var cameraSurvey by remember { mutableStateOf<String?>(null) }
+    // Saved as an ID: the report itself is restored from the persisted diagnostics list.
+    var selectedReportId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedReport = reports.firstOrNull { it.id == selectedReportId }
+    LaunchedEffect(selectedReportId, reports) {
+        if (selectedReportId != null && selectedReport == null) selectedReportId = null
+    }
+    var compactReport by rememberSaveable { mutableStateOf(false) }
+    var jsonReport by rememberSaveable { mutableStateOf(false) }
+    var fullJson by rememberSaveable { mutableStateOf(false) }
+    var compactFull by rememberSaveable { mutableStateOf(false) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
+    var cameraSurvey by rememberSaveable { mutableStateOf<String?>(null) }
     var cameraSurveyBusy by remember { mutableStateOf(false) }
     val fpsCheck by VideoNoteFpsCheck.state.collectAsStateWithLifecycle()
-    var showFpsCheck by remember { mutableStateOf(false) }
-    var fpsCheckScope by remember { mutableStateOf(ProbeScope.FRONT) }
-    var lossFps by remember { mutableStateOf(VideoNoteSyntheticSource.FPS_30) }
+    var showFpsCheck by rememberSaveable { mutableStateOf(false) }
+    var fpsCheckScope by rememberSaveable { mutableStateOf(ProbeScope.FRONT) }
+    var lossFps by rememberSaveable { mutableStateOf(VideoNoteSyntheticSource.FPS_30) }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) VideoNoteFpsCheck.start(context, fpsCheckScope, store.settings.value)
     }
     val lossDiagnostics = remember(repository, accountId) { VideoNoteLossDiagnostics.getInstance(context.applicationContext, repository, accountId) }
     val lossState by lossDiagnostics.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    var showLossPanel by remember { mutableStateOf(false) }
-    var confirmLossSend by remember { mutableStateOf(false) }
-    var confirmLossDelete by remember { mutableStateOf(false) }
-    var lossDeleteError by remember { mutableStateOf<String?>(null) }
+    var showLossPanel by rememberSaveable { mutableStateOf(false) }
+    var confirmLossSend by rememberSaveable { mutableStateOf(false) }
+    var confirmLossDelete by rememberSaveable { mutableStateOf(false) }
+    var lossDeleteError by rememberSaveable { mutableStateOf<String?>(null) }
     val settings by store.settings.collectAsStateWithLifecycle()
     var diagnosticsPage by rememberSaveable { mutableStateOf(false) }
     val settingsScroll = rememberScrollState()
     val diagnosticsScroll = rememberScrollState()
     LaunchedEffect(diagnosticsPage) { if (diagnosticsPage) diagnosticsScroll.scrollTo(0) }
-    LaunchedEffect(selectedReport?.id) {
+    LaunchedEffect(selectedReportId) {
         compactReport = false
         jsonReport = false
     }
-    var showFullDiagnostics by remember { mutableStateOf(false) }
-    var fullExtended by remember { mutableStateOf(false) }
-    var latestSurvey by remember { mutableStateOf<String?>(null) }
-    var showFullReport by remember { mutableStateOf(false) }
-    var highSpeedReport by remember { mutableStateOf<String?>(null) }
+    var showFullDiagnostics by rememberSaveable { mutableStateOf(false) }
+    var fullExtended by rememberSaveable { mutableStateOf(false) }
+    var latestSurvey by rememberSaveable { mutableStateOf<String?>(null) }
+    var showFullReport by rememberSaveable { mutableStateOf(false) }
+    var highSpeedReport by rememberSaveable { mutableStateOf<String?>(null) }
     var highSpeedBusy by remember { mutableStateOf(false) }
-    var showHighSpeed by remember { mutableStateOf(false) }
+    var showHighSpeed by rememberSaveable { mutableStateOf(false) }
+    var qualityLenses by remember { mutableStateOf<List<RecordingLens>>(emptyList()) }
+    var qualityPlans by remember { mutableStateOf<List<Pair<RecordingLens, VideoNoteRecordingPlan>>>(emptyList()) }
+    var qualityLensesLoading by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        qualityLenses = withContext(Dispatchers.IO) {
+            VideoNoteCameraSurvey.recordingLenses(context.applicationContext)
+        }
+        if (qualityLenses.isEmpty()) qualityLensesLoading = false
+    }
+    // MediaCodec capability queries can block: keep them off the composition thread.
+    LaunchedEffect(qualityLenses, settings) {
+        if (qualityLenses.isEmpty()) return@LaunchedEffect
+        qualityLensesLoading = true
+        qualityPlans = withContext(Dispatchers.IO) {
+            qualityLenses.map { lens ->
+                lens to VideoNoteCameraSurvey.recordingPlan(
+                    context.applicationContext, settings, lens.cameraId, lens.ranges, lens.cameraInfo
+                )
+            }
+        }
+        qualityLensesLoading = false
+    }
     val runHighSpeed: () -> Unit = {
         if (!highSpeedBusy) {
             highSpeedBusy = true
@@ -141,8 +181,8 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     val highSpeedPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) runHighSpeed()
     }
-    var fullRunActive by remember { mutableStateOf(false) }
-    var fullRunStarted by remember { mutableStateOf(false) }
+    var fullRunActive by rememberSaveable { mutableStateOf(false) }
+    var fullRunStarted by rememberSaveable { mutableStateOf(false) }
     suspend fun surveyReport(): String {
         cameraSurveyBusy = true
         return try {
@@ -225,6 +265,8 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                     Text(stringResource(R.string.settings_video_capability_note), color = palette.textSecondary, fontSize = 13.sp)
                 }
             }
+
+            AdaptiveQualityCard(settings, qualityPlans, qualityLensesLoading, reports)
 
             if (settings.preset == VideoQualityPreset.Maximum || settings.preset == VideoQualityPreset.Custom) {
                 val fpsLimit = if (settings.preset == VideoQualityPreset.Maximum) 60 else settings.customFps
@@ -330,7 +372,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 reports.forEach { report ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                            .clickable { selectedReport = report }.padding(vertical = 8.dp),
+                            .clickable { selectedReportId = report.id }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
@@ -369,7 +411,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             title = { Text(stringResource(R.string.diag_center_i_title)) },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (highSpeedBusy) Text(stringResource(R.string.hs_running), fontSize = 13.sp)
-                else Text(highSpeedReport.orEmpty(), fontSize = 12.sp, lineHeight = 17.sp)
+                else Text(highSpeedReport ?: stringResource(R.string.diag_full_report_not_run), fontSize = 12.sp, lineHeight = 17.sp)
             } },
             confirmButton = { TextButton(onClick = { showHighSpeed = false }) { Text(stringResource(R.string.diagnostics_view_close)) } },
             dismissButton = { if (!highSpeedBusy && !highSpeedReport.isNullOrBlank()) DiagnosticsReportActions("BeyGram high-speed check", highSpeedReport.orEmpty()) }
@@ -571,7 +613,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             else report.asText(context, { videoNoteStatusText(context, it) }, compactReport)
         }
         AlertDialog(
-            onDismissRequest = { selectedReport = null },
+            onDismissRequest = { selectedReportId = null },
             title = { Text(stringResource(R.string.settings_video_diagnostics_report)) },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -587,7 +629,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 Text(reportText, fontSize = 12.sp, lineHeight = 17.sp)
             } },
             confirmButton = {
-                TextButton(onClick = { selectedReport = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
+                TextButton(onClick = { selectedReportId = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
             },
             dismissButton = {
                 DiagnosticsReportActions(
@@ -603,7 +645,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             onDismissRequest = { confirmClear = false },
             title = { Text(stringResource(R.string.settings_video_diagnostics_clear)) },
             text = { Text(stringResource(R.string.settings_video_diagnostics_clear_confirm)) },
-            confirmButton = { TextButton(onClick = { diagnostics.clear(); confirmClear = false; selectedReport = null }) {
+            confirmButton = { TextButton(onClick = { diagnostics.clear(); confirmClear = false; selectedReportId = null }) {
                 Text(stringResource(R.string.settings_video_diagnostics_clear))
             } },
             dismissButton = { TextButton(onClick = { confirmClear = false }) {
@@ -650,6 +692,86 @@ private fun ChoiceSection(title: String, values: List<Int>, selected: Int, label
     }
 }
 
+/**
+ * Explains the passive quality plan for the current settings and the last measured recording.
+ * The card never promises 60 FPS: a selected high range is explicitly "not measured yet".
+ */
+@Composable
+private fun AdaptiveQualityCard(
+    settings: VideoMessageSettings,
+    plans: List<Pair<RecordingLens, VideoNoteRecordingPlan>>,
+    loading: Boolean,
+    reports: List<VideoNoteDiagnosticReport>
+) {
+    val palette = beyGramPalette()
+    val context = LocalContext.current
+    val requested = settings.requestedFrameRateRange()
+    val requestedFps = requested.last
+    val sourceSide = videoNoteSettingsSide(settings)
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(stringResource(R.string.settings_video_adaptive_title), color = palette.textPrimary,
+            fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Text(stringResource(R.string.settings_video_adaptive_hint), color = palette.textSecondary, fontSize = 12.sp)
+        when {
+            loading -> Text(stringResource(R.string.settings_video_adaptive_loading), color = palette.textSecondary, fontSize = 13.sp)
+            plans.isEmpty() -> Text(stringResource(R.string.settings_video_adaptive_unavailable), color = palette.textSecondary, fontSize = 13.sp)
+            else -> plans.forEach { (lens, plan) ->
+                val decision = plan.decision
+                val outputSide = videoNoteOutputSide(sourceSide, plan.width, plan.height)
+                Text(
+                    stringResource(R.string.settings_video_adaptive_lens,
+                        facingText(context, lens.facing), plan.quality.name,
+                        decision.selected?.toText() ?: context.getString(R.string.camera_report_range_default),
+                        requestedFps, plan.width, plan.height, outputSide),
+                    color = palette.textPrimary, fontSize = 13.sp
+                )
+                Text(fpsCauseText(context, decision.cause), color = palette.textSecondary, fontSize = 12.sp)
+                Text(stringResource(R.string.settings_video_adaptive_encoder,
+                    yesNoUnknown(context, decision.encoderSupports60)), color = palette.textSecondary, fontSize = 12.sp)
+                Text(stringResource(R.string.settings_video_adaptive_action,
+                    videoNoteQualityAdviceText(context, videoNoteQualityAdvice(decision.cause, requestedFps))),
+                    color = palette.textSecondary, fontSize = 12.sp)
+            }
+        }
+        val latest = reports.firstOrNull()
+        if (latest == null) {
+            Text(stringResource(R.string.settings_video_adaptive_no_reports), color = palette.textSecondary, fontSize = 12.sp)
+        } else {
+            val stage = videoNoteFpsLimitStage(latest.targetFps, latest.attemptedMaxFps, latest.rawFps, latest.outputFps)
+            Text(
+                stringResource(R.string.settings_video_adaptive_last, latest.targetFps,
+                    latest.attemptedMaxFps?.toString() ?: context.getString(R.string.camera_report_range_default),
+                    fpsOrDash(latest.rawFps), fpsOrDash(latest.outputFps)),
+                color = palette.textPrimary, fontSize = 13.sp
+            )
+            Text(fpsLimitStageText(context, stage), color = palette.textSecondary, fontSize = 12.sp)
+            Text(stringResource(R.string.settings_video_adaptive_action,
+                videoNoteQualityAdvice(context, latest.fpsCause, latest.attemptedMaxFps ?: latest.targetFps, stage)),
+                color = palette.textSecondary, fontSize = 12.sp)
+        }
+    }
+}
+
+private fun videoNoteSettingsSide(settings: VideoMessageSettings): Int = when (settings.preset) {
+    VideoQualityPreset.Standard -> 384
+    VideoQualityPreset.High -> 480
+    VideoQualityPreset.Maximum -> 640
+    VideoQualityPreset.Custom -> settings.customSide
+}
+
+private fun fpsOrDash(value: Double?): String =
+    value?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—"
+
+private fun facingText(context: Context, facing: ProbeFacing): String = context.getString(when (facing) {
+    ProbeFacing.FRONT -> R.string.camera_facing_front
+    ProbeFacing.BACK -> R.string.camera_facing_back
+    ProbeFacing.EXTERNAL -> R.string.camera_facing_external
+    ProbeFacing.UNKNOWN -> R.string.camera_facing_unknown
+})
+
 private fun videoNoteStatusText(context: Context, status: String): String = when (status) {
     VideoNoteStatus.RECORDING -> context.getString(R.string.settings_video_diagnostics_status_recording)
     VideoNoteStatus.PROCESSING -> context.getString(R.string.settings_video_diagnostics_status_processing)
@@ -693,18 +815,25 @@ private fun DiagnosticsReportActions(
     // Copied/shared/saved reports pass the same redaction as the passive survey: no paths, tokens,
     // e-mails, phone numbers or handles leave the app even if a future entry adds one.
     val safeReport = VideoNoteReportRedactor.redact(report)
-    var pendingSave by remember { mutableStateOf<String?>(null) }
+    // The pending text is kept in a cache file and only its path is saved in the instance state.
+    // An Activity recreation while SAF is open therefore cannot write an empty document.
+    var pendingSavePath by rememberSaveable { mutableStateOf<String?>(null) }
     val documentContract = remember(mimeType) { ActivityResultContracts.CreateDocument(mimeType) }
     val createDocument = rememberLauncherForActivityResult(documentContract) { uri ->
-        val content = pendingSave
-        pendingSave = null
-        if (uri != null && content != null) {
+        val pending = pendingSavePath
+        pendingSavePath = null
+        if (uri != null && pending != null) {
             val saved = runCatching {
+                val content = File(pending).readText()
                 context.contentResolver.openOutputStream(uri)?.use { stream ->
                     stream.write(content.toByteArray(Charsets.UTF_8))
                 } != null
             }.getOrDefault(false)
+            runCatching { File(pending).delete() }
             Toast.makeText(context, if (saved) R.string.diag_save_done else R.string.diag_save_failed, Toast.LENGTH_SHORT).show()
+        } else {
+            // The user cancelled the document picker: remove the cached pending report.
+            pending?.let { runCatching { File(it).delete() } }
         }
     }
     Column(horizontalAlignment = Alignment.End) {
@@ -738,8 +867,29 @@ private fun DiagnosticsReportActions(
             }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
         }
         TextButton(onClick = {
-            pendingSave = safeReport
-            createDocument.launch("beygram-diagnostics-${System.currentTimeMillis()}.$extension")
+            val pending = runCatching { writePendingReport(context, safeReport) }.getOrNull()
+            if (pending == null) {
+                Toast.makeText(context, R.string.diag_save_failed, Toast.LENGTH_SHORT).show()
+            } else {
+                pendingSavePath = pending.absolutePath
+                createDocument.launch("beygram-diagnostics-${System.currentTimeMillis()}.$extension")
+            }
         }) { Text(stringResource(R.string.settings_video_diagnostics_save)) }
     }
+}
+
+private const val PENDING_REPORT_PREFIX = "beygram-pending-report-"
+
+/** Bounded cache file for a SAF save that must survive Activity recreation. */
+private fun writePendingReport(context: Context, content: String): File {
+    val directory = File(context.cacheDir, "diagnostics").apply { mkdirs() }
+    directory.listFiles { file -> file.name.startsWith(PENDING_REPORT_PREFIX) }?.forEach { it.delete() }
+    val file = File.createTempFile(PENDING_REPORT_PREFIX, ".txt", directory)
+    try {
+        file.writeText(content, Charsets.UTF_8)
+    } catch (failure: Exception) {
+        file.delete()
+        throw failure
+    }
+    return file
 }

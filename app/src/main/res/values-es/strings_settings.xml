@@ -9,6 +9,15 @@
     <string name="settings_last_seen_title">Visualización de la última vez</string>
     <string name="settings_storage_title">Almacenamiento y caché</string>
     <string name="settings_video_audio_bitrate">Tasa de bits de audio objetivo</string>
+    <string name="settings_video_adaptive_action">Qué se puede cambiar: %1$s</string>
+    <string name="settings_video_adaptive_encoder">El codificador H.264 confirma 60 FPS: %1$s.</string>
+    <string name="settings_video_adaptive_hint">Calculado según las capacidades anunciadas de la cámara y el codificador. Los FPS reales solo se miden después de grabar y pueden ser menores.</string>
+    <string name="settings_video_adaptive_last">Última grabación: objetivo %1$d FPS, solicitado a la cámara hasta %2$s, RAW %3$s, MP4 %4$s FPS.</string>
+    <string name="settings_video_adaptive_lens">Cámara %1$s: %2$s, rango %3$s con solicitud de hasta %4$d FPS, origen %5$d×%6$d, salida %7$d×%7$d, exportación H.264/AVC.</string>
+    <string name="settings_video_adaptive_loading">Leyendo las capacidades de las cámaras…</string>
+    <string name="settings_video_adaptive_no_reports">Aún no hay mediciones: graba un videomensaje con el diagnóstico activado para ver los FPS reales.</string>
+    <string name="settings_video_adaptive_title">Calidad prevista</string>
+    <string name="settings_video_adaptive_unavailable">Las cámaras de grabación no están disponibles ahora; no se calculó el plan de calidad.</string>
     <string name="settings_video_bitrate">Tasa de bits de video objetivo</string>
     <string name="settings_video_capability_note">La cámara y el codificador pueden limitar la resolución, la tasa de fotogramas y la tasa de bits. Las propiedades reales del archivo pueden variar.</string>
     <string name="settings_video_custom">Personalizado</string>
@@ -66,4 +75,14 @@
     <string name="settings_video_diagnostics_json">JSON</string>
     <string name="diag_save_done">Informe guardado</string>
     <string name="diag_save_failed">No se pudo guardar el informe</string>
+    <string name="quality_advice_measure_high">60 FPS está previsto, pero no garantizado: solo una grabación muestra la tasa real.</string>
+    <string name="quality_advice_as_requested">Se eligió la tasa solicitada; el límite es intencionado.</string>
+    <string name="quality_advice_no_normal_60">Los rangos normales de la cámara no llegan a 60 FPS. Cambiar el preajuste no lo modificará; puedes mantener 30 o elegir 24 FPS para poca luz.</string>
+    <string name="quality_advice_encoder_limit">El codificador H.264 no confirma 60 FPS con este tamaño. Prueba una resolución menor (Estándar o Alta) o 30 FPS.</string>
+    <string name="quality_advice_stream_limit">El flujo de la cámara con este tamaño no confirma 60 FPS. Prueba una resolución menor.</string>
+    <string name="quality_advice_range_fallback">La cámara no anuncia ningún rango hasta el máximo solicitado; se eligió el más cercano. Elige una tasa disponible.</string>
+    <string name="quality_advice_no_range">No se anuncia ningún rango adecuado; se usa el valor predeterminado de la cámara. Verifica el resultado con una grabación.</string>
+    <string name="quality_advice_export_drop">Se perdieron fotogramas durante el procesamiento, no por un ajuste de la cámara. Otra grabación puede dar un resultado distinto.</string>
+    <string name="quality_advice_camera_runtime">La cámara entregó menos de lo solicitado. Revisa la luz y el calor; un tamaño menor o 30 FPS pueden ser más estables.</string>
+    <string name="quality_advice_unknown">No hay suficientes mediciones para explicar la elección de la tasa de fotogramas.</string>
 </resources>

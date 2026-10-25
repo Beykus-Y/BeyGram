@@ -22,7 +22,7 @@ import java.util.Locale
  */
 internal object VideoNoteEnvironment {
     /** Bump when the layout of the report text changes, so before/after reports are not mixed up. */
-    const val REPORT_SCHEMA_VERSION = 4
+    const val REPORT_SCHEMA_VERSION = 5
 
     fun snapshot(context: Context): String = buildString {
         appendLine(context.getString(R.string.env_heading, REPORT_SCHEMA_VERSION))

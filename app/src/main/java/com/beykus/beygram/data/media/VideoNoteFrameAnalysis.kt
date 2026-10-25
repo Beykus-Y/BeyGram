@@ -32,7 +32,9 @@ internal data class VideoNoteFrameStats(
     val codecProfile: Int? = null,
     val codecLevel: Int? = null,
     val firstVideoUs: Long = 0L,
-    val lastVideoUs: Long = 0L
+    val lastVideoUs: Long = 0L,
+    /** Timestamp-only timing: gap percentiles, repeated PTS and an estimated drop count. */
+    val timing: VideoNoteFrameTiming? = null
 ) {
     /** Localized one-line summary for reports shown in the app. */
     fun summary(context: Context): String {
@@ -68,7 +70,7 @@ internal fun videoNoteGapPercentile(gapsUs: List<Long>, percentile: Double): Dou
     return sorted[index] / 1000.0
 }
 
-internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
+internal fun analyzeVideoNoteFrameSamples(file: File, targetFps: Int? = null): VideoNoteFrameStats {
     val extractor = MediaExtractor()
     try {
         extractor.setDataSource(file.absolutePath)
@@ -77,6 +79,7 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
         } ?: error("В файле нет видеодорожки")
         val format = extractor.getTrackFormat(track)
         extractor.selectTrack(track)
+        val declaredFps = if (format.containsKey(MediaFormat.KEY_FRAME_RATE)) format.getInteger(MediaFormat.KEY_FRAME_RATE) else null
 
         var count = 0
         var firstUs = Long.MAX_VALUE
@@ -84,9 +87,8 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
         var previousUs = -1L
         var maxGapUs = 0L
         var gapsOver50Ms = 0
-        var nonIncreasingPts = 0
         var videoBytes = 0L
-        val gaps = ArrayList<Long>()
+        val timestamps = ArrayList<Long>(1024)
         val frameBuckets = linkedMapOf<Long, Int>()
         val audioFormat = (0 until extractor.trackCount).firstOrNull { index ->
             extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
@@ -95,33 +97,34 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
         while (count < 300_000) {
             val ptsUs = extractor.sampleTime
             if (ptsUs < 0L) break
-            firstUs = minOf(firstUs, ptsUs)
-            lastUs = maxOf(lastUs, ptsUs)
-            if (previousUs >= 0 && ptsUs > previousUs) {
+            if (previousUs >= 0L && ptsUs > previousUs) {
                 val gap = ptsUs - previousUs
                 maxGapUs = maxOf(maxGapUs, gap)
                 if (gap > 50_000L) gapsOver50Ms++
-                gaps += gap
-            } else if (previousUs >= 0L) nonIncreasingPts++
-            frameBuckets[ptsUs / 1_000_000L] = (frameBuckets[ptsUs / 1_000_000L] ?: 0) + 1
+            }
             previousUs = ptsUs
+            firstUs = minOf(firstUs, ptsUs)
+            lastUs = maxOf(lastUs, ptsUs)
+            timestamps += ptsUs
+            frameBuckets[ptsUs / 1_000_000L] = (frameBuckets[ptsUs / 1_000_000L] ?: 0) + 1
             videoBytes += extractor.sampleSize.coerceAtLeast(0L)
             count++
             if (!extractor.advance()) break
         }
+        val timing = analyzeVideoNoteFrameTiming(timestamps, declaredFps, targetFps)
         return VideoNoteFrameStats(
             width = if (format.containsKey(MediaFormat.KEY_WIDTH)) format.getInteger(MediaFormat.KEY_WIDTH) else 0,
             height = if (format.containsKey(MediaFormat.KEY_HEIGHT)) format.getInteger(MediaFormat.KEY_HEIGHT) else 0,
             frameCount = count,
             measuredFps = if (count > 1) measuredVideoFps(count, firstUs, lastUs) else null,
-            declaredFps = if (format.containsKey(MediaFormat.KEY_FRAME_RATE)) format.getInteger(MediaFormat.KEY_FRAME_RATE) else null,
-            maximumPositiveFrameGapMs = maxGapUs / 1000.0,
-            gapsOver50Ms = gapsOver50Ms,
+            declaredFps = declaredFps,
+            maximumPositiveFrameGapMs = timing.maxGapMs ?: (maxGapUs / 1000.0),
+            gapsOver50Ms = timing.gapsOver50Ms,
             fileBytes = file.length(),
             codec = format.getString(MediaFormat.KEY_MIME) ?: "unknown",
-            medianGapMs = videoNoteGapPercentile(gaps, 0.5),
-            p95GapMs = videoNoteGapPercentile(gaps, 0.95),
-            duplicateOrReorderedPts = nonIncreasingPts,
+            medianGapMs = timing?.p50GapMs,
+            p95GapMs = timing?.p95GapMs,
+            duplicateOrReorderedPts = (timing?.repeatedTimestamps ?: 0) + (timing?.reorderedTimestamps ?: 0),
             fpsWindows = frameBuckets.values.take(12),
             bitrateBps = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) format.getInteger(MediaFormat.KEY_BIT_RATE)
                 else measuredVideoBitrateBps(videoBytes, count, firstUs, lastUs),
@@ -131,7 +134,8 @@ internal fun analyzeVideoNoteFrameSamples(file: File): VideoNoteFrameStats {
             codecProfile = if (format.containsKey(MediaFormat.KEY_PROFILE)) format.getInteger(MediaFormat.KEY_PROFILE) else null,
             codecLevel = if (format.containsKey(MediaFormat.KEY_LEVEL)) format.getInteger(MediaFormat.KEY_LEVEL) else null,
             firstVideoUs = if (count > 0) firstUs else 0L,
-            lastVideoUs = if (count > 0) lastUs else 0L
+            lastVideoUs = if (count > 0) lastUs else 0L,
+            timing = timing
         )
     } finally {
         extractor.release()
