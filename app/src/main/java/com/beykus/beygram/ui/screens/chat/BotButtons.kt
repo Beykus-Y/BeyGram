@@ -22,7 +22,11 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun InlineBotButtons(message: ChatMessage, conversation: ConversationRepository) {
+internal fun InlineBotButtons(
+    message: ChatMessage,
+    conversation: ConversationRepository,
+    onOpenWebApp: ((url: String, botUserId: Long, messageId: Long, source: BotWebAppSource) -> Unit)? = null
+) {
     if (message.inlineKeyboard.isEmpty()) return
     val context = LocalContext.current
     val uri = LocalUriHandler.current
@@ -33,6 +37,7 @@ internal fun InlineBotButtons(message: ChatMessage, conversation: ConversationRe
         val url = safeMessageUrl(value)
         if (url == null || runCatching { uri.openUri(url) }.isFailure) Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
     }
+    fun unsupported() = Toast.makeText(context, R.string.chat_bot_unsupported, Toast.LENGTH_LONG).show()
     BotButtonRows(message.inlineKeyboard, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { button ->
         when (button.kind) {
             BotButtonKind.Url -> open(button.value)
@@ -52,7 +57,10 @@ internal fun InlineBotButtons(message: ChatMessage, conversation: ConversationRe
                     }.onFailure { Toast.makeText(context, it.userMessage(context, R.string.chat_bot_failed), Toast.LENGTH_LONG).show() }
                 } finally { busy = false }
             }
-            else -> Toast.makeText(context, R.string.chat_bot_unsupported, Toast.LENGTH_LONG).show()
+            // The raw button URL is handed to the repository, never to an Intent: TDLib must open the Web App and
+            // return the final https URL together with its same-origin requirement.
+            BotButtonKind.WebApp -> onOpenWebApp?.invoke(button.value, message.senderId, message.id, BotWebAppSource.InlineKeyboard) ?: unsupported()
+            else -> unsupported()
         }
     }
     if (alert != null) AlertDialog(onDismissRequest = { alert = null }, text = { Text(alert.orEmpty()) }, confirmButton = {
@@ -66,7 +74,7 @@ internal fun BotButtonRows(rows: List<List<BotButton>>, enabled: Boolean, modifi
         rows.forEach { buttons ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 buttons.forEach { button ->
-                    FilledTonalButton(onClick = { onClick(button) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                    FilledTonalButton(onClick = { onClick(button) }, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)) { Text(button.text) }
                 }
             }
@@ -75,7 +83,12 @@ internal fun BotButtonRows(rows: List<List<BotButton>>, enabled: Boolean, modifi
 }
 
 @Composable
-internal fun BotReplyKeyboard(chatId: Long, keyboard: BotKeyboard?, conversation: ConversationRepository) {
+internal fun BotReplyKeyboard(
+    chatId: Long,
+    keyboard: BotKeyboard?,
+    conversation: ConversationRepository,
+    onOpenWebApp: ((url: String, botUserId: Long, messageId: Long, source: BotWebAppSource) -> Unit)? = null
+) {
     if (keyboard == null || keyboard.forceReply || keyboard.rows.isEmpty()) return
     var visible by remember(chatId, keyboard.messageId) { mutableStateOf(true) }
     var busy by remember(chatId, keyboard.messageId) { mutableStateOf(false) }
@@ -89,17 +102,22 @@ internal fun BotReplyKeyboard(chatId: Long, keyboard: BotKeyboard?, conversation
             if (visible) controller?.hide() else controller?.show()
         }) { Text(stringResource(if (visible) R.string.chat_bot_hide else R.string.chat_bot_show)) }
         if (visible) BotButtonRows(keyboard.rows, !busy, Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState())) { button ->
-            if (button.kind != BotButtonKind.Text) Toast.makeText(context, R.string.chat_bot_unsupported, Toast.LENGTH_LONG).show()
-            else scope.launch {
-                busy = true
-                try {
-                    conversation.sendMessage(chatId, button.text).onSuccess {
-                        if (keyboard.oneTime) {
-                            visible = false
-                            conversation.dismissBotKeyboard(chatId, keyboard.messageId)
-                        }
-                    }.onFailure { Toast.makeText(context, it.userMessage(context, R.string.chat_bot_failed), Toast.LENGTH_LONG).show() }
-                } finally { busy = false }
+            when (button.kind) {
+                BotButtonKind.Text -> scope.launch {
+                    busy = true
+                    try {
+                        conversation.sendMessage(chatId, button.text).onSuccess {
+                            if (keyboard.oneTime) {
+                                visible = false
+                                conversation.dismissBotKeyboard(chatId, keyboard.messageId)
+                            }
+                        }.onFailure { Toast.makeText(context, it.userMessage(context, R.string.chat_bot_failed), Toast.LENGTH_LONG).show() }
+                    } finally { busy = false }
+                }
+                // Reply-keyboard Web Apps belong to the bot of this private chat; zero tells TDLib to resolve it there.
+                BotButtonKind.WebApp -> onOpenWebApp?.invoke(button.value, 0L, keyboard.messageId, BotWebAppSource.KeyboardButton)
+                    ?: Toast.makeText(context, R.string.chat_bot_unsupported, Toast.LENGTH_LONG).show()
+                else -> Toast.makeText(context, R.string.chat_bot_unsupported, Toast.LENGTH_LONG).show()
             }
         }
     }
