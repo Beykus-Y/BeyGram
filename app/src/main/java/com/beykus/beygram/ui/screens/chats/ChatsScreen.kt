@@ -93,6 +93,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.TelegramChatFolders
 import com.beykus.beygram.domain.model.TelegramFolderLoadState
 import com.beykus.beygram.domain.model.TelegramFolderTab
@@ -121,6 +122,7 @@ import com.beykus.beygram.ui.accessibility.accessibleChatRowDescription
 import com.beykus.beygram.ui.accessibility.accessibleDescription
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.stories.StoryBarSection
 
 private enum class ChatFilter(val title: Int) {
     All(R.string.chats_filter_all), People(R.string.chats_filter_people), Groups(R.string.chats_filter_groups), Unread(R.string.chats_filter_unread)
@@ -143,6 +145,10 @@ fun ChatsScreen(
     onSaveFolder: suspend (com.beykus.beygram.domain.model.TelegramFolderDraft) -> Result<Int>,
     onDeleteFolder: suspend (Int) -> Result<Unit>,
     onReorderFolders: suspend (List<Int>, Int) -> Result<Unit>,
+    stories: List<ChatStories> = emptyList(),
+    onOpenStories: (ChatStories) -> Unit = {},
+    onAddStory: () -> Unit = {},
+    onLoadMoreStories: () -> Unit = {},
     myProfile: ProfileInfo?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
@@ -401,6 +407,19 @@ fun ChatsScreen(
             // Keep the last conversation accessible above the overlay button.
             contentPadding = PaddingValues(bottom = 104.dp)
         ) {
+            // Stories live on the main chat list only, not in search results or a server folder.
+            if (activeFolderId == null && query.isBlank()) {
+                item(key = "story_bar") {
+                    StoryBarSection(
+                        stories = stories,
+                        observeFile = observeFile,
+                        downloadFile = downloadFile,
+                        onOpenStories = onOpenStories,
+                        onAddStory = onAddStory,
+                        onLoadMore = onLoadMoreStories
+                    )
+                }
+            }
             if (archiveAvailable && !archiveHidden) {
                 item(key = "archive_row") { ArchiveRow(archivedChats, onClick = onArchiveClick, onHide = { onArchiveHiddenChange(true) }) }
             }
