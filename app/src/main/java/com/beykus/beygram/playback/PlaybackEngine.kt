@@ -3,6 +3,7 @@ package com.beykus.beygram.playback
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.view.TextureView
 import androidx.compose.runtime.compositionLocalOf
 import androidx.media3.common.AudioAttributes
@@ -12,10 +13,19 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import com.beykus.beygram.data.media.Mp4StreamingProbe
+import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import java.io.File
+import java.io.IOException
+import java.io.RandomAccessFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -41,6 +51,19 @@ data class PlaybackOrigin(
     val accountId: String = "legacy"
 )
 
+/**
+ * A file that TDLib is still downloading. Reads are bounded by [readablePrefix]; the player waits
+ * for the next chunk (or fails after a timeout) instead of treating the current EOF as the end.
+ * The lambdas read live state, so completion is observed without replacing the player.
+ */
+data class GrowingPlaybackSource(
+    val totalSize: Long,
+    val readablePrefix: () -> Long,
+    val isComplete: () -> Boolean,
+    val isDownloading: () -> Boolean,
+    val onNeedMore: () -> Unit
+)
+
 /** Файл для общего плеера. [key] отличает файлы друг от друга: повторный тап по тому же файлу ставит его на паузу. [origin] пустой, если файл запущен не из ленты чата. */
 data class PlaybackItem(
     val key: String,
@@ -53,7 +76,9 @@ data class PlaybackItem(
     val artworkPath: String? = null,
     val performer: String = "",
     /** Секретное вложение: играет только пока открыт его чат и не повторяется после конца. */
-    val secret: Boolean = false
+    val secret: Boolean = false,
+    /** Set only while the local TDLib file is still growing; null uses the completed file. */
+    val growing: GrowingPlaybackSource? = null
 )
 
 /** Состояние общего плеера для интерфейса. Без [item] плеер пуст, и мини-плеер не показывается. */
@@ -114,11 +139,60 @@ internal fun queueAfterReselect(previous: PlaybackQueue, next: PlaybackItem, giv
 /** Позиция, с которой продолжается файл [key]: прерванная музыка возвращается к своему месту, остальные файлы идут с начала. */
 internal fun resumePositionMs(waiting: InterruptedMusic?, key: String): Long = waiting?.takeIf { it.item.key == key }?.positionMs ?: 0L
 
-/** Ключ файла в общем плеере: один на весь файл, поэтому повторный запуск не начинает его сначала. */
+/** Key файла в общем плеере: один на весь файл, поэтому повторный запуск не начинает его сначала. */
 internal fun MessageMedia.playbackKey(): String = "$kind:$fileId"
 
+/** Containers that can be parsed from the beginning; MP4/M4A additionally needs a fast-start index. */
+private val DIRECT_AUDIO_MIME = setOf(
+    "audio/mpeg", "audio/mp3", "audio/ogg", "audio/opus", "audio/aac",
+    "audio/flac", "audio/x-flac", "audio/webm", "audio/3gpp", "audio/amr"
+)
+private val MP4_AUDIO_MIME = setOf("audio/mp4", "audio/m4a", "audio/x-m4a")
+
+/**
+ * Whether an audio file can be played before TDLib finishes it. Formats with leading metadata
+ * (MP3/OGG/Opus/AAC/FLAC/WebM) stream directly; MP4 audio requires a complete `moov` before `mdat`
+ * and a supported audio codec, otherwise the viewer keeps the full-download fallback.
+ */
+internal fun canPlayAudioProgressively(mimeType: String, path: String?, availableBytes: Long): Boolean {
+    val normalized = mimeType.substringBefore(';').trim().lowercase()
+    return when (normalized) {
+        in DIRECT_AUDIO_MIME -> true
+        in MP4_AUDIO_MIME -> path != null && availableBytes > 0L &&
+            runCatching { Mp4StreamingProbe.supportsAudioStreaming(File(path), availableBytes) }.getOrDefault(false)
+        else -> false
+    }
+}
+
+/** The path to start from: completed file, or a readable partial prefix for a supported audio container. */
+internal fun partialAudioPlaybackPath(file: MediaFileState, mimeType: String): String? =
+    file.localPath ?: file.downloadPath?.takeIf {
+        file.size > 0L && file.downloadedPrefixBytes > 0L &&
+            canPlayAudioProgressively(mimeType, it, file.downloadedPrefixBytes)
+    }
+
+/** Builds live source callbacks for an in-progress audio/voice file. */
+internal fun growingAudioSource(
+    state: MediaFileState,
+    fileId: Int,
+    mimeType: String,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    onNeedMore: () -> Unit
+): GrowingPlaybackSource? {
+    val path = state.downloadPath ?: return null
+    if (state.localPath != null || state.size <= 0L || state.downloadedPrefixBytes <= 0L) return null
+    if (!canPlayAudioProgressively(mimeType, path, state.downloadedPrefixBytes)) return null
+    return GrowingPlaybackSource(
+        totalSize = state.size,
+        readablePrefix = { observeFile(fileId).value.downloadedPrefixBytes },
+        isComplete = { observeFile(fileId).value.localPath != null },
+        isDownloading = { observeFile(fileId).value.isDownloading },
+        onNeedMore = onNeedMore
+    )
+}
+
 /** Файл из сообщения как элемент общего плеера. [origin] указывает сообщение, в котором лежит файл. */
-fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: PlaybackOrigin? = null, artworkPath: String? = null): PlaybackItem = PlaybackItem(
+fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: PlaybackOrigin? = null, artworkPath: String? = null, growing: GrowingPlaybackSource? = null): PlaybackItem = PlaybackItem(
     key = playbackKey(),
     kind = kind,
     path = path,
@@ -128,7 +202,8 @@ fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: Playb
     origin = origin,
     artworkPath = if (kind == MediaKind.Audio) artworkPath else null,
     performer = if (kind == MediaKind.Audio) performer else "",
-    secret = isSecret
+    secret = isSecret,
+    growing = growing
 )
 
 /** Скорость без лишнего нуля: «1» и «2», но «0.5» и «1.5». */
@@ -262,6 +337,7 @@ object PlaybackEngine {
      * Запускает файл с начала или с доли [startFraction]. Скорость сохраняется между файлами. Если запустили музыку, которую
      * прервало голосовое или кружок, она продолжается с того же места.
      */
+    @OptIn(UnstableApi::class)
     fun play(context: Context, item: PlaybackItem, startFraction: Float = 0f, onStarted: (() -> Unit)? = null) {
         val target = player(context)
         if (onStarted != null) startedCallback = item.key to onStarted
@@ -271,14 +347,21 @@ object PlaybackEngine {
         val waiting = interruptedMusic
         val resumeMs = resumePositionMs(waiting, item.key)
         interruptedMusic = interruptedAfterStart(_state.value, waiting, item)
-        target.setMediaItem(
-            MediaItem.Builder()
-                .setMediaId(item.key)
-                .setUri(Uri.fromFile(File(item.path)))
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
-                .build(),
-            resumeMs
-        )
+        val mediaItem = MediaItem.Builder()
+            .setMediaId(item.key)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
+        val growing = item.growing
+        if (growing == null) {
+            target.setMediaItem(mediaItem.setUri(Uri.fromFile(File(item.path))).build(), resumeMs)
+        } else {
+            val factory = object : DataSource.Factory {
+                override fun createDataSource(): DataSource = GrowingFileDataSource(item.path, growing)
+            }
+            val source = ProgressiveMediaSource.Factory(factory).createMediaSource(
+                mediaItem.setUri("beygram-growing://${item.key}").build()
+            )
+            exo?.setMediaSource(source, resumeMs)
+        }
         target.prepare()
         // Длина из сообщения округлена до секунды, поэтому долю применяем, когда плеер узнает настоящую длину файла.
         pendingStartFraction = startFraction.coerceIn(0f, 1f)
@@ -485,5 +568,86 @@ object PlaybackEngine {
                 delay(PROGRESS_INTERVAL_MS)
             }
         }
+    }
+}
+
+/**
+ * Reads a growing TDLib file. Only [GrowingPlaybackSource.readablePrefix] is guaranteed readable
+ * before completion; file.length() may include unwritten/garbage regions. A stalled transfer fails
+ * after a short grace period so a paused/cancelled download cannot block the player forever.
+ */
+@OptIn(UnstableApi::class)
+private class GrowingFileDataSource(
+    private val filePath: String,
+    private val source: GrowingPlaybackSource
+) : DataSource {
+    private var file: RandomAccessFile? = null
+    private var position = 0L
+    private var uri: Uri? = null
+
+    override fun addTransferListener(transferListener: TransferListener) = Unit
+
+    override fun open(dataSpec: DataSpec): Long {
+        close()
+        val opened = RandomAccessFile(filePath, "r")
+        opened.seek(dataSpec.position)
+        file = opened
+        position = dataSpec.position
+        uri = dataSpec.uri
+        val length = if (source.isComplete()) opened.length() else source.totalSize
+        val remaining = (length - position).coerceAtLeast(0L)
+        return if (dataSpec.length == C.LENGTH_UNSET.toLong()) remaining
+        else minOf(remaining, dataSpec.length)
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        val opened = file ?: return C.RESULT_END_OF_INPUT
+        val startedAt = SystemClock.elapsedRealtime()
+        var requestedAt = 0L
+        while (true) {
+            val readable = if (source.isComplete()) opened.length()
+            else minOf(source.readablePrefix(), opened.length())
+            val available = readable - position
+            if (available > 0L) {
+                val toRead = minOf(available, length.toLong()).toInt()
+                val read = opened.read(buffer, offset, toRead)
+                if (read > 0) {
+                    position += read
+                    return read
+                }
+            }
+            if (source.isComplete()) return C.RESULT_END_OF_INPUT
+            val now = SystemClock.elapsedRealtime()
+            if (!source.isDownloading() && now - startedAt >= NO_TRANSFER_TIMEOUT_MS) {
+                throw IOException("Audio download was cancelled")
+            }
+            if (now - requestedAt >= REQUEST_INTERVAL_MS) {
+                requestedAt = now
+                source.onNeedMore()
+            }
+            if (now - startedAt >= STALL_TIMEOUT_MS) {
+                throw IOException("Timed out waiting for the next audio chunk")
+            }
+            try {
+                Thread.sleep(POLL_INTERVAL_MS)
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw IOException("Interrupted while waiting for audio", interrupted)
+            }
+        }
+    }
+
+    override fun getUri(): Uri? = uri
+
+    override fun close() {
+        runCatching { file?.close() }
+        file = null
+    }
+
+    private companion object {
+        const val POLL_INTERVAL_MS = 50L
+        const val REQUEST_INTERVAL_MS = 1_000L
+        const val NO_TRANSFER_TIMEOUT_MS = 10_000L
+        const val STALL_TIMEOUT_MS = 45_000L
     }
 }

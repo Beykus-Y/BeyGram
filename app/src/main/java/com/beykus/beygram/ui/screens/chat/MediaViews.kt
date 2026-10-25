@@ -112,6 +112,9 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.playback.GrowingPlaybackSource
+import com.beykus.beygram.playback.growingAudioSource
+import com.beykus.beygram.playback.partialAudioPlaybackPath
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackState
@@ -326,7 +329,10 @@ internal fun MediaPreview(
     }
     // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
     val audioTitle = media.kind.label(context)
-    val audioPath = file.localPath
+    val audioPath = partialAudioPlaybackPath(file, media.mimeType)
+    val partialGrowing: GrowingPlaybackSource? = if (file.localPath == null && audioPath != null) {
+        growingAudioSource(file, media.fileId, media.mimeType, observeFile) { downloadFile(media.fileId) }
+    } else null
     // Голосовое ждёт загрузки в своём пузыре, поэтому здесь ожидание относится только к музыке.
     val row = remember(media.fileId) { Any() }
     val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
@@ -351,13 +357,13 @@ internal fun MediaPreview(
         }
         if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) }
         else startAudio(context, media.playbackItem(audioPath, audioTitle, origin,
-            artworkPath = if (thumbId != media.fileId) thumb.localPath else null))
+            artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing))
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
         if (waitingForAudio && audioPath != null) {
             pendingPlaybackRow.value = null
-            startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null))
+            startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing))
         }
     }
     DisposableEffect(row) {
@@ -369,7 +375,8 @@ internal fun MediaPreview(
             transcriptionRequestError = transcriptionRequestError,
             transcriptionRated = transcriptionRated,
             onTranscribe = onTranscribe,
-            onRateTranscription = onRateTranscription)
+            onRateTranscription = onRateTranscription,
+            growing = partialGrowing)
         return
     }
     if (media.kind == MediaKind.VideoNote) {
@@ -775,6 +782,12 @@ private fun MediaViewerPage(
         // Keep the already playing progressive source when TDLib completes the same file path.
         // If TDLib reports a different final path, the normal completed-file source is used.
         val streamSource = progressive?.takeIf { path == null || it.path == path }
+        val audioPath = partialAudioPlaybackPath(file, media.mimeType)
+        val growingAudio = if (file.localPath == null && audioPath != null &&
+            (media.kind == MediaKind.Audio || media.kind == MediaKind.Voice)
+        ) {
+            growingAudioSource(file, media.fileId, media.mimeType, observeFile) { downloadFile(media.fileId) }
+        } else null
         when {
             spoilerHidden -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 16.sp,
                 modifier = Modifier.padding(16.dp).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onReveal))
@@ -814,6 +827,8 @@ private fun MediaViewerPage(
                 if (file.isDownloading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 else TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
+            (media.kind == MediaKind.Audio || media.kind == MediaKind.Voice) && audioPath != null ->
+                AudioInPlayer(media, audioPath, if (previewId != null) thumb.localPath else null, active, growingAudio) { currentOnViewed(item.messageId) }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                 if (file.isDownloading) CircularProgressIndicator()
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
@@ -823,7 +838,6 @@ private fun MediaViewerPage(
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) })
-            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, if (previewId != null) thumb.localPath else null, active) { currentOnViewed(item.messageId) }
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -1222,9 +1236,16 @@ private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Un
 
 /** Звук в просмотрщике идёт через общий плеер. Открытие ничего не запускает, поэтому текущий трек не прерывается. */
 @Composable
-private fun AudioInPlayer(media: MessageMedia, path: String, artworkPath: String?, active: Boolean, onViewed: () -> Unit) {
+private fun AudioInPlayer(
+    media: MessageMedia,
+    path: String,
+    artworkPath: String?,
+    active: Boolean,
+    growing: GrowingPlaybackSource?,
+    onViewed: () -> Unit
+) {
     val context = LocalContext.current
-    val item = media.playbackItem(path, media.kind.label(context), artworkPath = artworkPath)
+    val item = media.playbackItem(path, media.kind.label(context), artworkPath = artworkPath, growing = growing)
     val state by PlaybackEngine.state.collectAsStateWithLifecycle()
     val currentOnViewed by rememberUpdatedState(onViewed)
     // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.

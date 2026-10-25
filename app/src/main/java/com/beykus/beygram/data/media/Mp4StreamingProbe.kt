@@ -12,6 +12,8 @@ internal enum class Mp4StreamingReason {
     MoovTooLarge,
     NoVideoTrack,
     UnsupportedVideoCodec,
+    NoAudioTrack,
+    UnsupportedAudioCodec,
     ReadFailed
 }
 
@@ -20,7 +22,8 @@ internal data class Mp4StreamingInfo(
     val fastStart: Boolean,
     val videoCodecs: Set<String>,
     val streamable: Boolean,
-    val reason: Mp4StreamingReason
+    val reason: Mp4StreamingReason,
+    val audioCodecs: Set<String> = emptySet()
 )
 
 /**
@@ -81,18 +84,61 @@ internal object Mp4StreamingProbe {
 
     fun supportsStreaming(file: File): Boolean = inspect(file).streamable
 
+    /**
+     * Audio-only MP4/M4A counterpart. The same structural rules apply (complete moov before mdat),
+     * but the track must contain a supported audio sample description instead of video.
+     */
+    fun inspectAudio(file: File, availableBytes: Long = file.length()): Mp4StreamingInfo = try {
+        RandomAccessFile(file, "r").use { source ->
+            val length = minOf(source.length(), availableBytes.coerceAtLeast(0L))
+            if (length < 8L) return result(Mp4StreamingReason.NotMp4, isMp4 = false)
+            val boxes = topLevelBoxes(source, length)
+            if (boxes.none { it.type == "ftyp" }) return result(Mp4StreamingReason.NotMp4, isMp4 = false)
+            val moov = boxes.firstOrNull { it.type == "moov" }
+                ?: return result(Mp4StreamingReason.MissingMoov, isMp4 = true)
+            val mdat = boxes.firstOrNull { it.type == "mdat" }
+            if (mdat != null && moov.offset > mdat.offset) {
+                return result(Mp4StreamingReason.MoovAfterMediaData, isMp4 = true)
+            }
+            if (moov.end > length) return result(Mp4StreamingReason.TruncatedMoov, isMp4 = true)
+            if (moov.payloadSize > MAX_MOOV_BYTES) return result(Mp4StreamingReason.MoovTooLarge, isMp4 = true)
+            val codecs = readCodecs(source, moov)
+            val audioCodecs = codecs.intersect(AUDIO_CODECS)
+            return when {
+                codecs.isEmpty() || audioCodecs.isEmpty() -> result(
+                    Mp4StreamingReason.NoAudioTrack, isMp4 = true, audioCodecs = codecs
+                )
+                else -> Mp4StreamingInfo(
+                    isMp4 = true,
+                    fastStart = true,
+                    videoCodecs = codecs.intersect(VIDEO_CODECS),
+                    streamable = true,
+                    reason = Mp4StreamingReason.Streamable,
+                    audioCodecs = audioCodecs
+                )
+            }
+        }
+    } catch (_: Exception) {
+        result(Mp4StreamingReason.ReadFailed, isMp4 = false)
+    }
+
+    fun supportsAudioStreaming(file: File, availableBytes: Long = file.length()): Boolean =
+        inspectAudio(file, availableBytes).streamable
+
     private fun notMp4() = result(Mp4StreamingReason.NotMp4, isMp4 = false)
 
     private fun result(
         reason: Mp4StreamingReason,
         isMp4: Boolean,
-        videoCodecs: Set<String> = emptySet()
+        videoCodecs: Set<String> = emptySet(),
+        audioCodecs: Set<String> = emptySet()
     ) = Mp4StreamingInfo(
         isMp4 = isMp4,
         fastStart = false,
         videoCodecs = videoCodecs,
         streamable = false,
-        reason = reason
+        reason = reason,
+        audioCodecs = audioCodecs
     )
 
     private fun topLevelBoxes(source: RandomAccessFile, length: Long): List<Box> {

@@ -58,6 +58,22 @@ class Mp4StreamingProbeTest {
         assertEquals(Mp4StreamingReason.NoVideoTrack, info.reason)
     }
 
+    @Test fun fastStartAudioMp4IsStreamableForAudio() {
+        val bytes = concat(ftyp(), box("moov", box("trak", box("mdia", box("minf", box("stbl", stsd("mp4a")))))), mdat(16))
+        val info = Mp4StreamingProbe.inspectAudio(tempFile(bytes))
+        assertTrue(info.streamable)
+        assertTrue(info.fastStart)
+        assertTrue(info.audioCodecs.contains("mp4a"))
+        assertEquals(Mp4StreamingReason.Streamable, info.reason)
+    }
+
+    @Test fun audioMp4WithMoovAtTheEndIsNotStreamable() {
+        val bytes = concat(ftyp(), mdat(16), box("moov", box("trak", box("mdia", box("minf", box("stbl", stsd("mp4a")))))))
+        val info = Mp4StreamingProbe.inspectAudio(tempFile(bytes))
+        assertFalse(info.streamable)
+        assertEquals(Mp4StreamingReason.MoovAfterMediaData, info.reason)
+    }
+
     @Test fun corruptAndEmptyFilesFailClosed() {
         assertEquals(Mp4StreamingReason.NotMp4, Mp4StreamingProbe.inspect(tempFile(ByteArray(0))).reason)
         val corrupt = concat(ftyp(), byteArrayOf(0, 0, 0, 2, 'f'.code.toByte(), 'r'.code.toByte(), 'e'.code.toByte(), 'e'.code.toByte()))
