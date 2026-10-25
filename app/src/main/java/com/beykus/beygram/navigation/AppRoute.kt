@@ -16,6 +16,9 @@ enum class AppRoute {
     MemberProfile,
     MyProfile,
     EditProfile,
+    Premium,
+    Stars,
+    Gifts,
     Notifications,
     ConnectionDiagnostics,
     Calls,
@@ -45,7 +48,9 @@ enum class AppRoute {
     AppLock,
     NewChat,
     CreateGroup,
-    CreateChannel
+    CreateChannel,
+    Stories,
+    StoryPublisher
 }
 
 /**

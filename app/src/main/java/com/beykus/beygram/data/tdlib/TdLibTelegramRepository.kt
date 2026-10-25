@@ -9,6 +9,8 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.export.ChatExportMessage
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
+import com.beykus.beygram.domain.model.AnimationItem
+import com.beykus.beygram.domain.model.AnimationPage
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatActivity
@@ -53,6 +55,10 @@ import com.beykus.beygram.domain.model.GroupMemberPage
 import com.beykus.beygram.domain.model.GroupSettingsEdit
 import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.StickerItem
+import com.beykus.beygram.domain.model.StickerSearchPage
+import com.beykus.beygram.domain.model.StickerSetContent
+import com.beykus.beygram.domain.model.StickerSetSummary
 import com.beykus.beygram.data.media.VideoNoteSendTracking
 import com.beykus.beygram.data.media.AutoDownloadDecision
 import com.beykus.beygram.data.media.AutoDownloadNetwork
@@ -83,9 +89,22 @@ import com.beykus.beygram.domain.model.ChannelStatisticsPerson
 import com.beykus.beygram.domain.model.ChannelStatisticsSummary
 import com.beykus.beygram.domain.model.ChannelTopPost
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ChatStories
+import com.beykus.beygram.domain.model.StoryDetail
+import com.beykus.beygram.domain.model.StoryPostEvent
+import com.beykus.beygram.domain.model.StoryPostPermission
+import com.beykus.beygram.domain.model.StoryPostTicket
+import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
+import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.MessageLinkTarget
+import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
+import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
+import com.beykus.beygram.domain.model.PremiumInfo
+import com.beykus.beygram.domain.model.StarTransactionsPage
+import com.beykus.beygram.domain.model.StarsInfo
 import com.beykus.beygram.domain.model.FolderChatPosition
 import com.beykus.beygram.domain.model.TelegramChatFolders
 import com.beykus.beygram.domain.model.TelegramFolderDraft
@@ -126,6 +145,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -182,6 +202,7 @@ class TdLibTelegramRepository private constructor(
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
     private val accountSecurity = TdAccountSecurity(tdRequests)
+    private val payments = TdPayments(tdRequests)
     private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
     private val messageDrafts = TdChatDrafts(appContext, accountId) { client }
 
@@ -399,6 +420,7 @@ class TdLibTelegramRepository private constructor(
     private var autoDownloadSettingsJob: Job? = null
     private val autoDownloadNetworkMonitor = AutoDownloadNetworkMonitor(appContext, authScope, ::reevaluateAutoDownloads)
     private val mediaMapper = TdMediaMapper(mediaFiles)
+    private val stickerCatalog = TdStickerCatalog(tdRequests, mediaFiles)
 
     init {
         autoDownloadNetworkMonitor.start()
@@ -436,6 +458,7 @@ class TdLibTelegramRepository private constructor(
         })
     }
     private val profiles = TdProfiles({ client }, mediaFiles)
+    private val stories = TdStories({ client }, profiles, mediaFiles, accountId, File(appContext.filesDir, "uploads"))
     private val groupAdministration = TdGroupAdministration(tdRequests, profiles)
     private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
@@ -556,6 +579,44 @@ class TdLibTelegramRepository private constructor(
         tdRequests(TdApi.ReorderChatFolders(ids.toIntArray(), mainPosition))
         Unit
     }
+
+    override val activeStories: StateFlow<List<ChatStories>> = stories.items
+    override fun refreshActiveStories() = stories.refreshActive()
+    override fun loadMoreActiveStories() = stories.loadMoreActive()
+    override val storyPostEvents: SharedFlow<StoryPostEvent> = stories.postEvents
+    override suspend fun loadStory(posterChatId: Long, storyId: Int) = stories.story(posterChatId, storyId)
+    override suspend fun openStory(posterChatId: Long, storyId: Int) = stories.openStory(posterChatId, storyId)
+    override suspend fun closeStory(posterChatId: Long, storyId: Int) = stories.closeStory(posterChatId, storyId)
+    override suspend fun storyReactions() = stories.availableReactions()
+    override suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?) =
+        stories.setReaction(posterChatId, storyId, reaction)
+    override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String) =
+        stories.replyToStory(posterChatId, storyId, text)
+    override suspend fun deleteStory(posterChatId: Long, storyId: Int) = stories.deleteStory(posterChatId, storyId)
+    override suspend fun storyArchive(fromStoryId: Int) = stories.archive(fromStoryId)
+    override suspend fun storyPostPermission(chatId: Long) = stories.postPermission(chatId)
+    override suspend fun storyPostTargets() = stories.postTargets()
+    override fun storySubmissionState(submissionId: String) = stories.submissionState(submissionId)
+    override fun abandonStoryUpload(posterChatId: Long, storyId: Int) = stories.abandonUpload(posterChatId, storyId)
+    override fun abandonStorySubmission(submissionId: String) = stories.abandonSubmission(submissionId)
+    override suspend fun storyCaptionLimit() = stories.captionLimit()
+    override suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String) =
+        stories.editCaption(posterChatId, storyId, caption)
+    override suspend fun setStoryPrivacy(storyId: Int, privacy: StoryPrivacy, selectedUserIds: List<Long>) =
+        stories.editPrivacy(storyId, privacy, selectedUserIds)
+    override suspend fun setStoryPostedToChatPage(posterChatId: Long, storyId: Int, posted: Boolean) =
+        stories.setPostedToChatPage(posterChatId, storyId, posted)
+    override suspend fun publishStory(
+        submissionId: String,
+        targetChatId: Long,
+        media: OutgoingMedia,
+        caption: String,
+        privacy: StoryPrivacy,
+        selectedUserIds: List<Long>,
+        activePeriodSeconds: Int,
+        protectContent: Boolean,
+        keepInProfile: Boolean
+    ) = stories.publishStory(submissionId, targetChatId, media, caption, privacy, selectedUserIds, activePeriodSeconds, protectContent, keepInProfile)
 
     /** TDLib is the cursor owner: each LoadChats call fetches the next server-backed page. */
     override suspend fun loadMoreFolderChats(folderId: Int): Result<Unit> = requestResult {
@@ -1481,6 +1542,17 @@ class TdLibTelegramRepository private constructor(
     override suspend fun deleteMyProfilePhoto(photoId: Long) = profiles.deleteMyPhoto(photoId)
     override suspend fun setPreviousProfilePhoto(photoId: Long) = profiles.setPreviousPhoto(photoId)
 
+    override suspend fun premiumInfo(): Result<PremiumInfo> = payments.premiumInfo()
+    override suspend fun checkPremiumGiftCode(code: String): Result<PremiumGiftCodeInfo> =
+        payments.checkPremiumGiftCode(code)
+    override suspend fun applyPremiumGiftCode(code: String): PremiumGiftCodeApplyOutcome =
+        payments.applyPremiumGiftCode(code)
+    override suspend fun starsInfo(): Result<StarsInfo> = payments.starsInfo()
+    override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = payments.starTransactions(offset)
+    override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)
+    override suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome =
+        payments.sendGift(profileId, isSelf, giftId)
+
     override suspend fun loadGroupManagement(chatId: Long): Result<GroupManagementInfo> =
         groupResult { groupAdministration.info(chatId) }
 
@@ -2042,6 +2114,11 @@ class TdLibTelegramRepository private constructor(
         conversationEffects.contentOpened(chatId, messageId)
     }
 
+    override fun cancelFileDownload(fileId: Int) {
+        client.send(TdApi.CancelDownloadFile(fileId, false), errorHandler())
+        mediaFiles.cancel(fileId)
+    }
+
     override suspend fun sendVideoNoteLossTest(media: OutgoingMedia, remoteCopy: File): Result<com.beykus.beygram.domain.model.VideoNoteLossRemoteResult> =
         requestResult { videoNoteLossTransport.sendAndFetchOwnTest(media, remoteCopy) }
 
@@ -2057,6 +2134,20 @@ class TdLibTelegramRepository private constructor(
         leaveJumpWindow(chatId)
         return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
     }
+
+    override suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendSticker(chatId, sticker, replyToMessageId, forumTopicId, options)
+    }
+
+    override suspend fun recentStickers(): Result<List<StickerItem>> = stickerCatalog.recentStickers()
+    override suspend fun installedStickerSets(): Result<List<StickerSetSummary>> = stickerCatalog.installedStickerSets()
+    override suspend fun stickerSet(setId: Long): Result<StickerSetContent> = stickerCatalog.stickerSet(setId)
+    override suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = stickerCatalog.searchStickers(query, offset)
+    override suspend fun savedAnimations(): Result<List<AnimationItem>> = stickerCatalog.savedAnimations()
+    override suspend fun recentAnimations(offset: String): Result<AnimationPage> = stickerCatalog.recentAnimations(offset)
+    override suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = stickerCatalog.searchAnimations(query, offset)
+    override suspend fun isPremiumAccount(): Result<Boolean> = stickerCatalog.isPremiumAccount()
 
     override suspend fun scheduledMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.scheduledMessages(chatId)
     override suspend fun deleteScheduledMessage(chatId: Long, messageId: Long): Result<Unit> =
@@ -2191,6 +2282,7 @@ class TdLibTelegramRepository private constructor(
             is TdApi.UpdateDeleteMessages -> if (update.isPermanent) invalidatePins(update.chatId)
         }
         profiles.handle(update)
+        stories.handle(update)
         notificationFeed.handle(update)
         when (update) {
             is TdApi.UpdateUser -> refreshLastSenders(update.user.id)
@@ -2541,6 +2633,7 @@ class TdLibTelegramRepository private constructor(
                 conversationActions.initialize()
                 conversationEffects.authorized()
                 notificationFeed.initialize()
+                stories.authorized()
                 cacheMaintenance.authorized()
                 messageDrafts.connectionReady()
             }
@@ -2560,6 +2653,7 @@ class TdLibTelegramRepository private constructor(
                 _groupCreation.value = GroupCreationState.Idle
                 clearFolderState()
                 messageDrafts.signedOut()
+                stories.signedOut()
                 _authState.value = if (isLegacyAccount && isLegacyClientRecreatePending()) {
                     AuthState.Loading
                 } else {
@@ -2587,6 +2681,7 @@ class TdLibTelegramRepository private constructor(
                 _authState.value = if (reopeningLegacyClient) AuthState.Loading else AuthState.WaitingForPhone
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
+                stories.signedOut()
                 if (!isLegacyAccount) disposeSecondaryRepository()
             }
             else -> Unit

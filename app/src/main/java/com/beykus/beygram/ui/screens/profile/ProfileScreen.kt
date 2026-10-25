@@ -16,8 +16,11 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -81,6 +84,8 @@ fun ProfileScreen(
     confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
     forwardMessage: suspend (Long, Long) -> Result<Unit> = { _, _ -> Result.failure(IllegalStateException()) }, chats: List<ChatPreview> = emptyList(),
     onContentOpened: (Long) -> Unit = {}, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit = { _, _ -> },
+    onPremium: () -> Unit = {}, onStars: () -> Unit = {},
+    onGifts: (profileId: Long, isSelf: Boolean, title: String) -> Unit = { _, _, _ -> },
     /** Repository-backed automatic download for shared media and profile galleries. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
@@ -145,8 +150,25 @@ fun ProfileScreen(
                         FilledTonalButton(onClick = onEdit, enabled = !state.isLoading && state.error == null && !saving && !preparing, shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.height(46.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.profile_action_edit), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                         TextButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !saving && !preparing) { Text(if (preparing) stringResource(R.string.profile_photo_preparing) else stringResource(R.string.profile_action_change_photo), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                    } else if (info.kind == ProfileKind.Person || info.kind == ProfileKind.Secret) {
+                        Spacer(Modifier.height(14.dp))
+                        FilledTonalButton(
+                            onClick = { onGifts(info.id, false, info.title) },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)
+                        ) {
+                            Icon(Icons.Rounded.CardGiftcard, null, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.size(8.dp))
+                            Text(stringResource(R.string.profile_monetization_gifts_send), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
+                if (isOwnProfile) ProfileMonetizationLinks(
+                    onPremium = onPremium,
+                    onStars = onStars,
+                    onGifts = { onGifts(info.id, true, info.title) }
+                )
                 ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null))
                 if (onManage != null && info.groupAdmin?.canManageAnything == true) {
                     GroupManagementEntry(info.kind, onManage)
@@ -309,6 +331,46 @@ internal fun ProfileBadges(info: ProfileInfo) {
         listOfNotNull(if (info.isVerified) stringResource(R.string.profile_badge_verified) else null, if (info.isPremium) stringResource(R.string.profile_badge_premium) else null).joinToString(" · "),
         color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp)
     )
+}
+
+/** Points of entry to the read-only monetization screens; they never buy anything by themselves. */
+@Composable
+private fun ProfileMonetizationLinks(onPremium: () -> Unit, onStars: () -> Unit, onGifts: () -> Unit) {
+    val palette = beyGramPalette()
+    Text(
+        stringResource(R.string.profile_monetization_header),
+        color = palette.textSecondary,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp)
+            .semantics { heading() }
+    )
+    Column(
+        Modifier.padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(palette.surface)
+            .padding(vertical = 4.dp)
+    ) {
+        MonetizationLinkRow(Icons.Rounded.WorkspacePremium, stringResource(R.string.profile_monetization_premium), onPremium)
+        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 54.dp))
+        MonetizationLinkRow(Icons.Rounded.Star, stringResource(R.string.profile_monetization_stars), onStars)
+        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 54.dp))
+        MonetizationLinkRow(Icons.Rounded.CardGiftcard, stringResource(R.string.profile_monetization_gifts_own), onGifts)
+    }
+}
+
+@Composable
+private fun MonetizationLinkRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Text(label, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f).padding(start = 12.dp))
+        Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
+    }
 }
 
 @Composable
