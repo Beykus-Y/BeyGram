@@ -65,6 +65,7 @@ import com.beykus.beygram.data.media.AutoDownloadNetwork
 import com.beykus.beygram.data.media.AutoDownloadNetworkMonitor
 import com.beykus.beygram.data.media.AutoDownloadSettings
 import com.beykus.beygram.data.media.AutoDownloadTdlibMapping
+import com.beykus.beygram.data.media.TrafficUsageStore
 import com.beykus.beygram.data.media.currentAutoDownloadNetwork
 import com.beykus.beygram.data.media.decideAutoDownload
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
@@ -420,7 +421,7 @@ class TdLibTelegramRepository private constructor(
     private fun updateForumMessage(chatId: Long, messageId: Long, transform: (ChatMessage) -> ChatMessage) {
         topicStores.filterKeys { it.first == chatId }.values.forEach { it.update(chatId, messageId, transform) }
     }
-    private val mediaFiles = MediaFileStore()
+    private val mediaFiles = MediaFileStore(TrafficUsageStore.session(accountId))
     private val autoDownloadSettingsStore = AutoDownloadSettingsStore.getInstance(appContext, accountId)
     /** Files this repository started automatically; a network or settings change may cancel them. */
     private val autoDownloads = ConcurrentHashMap<Int, AutoDownloadRequest>()
@@ -2059,6 +2060,13 @@ class TdLibTelegramRepository private constructor(
         sendDownload(fileId)
     }
 
+    override fun downloadFileInBackground(fileId: Int) {
+        // Avatars and preview thumbnails bypass the media policy, but their bytes are automatic traffic.
+        cancelledAutoDownloads.remove(fileId)
+        if (!mediaFiles.beginAutoDownload(fileId)) return
+        sendDownload(fileId)
+    }
+
     override fun autoDownloadFile(request: AutoDownloadRequest) {
         val decision = decideAutoDownload(
             settings = autoDownloadSettingsStore.settings.value,
@@ -2066,7 +2074,7 @@ class TdLibTelegramRepository private constructor(
             request = request
         )
         if (decision != AutoDownloadDecision.Allowed) return
-        if (!mediaFiles.beginDownload(request.fileId)) return
+        if (!mediaFiles.beginAutoDownload(request.fileId)) return
         autoDownloads[request.fileId] = request
         sendDownload(request.fileId)
     }

@@ -1,0 +1,186 @@
+package com.beykus.beygram.data.tdlib
+
+import com.beykus.beygram.data.media.TrafficOrigin
+import com.beykus.beygram.data.media.TrafficUsageSession
+import com.beykus.beygram.domain.model.MediaFileState
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class MediaFileStoreTrafficTest {
+    private fun store(traffic: TrafficUsageSession) = MediaFileStore(traffic)
+
+    @Test
+    fun automaticDownloadCountsProgressOnce() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        assertTrue(store.beginAutoDownload(1))
+        store.update(MediaFileState(1, size = 100, downloadedBytes = 40, isDownloading = true))
+        store.update(MediaFileState(1, size = 100, downloadedBytes = 40, isDownloading = true))
+        store.update(MediaFileState(1, size = 100, downloadedBytes = 100, isDownloading = true))
+        store.update(MediaFileState(1, size = 100, downloadedBytes = 100, localPath = "/file"))
+
+        val snapshot = traffic.snapshot.value
+        assertEquals(100L, snapshot.autoBytes)
+        assertEquals(0L, snapshot.manualBytes)
+        assertFalse(snapshot.hasActiveDownloads)
+    }
+
+    @Test
+    fun manualTapTakesOverAnAutomaticTransfer() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        assertTrue(store.beginAutoDownload(2))
+        store.update(MediaFileState(2, size = 100, downloadedBytes = 40, isDownloading = true))
+        assertFalse(store.beginDownload(2))
+        store.update(MediaFileState(2, size = 100, downloadedBytes = 100, isDownloading = true))
+
+        val snapshot = traffic.snapshot.value
+        assertEquals(40L, snapshot.autoBytes)
+        assertEquals(60L, snapshot.manualBytes)
+        assertEquals(TrafficOrigin.Manual, snapshot.activeOrigins[2])
+    }
+
+    @Test
+    fun pausedManualTransferStaysManualWhenItResumes() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginDownload(6)
+        store.update(MediaFileState(6, size = 100, downloadedBytes = 40, isDownloading = true))
+        // TDLib reports a pause while the connection is unstable: the transfer leaves the active map.
+        store.update(MediaFileState(6, size = 100, downloadedBytes = 40, isDownloading = false))
+        store.update(MediaFileState(6, size = 100, downloadedBytes = 60, isDownloading = true))
+
+        val snapshot = traffic.snapshot.value
+        assertEquals(0L, snapshot.autoBytes)
+        assertEquals(60L, snapshot.manualBytes)
+        assertEquals(TrafficOrigin.Manual, snapshot.activeOrigins[6])
+    }
+
+    @Test
+    fun cancellingKeepsBytesAlreadyDownloaded() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginAutoDownload(3)
+        store.update(MediaFileState(3, size = 100, downloadedBytes = 40, isDownloading = true))
+        store.cancel(3)
+
+        val cancelled = traffic.snapshot.value
+        assertEquals(40L, cancelled.autoBytes)
+        assertFalse(cancelled.hasActiveDownloads)
+
+        store.beginDownload(3)
+        store.update(MediaFileState(3, size = 100, downloadedBytes = 80, isDownloading = true))
+        assertEquals(40L, traffic.snapshot.value.autoBytes)
+        assertEquals(40L, traffic.snapshot.value.manualBytes)
+    }
+
+    @Test
+    fun finalUpdateAfterCancellationStillCountsItsBytes() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginAutoDownload(7)
+        store.update(MediaFileState(7, size = 100, downloadedBytes = 40, isDownloading = true))
+        store.cancel(7)
+        // TDLib reports the bytes it managed to transfer before the cancellation reached it.
+        store.update(MediaFileState(7, size = 100, downloadedBytes = 60, isDownloading = false))
+
+        val snapshot = traffic.snapshot.value
+        assertEquals(60L, snapshot.autoBytes)
+        assertEquals(0L, snapshot.manualBytes)
+        assertFalse(snapshot.hasActiveDownloads)
+    }
+
+    @Test
+    fun pauseWithLowerReportedProgressDoesNotDoubleCountOnResume() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginAutoDownload(9)
+        store.update(MediaFileState(9, size = 200, downloadedBytes = 100, isDownloading = true))
+        store.update(MediaFileState(9, size = 200, downloadedBytes = 40, isDownloading = false))
+        store.update(MediaFileState(9, size = 200, downloadedBytes = 100, isDownloading = true))
+
+        assertEquals(100L, traffic.snapshot.value.autoBytes)
+    }
+
+    @Test
+    fun manualTapOnAPausedTransferDoesNotDoubleCountItsBytes() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginDownload(11)
+        store.update(MediaFileState(11, size = 200, downloadedBytes = 100, isDownloading = true))
+        store.update(MediaFileState(11, size = 200, downloadedBytes = 40, isDownloading = false))
+        assertTrue(store.beginDownload(11))
+        store.update(MediaFileState(11, size = 200, downloadedBytes = 100, isDownloading = true))
+
+        assertEquals(100L, traffic.snapshot.value.manualBytes)
+        assertEquals(0L, traffic.snapshot.value.autoBytes)
+    }
+
+    @Test
+    fun settledCancellationClearsTheManualOriginBeforeABackgroundPreload() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginDownload(10)
+        store.update(MediaFileState(10, size = 100, downloadedBytes = 40, isDownloading = true))
+        store.cancel(10)
+        // Terminal update after the cancellation: the transfer is released and the manual hint is cleared.
+        store.update(MediaFileState(10, size = 100, downloadedBytes = 40, isDownloading = false))
+        // TDLib later preloads the same partial file without an application request.
+        store.update(MediaFileState(10, size = 100, downloadedBytes = 60, isDownloading = true))
+
+        val snapshot = traffic.snapshot.value
+        assertEquals(40L, snapshot.manualBytes)
+        assertEquals(20L, snapshot.autoBytes)
+        assertEquals(TrafficOrigin.Auto, snapshot.activeOrigins[10])
+    }
+
+    @Test
+    fun backgroundPreloadWithoutARequestIsCountedAsAutomatic() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.update(MediaFileState(4, size = 100, downloadedBytes = 30, isDownloading = true))
+
+        val snapshot = traffic.snapshot.value
+        assertEquals(30L, snapshot.autoBytes)
+        assertEquals(TrafficOrigin.Auto, snapshot.activeOrigins[4])
+    }
+
+    @Test
+    fun backgroundDownloadDoesNotTakeOverAManualTransfer() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginDownload(8)
+        store.update(MediaFileState(8, size = 100, downloadedBytes = 40, isDownloading = true))
+        assertFalse(store.beginAutoDownload(8))
+        store.update(MediaFileState(8, size = 100, downloadedBytes = 60, isDownloading = true))
+
+        val snapshot = traffic.snapshot.value
+        assertEquals(0L, snapshot.autoBytes)
+        assertEquals(60L, snapshot.manualBytes)
+        assertEquals(TrafficOrigin.Manual, snapshot.activeOrigins[8])
+    }
+
+    @Test
+    fun historySnapshotAndCompletedFileDoNotStartCounting() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.register(MediaFileState(5, size = 100, downloadedBytes = 100, localPath = "/cached"))
+        assertFalse(store.beginAutoDownload(5))
+
+        assertEquals(0L, traffic.snapshot.value.totalBytes)
+        assertFalse(traffic.snapshot.value.hasActiveDownloads)
+    }
+}

@@ -22,6 +22,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,9 +39,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.AutoDownloadNetwork
 import com.beykus.beygram.data.media.AutoDownloadNetworkPolicy
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.media.AutoDownloadRule
 import com.beykus.beygram.data.media.AutoDownloadSettings
+import com.beykus.beygram.data.media.TrafficUsageStore
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.ui.components.TrafficUsageSummary
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
@@ -63,6 +67,11 @@ fun AutoDownloadSettingsScreen(onBack: () -> Unit, accountId: String = "legacy")
     val context = LocalContext.current
     val store = remember(context, accountId) { AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId) }
     val settings by store.settings.collectAsStateWithLifecycle()
+    val traffic by remember(context, accountId) {
+        TrafficUsageStore.session(accountId).snapshot
+    }.collectAsStateWithLifecycle()
+    val liveNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
     var network by remember { mutableStateOf(AutoDownloadNetwork.Wifi) }
     var saveFailed by remember { mutableStateOf(false) }
     val palette = beyGramPalette()
@@ -81,6 +90,7 @@ fun AutoDownloadSettingsScreen(onBack: () -> Unit, accountId: String = "legacy")
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(stringResource(R.string.auto_download_intro), color = palette.textSecondary, fontSize = 13.sp)
+            TrafficUsageSummary(snapshot = traffic, network = liveNetwork, dataSaver = settings.dataSaver)
             TabRow(
                 selectedTabIndex = CONFIGURED_NETWORKS.indexOf(network),
                 containerColor = palette.surface,

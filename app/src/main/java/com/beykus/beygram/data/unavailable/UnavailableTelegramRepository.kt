@@ -343,6 +343,7 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = MutableStateFlow(MediaFileState(fileId)).asStateFlow()
     override fun downloadFile(fileId: Int) {}
+    override fun downloadFileInBackground(fileId: Int) {}
     override fun cancelFileDownload(fileId: Int) {}
     override fun autoDownloadFile(request: AutoDownloadRequest) {}
 

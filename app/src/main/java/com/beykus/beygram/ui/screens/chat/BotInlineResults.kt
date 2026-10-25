@@ -44,6 +44,7 @@ import com.beykus.beygram.domain.model.nextInlineQueryOffset
 import com.beykus.beygram.domain.model.parseInlineQuery
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.delay
@@ -293,8 +294,9 @@ private fun InlineResultThumbnail(
         return
     }
     val file by remember(fileId) { observeFile(fileId) }.collectAsStateWithLifecycle()
+    val backgroundDownload = LocalBackgroundMediaDownload.current ?: onDownloadFile
     LaunchedEffect(fileId, file.localPath) {
-        if (file.localPath == null && !file.isDownloading && file.error == null) onDownloadFile(fileId)
+        if (file.localPath == null && !file.isDownloading && file.error == null) backgroundDownload(fileId)
     }
     val path = file.localPath
     if (path == null) InlineResultThumbnailFallback(result.kind)

@@ -72,6 +72,7 @@ import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.MainTabBar
 import com.beykus.beygram.ui.components.MainTabsScaffold
+import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
@@ -1742,7 +1743,8 @@ private fun BeyGramAppContent(
         LocalPlaybackAccountId provides selectedAccountId,
         LocalChatAnimationPreferences provides chatAnimationPreferences,
         LocalSystemReducedMotion provides reducedMotion,
-        LocalAutoDownloadFile provides repository::autoDownloadFile
+        LocalAutoDownloadFile provides repository::autoDownloadFile,
+        LocalBackgroundMediaDownload provides repository::downloadFileInBackground
     ) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {

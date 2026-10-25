@@ -128,6 +128,7 @@ import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.TrafficUsageBadge
 import com.beykus.beygram.ui.screens.playback.NowPlayingControls
 import com.beykus.beygram.ui.screens.playback.ViewerNowPlayingColors
 import com.beykus.beygram.ui.text.resolve
@@ -698,6 +699,17 @@ internal fun MediaViewer(
                         Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
                             Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            // Read-only traffic line for the selected file. Secret, view-once and hidden-spoiler
+                            // pages keep their existing presentation and never show download details.
+                            if (shownFile.isDownloading && !shown.media.isSecret && !shown.media.isSecretChat && !shown.viewOnce && !shownHidden) {
+                                TrafficUsageBadge(
+                                    accountId = accountId,
+                                    fileId = shown.media.fileId,
+                                    downloadedBytes = shownFile.downloadedBytes,
+                                    totalBytes = shownFile.size,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
                         }
                         if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
                         if (exportPath != null || onShowInChat != null) Box {
