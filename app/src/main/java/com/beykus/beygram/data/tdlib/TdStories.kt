@@ -427,7 +427,7 @@ internal class TdStories(
                 avatarColorArgb = chatId.stableColor()
             )
         }
-        targets.distinctBy { it.chatId }.let(::orderedStoryPostTargets)
+        orderedStoryPostTargets(targets.distinctBy { it.chatId })
     }
 
     suspend fun editCaption(posterChatId: Long, storyId: Int, caption: String): Result<Unit> = storyRequest {
