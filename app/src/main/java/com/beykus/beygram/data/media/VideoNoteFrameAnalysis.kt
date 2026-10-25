@@ -42,7 +42,8 @@ internal data class VideoNoteFrameStats(
             R.string.vn_frame_summary, width, height, frameCount,
             measuredFps?.let { String.format(Locale.US, "%.2f", it) } ?: "?", declaredFps?.toString() ?: "?",
             f(medianGapMs), f(p95GapMs), f(maximumPositiveFrameGapMs), gapsOver50Ms, duplicateOrReorderedPts,
-            fpsWindows.joinToString(" "), codec, codecProfile?.toString() ?: "?", codecLevel?.toString() ?: "?",
+            fpsWindows.joinToString(" "), codec, codecProfileLabel(codec, codecProfile) ?: "?",
+            codecLevelLabel(codec, codecLevel) ?: "?",
             bitrateBps?.toString() ?: "?", audioCodec ?: context.getString(R.string.camera_report_none), avDelta, fileBytes
         )
     }

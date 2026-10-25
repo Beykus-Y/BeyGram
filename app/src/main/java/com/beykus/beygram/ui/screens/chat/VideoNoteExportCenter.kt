@@ -222,6 +222,9 @@ internal object VideoNoteExportCenter {
                 runCatching { File(media.path).delete() }
                 media.thumbnailPath?.let { path -> runCatching { File(path).delete() } }
             }
+            // Accepted parts still in the session folder keep it; otherwise only its owner mark is left behind.
+            val session = discarded.media.firstOrNull()?.let { File(it.path).parentFile }
+            if (session != null) runCatching { com.beykus.beygram.data.tdlib.removeUploadFolderIfOnlyOwnerMarker(session) }
         }
     }
 

@@ -27,6 +27,12 @@ internal interface TdSecondaryAuthSession {
     suspend fun resendCode()
     fun close()
     suspend fun logOutAndAwaitClosed() { error("Native logout is unavailable") }
+
+    /**
+     * Cleanup after Telegram confirmed that the server account was deleted. The native
+     * authorization may already be invalid, so this falls back to Close without LogOut.
+     */
+    suspend fun closeAfterServerDeletion() { error("Native account cleanup is unavailable") }
     suspend fun awaitClosedLease() {}
 
     /**
@@ -51,6 +57,7 @@ internal class TdNativeSecondaryAuthSession(
     override suspend fun resendCode() = login.resendCode()
     override fun close() = login.close()
     override suspend fun logOutAndAwaitClosed() = login.logOutAndAwaitClosed()
+    override suspend fun closeAfterServerDeletion() = login.closeAfterServerDeletion()
     override suspend fun awaitClosedLease() = login.awaitNativeClosed()
     override fun fullRepository(context: android.content.Context): com.beykus.beygram.domain.repository.TelegramRepository =
         login.unifiedRepository(context)
@@ -250,10 +257,17 @@ internal class TdSecondarySessionCoordinator(
     }
 
     /** A confirmed logout is different from Close. TDLib must close and release
-     * its lease BEFORE its slot is removed from durable registry metadata. */
-    suspend fun logoutSecondary(accountId: String) {
+     * its lease BEFORE its slot is removed from durable registry metadata.
+     *
+     * [serverDeleted] is used only after DeleteAccount returned Ok. The account's
+     * Telegram authorization is already gone, so the precheck accepts WAIT_PHONE
+     * or CLOSED and the session is closed without requiring a second LogOut. */
+    suspend fun logoutSecondary(accountId: String, serverDeleted: Boolean = false) {
         require(accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
-        val operation = MultiAccountDiagnostics.begin("logout", accountId)
+        val operation = MultiAccountDiagnostics.begin(
+            if (serverDeleted) "server_delete_cleanup" else "logout",
+            accountId
+        )
         val active = try {
             mutex.withLock {
                 operation.trace("lock_wait")
@@ -261,7 +275,11 @@ internal class TdSecondarySessionCoordinator(
                 try {
                     check(accountId !in switchingAccounts)
                     (running[accountId] ?: error("Secondary account must be connected to log out")).also {
-                        check(it.handle.authPhase.value == TdAccountAuthPhase.READY)
+                        // DeleteAccount already invalidated the authorization, so cleanup
+                        // must not require READY: TDLib may publish WAIT_PHONE or CLOSED.
+                        if (!serverDeleted) {
+                            check(it.handle.authPhase.value == TdAccountAuthPhase.READY)
+                        }
                     }
                 } catch (failure: Throwable) {
                     loggingOutAccounts.remove(accountId)
@@ -276,7 +294,8 @@ internal class TdSecondarySessionCoordinator(
             // Native Close can take tens of seconds. Other accounts' chats,
             // picker and TDLib session updates must remain responsive.
             operation.trace("native_logout_start")
-            active.handle.logOutAndAwaitClosed()
+            if (serverDeleted) active.handle.closeAfterServerDeletion()
+            else active.handle.logOutAndAwaitClosed()
             operation.trace("native_logout_closed")
             mutex.withLock {
                 check(running[accountId] === active)

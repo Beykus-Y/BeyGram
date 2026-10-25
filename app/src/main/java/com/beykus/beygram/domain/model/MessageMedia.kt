@@ -18,6 +18,7 @@ data class MessageMedia(
     val height: Int = 0,
     val durationSeconds: Int = 0,
     val hasSpoiler: Boolean = false,
+    /** TDLib marks media that must stay hidden until opened (secret-chat or self-destructing content). */
     val isSecret: Boolean = false,
     /** Отсчёты волны голосового сообщения, каждый 0…31; для остальных типов пусто. */
     val waveform: List<Int> = emptyList(),
@@ -33,7 +34,11 @@ data class MessageMedia(
     /** Non-null while recognition is running; may hold the partial text TDLib has already produced. */
     val transcriptionPending: String? = null,
     /** Friendly failure for the last recognition attempt; null when no error is known. */
-    val transcriptionError: UiText? = null
+    val transcriptionError: UiText? = null,
+    /** The sender marked the video as fast-start streamable; playback may begin from a partial local file. */
+    val supportsStreaming: Boolean = false,
+    /** The message belongs to a secret chat; such content is never auto-downloaded off the visible feed. */
+    val isSecretChat: Boolean = false
 ) {
     /** True while TDLib is still recognizing this voice/video note. */
     val isTranscribing: Boolean get() = transcriptionPending != null
@@ -50,11 +55,25 @@ data class MediaFileState(
     val isDownloading: Boolean = false,
     val uploadedBytes: Long = 0,
     val isUploading: Boolean = false,
-    val error: UiText? = null
+    val error: UiText? = null,
+    /** TDLib's path while the download is still running; may contain only a prefix of the file. */
+    val downloadPath: String? = null,
+    /** Contiguous bytes from the beginning of [downloadPath]. Used by the progressive player. */
+    val downloadedPrefixBytes: Long = 0
 ) {
     val downloadProgress: Float get() = if (size > 0) (downloadedBytes.toFloat() / size).coerceIn(0f, 1f) else 0f
     val uploadProgress: Float get() = if (size > 0) (uploadedBytes.toFloat() / size).coerceIn(0f, 1f) else 0f
 }
+
+/** A single automatic download candidate. File IDs are scoped to the repository/account that produced them. */
+data class AutoDownloadRequest(
+    val fileId: Int,
+    val kind: MediaKind,
+    val sizeBytes: Long,
+    val isSecret: Boolean = false,
+    val isSecretChat: Boolean = false,
+    val hasSpoiler: Boolean = false
+)
 
 /** Metadata only; the selected bytes live in the application's private upload directory. */
 data class OutgoingMedia(
@@ -69,5 +88,11 @@ data class OutgoingMedia(
     val size: Long = 0,
     val thumbnailWidth: Int = 0,
     val thumbnailHeight: Int = 0,
-    val waveform: ByteArray = byteArrayOf()
+    val waveform: ByteArray = byteArrayOf(),
+    /** A file already stored on Telegram's servers; when set, TDLib sends it without downloading the bytes. */
+    val remoteFileId: Int = 0,
+    /** Server-side thumbnail for [remoteFileId]; zero when only a local [thumbnailPath] exists. */
+    val thumbnailRemoteFileId: Int = 0,
+    /** Emoji of a sticker, required by InputMessageSticker. */
+    val emoji: String = ""
 ) : Serializable

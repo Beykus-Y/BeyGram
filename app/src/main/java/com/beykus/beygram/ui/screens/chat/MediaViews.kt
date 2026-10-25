@@ -12,6 +12,7 @@ import android.content.ClipData
 import android.content.ContentValues
 import android.net.Uri
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.LruCache
 import android.webkit.MimeTypeMap
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -87,11 +89,22 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.beykus.beygram.R
 import com.beykus.beygram.BeyGramApplication
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
+import com.beykus.beygram.data.media.AutoDownloadRuntime
+import com.beykus.beygram.data.media.Mp4StreamingProbe
+import com.beykus.beygram.data.media.Mp4StreamingReason
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
@@ -99,6 +112,12 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.playback.GrowingPlaybackSource
+import com.beykus.beygram.playback.canPlayAudioProgressively
+import com.beykus.beygram.playback.growingAudioSource
+import com.beykus.beygram.playback.isDirectProgressiveAudio
+import com.beykus.beygram.playback.isMp4AudioMime
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackState
@@ -118,6 +137,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.io.RandomAccessFile
 import java.util.concurrent.ConcurrentHashMap
 
 internal fun MediaKind.label(context: Context): String = when (this) {
@@ -234,6 +255,57 @@ private const val BLUR_PREVIEW_DIMENSION = 24
 /** Строка, которая ждёт загрузки после нажатия на музыку или голосовое. Ждёт только последнее нажатое, и начинает играть только её строка, даже если такой же файл стоит в другом сообщении. */
 internal val pendingPlaybackRow = mutableStateOf<Any?>(null)
 
+/**
+ * Repository-backed automatic download for shared UI. Provided once at the app root so every viewer
+ * fallback routes automatic requests through the account's repository and keeps them cancellable.
+ */
+internal val LocalAutoDownloadFile = compositionLocalOf<((AutoDownloadRequest) -> Unit)?> { null }
+
+private data class AudioPlaybackSource(val path: String, val growing: GrowingPlaybackSource?)
+
+/**
+ * Chooses a completed path or a growing prefix. Direct audio formats are accepted immediately;
+ * MP4/M4A must be probed off the composition thread and only a positive result is retained.
+ */
+@Composable
+private fun rememberAudioPlaybackSource(
+    media: MessageMedia,
+    file: MediaFileState,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit
+): AudioPlaybackSource? {
+    if (media.kind != MediaKind.Audio && media.kind != MediaKind.Voice) return null
+    file.localPath?.let { return AudioPlaybackSource(it, null) }
+    val path = file.downloadPath ?: return null
+    if (file.size <= 0L || file.downloadedPrefixBytes <= 0L) return null
+
+    val build: (String) -> AudioPlaybackSource? = { selected ->
+        growingAudioSource(
+            state = file,
+            fileId = media.fileId,
+            mimeType = media.mimeType,
+            observeFile = observeFile,
+            onNeedMore = { downloadFile(media.fileId) },
+            assumeSupported = true
+        )?.let { AudioPlaybackSource(selected, it) }
+    }
+    if (isDirectProgressiveAudio(media.mimeType)) return build(path)
+    if (!isMp4AudioMime(media.mimeType)) return null
+
+    var probedPath by remember(media.fileId, path) { mutableStateOf<String?>(null) }
+    LaunchedEffect(path, file.size, file.downloadedPrefixBytes) {
+        if (probedPath != null) return@LaunchedEffect
+        val streamable = withContext(Dispatchers.IO) {
+            runCatching {
+                canPlayAudioProgressively(media.mimeType, path, file.downloadedPrefixBytes)
+            }.getOrDefault(false)
+        }
+        if (streamable) probedPath = path
+    }
+    val selected = probedPath ?: return null
+    return build(selected)
+}
+
 /** Track keys whose cover is still being awaited. Process-wide, so repeated taps share one observer per track. */
 private val artworkWaits: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
@@ -250,7 +322,11 @@ internal fun MediaPreview(
     transcriptionRequestError: String? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
-    onRateTranscription: ((Boolean) -> Unit)? = null
+    onRateTranscription: ((Boolean) -> Unit)? = null,
+    /** A per-message view-once attachment: conceal it until the viewer is opened, even outside secret chats. */
+    viewOnce: Boolean = false,
+    /** Repository-backed automatic download; when absent the same local policy gates [downloadFile]. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -258,12 +334,44 @@ internal fun MediaPreview(
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val palette = beyGramPalette()
     val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val localAutoDownload = LocalAutoDownloadFile.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
+    val autoDownload: (AutoDownloadRequest) -> Unit = autoDownloadFile ?: localAutoDownload ?: remember(context, downloadFile, accountId) {
+        { request: AutoDownloadRequest ->
+            AutoDownloadRuntime.request(context, request, downloadFile, accountId)
+            Unit
+        }
+    }
     val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
     // Секретное вложение в ленте не грузим и не показываем до открытия: превью иначе видно раньше просмотрщика.
-    val imageFile = if (media.isSecret) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
-    LaunchedEffect(thumbId, revealed) {
-        if (!media.isSecret && revealed && isVisual && (thumbId != media.fileId || media.mimeType.startsWith("image/") && file.size <= 300_000)) downloadFile(thumbId)
-        if (!media.isSecret && media.kind == MediaKind.Audio && thumbId != media.fileId) downloadFile(thumbId)
+    val concealed = media.isSecret || viewOnce
+    val imageFile = if (concealed) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
+    LaunchedEffect(thumbId, revealed, thumb.size, file.size, concealed, media.isSecret, media.isSecretChat, media.hasSpoiler, policySettings, policyNetwork) {
+        if (concealed || media.isSecretChat) return@LaunchedEffect
+        fun request(id: Int, kind: MediaKind, size: Long) = autoDownload(
+            AutoDownloadRequest(
+                fileId = id,
+                kind = kind,
+                sizeBytes = size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat,
+                hasSpoiler = media.hasSpoiler && !revealed
+            )
+        )
+        if (revealed && isVisual) {
+            // The preview is a small photo of its own; the original photo follows the photo limit.
+            if (thumbId != media.fileId) request(thumbId, MediaKind.Photo, thumb.size)
+            if (media.mimeType.startsWith("image/")) request(media.fileId, MediaKind.Photo, file.size)
+        }
+        if (media.kind == MediaKind.Audio) {
+            if (thumbId != media.fileId) request(thumbId, MediaKind.Photo, thumb.size)
+            request(media.fileId, MediaKind.Audio, file.size)
+        }
     }
     LaunchedEffect(media.fileId, thumb.localPath) {
         if (media.kind == MediaKind.Audio && thumbId != media.fileId) {
@@ -272,7 +380,9 @@ internal fun MediaPreview(
     }
     // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
     val audioTitle = media.kind.label(context)
-    val audioPath = file.localPath
+    val audioSource = rememberAudioPlaybackSource(media, file, observeFile, downloadFile)
+    val audioPath = audioSource?.path
+    val partialGrowing = audioSource?.growing
     // Голосовое ждёт загрузки в своём пузыре, поэтому здесь ожидание относится только к музыке.
     val row = remember(media.fileId) { Any() }
     val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
@@ -297,13 +407,13 @@ internal fun MediaPreview(
         }
         if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) }
         else startAudio(context, media.playbackItem(audioPath, audioTitle, origin,
-            artworkPath = if (thumbId != media.fileId) thumb.localPath else null))
+            artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing))
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
         if (waitingForAudio && audioPath != null) {
             pendingPlaybackRow.value = null
-            startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null))
+            startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing))
         }
     }
     DisposableEffect(row) {
@@ -315,7 +425,8 @@ internal fun MediaPreview(
             transcriptionRequestError = transcriptionRequestError,
             transcriptionRated = transcriptionRated,
             onTranscribe = onTranscribe,
-            onRateTranscription = onRateTranscription)
+            onRateTranscription = onRateTranscription,
+            growing = partialGrowing)
         return
     }
     if (media.kind == MediaKind.VideoNote) {
@@ -324,11 +435,12 @@ internal fun MediaPreview(
             transcriptionRequestError = transcriptionRequestError,
             transcriptionRated = transcriptionRated,
             onTranscribe = onTranscribe,
-            onRateTranscription = onRateTranscription)
+            onRateTranscription = onRateTranscription,
+            autoDownloadFile = autoDownload)
         return
     }
     if (media.kind == MediaKind.Sticker) {
-        StickerPreview(media, file, thumb, downloadFile, onOpen, onLongPress)
+        StickerPreview(media, file, thumb, downloadFile, onOpen, onLongPress, autoDownloadFile = autoDownload)
         return
     }
     if (isVisual) {
@@ -338,33 +450,47 @@ internal fun MediaPreview(
         val downloadLabel = stringResource(R.string.a11y_media_download, mediaLabel)
         val spoilerLabel = stringResource(R.string.media_spoiler_hint)
         val longPressLabel = stringResource(R.string.a11y_message_actions)
+        val viewOnceLabel = stringResource(R.string.media_view_once_label)
+        val viewOnceHint = stringResource(R.string.media_view_once_hint, mediaLabel)
         // Полного файла ещё нет: вместо растянутой миниатюры показываем размытую заглушку и кнопку загрузки.
-        val awaitingFile = revealed && !media.isSecret && file.localPath == null
+        val awaitingFile = revealed && !concealed && file.localPath == null
         Box(
             Modifier.width(244.dp).height((244 / ratio).coerceIn(120f, 280f).dp)
                 .background(palette.disabled)
                 .combinedClickable(
-                    onClickLabel = if (revealed) openLabel else spoilerLabel,
+                    onClickLabel = if (viewOnce) viewOnceLabel else if (revealed) openLabel else spoilerLabel,
                     onLongClickLabel = longPressLabel,
-                    onClick = { if (!revealed) revealed = true else onOpen() },
+                    onClick = { if (viewOnce || revealed) onOpen() else revealed = true },
                     onLongClick = onLongPress
                 ),
             contentAlignment = Alignment.Center
         ) {
-            if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
+            if (viewOnce) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Rounded.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                    Text(
+                        viewOnceHint,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            } else if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
             else if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize())
-            if (!revealed) Text(spoilerLabel, color = palette.textPrimary, modifier = Modifier.padding(16.dp))
-            else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
-            else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
-                val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
-                Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
-                    modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
+            if (!viewOnce) {
+                if (!revealed) Text(spoilerLabel, color = palette.textPrimary, modifier = Modifier.padding(16.dp))
+                else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
+                else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
+                    val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
+                    Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
+                        modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
+                }
+                if (revealed) Text(
+                    media.kind.label(context) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
+                    color = Color.White, fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
+                )
             }
-            if (revealed) Text(
-                media.kind.label(context) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
-                color = Color.White, fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
-            )
             if (file.isDownloading || file.isUploading) LinearProgressIndicator(
                 progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
                 modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
@@ -445,7 +571,7 @@ internal class MediaViewerActions(
 )
 
 /** Вложение в листаемом просмотрщике; [messageId] нужен для отметки «просмотрено» и действий над сообщением. */
-internal data class MediaViewerItem(val messageId: Long, val media: MessageMedia)
+internal data class MediaViewerItem(val messageId: Long, val media: MessageMedia, val viewOnce: Boolean = false)
 
 /** Фото и видео листаются вместе, и счётчик «N из M» считает их тоже вместе. */
 internal val viewerSwipeKinds = setOf(MediaKind.Photo, MediaKind.Video)
@@ -465,7 +591,9 @@ internal fun MediaViewer(
     actions: MediaViewerActions? = null, onShowInChat: ((Long) -> Unit)? = null,
     extraFooter: (@Composable () -> Unit)? = null,
     /** For profile galleries prefetch only thumbnails of adjacent pages, not full originals. */
-    fullFileOnlyWhenActive: Boolean = false
+    fullFileOnlyWhenActive: Boolean = false,
+    /** Repository-backed automatic download; when absent the same local policy gates [downloadFile]. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     // The source can shrink asynchronously while LazyLayout still holds indices from the previous frame.
     // Keep the count, keys and content aligned to the same immutable snapshot for this composition.
@@ -513,8 +641,17 @@ internal fun MediaViewer(
     val safeSettledPage = pagerState.settledPage.coerceIn(0, currentPages.lastIndex)
     // The secure flag must correspond to the actually visible media, not to a stale position.
     val settledMedia = currentPages[safeSettledPage].media
+    val settledViewOnce = currentPages[safeSettledPage].viewOnce
     val shownFile by remember(shown.media.fileId) { observeFile(shown.media.fileId) }.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val localAutoDownload = LocalAutoDownloadFile.current
+    val autoDownload: (AutoDownloadRequest) -> Unit = autoDownloadFile ?: localAutoDownload ?: remember(context, downloadFile, accountId) {
+        { request: AutoDownloadRequest ->
+            AutoDownloadRuntime.request(context, request, downloadFile, accountId)
+            Unit
+        }
+    }
     val scope = rememberCoroutineScope()
     var externalError by remember { mutableStateOf<String?>(null) }
     var fileNotice by remember { mutableStateOf<String?>(null) }
@@ -524,7 +661,7 @@ internal fun MediaViewer(
     LaunchedEffect(pagerState.settledPage) { controlsVisible = true }
     // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
     val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
-    val exportPath = if (canExport && !shown.media.isSecret && !shownHidden) shownFile.localPath else null
+    val exportPath = if (canExport && !shown.media.isSecret && !shown.viewOnce && !shownHidden) shownFile.localPath else null
     // Кнопки могут показывать право, пришедшее для соседнего вложения, поэтому каждое действие сверяет право заново.
     fun exportIfAllowed(messageId: Long, action: suspend () -> String?) {
         scope.launch { fileNotice = if (confirmExport(messageId)) action() else context.getString(R.string.media_export_denied) }
@@ -536,7 +673,7 @@ internal fun MediaViewer(
             if (externalError == null) onViewed(item.messageId)
         }
     }
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia, settledViewOnce)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         // Верхняя панель лежит поверх страницы: тап по картинке её прячет, крестик закрытия виден всегда.
         // Панель действий и сообщения стоят под страницей, потому что поверх неё лежит управление видео и аудио.
         Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -545,7 +682,7 @@ internal fun MediaViewer(
                     // Compose may request an index belonging to the preceding page count during an update.
                     // Never index the backing list until this page exists in our current snapshot.
                     currentPages.getOrNull(page)?.let { item ->
-                        MediaViewerPage(item, observeFile, downloadFile, canExport = canExport, active = page == safeSettledPage,
+                        MediaViewerPage(item, observeFile, downloadFile, autoDownload, canExport = canExport, active = page == safeSettledPage,
                             fullFileOnlyWhenActive = fullFileOnlyWhenActive,
                             revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                             onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
@@ -606,11 +743,18 @@ internal fun MediaViewer(
 @Composable
 private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
+    autoDownloadFile: (AutoDownloadRequest) -> Unit,
     canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
     onDismiss: () -> Unit, onToggleControls: () -> Unit, controlsVisible: Boolean
 ) {
     val media = item.media
     val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(context, accountId) {
+        AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val tgs = media.mimeType == "application/x-tgsticker"
     val previewId = media.thumbnailFileId
@@ -621,20 +765,91 @@ private fun MediaViewerPage(
     // Спойлер не грузится и не показывается, пока пользователь не раскроет именно эту страницу.
     val spoilerHidden = media.hasSpoiler && !media.isSecret && !revealed
     // Соседняя секретная страница при свайпе не грузится и ничего не показывает, даже если файл уже на диске.
-    val concealed = MediaViewerPolicy.concealed(media, active) || spoilerHidden
+    val concealed = MediaViewerPolicy.concealed(media, active) || (item.viewOnce && !active) || spoilerHidden
     val currentOnViewed by rememberUpdatedState(onViewed)
     // A spoiler page counts as opened only once the user reveals it, even when its file is already on disk.
     LaunchedEffect(media.fileId, file.localPath, active, spoilerHidden) {
         if (active && !spoilerHidden && file.localPath != null && media.mimeType.startsWith("image/")) currentOnViewed(item.messageId)
     }
-    LaunchedEffect(media.fileId, concealed, active, fullFileOnlyWhenActive) {
+    LaunchedEffect(media.fileId, concealed, active, fullFileOnlyWhenActive, thumb.size, file.size, media.isSecret, media.isSecretChat, media.hasSpoiler, policySettings, policyNetwork) {
         if (concealed) return@LaunchedEffect
+        fun request(id: Int, kind: MediaKind, size: Long) = autoDownloadFile(
+            AutoDownloadRequest(
+                fileId = id,
+                kind = kind,
+                sizeBytes = size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat,
+                hasSpoiler = spoilerHidden
+            )
+        )
         // The profile gallery downloads adjacent previews; the full file waits for an active page.
-        if (tgs || media.mimeType.startsWith("image/") || media.mimeType.startsWith("video/") || media.kind == MediaKind.Audio) previewId?.let(downloadFile)
-        if (!fullFileOnlyWhenActive || active) downloadFile(media.fileId)
+        if (tgs || media.mimeType.startsWith("image/") || media.mimeType.startsWith("video/") || media.kind == MediaKind.Audio) {
+            previewId?.let { request(it, MediaKind.Photo, thumb.size) }
+        }
+        if (!fullFileOnlyWhenActive || active) request(media.fileId, media.kind, file.size)
     }
+    // A fast-start MP4 can be played from the contiguous prefix that TDLib has already written.
+    // The sender-provided supportsStreaming flag is only a hint; the local probe proves the index
+    // position and codecs. If the index is at the end or the container is not proven streamable,
+    // we keep the complete-file fallback and show the thumbnail/progress instead.
+    val partialPath = file.downloadPath
+    var progressiveUnlocked by remember(media.fileId) { mutableStateOf(false) }
+    var progressivePath by remember(media.fileId) { mutableStateOf<String?>(null) }
+    var progressiveRejected by remember(media.fileId, partialPath) { mutableStateOf(false) }
+    LaunchedEffect(media.fileId, partialPath, file.downloadedPrefixBytes, file.localPath, progressiveRejected) {
+        if (progressiveUnlocked || progressiveRejected) return@LaunchedEffect
+        if (file.localPath != null || partialPath == null || file.size <= 0L || file.downloadedPrefixBytes <= 0L) return@LaunchedEffect
+        val info = withContext(Dispatchers.IO) {
+            runCatching { Mp4StreamingProbe.inspect(File(partialPath), file.downloadedPrefixBytes) }.getOrNull()
+        }
+        val reason = info?.reason
+        when {
+            info?.streamable == true -> {
+                progressivePath = partialPath
+                progressiveUnlocked = true
+            }
+            reason != null && reason in setOf(
+                Mp4StreamingReason.NotMp4,
+                Mp4StreamingReason.MoovAfterMediaData,
+                Mp4StreamingReason.MoovTooLarge,
+                Mp4StreamingReason.NoVideoTrack,
+                Mp4StreamingReason.UnsupportedVideoCodec
+            ) -> progressiveRejected = true
+        }
+    }
+    val unlockedPath = progressivePath
+    val progressive = if (progressiveUnlocked && unlockedPath != null) {
+        ProgressiveVideoSource(
+            fileId = media.fileId,
+            path = unlockedPath,
+            totalSize = file.size,
+            completed = { observeFile(media.fileId).value.localPath != null },
+            downloading = { observeFile(media.fileId).value.isDownloading },
+            readablePrefix = { observeFile(media.fileId).value.downloadedPrefixBytes },
+            onNeedMore = {
+                val latest = observeFile(media.fileId).value
+                autoDownloadFile(
+                    AutoDownloadRequest(
+                        fileId = media.fileId,
+                        kind = media.kind,
+                        sizeBytes = latest.size,
+                        isSecret = media.isSecret,
+                        isSecretChat = media.isSecretChat,
+                        hasSpoiler = spoilerHidden
+                    )
+                )
+            }
+        )
+    } else null
+    val audioSource = rememberAudioPlaybackSource(media, file, observeFile, downloadFile)
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
+        // Keep the already playing progressive source when TDLib completes the same file path.
+        // If TDLib reports a different final path, the normal completed-file source is used.
+        val streamSource = progressive?.takeIf { path == null || it.path == path }
+        val audioPath = audioSource?.path
+        val growingAudio = audioSource?.growing
         when {
             spoilerHidden -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 16.sp,
                 modifier = Modifier.padding(16.dp).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onReveal))
@@ -659,6 +874,11 @@ private fun MediaViewerPage(
                     if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
                 }
             }
+            streamSource != null -> LocalVideo(
+                streamSource.path, loop = media.kind == MediaKind.Animation, active = active,
+                onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
+                onManualDownload = { downloadFile(media.fileId) }
+            )
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
             path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()
@@ -669,6 +889,8 @@ private fun MediaViewerPage(
                 if (file.isDownloading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 else TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
+            (media.kind == MediaKind.Audio || media.kind == MediaKind.Voice) && audioPath != null ->
+                AudioInPlayer(media, audioPath, if (previewId != null) thumb.localPath else null, active, growingAudio) { currentOnViewed(item.messageId) }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                 if (file.isDownloading) CircularProgressIndicator()
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
@@ -677,8 +899,7 @@ private fun MediaViewerPage(
             media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = controlsVisible && active,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
-                LocalVideo(path, media.kind == MediaKind.Animation, active) { currentOnViewed(item.messageId) }
-            media.kind == MediaKind.Audio || media.kind == MediaKind.Voice -> AudioInPlayer(media, path, if (previewId != null) thumb.localPath else null, active) { currentOnViewed(item.messageId) }
+                LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) })
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -790,20 +1011,130 @@ internal fun clampImageOffset(offset: Offset, scale: Float, size: IntSize): Offs
 
 private const val VIDEO_PROGRESS_INTERVAL_MS = 250L
 
+/** A partially downloaded fast-start video: [path] grows while TDLib downloads the rest. */
+private data class ProgressiveVideoSource(
+    val fileId: Int,
+    val path: String,
+    val totalSize: Long,
+    val completed: () -> Boolean,
+    val downloading: () -> Boolean,
+    /** TDLib's contiguous readable prefix; bytes beyond it may be unwritten or garbage. */
+    val readablePrefix: () -> Long,
+    val onNeedMore: () -> Unit
+)
+
+/**
+ * Reads a growing TDLib file. The extractor sees the declared total length, and [read] waits for
+ * TDLib to append the next bytes instead of treating the current end of the file as the end of the
+ * stream. A stall (paused download, network loss) becomes a normal playback error after a timeout so
+ * the player never blocks a thread forever.
+ */
+@OptIn(UnstableApi::class)
+private class ProgressiveFileDataSource(
+    private val filePath: String,
+    private val totalSize: Long,
+    private val isComplete: () -> Boolean,
+    private val isDownloading: () -> Boolean,
+    private val readablePrefix: () -> Long,
+    private val onNeedMore: () -> Unit
+) : DataSource {
+    private var file: RandomAccessFile? = null
+    private var position = 0L
+    private var uri: Uri? = null
+
+    override fun addTransferListener(transferListener: TransferListener) = Unit
+
+    override fun open(dataSpec: DataSpec): Long {
+        close()
+        val opened = RandomAccessFile(filePath, "r")
+        opened.seek(dataSpec.position)
+        file = opened
+        position = dataSpec.position
+        uri = dataSpec.uri
+        // After completion the file is authoritative; before completion TDLib's declared size is.
+        val length = if (isComplete()) opened.length() else totalSize
+        val remaining = (length - position).coerceAtLeast(0L)
+        return if (dataSpec.length == C.LENGTH_UNSET.toLong()) remaining
+        else minOf(remaining, dataSpec.length)
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        val opened = file ?: return C.RESULT_END_OF_INPUT
+        val startedAt = SystemClock.elapsedRealtime()
+        var requestedAt = 0L
+        while (true) {
+            // TDLib documents that an incomplete file may contain unavailable/garbage regions:
+            // only downloadedPrefixSize is guaranteed readable. Never use file.length() as a boundary
+            // before completion.
+            val readable = if (isComplete()) opened.length() else minOf(readablePrefix(), opened.length())
+            val available = readable - position
+            if (available > 0L) {
+                val toRead = minOf(available, length.toLong()).toInt()
+                val read = opened.read(buffer, offset, toRead)
+                if (read > 0) {
+                    position += read
+                    return read
+                }
+            }
+            if (isComplete()) return C.RESULT_END_OF_INPUT
+            val now = SystemClock.elapsedRealtime()
+            if (!isDownloading() && now - startedAt >= NO_TRANSFER_TIMEOUT_MS) {
+                throw IOException("Automatic video download was cancelled")
+            }
+            if (now - requestedAt >= REQUEST_INTERVAL_MS) {
+                requestedAt = now
+                onNeedMore()
+            }
+            if (now - startedAt >= STALL_TIMEOUT_MS) {
+                throw IOException("Timed out waiting for the next video chunk")
+            }
+            try {
+                Thread.sleep(POLL_INTERVAL_MS)
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw IOException("Interrupted while waiting for video", interrupted)
+            }
+        }
+    }
+
+    override fun getUri(): Uri? = uri
+
+    override fun close() {
+        runCatching { file?.close() }
+        file = null
+    }
+
+    private companion object {
+        const val POLL_INTERVAL_MS = 50L
+        const val REQUEST_INTERVAL_MS = 1_000L
+        const val NO_TRANSFER_TIMEOUT_MS = 10_000L
+        const val STALL_TIMEOUT_MS = 45_000L
+    }
+}
+
+@OptIn(UnstableApi::class)
 @Composable
-private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: () -> Unit) {
+private fun LocalVideo(
+    path: String,
+    loop: Boolean,
+    active: Boolean,
+    onStarted: () -> Unit,
+    progressive: ProgressiveVideoSource? = null,
+    onManualDownload: (() -> Unit)? = null
+) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val currentOnStarted by rememberUpdatedState(onStarted)
     val currentActive by rememberUpdatedState(active)
-    val player = remember(path, loop) {
+    val sourceKey = progressive?.fileId ?: -1
+    val player = remember(path, loop, sourceKey) {
         ExoPlayer.Builder(context.applicationContext)
             // Звук видео забирает фокус у внешних плееров. У анимации звука нет, поэтому фокус ей не нужен.
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), /* handleAudioFocus = */ !loop)
             .setHandleAudioBecomingNoisy(true)
             .build()
     }
-    var video by remember(path, loop) { mutableStateOf(VideoPlayerState()) }
+    var video by remember(path, loop, sourceKey) { mutableStateOf(VideoPlayerState()) }
     // Просмотр отмечается, когда файл начинает играть после нажатия или открытия. Возврат из буферизации отметку не повторяет.
     var startRequested by remember(path, loop) { mutableStateOf(false) }
     DisposableEffect(player) {
@@ -820,7 +1151,25 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
         }
         player.addListener(listener)
         player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-        player.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
+        val growth = progressive
+        if (growth == null) {
+            player.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
+        } else {
+            val factory = object : DataSource.Factory {
+                override fun createDataSource(): DataSource = ProgressiveFileDataSource(
+                    filePath = growth.path,
+                    totalSize = growth.totalSize,
+                    isComplete = growth.completed,
+                    isDownloading = growth.downloading,
+                    readablePrefix = growth.readablePrefix,
+                    onNeedMore = growth.onNeedMore
+                )
+            }
+            player.setMediaSource(
+                ProgressiveMediaSource.Factory(factory)
+                    .createMediaSource(MediaItem.fromUri("beygram-progressive://${growth.fileId}"))
+            )
+        }
         player.prepare()
         onDispose {
             player.removeListener(listener)
@@ -866,7 +1215,21 @@ private fun LocalVideo(path: String, loop: Boolean, active: Boolean, onStarted: 
             if (video.playing) delay(VIDEO_PROGRESS_INTERVAL_MS)
         } while (video.playing)
     }
-    if (video.failed) Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray, modifier = Modifier.padding(24.dp))
+    if (video.failed) Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(24.dp)
+    ) {
+        Text(stringResource(R.string.media_video_unsupported), color = Color.LightGray)
+        if (progressive != null && onManualDownload != null) {
+            TextButton(onClick = {
+                onManualDownload()
+                video = VideoPlayerState()
+                startRequested = true
+                player.prepare()
+                player.play()
+            }) { Text(stringResource(R.string.common_retry)) }
+        }
+    }
     else Box(Modifier.fillMaxSize()) {
         AndroidView(
             factory = { viewContext ->
@@ -935,9 +1298,16 @@ private fun VideoControls(state: VideoPlayerState, onAction: (VideoAction) -> Un
 
 /** Звук в просмотрщике идёт через общий плеер. Открытие ничего не запускает, поэтому текущий трек не прерывается. */
 @Composable
-private fun AudioInPlayer(media: MessageMedia, path: String, artworkPath: String?, active: Boolean, onViewed: () -> Unit) {
+private fun AudioInPlayer(
+    media: MessageMedia,
+    path: String,
+    artworkPath: String?,
+    active: Boolean,
+    growing: GrowingPlaybackSource?,
+    onViewed: () -> Unit
+) {
     val context = LocalContext.current
-    val item = media.playbackItem(path, media.kind.label(context), artworkPath = artworkPath)
+    val item = media.playbackItem(path, media.kind.label(context), artworkPath = artworkPath, growing = growing)
     val state by PlaybackEngine.state.collectAsStateWithLifecycle()
     val currentOnViewed by rememberUpdatedState(onViewed)
     // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.

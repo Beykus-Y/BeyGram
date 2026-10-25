@@ -3,6 +3,7 @@ package com.beykus.beygram
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -36,6 +38,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.archive.archivePreferencesName
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
+import com.beykus.beygram.data.tdlib.AccountDeletionTracker
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
@@ -63,9 +66,11 @@ import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
 import com.beykus.beygram.navigation.TabVisibility
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.canOpenGroupStatistics
 import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.ui.components.MainTabBar
 import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
@@ -74,15 +79,24 @@ import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
 import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
+import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
+import com.beykus.beygram.ui.screens.chats.ChatsDetailPlaceholder
+import com.beykus.beygram.ui.screens.chats.ChatsTwoPaneScaffold
+import com.beykus.beygram.ui.screens.chats.chatListHighlightedId
+import com.beykus.beygram.ui.screens.chats.chatListPaneWidthDp
+import com.beykus.beygram.ui.screens.chats.isTwoPaneChatsWidth
+import com.beykus.beygram.ui.screens.chats.rememberChatsScreenState
 import com.beykus.beygram.ui.screens.chats.CreateChannelScreen
 import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
 import com.beykus.beygram.ui.screens.chats.NewChatScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchSession
+import com.beykus.beygram.ui.screens.stories.StoryPublisherScreen
+import com.beykus.beygram.ui.screens.stories.StoryViewerScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ConnectionDiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.DiagnosticsScreen
@@ -91,10 +105,13 @@ import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.PrivacySettingsScreen
+import com.beykus.beygram.ui.screens.settings.AccountSecurityScreen
 import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
+import com.beykus.beygram.ui.screens.settings.AutoDownloadSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
+import com.beykus.beygram.ui.screens.settings.AppLockSettingsScreen
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherSheet
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherMeta
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherIdentity
@@ -107,7 +124,11 @@ import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChannelStatisticsScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
+import com.beykus.beygram.ui.screens.profile.GiftsScreen
+import com.beykus.beygram.ui.screens.profile.PremiumScreen
+import com.beykus.beygram.ui.screens.profile.GroupManagementScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
+import com.beykus.beygram.ui.screens.profile.StarsScreen
 import com.beykus.beygram.ui.screens.theme.AppearanceDraftSaver
 import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
@@ -142,7 +163,10 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 
 /** Экраны, где мини-плеер встроен в свою разметку: над нижним меню или над полем ввода. На остальных экранах он стоит снизу. */
-private val playerBarHostRoutes = setOf(AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat, AppRoute.MessageThread)
+private val playerBarHostRoutes = setOf(
+    AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat, AppRoute.MessageThread,
+    AppRoute.Stories, AppRoute.StoryPublisher
+)
 
 @Composable
 fun BeyGramApp(
@@ -154,7 +178,9 @@ fun BeyGramApp(
     onIncomingShareHandled: (Long) -> Unit = {},
     pendingDeepLink: PendingTelegramDeepLink? = null,
     onDeepLinkBound: (Long, String) -> Unit = { _, _ -> },
-    onDeepLinkHandled: (Long) -> Unit = {}
+    onDeepLinkHandled: (Long) -> Unit = {},
+    onSecureScreenChange: (Boolean) -> Unit = {},
+    locked: Boolean = false
 ) {
     val context = LocalContext.current
     val videoMessageSettings = remember(context) { VideoMessageSettingsStore(context) }
@@ -199,7 +225,9 @@ fun BeyGramApp(
         onIncomingShareHandled = onIncomingShareHandled,
         pendingDeepLink = pendingDeepLink,
         onDeepLinkBound = onDeepLinkBound,
-        onDeepLinkHandled = onDeepLinkHandled
+        onDeepLinkHandled = onDeepLinkHandled,
+        onSecureScreenChange = onSecureScreenChange,
+        locked = locked
     )
 }
 
@@ -219,7 +247,9 @@ private fun BeyGramAppContent(
     onIncomingShareHandled: (Long) -> Unit,
     pendingDeepLink: PendingTelegramDeepLink?,
     onDeepLinkBound: (Long, String) -> Unit,
-    onDeepLinkHandled: (Long) -> Unit
+    onDeepLinkHandled: (Long) -> Unit,
+    onSecureScreenChange: (Boolean) -> Unit,
+    locked: Boolean
 ) {
     val context = LocalContext.current
     // ---- Реактивное состояние ------------------------------------------------
@@ -289,10 +319,13 @@ private fun BeyGramAppContent(
     val myProfile by repository.myProfile.collectAsStateWithLifecycle()
     val bioLimit by repository.bioLengthLimit.collectAsStateWithLifecycle()
     val lastSeenStyle by lastSeenSettings.style.collectAsStateWithLifecycle()
-    LifecycleResumeEffect(repository) {
-        repository.setAppForeground(true)
+    // A chat concealed by the lock gate is not a visible chat: do not suppress its
+    // notifications or advance their handled watermark while locked.
+    LifecycleResumeEffect(repository, locked) {
+        val visible = !locked
+        repository.setAppForeground(visible)
         // После репозитория: отметка «прослушано» уходит через него, и ему нужен уже действующий передний план.
-        PlaybackEngine.setForeground(true)
+        PlaybackEngine.setForeground(visible)
         onPauseOrDispose {
             repository.setAppForeground(false)
             PlaybackEngine.setForeground(false)
@@ -347,6 +380,12 @@ private fun BeyGramAppContent(
     var memberReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.ChatInfo.name) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    // Открытый из статистики пост возвращает в статистику, а сама статистика — в исходный чат.
+    var statisticsChatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    // Статистику можно открыть из чата или из профиля супергруппы; возврат должен вести туда же.
+    var statisticsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chat.name) }
+    // Заголовок зависит от точки входа: канал и супергруппа подписываются по-разному.
+    var statisticsHeaderTitleRes by rememberSaveable { mutableIntStateOf(R.string.channel_statistics_title) }
     // Account badges are expensive: subscribe only while the shared account
     // switcher, a system share chooser or the recovery screen is visible.
     val accountMetadataVisible = accountSwitcherVisible || incomingShare != null ||
@@ -429,6 +468,14 @@ private fun BeyGramAppContent(
         }
     }
     var noticeError by remember { mutableStateOf<UiText?>(null) }
+    // Server account deletion outlives this composition. Sticky cleanup errors are
+    // delivered through the process-owned tracker, including after Activity recreation.
+    val accountDeletion by AccountDeletionTracker.state.collectAsStateWithLifecycle()
+    LaunchedEffect(accountDeletion.error) {
+        val error = accountDeletion.error ?: return@LaunchedEffect
+        noticeError = error
+        AccountDeletionTracker.clearError()
+    }
     LaunchedEffect(accountRegistry) {
         try {
             val state = withContext(Dispatchers.IO) { accountRegistry.loadOrCreate() }
@@ -477,6 +524,11 @@ private fun BeyGramAppContent(
         globalSearchSession.reset("")
     }
     val accountSwitchScope = rememberCoroutineScope()
+    // Account deletion must survive Activity recreation; TDLib requests cannot be
+    // cancelled once dispatched, so completion and local cleanup belong to the process.
+    val applicationScope = remember(context) {
+        (context.applicationContext as BeyGramApplication).applicationScope
+    }
     val applyAccountSelection: suspend (String) -> Result<Unit> = { target ->
         val operation = MultiAccountDiagnostics.begin(
             "active_account_switch",
@@ -549,6 +601,28 @@ private fun BeyGramAppContent(
             }
         }
     }
+    // Navigation after a confirmed server deletion is deliberately composition-owned.
+    // The request itself runs in applicationScope; this effect lets a recreated
+    // Activity finish the switch to the primary account if the old UI disappeared.
+    LaunchedEffect(accountDeletion.running, accountDeletion.serverDeleted, accountDeletion.accountId) {
+        if (accountDeletion.running || !accountDeletion.serverDeleted) return@LaunchedEffect
+        val deletedAccountId = accountDeletion.accountId ?: return@LaunchedEffect
+        if (deletedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+            if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+                routeName = AppRoute.Start.name
+            }
+        } else if (selectedAccountId == deletedAccountId) {
+            applyAccountSelection(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                .onFailure { failure ->
+                    noticeError = UiText.Raw(
+                        context.getString(
+                            accountSwitcherErrorResource(accountSwitcherErrorReason(failure))
+                        )
+                    )
+                }
+        }
+        AccountDeletionTracker.clearTerminal()
+    }
     // «Показать в чате» из мини-плеера открывает сообщение, из которого запущен файл. Назад из чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     val currentAuthState by rememberUpdatedState(authState)
     // Выход из аккаунта останавливает общий плеер: его файл и «Показать в чате» относятся к прошлой сессии.
@@ -612,11 +686,41 @@ private fun BeyGramAppContent(
         tabPreferences.save(visibility)
     }
     val tabStateHolder = rememberSaveableStateHolder()
+    // Поиск, папка и позиция списка живут выше раскладки: телефон, две панели, поворот и
+    // складка переиспользуют одно состояние, а не создают список заново. Ключ аккаунта
+    // не даёт поиску и id папок прошлого аккаунта перейти в следующий.
+    val chatsScreenState = key(selectedAccountId) { rememberChatsScreenState() }
     // Куда вернуться из раздела нижнего меню и из уведомлений: их открывают из разных мест.
     var tabReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var notificationsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    // The story viewer and publisher are full-screen routes; both return to where they were opened.
+    var storyReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    var storyChatId by rememberSaveable { mutableLongStateOf(0L) }
+    var storyInitialId by rememberSaveable { mutableIntStateOf(0) }
     // Оформление открывают из профиля и из настроек: запоминаем, откуда пришли.
     var appearanceReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyProfile.name) }
+    // Premium, Stars и Gifts — read-only screens opened from profiles; keep the exact source route.
+    var monetizationReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyProfile.name) }
+    var starsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyProfile.name) }
+    var giftsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyProfile.name) }
+    var giftsProfileId by rememberSaveable { mutableStateOf(0L) }
+    var giftsProfileSelf by rememberSaveable { mutableStateOf(false) }
+    var giftsProfileTitle by rememberSaveable { mutableStateOf("") }
+    val openPremium: (AppRoute) -> Unit = { returnTo ->
+        monetizationReturnRouteName = returnTo.name
+        routeName = AppRoute.Premium.name
+    }
+    val openStars: (AppRoute) -> Unit = { returnTo ->
+        starsReturnRouteName = returnTo.name
+        routeName = AppRoute.Stars.name
+    }
+    val openGifts: (Long, Boolean, String, AppRoute) -> Unit = { profileId, self, title, returnTo ->
+        giftsProfileId = profileId
+        giftsProfileSelf = self
+        giftsProfileTitle = title
+        giftsReturnRouteName = returnTo.name
+        routeName = AppRoute.Gifts.name
+    }
     val openTab: (MainTab, AppRoute) -> Unit = { tab, returnTo ->
         tabReturnRouteName = returnTo.name
         routeName = tab.route.name
@@ -820,7 +924,7 @@ private fun BeyGramAppContent(
             deepLinkProxy = null
         }
     }
-    if (authState == AuthState.Ready) NotificationPermissionCoordinator(notificationRuntime)
+    if (authState == AuthState.Ready && !locked) NotificationPermissionCoordinator(notificationRuntime)
     LaunchedEffect(authState, legacyAuthState, notificationRequest?.token, accountRegistryReady) {
         if (!accountRegistryReady || accountRegistryError) return@LaunchedEffect
         val request = notificationRequest ?: return@LaunchedEffect
@@ -1151,7 +1255,9 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.NewChat) { routeName = AppRoute.Chats.name }
     BackHandler(enabled = route == AppRoute.CreateChannel) { routeName = AppRoute.NewChat.name }
     BackHandler(enabled = route == AppRoute.CreateGroup) {
@@ -1161,53 +1267,78 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Diagnostics || route == AppRoute.ReportProblem) { routeName = AppRoute.Settings.name }
 
     // Потоки собирает сам раздел, которому они нужны: обновление списка чатов перерисовывает только открытый раздел, а не всё приложение.
-    val chatsTab: @Composable () -> Unit = {
+    // [twoPane] true только на широком экране: тогда список стоит слева, а открытый чат — справа.
+    // [chatOpen] отмечает строку чата, который действительно открыт справа, а не просто выбран раньше.
+    val chatsList: @Composable (Boolean, Boolean) -> Unit = { twoPane, chatOpen ->
         val chats by repository.chats.collectAsStateWithLifecycle()
         val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
         val folders by repository.chatFolders.collectAsStateWithLifecycle()
         val folderLists by repository.folderChats.collectAsStateWithLifecycle()
         val folderLoading by repository.folderLoadStates.collectAsStateWithLifecycle()
+        val activeStories by repository.activeStories.collectAsStateWithLifecycle()
+        LaunchedEffect(repository, authState) {
+            if (authState == AuthState.Ready) repository.refreshActiveStories()
+        }
+        ChatsScreen(
+            chats = chats,
+            archivedChats = archivedChats,
+            folderSnapshot = folders,
+            folderChats = folderLists,
+            folderLoadStates = folderLoading,
+            onFolderLoadMore = { id ->
+                archiveSettingsScope.launch { repository.loadMoreFolderChats(id) }
+            },
+            onPinFolderChat = repository::setFolderChatPinned,
+            onLoadFolder = repository::getFolderDraft,
+            onSaveFolder = repository::saveFolderDraft,
+            onDeleteFolder = repository::deleteServerFolder,
+            onReorderFolders = repository::reorderServerFolders,
+            stories = activeStories,
+            onOpenStories = { entry ->
+                storyChatId = entry.chatId
+                storyInitialId = entry.firstUnreadStoryId
+                storyReturnRouteName = AppRoute.Chats.name
+                routeName = AppRoute.Stories.name
+            },
+            onAddStory = {
+                storyReturnRouteName = AppRoute.Chats.name
+                routeName = AppRoute.StoryPublisher.name
+            },
+            onLoadMoreStories = repository::loadMoreActiveStories,
+            myProfile = myProfile.info,
+            observeFile = repository::observeFile,
+            downloadFile = repository::downloadFile,
+            onMyProfile = { routeName = AppRoute.MyProfile.name },
+            onAccountPicker = { accountSwitcherVisible = true },
+            onArchiveClick = { routeName = AppRoute.Archive.name },
+            onMarkRead = markChatRead,
+            onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
+            onArchive = archiveChat,
+            onPinChat = repository::setChatPinned,
+            onMuteChat = repository::setChatMuted,
+            onDeleteChat = repository::deleteChatForSelf,
+            onNewChat = { routeName = AppRoute.NewChat.name },
+            archiveHidden = archiveHidden,
+            onArchiveHiddenChange = onArchiveHiddenChange,
+            onGlobalSearch = { typed ->
+                globalSearchQuery = typed
+                globalSearchSession.reset(typed)
+                routeName = AppRoute.GlobalSearch.name
+            },
+            onChatClick = { chat ->
+                selectedChatId = chat.id
+                chatBackRouteName = AppRoute.Chats.name
+                routeName = AppRoute.Chat.name
+            },
+            highlightedChatId = chatListHighlightedId(twoPane && chatOpen, selectedChatId),
+            compactHeader = twoPane,
+            state = chatsScreenState
+        )
+    }
+    // Телефонный раздел чатов: тот же список под нижним меню. Широкий экран собирает две панели ниже.
+    val chatsTab: @Composable () -> Unit = {
         MainTabsScaffold("${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
-            ChatsScreen(
-                chats = chats,
-                archivedChats = archivedChats,
-                folderSnapshot = folders,
-                folderChats = folderLists,
-                folderLoadStates = folderLoading,
-                onFolderLoadMore = { id ->
-                    archiveSettingsScope.launch { repository.loadMoreFolderChats(id) }
-                },
-                onPinFolderChat = repository::setFolderChatPinned,
-                onLoadFolder = repository::getFolderDraft,
-                onSaveFolder = repository::saveFolderDraft,
-                onDeleteFolder = repository::deleteServerFolder,
-                onReorderFolders = repository::reorderServerFolders,
-                myProfile = myProfile.info,
-                observeFile = repository::observeFile,
-                downloadFile = repository::downloadFile,
-                onMyProfile = { routeName = AppRoute.MyProfile.name },
-                onAccountPicker = { accountSwitcherVisible = true },
-                onArchiveClick = { routeName = AppRoute.Archive.name },
-                onMarkRead = markChatRead,
-                onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
-                onArchive = archiveChat,
-                onPinChat = repository::setChatPinned,
-                onMuteChat = repository::setChatMuted,
-                onDeleteChat = repository::deleteChatForSelf,
-                onNewChat = { routeName = AppRoute.NewChat.name },
-                archiveHidden = archiveHidden,
-                onArchiveHiddenChange = onArchiveHiddenChange,
-                onGlobalSearch = { typed ->
-                    globalSearchQuery = typed
-                    globalSearchSession.reset(typed)
-                    routeName = AppRoute.GlobalSearch.name
-                },
-                onChatClick = { chat ->
-                    selectedChatId = chat.id
-                    chatBackRouteName = AppRoute.Chats.name
-                    routeName = AppRoute.Chat.name
-                }
-            )
+            chatsList(false, false)
         }
     }
     val archiveRoute: @Composable () -> Unit = {
@@ -1234,17 +1365,26 @@ private fun BeyGramAppContent(
             }
         )
     }
-    val chatRoute: @Composable () -> Unit = {
+    // [twoPane] true when this chat is the right-hand pane of the wide layout. A chat that cannot be
+    // resolved must not replace the whole tab there: the list is already beside it.
+    val chatRoute: @Composable (Boolean) -> Unit = { twoPane ->
         val chats by repository.chats.collectAsStateWithLifecycle()
         val myAccount by repository.myProfile.collectAsStateWithLifecycle()
         val accountLabel = myAccount.info?.title?.takeIf { it.isNotBlank() } ?: myAccount.info?.phone.orEmpty()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
         val chat = selectedChat ?: chats.firstOrNull { it.id == selectedChatId }
+        // A secret or protected chat must not appear in screenshots or a screen recording.
+        // The Activity owns the window flag; this effect only reports the current screen policy.
+        val chatSecure = chat != null && (chat.isSecret || chat.hasProtectedContent)
+        DisposableEffect(chatSecure) {
+            onSecureScreenChange(chatSecure)
+            onDispose { if (chatSecure) onSecureScreenChange(false) }
+        }
         LaunchedEffect(authState, selectedChatId) {
             if (authState == AuthState.Ready && chat == null && selectedChatId != 0L) repository.loadChat(selectedChatId)
         }
         if (chat == null) {
-            chatsTab()
+            if (twoPane) ChatsDetailPlaceholder() else chatsTab()
         } else {
             var topicsResult by remember(repository, selectedChatId) {
                 mutableStateOf<Result<List<com.beykus.beygram.domain.model.ForumTopic>?>?>(null)
@@ -1386,6 +1526,7 @@ private fun BeyGramAppContent(
                         chats = chats,
                         observeFile = repository::observeFile,
                         onDownloadFile = repository::downloadFile,
+                        onAutoDownloadFile = repository::autoDownloadFile,
                         onBack = {
                             if (chatBackRouteName == AppRoute.GlobalSearch.name) {
                                 chatFocusMessageId = 0L
@@ -1398,7 +1539,14 @@ private fun BeyGramAppContent(
                         },
                         onChatInfo = { routeName = AppRoute.ChatInfo.name },
                         onStatistics = if (chat.isChannel && (chat.isChannelAdmin || chat.canPost)) {
-                            { routeName = AppRoute.ChannelStatistics.name }
+                            {
+                                if (chatBackRouteName != AppRoute.ChannelStatistics.name) {
+                                    statisticsChatBackRouteName = chatBackRouteName
+                                }
+                                statisticsReturnRouteName = AppRoute.Chat.name
+                                statisticsHeaderTitleRes = R.string.channel_statistics_title
+                                routeName = AppRoute.ChannelStatistics.name
+                            }
                         } else null,
                         connectionState = connectionState,
                         recordingSettings = recordingSettings,
@@ -1407,6 +1555,28 @@ private fun BeyGramAppContent(
                         topicCanPost = selectedTopic?.canWrite ?: true,
                         topicUnreadCount = selectedTopic?.unreadCount ?: 0,
                         onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
+                        onOpenUserChat = { userId ->
+                            val sourceAccountId = selectedAccountId
+                            val sourceRepository = repository
+                            memberScope.launch {
+                                sourceRepository.openPrivateChat(userId)
+                                    .onSuccess { chatId ->
+                                        if (selectedAccountId == sourceAccountId) {
+                                            selectedChatId = chatId
+                                            selectedTopicChatId = 0L
+                                            selectedForumTopicId = 0L
+                                            chatBackRouteName = AppRoute.Chats.name
+                                            routeName = AppRoute.Chat.name
+                                        }
+                                    }
+                                    .onFailure { error ->
+                                        if (selectedAccountId == sourceAccountId) {
+                                            noticeError = (error as? UserMessageException)?.text
+                                                ?: UiText.Res(R.string.profile_member_open_failed)
+                                        }
+                                    }
+                            }
+                        },
                         onOpenComments = { post ->
                             threadChannelChatId = selectedChatId
                             threadPostId = post.id
@@ -1441,7 +1611,8 @@ private fun BeyGramAppContent(
                                 threadDraftReplyId = replyId
                             },
                             onBack = { routeName = AppRoute.Chat.name },
-                            onOpenProfile = { userId -> openUserProfile(userId, AppRoute.MessageThread) }
+                            onOpenProfile = { userId -> openUserProfile(userId, AppRoute.MessageThread) },
+                            autoDownloadFile = repository::autoDownloadFile
                         )
                     }
                 }
@@ -1450,12 +1621,27 @@ private fun BeyGramAppContent(
     }
     val chatInfoRoute: @Composable () -> Unit = {
         val chats by repository.chats.collectAsStateWithLifecycle()
+        val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
+        // Chat information includes shared media; a protected chat must stay out of screenshots here too.
+        val chatInfoSecure = selectedChat?.let { it.isSecret || it.hasProtectedContent } == true
+        DisposableEffect(chatInfoSecure) {
+            onSecureScreenChange(chatInfoSecure)
+            onDispose { if (chatInfoSecure) onSecureScreenChange(false) }
+        }
         val infoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
         LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
+            onManage = { routeName = AppRoute.ChatManagement.name },
+            onStatistics = if (canOpenGroupStatistics(info.info)) {
+                {
+                    statisticsReturnRouteName = AppRoute.ChatInfo.name
+                    statisticsHeaderTitleRes = R.string.group_statistics_title
+                    routeName = AppRoute.ChannelStatistics.name
+                }
+            } else null,
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
             loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
             setPreviousProfilePhoto = repository::setPreviousProfilePhoto,
@@ -1485,7 +1671,9 @@ private fun BeyGramAppContent(
                 }
                 chatFocusMessageId = messageId
                 routeName = AppRoute.Chat.name
-            })
+            },
+            onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.ChatInfo) },
+            autoDownloadFile = repository::autoDownloadFile)
     }
 
     val chatMembersRoute: @Composable () -> Unit = {
@@ -1494,6 +1682,18 @@ private fun BeyGramAppContent(
                 observeFile = repository::observeFile, downloadFile = repository::downloadFile,
                 onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatMembers) },
                 onBack = { routeName = AppRoute.ChatInfo.name })
+        }
+    }
+    val chatManagementRoute: @Composable () -> Unit = {
+        key(selectedChatId) {
+            GroupManagementScreen(
+                chatId = selectedChatId,
+                repository = repository,
+                observeFile = repository::observeFile,
+                downloadFile = repository::downloadFile,
+                onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatManagement) },
+                onBack = { routeName = AppRoute.ChatInfo.name }
+            )
         }
     }
     val memberProfileRoute: @Composable () -> Unit = {
@@ -1515,10 +1715,15 @@ private fun BeyGramAppContent(
             onOpenLinkedChannel = { channelId ->
                 selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
             },
-            lastSeenStyle = lastSeenStyle)
+            lastSeenStyle = lastSeenStyle,
+            onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MemberProfile) },
+            autoDownloadFile = repository::autoDownloadFile)
     }
 
-    CompositionLocalProvider(LocalPlaybackAccountId provides selectedAccountId) {
+    CompositionLocalProvider(
+        LocalPlaybackAccountId provides selectedAccountId,
+        LocalAutoDownloadFile provides repository::autoDownloadFile
+    ) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
@@ -1646,22 +1851,83 @@ private fun BeyGramAppContent(
                     )
                 }
 
-                AppRoute.Chats -> chatsTab()
+                // Один композиционный слот для списка и открытого чата: на широком экране они
+                // стоят рядом, и переход между ними не пересоздаёт список.
+                AppRoute.Chats, AppRoute.Chat, AppRoute.MessageThread -> {
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val twoPane = isTwoPaneChatsWidth(maxWidth.value)
+                        if (twoPane) {
+                            ChatsTwoPaneScaffold(
+                                listPaneWidth = chatListPaneWidthDp(maxWidth.value).dp,
+                                showNavigation = route == AppRoute.Chats,
+                                navigation = {
+                                    // Нижнее меню остаётся прежним; на широком экране оно
+                                    // занимает всю ширину под обеими панелями.
+                                    NowPlayingBar()
+                                    MainTabBar(
+                                        tabs = MainTab.entries.filter { tabVisibility.isVisible(it) },
+                                        selected = MainTab.Chats,
+                                        onSelect = selectTab
+                                    )
+                                },
+                                list = { chatsList(true, route != AppRoute.Chats) },
+                                detail = {
+                                    if (route == AppRoute.Chats) ChatsDetailPlaceholder()
+                                    else chatRoute(true)
+                                }
+                            )
+                        } else if (route == AppRoute.Chats) {
+                            chatsTab()
+                        } else {
+                            chatRoute(false)
+                        }
+                    }
+                }
 
                 AppRoute.Archive -> archiveRoute()
 
-                AppRoute.Chat, AppRoute.MessageThread -> chatRoute()
+                AppRoute.Stories -> StoryViewerScreen(
+                    repository = repository,
+                    posterChatId = storyChatId,
+                    initialStoryId = storyInitialId,
+                    onClose = { routeName = storyReturnRouteName }
+                )
+
+                AppRoute.StoryPublisher -> StoryPublisherScreen(
+                    repository = repository,
+                    myProfile = myProfile.info,
+                    accountId = selectedAccountId,
+                    onBack = { routeName = storyReturnRouteName },
+                    onPublished = {
+                        repository.refreshActiveStories()
+                        routeName = AppRoute.Chats.name
+                    }
+                )
+
                 AppRoute.ChatInfo -> chatInfoRoute()
                 AppRoute.ChannelStatistics -> {
                     val statsChat by repository.chats.collectAsStateWithLifecycle()
+                    val statsPreview = statsChat.firstOrNull { it.id == selectedChatId }
                     ChannelStatisticsScreen(
-                        title = statsChat.firstOrNull { it.id == selectedChatId }?.title.orEmpty(),
+                        title = statsPreview?.title.orEmpty(),
+                        headerTitle = statisticsHeaderTitleRes,
                         loadStatistics = { repository.channelStatistics(selectedChatId) },
                         loadEvents = { from, filter -> repository.channelAdminEvents(selectedChatId, from, filter) },
-                        onBack = { routeName = AppRoute.Chat.name }
+                        onOpenPost = { messageId ->
+                            chatFocusMessageId = messageId
+                            chatBackRouteName = AppRoute.ChannelStatistics.name
+                            routeName = AppRoute.Chat.name
+                        },
+                        onBack = {
+                            if (statisticsReturnRouteName == AppRoute.Chat.name) {
+                                chatBackRouteName = statisticsChatBackRouteName
+                            }
+                            routeName = statisticsReturnRouteName
+                        }
                     )
                 }
                 AppRoute.ChatMembers -> chatMembersRoute()
+                AppRoute.ChatManagement -> chatManagementRoute()
                 AppRoute.MemberProfile -> memberProfileRoute()
                 AppRoute.MyProfile -> {
                     LaunchedEffect(repository) { repository.refreshMyProfile() }
@@ -1675,7 +1941,39 @@ private fun BeyGramAppContent(
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
                         onOpenLinkedChannel = { channelId ->
                             selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
-                        }, lastSeenStyle = lastSeenStyle)
+                        }, lastSeenStyle = lastSeenStyle,
+                        onPremium = { openPremium(AppRoute.MyProfile) },
+                        onStars = { openStars(AppRoute.MyProfile) },
+                        onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MyProfile) },
+                        autoDownloadFile = repository::autoDownloadFile)
+                }
+                AppRoute.Premium -> PremiumScreen(
+                    load = repository::premiumInfo,
+                    checkGiftCode = repository::checkPremiumGiftCode,
+                    applyGiftCode = repository::applyPremiumGiftCode,
+                    onBack = { routeName = monetizationReturnRouteName }
+                )
+                AppRoute.Stars -> StarsScreen(
+                    load = repository::starsInfo,
+                    loadMore = repository::starTransactions,
+                    onBack = { routeName = starsReturnRouteName }
+                )
+                AppRoute.Gifts -> if (giftsProfileId == 0L) {
+                    LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
+                } else {
+                    GiftsScreen(
+                        accountId = selectedAccountId,
+                        title = stringResource(
+                            if (giftsProfileSelf) R.string.gifts_title_own else R.string.gifts_title
+                        ),
+                        profileId = giftsProfileId,
+                        profileTitle = giftsProfileTitle,
+                        isSelf = giftsProfileSelf,
+                        load = { repository.giftsInfo(giftsProfileId, giftsProfileSelf) },
+                        send = { giftId -> repository.sendGift(giftsProfileId, giftsProfileSelf, giftId) },
+                        onOpenStars = { openStars(AppRoute.Gifts) },
+                        onBack = { routeName = giftsReturnRouteName }
+                    )
                 }
                 AppRoute.Appearance -> ThemeSettingsScreen(
                     saved = appearance,
@@ -1733,6 +2031,7 @@ private fun BeyGramAppContent(
                         onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
                         onNotifications = { openNotifications(AppRoute.Settings) },
                         onStorage = { routeName = AppRoute.StorageSettings.name },
+                        onAutoDownload = { routeName = AppRoute.AutoDownloadSettings.name },
                         onProxy = { openProxy(AppRoute.Settings) },
                         onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
                         onDiagnostics = { routeName = AppRoute.Diagnostics.name },
@@ -1740,9 +2039,12 @@ private fun BeyGramAppContent(
                         onLanguage = { routeName = AppRoute.Language.name },
                         onSessions = { routeName = AppRoute.Sessions.name },
                         onPrivacy = { routeName = AppRoute.PrivacySettings.name },
-                        onSecondaryAccounts = { accountSwitcherVisible = true }
+                        onAccountSecurity = { routeName = AppRoute.AccountSecurity.name },
+                        onSecondaryAccounts = { accountSwitcherVisible = true },
+                        onAppLock = { routeName = AppRoute.AppLock.name }
                     )
                 }
+                AppRoute.AppLock -> AppLockSettingsScreen(onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.Language -> LanguageScreen(translationSettings, onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.AccountPicker, AppRoute.SecondaryAccounts, AppRoute.SecondaryChats ->
                     LaunchedEffect(Unit) {
@@ -1756,9 +2058,85 @@ private fun BeyGramAppContent(
                     terminate = repository::terminateOtherSession,
                     terminateAll = repository::terminateAllOtherSessions
                 )
+                AppRoute.AccountSecurity -> key(selectedAccountId) {
+                    val securityAccountId = selectedAccountId
+                    AccountSecurityScreen(
+                        accountId = securityAccountId,
+                        repository = repository,
+                        currentPhone = myProfile.info?.phone.orEmpty(),
+                        isPrimaryAccount = securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
+                        deletionRunning = accountDeletion.accountId == securityAccountId &&
+                            (accountDeletion.running || accountDeletion.serverDeleted),
+                        requestAccountDeletion = { password, onResult ->
+                            if (!AccountDeletionTracker.begin(securityAccountId)) {
+                                onResult(
+                                    Result.failure(
+                                        IllegalStateException("Account deletion is already running")
+                                    )
+                                )
+                            } else {
+                                applicationScope.launch {
+                                    val deletion = try {
+                                        withContext(Dispatchers.IO) {
+                                            repository.deleteTelegramAccount(password)
+                                        }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: Throwable) {
+                                        Result.failure(failure)
+                                    }
+                                    withContext(Dispatchers.Main) { onResult(deletion) }
+                                    if (!deletion.isSuccess) {
+                                        AccountDeletionTracker.finish(
+                                            securityAccountId,
+                                            serverDeleted = false
+                                        )
+                                        AccountDeletionTracker.clearTerminal()
+                                        return@launch
+                                    }
+                                    if (securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+                                        // Never erase the primary TDLib database here. TDLib rebuilds
+                                        // the closed legacy client and publishes WaitPhoneNumber; the
+                                        // composition effect opens the sign-in screen through Start.
+                                        AccountDeletionTracker.finish(
+                                            securityAccountId,
+                                            serverDeleted = true
+                                        )
+                                        return@launch
+                                    }
+                                    var cleanupError: UiText? = null
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            secondaryAccountController.logoutAndDelete(
+                                                securityAccountId,
+                                                serverDeleted = true
+                                            )
+                                        }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Throwable) {
+                                        cleanupError = UiText.Res(
+                                            R.string.account_security_delete_cleanup_failed
+                                        )
+                                    }
+                                    // Account selection is applied by a composition effect
+                                    // observing this tracker, so a recreated Activity can
+                                    // finish the same navigation after cleanup.
+                                    AccountDeletionTracker.finish(
+                                        securityAccountId,
+                                        serverDeleted = true,
+                                        error = cleanupError
+                                    )
+                                }
+                            }
+                        },
+                        onBack = { routeName = AppRoute.Settings.name }
+                    )
+                }
                 AppRoute.NewChat -> NewChatScreen(
                     loadContacts = repository::loadContacts,
                     openPrivateChat = repository::openPrivateChat,
+                    createSecretChat = repository::createSecretChat,
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
                     onBack = { routeName = AppRoute.Chats.name },
@@ -1912,6 +2290,10 @@ private fun BeyGramAppContent(
                     accountId = selectedAccountId,
                     onBack = { routeName = AppRoute.Settings.name }
                 )
+                AppRoute.AutoDownloadSettings -> AutoDownloadSettingsScreen(
+                    accountId = selectedAccountId,
+                    onBack = { routeName = AppRoute.Settings.name }
+                )
                 AppRoute.NavigationSettings -> NavigationSettingsScreen(
                     visibility = tabVisibility,
                     onVisibilityChange = onTabVisibilityChange,
@@ -1971,7 +2353,7 @@ private fun BeyGramAppContent(
     }
     }
     AccountSwitcherSheet(
-        visible = accountSwitcherVisible,
+        visible = accountSwitcherVisible && !locked,
         currentAccountId = selectedAccountId,
         legacyReady = legacyAuthState == AuthState.Ready,
         snapshot = accountChoice,
@@ -2009,7 +2391,7 @@ private fun BeyGramAppContent(
             accountSwitcherRouteAccountId = null
         }
     )
-    deepLinkInvite?.takeIf { it.accountId == selectedAccountId }?.let { prompt ->
+    deepLinkInvite?.takeIf { !locked && it.accountId == selectedAccountId }?.let { prompt ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = {
                 if (!deepLinkBusy) {
@@ -2080,7 +2462,7 @@ private fun BeyGramAppContent(
             }
         )
     }
-    deepLinkProxy?.takeIf { it.accountId == selectedAccountId }?.let { prompt ->
+    deepLinkProxy?.takeIf { !locked && it.accountId == selectedAccountId }?.let { prompt ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = {
                 if (!deepLinkBusy) {
@@ -2138,9 +2520,9 @@ private fun BeyGramAppContent(
             }
         )
     }
-    noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
+    if (!locked) noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
         text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
-    ProxyRestoreDialog(vpnBackend = vpnBackend)
+    if (!locked) ProxyRestoreDialog(vpnBackend = vpnBackend)
 }
 
 private data class DeepLinkInvitePrompt(

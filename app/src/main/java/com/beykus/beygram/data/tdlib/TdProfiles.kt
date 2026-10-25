@@ -51,6 +51,34 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         files.register(small.toMediaFileState()); files.register(big.toMediaFileState())
         return AvatarPhoto(small.id, big.id)
     }
+    /** Фото из полной информации о группе: TDLib отдаёт набор размеров, а не готовую пару файлов. */
+    fun avatar(photo: TdApi.ChatPhoto?): AvatarPhoto? {
+        val sizes = photo?.sizes.orEmpty()
+            .filter { it.photo != null && it.photo.id > 0 }
+            .sortedBy { it.width.toLong() * it.height }
+        val small = sizes.firstOrNull()?.photo ?: return null
+        val big = sizes.lastOrNull()?.photo ?: small
+        files.register(small.toMediaFileState()); files.register(big.toMediaFileState())
+        return AvatarPhoto(small.id, big.id)
+    }
+    /** Идентификатор подписанного аккаунта; первый запрос при необходимости загружает GetMe. */
+    internal suspend fun myUserId(): Long {
+        synchronized(lock) { myId }.takeIf { it > 0L }?.let { return it }
+        val me = request(TdApi.GetMe())
+        synchronized(lock) {
+            myId = me.id
+            users[me.id] = me
+            publish()
+        }
+        return me.id
+    }
+    /** Догружает отсутствующих пользователей параллельно: страница участников не должна ждать их по одному. */
+    internal suspend fun resolveUsers(ids: Collection<Long>): Map<Long, TdApi.User> {
+        val unique = ids.distinct().filter { it > 0L }
+        val missing = unique.filter { synchronized(lock) { users[it] } == null }
+        if (missing.isNotEmpty()) coroutineScope { missing.map { id -> async { fetchUser(id) } }.awaitAll() }
+        return synchronized(lock) { unique.mapNotNull { id -> users[id]?.let { id to it } }.toMap() }
+    }
     fun putChat(chat: TdApi.Chat) = synchronized(lock) { chats[chat.id] = chat; publish() }
     fun chat(chatId: Long): TdApi.Chat? = synchronized(lock) { chats[chatId] }
     /** Uses the group membership status cached with the chat, so a chat whose group is not known yet keeps its composer. */
@@ -426,16 +454,19 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 val full = groupFull[type.basicGroupId]
                 base.copy(kind = ProfileKind.Group, bio = full?.description.orEmpty(), memberCount = groups[type.basicGroupId]?.memberCount, canListMembers = true,
                     administratorCount = full?.members?.count { it.status is TdApi.ChatMemberStatusCreator || it.status is TdApi.ChatMemberStatusAdministrator }?.takeIf { it > 0 },
-                    inviteLink = full?.inviteLink?.inviteLink.orEmpty())
+                    inviteLink = full?.inviteLink?.inviteLink.orEmpty(),
+                    groupAdmin = groups[type.basicGroupId]?.status?.toGroupAdminRights(ManagedChatKind.BasicGroup))
             }
             is TdApi.ChatTypeSupergroup -> {
                 val group = supers[type.supergroupId]
                 val full = superFull[type.supergroupId]
+                val kind = if (type.isChannel) ManagedChatKind.Channel else ManagedChatKind.Supergroup
                 base.copy(kind = if (type.isChannel) ProfileKind.Channel else ProfileKind.Group,
                     bio = full?.description.orEmpty(), memberCount = full?.memberCount?.takeIf { it > 0 } ?: group?.memberCount,
                     administratorCount = full?.administratorCount?.takeIf { it > 0 }, inviteLink = full?.inviteLink?.inviteLink.orEmpty(),
-                    canListMembers = full?.canGetMembers == true,
-                    usernames = group?.usernames?.activeUsernames.orEmpty().toList(), isVerified = group?.verificationStatus?.isVerified == true)
+                    canListMembers = full?.canGetMembers == true, canViewStatistics = full?.canGetStatistics == true,
+                    usernames = group?.usernames?.activeUsernames.orEmpty().toList(), isVerified = group?.verificationStatus?.isVerified == true,
+                    groupAdmin = group?.status?.toGroupAdminRights(kind))
             }
             else -> base
         }

@@ -31,7 +31,8 @@ import kotlinx.coroutines.launch
 /** A separate history window keeps distant replies from creating gaps in the main pagination. */
 @Composable
 internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: ConversationRepository,
-    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClose: () -> Unit) {
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClose: () -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null) {
     var context by remember(chatId, targetId) { mutableStateOf<MessageContext?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
@@ -63,6 +64,12 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                 .onFailure { failure -> Toast.makeText(androidContext, failure.userMessage(androidContext, R.string.chat_reaction_failed), Toast.LENGTH_SHORT).show() }
         }
     }
+    // Poll mutations refresh the shared history store; reload this separate snapshot so vote/results/options are visible.
+    fun refreshPollSnapshot() {
+        reactionScope.launch {
+            conversation.messageContext(chatId, targetId).onSuccess { context = it }
+        }
+    }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -81,14 +88,35 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                 context == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else -> LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(context!!.messages, key = { it.id }) { message ->
-                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = { selected = message }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
+                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = { selected = message }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
+                            onPollVote = { messageId, choices ->
+                                reactionScope.launch {
+                                    conversation.votePoll(message.chatId, messageId, choices)
+                                        .onSuccess { refreshPollSnapshot() }
+                                        .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_vote_failed), Toast.LENGTH_SHORT).show() }
+                                }
+                            },
+                            onPollStop = { messageId ->
+                                reactionScope.launch {
+                                    conversation.stopPoll(message.chatId, messageId)
+                                        .onSuccess { refreshPollSnapshot() }
+                                        .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_stop_failed), Toast.LENGTH_SHORT).show() }
+                                }
+                            },
+                            onLoadPollVoters = { messageId, optionIndex, offset ->
+                                conversation.pollVoters(message.chatId, messageId, optionIndex, offset)
+                            },
+                            onAddPollOption = { messageId, text ->
+                                conversation.addPollOption(message.chatId, messageId, text)
+                                    .onSuccess { refreshPollSnapshot() }
+                            })
                     }
                 }
             }
         }
     }
-    selected?.let { message -> message.media?.let { media -> MediaViewer(pages = listOf(MediaViewerItem(message.id, media)), selectedId = message.id, onSelect = {},
-        observeFile = observeFile, downloadFile = downloadFile, onViewed = { id -> conversation.openMessageContent(message.chatId, id) }, onClose = { selected = null },
-        canExport = MediaViewerPolicy.rightsFor(message.id, rights)?.canSave == true,
+    selected?.let { message -> message.media?.let { media -> MediaViewer(pages = listOf(MediaViewerItem(message.id, media, message.isViewOnce)), selectedId = message.id, onSelect = {},
+        observeFile = observeFile, downloadFile = downloadFile, autoDownloadFile = autoDownloadFile, onViewed = { id -> conversation.openMessageContent(message.chatId, id) }, onClose = { selected = null },
+        canExport = MediaViewerPolicy.rightsFor(message.id, rights)?.canSave == true && !message.isViewOnce,
         confirmExport = { id -> conversation.messageCapabilities(message.chatId, id).getOrNull()?.canSave == true }) } }
 }
