@@ -1160,6 +1160,13 @@
     <string name="settings_video_diagnostics_report">Диагностика кружка</string>
     <string name="settings_video_diagnostics_copy">Копировать</string>
     <string name="settings_video_diagnostics_share">Поделиться отчётом</string>
+    <string name="settings_video_diagnostics_save">Сохранить в файл</string>
+    <string name="settings_video_diagnostics_compact">Кратко</string>
+    <string name="settings_video_diagnostics_full">Полно</string>
+    <string name="settings_video_diagnostics_txt">TXT</string>
+    <string name="settings_video_diagnostics_json">JSON</string>
+    <string name="diag_save_done">Отчёт сохранён</string>
+    <string name="diag_save_failed">Не удалось сохранить отчёт</string>
     <string name="settings_video_diagnostics_clear">Очистить</string>
     <string name="settings_video_diagnostics_clear_confirm">Удалить все локальные диагностические отчёты по видеосообщениям?</string>
     <string name="settings_video_diagnostics_cancel">Отмена</string>

@@ -29,7 +29,19 @@
     <string name="camera_report_recording_heading">So wählt die normale Videonachrichtenaufzeichnung die Bildrate aus (angefordert %1$s):</string>
     <string name="camera_report_recording_lens">%1$s Kamera %2$s: Bereich %3$s ausgewählt. %4$s</string>
     <string name="camera_report_recording_candidates">Nutzbare Normalbereiche: %1$s; Encoder bestätigt 60 fps: %2$s</string>
+    <string name="camera_report_camerax_vs_camera2">Pfadvergleich: CameraX gibt %1$s an; Camera2 normaler AE: %2$s. Die normale Aufnahme verwendet CameraX; Camera2 Manual/High-Speed sind nur separate Prüfungen.</string>
     <string name="camera_report_recording_unavailable">Aufnahmekameras sind derzeit nicht verfügbar.</string>
+    <string name="camera_report_path_note">Aufnahmepfad: CameraX Preview+VideoCapture mit normalen AE-Bereichen. Camera2 Manual Sensor und Hochgeschwindigkeitsaufnahme sind separate Prüfungen und standardmäßig nicht aktiv.</string>
+    <string name="camera_detail_capture_path">Gewählter Pfad: CameraX, normaler AE. Camera2 Manual Sensor: %1$s; constrained High-Speed: %2$s. Dies sind Fähigkeiten, kein aktivierter Modus.</string>
+    <string name="session_config_supported">Camera2-Sitzung (Android 15+, Kamera nicht geöffnet; geplante Kombination): Vorschau %1$s + Encoder %2$s — unterstützt.</string>
+    <string name="session_config_unsupported">Camera2-Sitzung (Android 15+, Kamera nicht geöffnet; geplante Kombination): Vorschau %1$s + Encoder %2$s — nicht unterstützt: %3$s.</string>
+    <string name="session_config_unknown">Camera2-Sitzung (Android 15+, Kamera nicht geöffnet; geplante Kombination): Vorschau %1$s + Encoder %2$s — unbekannt: %3$s.</string>
+    <string name="session_reason_supported">Prüfung bestanden</string>
+    <string name="session_reason_rejected">Camera2 hat die Kombination abgelehnt</string>
+    <string name="session_reason_api_old">Android 15 (SDK 35) erforderlich, aktuell SDK %1$d</string>
+    <string name="session_reason_setup_unavailable">das Gerät bietet die Konfigurationsprüfung nicht an</string>
+    <string name="session_reason_no_surface">Testflächen konnten nicht ausgewählt oder erstellt werden</string>
+    <string name="session_reason_exception">Ausnahme %1$s</string>
 
     <string name="camera_thermal_none">keine</string>
     <string name="camera_thermal_light">leicht</string>
@@ -113,6 +125,7 @@
     <string name="vn_report_raw">Originalaufnahme: %1$s fps</string>
     <string name="vn_report_final">Endgültige Datei: %1$s fps</string>
     <string name="vn_report_stage">Wo die Bildrate begrenzt ist: %1$s</string>
+    <string name="vn_report_fallback">Grund für die Wahl dieses Bildratenbereichs: %1$s</string>
     <string name="vn_stage_raw">Originalaufnahme</string>
     <string name="vn_stage_final">Endgültige Datei, Teil %1$d</string>
     <string name="vn_frame_summary">%1$dx%2$d, Frames %3$d, gemessene %4$s fps (Datei deklariert %5$s), Intervall p50/p95/max %6$s/%7$s/%8$s ms, Pausen über 50 ms %9$d, wiederholte Zeitstempel %10$d, Bilder pro Sekunde [%11$s], Video %12$s (Profil %13$s, Level %14$s), Bitrate %15$s, Audio %16$s, Audio/Video-Abweichung %17$s ms, %18$d Bytes</string>
@@ -241,6 +254,7 @@
     <string name="diag_center_open">Öffnen</string>
     <string name="diag_full_report_title">Vollständiger Bericht</string>
     <string name="diag_full_report_not_run">Nicht ausgeführt.</string>
+    <string name="diag_full_report_compact_notice">Kompaktansicht: nur letzte Aufnahmen und ihre Kernmetriken. Kamerafunktionen, FPS- und Telegram-Prüfungen sind ausgeblendet — wählen Sie Vollständig.</string>
     <string name="diag_full_report_survey">=== Kamerafunktionen ===</string>
     <string name="diag_full_report_fps">=== Bildratenprüfung ===</string>
     <string name="diag_full_report_telegram">=== Telegram-Prüfung ===</string>

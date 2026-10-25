@@ -49,10 +49,14 @@ data class VideoNoteDiagnosticReport(
     /** Upper bound of the range actually handed to the camera; null = camera default. */
     val attemptedMaxFps: Int? = null,
     /** Frame rate of the sensor results received while recording; null = not collected. */
-    val sensorFps: Double? = null
+    val sensorFps: Double? = null,
+    /** Localized explanation of the FPS fallback; survives app restarts with the report. */
+    val fallbackReason: String? = null,
+    /** Stable enum key of [VideoNoteFpsCause]; safe for machine-readable reports. */
+    val fpsCause: String? = null
 ) {
     /** [statusLabel] turns a [VideoNoteStatus] key into the localized label shown in the list. */
-    fun asText(context: Context, statusLabel: (String) -> String): String = buildString {
+    fun asText(context: Context, statusLabel: (String) -> String, compact: Boolean = false): String = buildString {
         fun fps(value: Double?) = value?.let { String.format(Locale.US, "%.2f", it) }
             ?: context.getString(R.string.loss_report_not_measured)
         appendLine(context.getString(R.string.vn_report_heading))
@@ -65,13 +69,29 @@ data class VideoNoteDiagnosticReport(
         appendLine(context.getString(R.string.vn_report_final, fps(outputFps)))
         appendLine(context.getString(R.string.vn_report_stage,
             fpsLimitStageText(context, videoNoteFpsLimitStage(targetFps, attemptedMaxFps, rawFps, outputFps))))
+        if (compact) {
+            appendLine(context.getString(R.string.camera_report_device,
+                Build.MANUFACTURER, Build.MODEL, Build.VERSION.SDK_INT))
+            fallbackReason?.let { appendLine(context.getString(R.string.vn_report_fallback, it)) }
+        }
         if (sensorFps != null || rawFps != null || outputFps != null) {
             appendLine(rootCauseText(context, diagnoseVideoNoteFps(VideoNoteStageEvidence(
                 targetFps = attemptedMaxFps ?: targetFps, sensorFps = sensorFps, rawFps = rawFps, exportedFps = outputFps))))
         }
-        appendLine()
-        entries.forEach { appendLine(it) }
+        if (!compact) {
+            appendLine()
+            entries.forEach { appendLine(it) }
+        }
     }
+
+    /** Versioned machine-readable report; [compact] omits the detailed text lines. */
+    fun asJson(compact: Boolean = false): String = VideoNoteDiagnosticJson.encode(
+        VideoNoteDiagnosticJsonDocument(
+            generatedAt = System.currentTimeMillis(),
+            compact = compact,
+            reports = listOf(toJsonReport(compact))
+        )
+    )
 }
 
 object VideoNoteDiagnostics {
@@ -113,7 +133,9 @@ object VideoNoteDiagnostics {
                     rawFps = if (json.has("rawFps")) json.getDouble("rawFps") else null,
                     outputFps = if (json.has("outputFps")) json.getDouble("outputFps") else null,
                     attemptedMaxFps = if (json.has("attemptedMaxFps")) json.getInt("attemptedMaxFps") else null,
-                    sensorFps = if (json.has("sensorFps")) json.getDouble("sensorFps") else null
+                    sensorFps = if (json.has("sensorFps")) json.getDouble("sensorFps") else null,
+                    fallbackReason = if (json.has("fallbackReason")) json.getString("fallbackReason") else null,
+                    fpsCause = if (json.has("fpsCause")) json.getString("fpsCause") else null
                 )
             }
         }.onFailure { Log.w(TAG, "Cannot read stored video diagnostics: ${it.javaClass.simpleName}") }
@@ -157,7 +179,9 @@ object VideoNoteDiagnostics {
             status = VideoNoteStatus.RECORDING,
             targetFps = settings.requestedFrameRateRange().last,
             entries = start,
-            attemptedMaxFps = decision?.selected?.last
+            attemptedMaxFps = decision?.selected?.last,
+            fallbackReason = decision?.let { fpsCauseText(context, it.cause) },
+            fpsCause = decision?.cause?.name
         )
         persist(listOf(report) + mutableReports.value.filterNot { it.id == sessionId })
     }
@@ -310,6 +334,8 @@ object VideoNoteDiagnostics {
                     report.outputFps?.let { put("outputFps", it) }
                     report.attemptedMaxFps?.let { put("attemptedMaxFps", it) }
                     report.sensorFps?.let { put("sensorFps", it) }
+                    report.fallbackReason?.let { put("fallbackReason", it) }
+                    report.fpsCause?.let { put("fpsCause", it) }
                 })
             }
             val bytes = array.toString().toByteArray(Charsets.UTF_8)

@@ -30,7 +30,19 @@
     <string name="camera_report_recording_heading">Как обычная запись кружка выбирает частоту кадров (запрошено %1$s):</string>
     <string name="camera_report_recording_lens">  %1$s камера %2$s: выбран диапазон %3$s. %4$s</string>
     <string name="camera_report_recording_candidates">    Подходящие обычные диапазоны: %1$s; кодировщик подтверждает 60 кадров/с: %2$s</string>
+    <string name="camera_report_camerax_vs_camera2">    Сравнение пути: CameraX заявляет %1$s; Camera2 normal AE: %2$s. Обычная запись использует CameraX; Camera2 manual/high-speed — только отдельные проверки.</string>
     <string name="camera_report_recording_unavailable">  Камеры для записи сейчас недоступны.</string>
+    <string name="camera_report_path_note">Путь записи: CameraX Preview+VideoCapture и обычные AE-диапазоны. Camera2 manual sensor и скоростная съёмка доступны только как отдельные проверки и по умолчанию не включаются.</string>
+    <string name="camera_detail_capture_path">Выбранный путь: CameraX, обычный AE. Camera2 manual sensor: %1$s; constrained high-speed: %2$s. Это возможности, а не включённый режим.</string>
+    <string name="session_config_supported">Camera2 session (Android 15+, без открытия камеры; запланированная комбинация): preview %1$s + encoder %2$s — поддерживается.</string>
+    <string name="session_config_unsupported">Camera2 session (Android 15+, без открытия камеры; запланированная комбинация): preview %1$s + encoder %2$s — не поддерживается: %3$s.</string>
+    <string name="session_config_unknown">Camera2 session (Android 15+, без открытия камеры; запланированная комбинация): preview %1$s + encoder %2$s — статус неизвестен: %3$s.</string>
+    <string name="session_reason_supported">проверка пройдена</string>
+    <string name="session_reason_rejected">Camera2 отклонил комбинацию</string>
+    <string name="session_reason_api_old">нужен Android 15 (SDK 35), сейчас SDK %1$d</string>
+    <string name="session_reason_setup_unavailable">устройство не предоставляет проверку конфигурации</string>
+    <string name="session_reason_no_surface">не удалось подобрать или создать тестовые поверхности</string>
+    <string name="session_reason_exception">исключение %1$s</string>
 
     <string name="camera_thermal_none">нет</string>
     <string name="camera_thermal_light">лёгкий</string>
@@ -114,6 +126,7 @@
     <string name="vn_report_raw">Исходная запись: %1$s кадров/с</string>
     <string name="vn_report_final">Готовый файл: %1$s кадров/с</string>
     <string name="vn_report_stage">Где ограничена частота: %1$s</string>
+    <string name="vn_report_fallback">Причина выбора частоты: %1$s</string>
     <string name="vn_stage_raw">Исходная запись</string>
     <string name="vn_stage_final">Готовый файл, часть %1$d</string>
     <string name="vn_frame_summary">%1$dx%2$d, кадров %3$d, измерено %4$s кадров/с (в файле заявлено %5$s), интервал p50/p95/макс %6$s/%7$s/%8$s мс, пауз дольше 50 мс %9$d, повторных меток %10$d, кадров по секундам [%11$s], видео %12$s (профиль %13$s, уровень %14$s), битрейт %15$s, звук %16$s, расхождение звука и видео %17$s мс, %18$d байт</string>
@@ -242,6 +255,7 @@
     <string name="diag_center_open">Открыть</string>
     <string name="diag_full_report_title">Полный отчёт</string>
     <string name="diag_full_report_not_run">Не запускалось.</string>
+    <string name="diag_full_report_compact_notice">Краткий вид: только последние записи и их ключевые метрики. Возможности камер, проверки FPS и Telegram скрыты — выберите «Полно».</string>
     <string name="diag_full_report_survey">=== Возможности камер ===</string>
     <string name="diag_full_report_fps">=== Проверка частоты кадров ===</string>
     <string name="diag_full_report_telegram">=== Проверка через Telegram ===</string>

@@ -58,6 +58,10 @@ import com.beykus.beygram.data.media.VideoNoteSyntheticSource
 import com.beykus.beygram.data.media.ProbeScope
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.data.media.VideoNoteDiagnosticReport
+import com.beykus.beygram.data.media.VideoNoteDiagnosticJson
+import com.beykus.beygram.data.media.VideoNoteDiagnosticJsonDocument
+import com.beykus.beygram.data.media.VideoNoteDiagnosticJsonSection
+import com.beykus.beygram.data.media.toJsonReport
 import com.beykus.beygram.data.media.VideoNoteStatus
 import com.beykus.beygram.data.media.VideoFrameRatePriority
 import com.beykus.beygram.data.media.VideoQualityPreset
@@ -85,6 +89,10 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     val diagnostics = remember(context) { VideoNoteDiagnostics.also { it.initialize(context) } }
     val reports by diagnostics.reports.collectAsStateWithLifecycle()
     var selectedReport by remember { mutableStateOf<VideoNoteDiagnosticReport?>(null) }
+    var compactReport by remember { mutableStateOf(false) }
+    var jsonReport by remember { mutableStateOf(false) }
+    var fullJson by remember { mutableStateOf(false) }
+    var compactFull by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var cameraSurvey by remember { mutableStateOf<String?>(null) }
     var cameraSurveyBusy by remember { mutableStateOf(false) }
@@ -107,6 +115,10 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     val settingsScroll = rememberScrollState()
     val diagnosticsScroll = rememberScrollState()
     LaunchedEffect(diagnosticsPage) { if (diagnosticsPage) diagnosticsScroll.scrollTo(0) }
+    LaunchedEffect(selectedReport?.id) {
+        compactReport = false
+        jsonReport = false
+    }
     var showFullDiagnostics by remember { mutableStateOf(false) }
     var fullExtended by remember { mutableStateOf(false) }
     var latestSurvey by remember { mutableStateOf<String?>(null) }
@@ -149,7 +161,13 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             showFullReport = true
         }
     }
-    fun buildFullReport(): String {
+    fun buildFullReport(compact: Boolean): String {
+        if (compact) {
+            val summaries = reports.take(5).joinToString("\n\n") {
+                it.asText(context, { st -> videoNoteStatusText(context, st) }, compact = true)
+            }.ifBlank { context.getString(R.string.diag_full_report_not_run) }
+            return context.getString(R.string.diag_full_report_compact_notice) + "\n\n" + summaries
+        }
         val none = context.getString(R.string.diag_full_report_not_run)
         fun section(title: Int, body: String?) = context.getString(title) + "\n" + (body?.takeIf { it.isNotBlank() } ?: none)
         return listOf(
@@ -160,6 +178,17 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             section(R.string.diag_full_report_videos, reports.take(5).joinToString("\n\n") { it.asText(context) { st -> videoNoteStatusText(context, st) } })
         ).joinToString("\n\n")
     }
+    fun buildFullJson(compact: Boolean): String = VideoNoteDiagnosticJson.encode(VideoNoteDiagnosticJsonDocument(
+        generatedAt = System.currentTimeMillis(),
+        compact = compact,
+        reports = reports.take(5).map { it.toJsonReport(compact) },
+        sections = if (compact) emptyList() else listOfNotNull(
+            latestSurvey?.takeIf { it.isNotBlank() }?.let { VideoNoteDiagnosticJsonSection("camera_capabilities", it) },
+            fpsCheck.report.takeIf { it.isNotBlank() }?.let { VideoNoteDiagnosticJsonSection("fps_check", it) },
+            lossState.report.takeIf { it.isNotBlank() }?.let { VideoNoteDiagnosticJsonSection("telegram_check", it) },
+            highSpeedReport?.takeIf { it.isNotBlank() }?.let { VideoNoteDiagnosticJsonSection("high_speed_check", it) }
+        )
+    ))
     val goBack = { if (diagnosticsPage) diagnosticsPage = false else onBack() }
     BackHandler(onBack = goBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -341,15 +370,33 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
         )
     }
     if (showFullReport) {
-        val fullText = buildFullReport()
+        val fullText = remember(fullJson, compactFull, latestSurvey, fpsCheck.report, lossState.report, highSpeedReport, reports) {
+            if (fullJson) buildFullJson(compactFull) else buildFullReport(compactFull)
+        }
         AlertDialog(
             onDismissRequest = { showFullReport = false },
             title = { Text(stringResource(R.string.diag_full_report_title)) },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = compactFull, onClick = { compactFull = true },
+                        label = { Text(stringResource(R.string.settings_video_diagnostics_compact)) })
+                    FilterChip(selected = !compactFull, onClick = { compactFull = false },
+                        label = { Text(stringResource(R.string.settings_video_diagnostics_full)) })
+                    FilterChip(selected = !fullJson, onClick = { fullJson = false },
+                        label = { Text(stringResource(R.string.settings_video_diagnostics_txt)) })
+                    FilterChip(selected = fullJson, onClick = { fullJson = true },
+                        label = { Text(stringResource(R.string.settings_video_diagnostics_json)) })
+                }
                 Text(fullText, fontSize = 12.sp, lineHeight = 17.sp)
             } },
             confirmButton = { TextButton(onClick = { showFullReport = false }) { Text(stringResource(R.string.diagnostics_view_close)) } },
-            dismissButton = { DiagnosticsReportActions("BeyGram full diagnostics", fullText) }
+            dismissButton = {
+                DiagnosticsReportActions(
+                    "BeyGram full diagnostics", fullText,
+                    mimeType = if (fullJson) "application/json" else "text/plain",
+                    extension = if (fullJson) "json" else "txt"
+                )
+            }
         )
     }
     if (showFullDiagnostics) {
@@ -511,17 +558,35 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
         )
     }
     selectedReport?.let { report ->
+        val reportText = remember(report, compactReport, jsonReport) {
+            if (jsonReport) report.asJson(compactReport)
+            else report.asText(context, { videoNoteStatusText(context, it) }, compactReport)
+        }
         AlertDialog(
             onDismissRequest = { selectedReport = null },
             title = { Text(stringResource(R.string.settings_video_diagnostics_report)) },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(report.asText(context) { videoNoteStatusText(context, it) }, fontSize = 12.sp, lineHeight = 17.sp)
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = compactReport, onClick = { compactReport = true },
+                        label = { Text(stringResource(R.string.settings_video_diagnostics_compact)) })
+                    FilterChip(selected = !compactReport, onClick = { compactReport = false },
+                        label = { Text(stringResource(R.string.settings_video_diagnostics_full)) })
+                    FilterChip(selected = !jsonReport, onClick = { jsonReport = false },
+                        label = { Text(stringResource(R.string.settings_video_diagnostics_txt)) })
+                    FilterChip(selected = jsonReport, onClick = { jsonReport = true },
+                        label = { Text(stringResource(R.string.settings_video_diagnostics_json)) })
+                }
+                Text(reportText, fontSize = 12.sp, lineHeight = 17.sp)
             } },
             confirmButton = {
                 TextButton(onClick = { selectedReport = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
             },
             dismissButton = {
-                DiagnosticsReportActions("BeyGram video diagnostics", report.asText(context) { videoNoteStatusText(context, it) })
+                DiagnosticsReportActions(
+                    "BeyGram video diagnostics", reportText,
+                    mimeType = if (jsonReport) "application/json" else "text/plain",
+                    extension = if (jsonReport) "json" else "txt"
+                )
             }
         )
     }
@@ -610,35 +675,62 @@ private fun DiagnosticsCenterRow(letter: String, title: Int, detail: Int, button
 private const val REPORT_INLINE_SHARE_LIMIT = 60_000
 
 @Composable
-private fun DiagnosticsReportActions(label: String, report: String) {
+private fun DiagnosticsReportActions(
+    label: String,
+    report: String,
+    mimeType: String = "text/plain",
+    extension: String = "txt"
+) {
     val context = LocalContext.current
-    // Copied/shared reports pass the same redaction as the passive survey: no paths, tokens,
+    // Copied/shared/saved reports pass the same redaction as the passive survey: no paths, tokens,
     // e-mails, phone numbers or handles leave the app even if a future entry adds one.
     val safeReport = VideoNoteReportRedactor.redact(report)
-    Row {
-        TextButton(onClick = {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            runCatching { clipboard.setPrimaryClip(ClipData.newPlainText(label, safeReport.take(REPORT_INLINE_SHARE_LIMIT * 4))) }
-        }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
-        TextButton(onClick = {
-            val sent = runCatching {
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, label)
-                    if (safeReport.length <= REPORT_INLINE_SHARE_LIMIT) {
-                        putExtra(Intent.EXTRA_TEXT, safeReport)
-                    } else {
-                        // Big reports exceed what the share sheet carries inline; send them as a file.
-                        val dir = File(context.cacheDir, "diagnostics").apply { mkdirs() }
-                        dir.listFiles { f -> f.name.startsWith("beygram-report-") }?.forEach { it.delete() }
-                        val file = File(dir, "beygram-report-${System.currentTimeMillis()}.txt").apply { writeText(safeReport) }
-                        putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(context, "${context.packageName}.files", file))
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    var pendingSave by remember { mutableStateOf<String?>(null) }
+    val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val content = pendingSave
+        pendingSave = null
+        if (uri != null && content != null) {
+            val saved = runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { stream ->
+                    stream.write(content.toByteArray(Charsets.UTF_8))
+                } != null
+            }.getOrDefault(false)
+            Toast.makeText(context, if (saved) R.string.diag_save_done else R.string.diag_save_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+    Column(horizontalAlignment = Alignment.End) {
+        Row {
+            TextButton(onClick = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clipboardText = if (mimeType == "application/json") safeReport
+                    else safeReport.take(REPORT_INLINE_SHARE_LIMIT * 4)
+                runCatching { clipboard.setPrimaryClip(ClipData.newPlainText(label, clipboardText)) }
+            }) { Text(stringResource(R.string.settings_video_diagnostics_copy)) }
+            TextButton(onClick = {
+                val sent = runCatching {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = mimeType
+                        putExtra(Intent.EXTRA_SUBJECT, label)
+                        if (mimeType == "application/json" || safeReport.length > REPORT_INLINE_SHARE_LIMIT) {
+                            // JSON keeps its file form and big reports exceed what the share sheet carries inline.
+                            val dir = File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                            // Bounded cache: one current report file per share action, never a growing archive.
+                            dir.listFiles { f -> f.name.startsWith("beygram-report-") }?.forEach { it.delete() }
+                            val file = File(dir, "beygram-report-${System.currentTimeMillis()}.$extension").apply { writeText(safeReport) }
+                            putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(context, "${context.packageName}.files", file))
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        } else {
+                            putExtra(Intent.EXTRA_TEXT, safeReport)
+                        }
                     }
-                }
-                context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_video_diagnostics_share)))
-            }.isSuccess
-            if (!sent) Toast.makeText(context, R.string.diag_share_failed, Toast.LENGTH_LONG).show()
-        }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
+                    context.startActivity(Intent.createChooser(intent, context.getString(R.string.settings_video_diagnostics_share)))
+                }.isSuccess
+                if (!sent) Toast.makeText(context, R.string.diag_share_failed, Toast.LENGTH_LONG).show()
+            }) { Text(stringResource(R.string.settings_video_diagnostics_share)) }
+        }
+        TextButton(onClick = {
+            pendingSave = safeReport
+            createDocument.launch("beygram-diagnostics-${System.currentTimeMillis()}.$extension")
+        }) { Text(stringResource(R.string.settings_video_diagnostics_save)) }
     }
 }

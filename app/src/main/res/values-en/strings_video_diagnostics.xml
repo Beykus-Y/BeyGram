@@ -29,7 +29,19 @@
     <string name="camera_report_recording_heading">How normal video message recording picks the frame rate (requested %1$s):</string>
     <string name="camera_report_recording_lens">  %1$s camera %2$s: range %3$s selected. %4$s</string>
     <string name="camera_report_recording_candidates">    Usable normal ranges: %1$s; encoder confirms 60 fps: %2$s</string>
+    <string name="camera_report_camerax_vs_camera2">    Path comparison: CameraX advertises %1$s; Camera2 normal AE: %2$s. Normal recording uses CameraX; Camera2 manual/high-speed are separate checks only.</string>
     <string name="camera_report_recording_unavailable">  Recording cameras are not available right now.</string>
+    <string name="camera_report_path_note">Recording path: CameraX Preview+VideoCapture with normal AE ranges. Camera2 manual sensor and high-speed capture are separate checks and are not enabled by default.</string>
+    <string name="camera_detail_capture_path">Chosen path: CameraX, normal AE. Camera2 manual sensor: %1$s; constrained high-speed: %2$s. These are capabilities, not an enabled mode.</string>
+    <string name="session_config_supported">Camera2 session (Android 15+, camera not opened; planned combination): preview %1$s + encoder %2$s — supported.</string>
+    <string name="session_config_unsupported">Camera2 session (Android 15+, camera not opened; planned combination): preview %1$s + encoder %2$s — not supported: %3$s.</string>
+    <string name="session_config_unknown">Camera2 session (Android 15+, camera not opened; planned combination): preview %1$s + encoder %2$s — unknown: %3$s.</string>
+    <string name="session_reason_supported">check passed</string>
+    <string name="session_reason_rejected">Camera2 rejected the combination</string>
+    <string name="session_reason_api_old">Android 15 (SDK 35) required, current SDK %1$d</string>
+    <string name="session_reason_setup_unavailable">the device does not provide the configuration check</string>
+    <string name="session_reason_no_surface">could not select or create the test surfaces</string>
+    <string name="session_reason_exception">exception %1$s</string>
 
     <string name="camera_thermal_none">none</string>
     <string name="camera_thermal_light">light</string>
@@ -113,6 +125,7 @@
     <string name="vn_report_raw">Original recording: %1$s fps</string>
     <string name="vn_report_final">Final file: %1$s fps</string>
     <string name="vn_report_stage">Where the frame rate is limited: %1$s</string>
+    <string name="vn_report_fallback">Why this frame-rate range was chosen: %1$s</string>
     <string name="vn_stage_raw">Original recording</string>
     <string name="vn_stage_final">Final file, part %1$d</string>
     <string name="vn_frame_summary">%1$dx%2$d, frames %3$d, measured %4$s fps (file declares %5$s), interval p50/p95/max %6$s/%7$s/%8$s ms, pauses over 50 ms %9$d, repeated timestamps %10$d, frames per second [%11$s], video %12$s (profile %13$s, level %14$s), bitrate %15$s, audio %16$s, audio/video mismatch %17$s ms, %18$d bytes</string>
@@ -241,6 +254,7 @@
     <string name="diag_center_open">Open</string>
     <string name="diag_full_report_title">Full report</string>
     <string name="diag_full_report_not_run">Not run.</string>
+    <string name="diag_full_report_compact_notice">Compact view: only recent recordings and their key metrics. Camera capabilities, FPS and Telegram checks are hidden — choose Full.</string>
     <string name="diag_full_report_survey">=== Camera capabilities ===</string>
     <string name="diag_full_report_fps">=== Frame rate check ===</string>
     <string name="diag_full_report_telegram">=== Telegram check ===</string>
