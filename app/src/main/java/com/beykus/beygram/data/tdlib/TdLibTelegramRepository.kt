@@ -1081,7 +1081,11 @@ class TdLibTelegramRepository private constructor(
         replyToMessageId: Long?,
         forumTopicId: Long,
         options: MessageSendOptions
-    ): Result<Unit> = botFeatures.sendInlineResult(chatId, queryId, resultId, replyToMessageId, forumTopicId, options)
+    ): Result<Unit> {
+        leaveJumpWindow(chatId)
+        conversationEffects.endActivity(chatId, ChatActivity.Typing)
+        return botFeatures.sendInlineResult(chatId, queryId, resultId, replyToMessageId, forumTopicId, options)
+    }
     override suspend fun openBotWebApp(
         chatId: Long,
         botUserId: Long,

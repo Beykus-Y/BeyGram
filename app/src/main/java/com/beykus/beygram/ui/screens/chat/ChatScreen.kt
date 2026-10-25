@@ -1336,7 +1336,11 @@ fun ChatScreen(
             observeFile = observeFile,
             onDownloadFile = onDownloadFile,
             onOpenWebApp = ::requestBotWebApp,
-            onSendingChange = { inlineSending = it },
+            onSendingChange = { busy ->
+                inlineSending = busy
+                // The attachment picker would replace the panel whose coroutine is waiting for TDLib.
+                if (busy) attachments.menuOpen = false
+            },
             onSent = { sentText ->
                 updateDraft { if (it.text == sentText) it.copy(text = "", entities = emptyList()) else it }
                 if (replyId != null) clearReply()
@@ -1348,7 +1352,7 @@ fun ChatScreen(
                     botCommandMenu?.takeIf { it.commands.isNotEmpty() }?.let {
                         BotCommandButton(enabled = !sending && !inlineSending && !attachments.active) { botCommandMenuOpen = true }
                     }
-                    AttachmentButton(attachments, enabled = !sending)
+                    AttachmentButton(attachments, enabled = !sending && !inlineSending)
                 } else Spacer(Modifier.width(8.dp))
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
