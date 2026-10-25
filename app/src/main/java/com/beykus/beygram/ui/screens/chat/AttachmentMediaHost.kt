@@ -1,24 +1,17 @@
 package com.beykus.beygram.ui.screens.chat
 
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 
 /**
- * Full-screen media surfaces are siblings of the chat, not dialogs. A pointer barrier keeps taps
- * on noninteractive areas from reaching the chat header or list underneath.
+ * Full-screen media surfaces are siblings of the chat, not dialogs. Participating in hit testing
+ * keeps the chat underneath out of the pointer path without consuming events that belong to the
+ * overlay's own buttons and crop gestures.
  */
-internal fun Modifier.consumeOverlayPointerInput(): Modifier = pointerInput(Unit) {
-    awaitEachGesture {
-        awaitFirstDown(requireUnconsumed = false)
-        do {
-            // Final pass: children have already handled buttons and crop drags.
-            val event = awaitPointerEvent(PointerEventPass.Final)
-            event.changes.forEach { it.consume() }
-        } while (event.changes.any { it.pressed })
+internal fun Modifier.overlayPointerBarrier(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) awaitPointerEvent()
     }
 }
 

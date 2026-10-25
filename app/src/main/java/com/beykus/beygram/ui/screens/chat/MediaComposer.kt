@@ -343,36 +343,37 @@ internal class AttachmentState(
     }
 
     private fun importCaptureFile(file: File) {
-        if (sending || importing) {
-            // Keep the only copy of the take available for a retry instead of deleting it.
-            setFailedCapture(file.absolutePath)
-            return
-        }
+        val previous = failedCapturePath
+        if (previous != null && previous != file.absolutePath) File(previous).delete()
+        // Register before copying: activity recreation cancels the staging coroutine, and the path
+        // must already be in saved state so the user can retry the only copy afterwards.
+        setFailedCapture(file.absolutePath)
+        if (sending || importing) return
         importJob = scope.launch {
             importing = true
             errorState.value = null
             try {
                 val prepared = importer.prepareLocal(file)
-                file.delete()
-                failedCapturePath?.takeIf { it != file.absolutePath }?.let { File(it).delete() }
-                setFailedCapture(null)
                 try { coroutineContext.ensureActive() } catch (cancelled: CancellationException) {
                     importer.discard(prepared)
                     throw cancelled
                 }
                 pendingState.value = ArrayList(pending + prepared)
+                file.delete()
+                setFailedCapture(null)
                 when {
                     prepared.kind == MediaKind.Video -> maybeCompressVideo(prepared)
                     prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("video/") ->
                         notice = context.getString(R.string.video_container_as_file)
                 }
             } catch (cancelled: CancellationException) {
-                file.delete()
+                // Rotation/scope cancellation keeps the registered retry path. An explicit discard
+                // has already cleared it, so only then is deleting the file appropriate.
+                if (failedCapturePath != file.absolutePath) file.delete()
                 throw cancelled
             }
             catch (failure: Exception) {
                 // The camera/editor is already closed; retain the take so the user can retry it.
-                failedCapturePath?.takeIf { it != file.absolutePath }?.let { File(it).delete() }
                 setFailedCapture(file.absolutePath)
                 errorState.value = failure.userMessage(context, R.string.composer_prepare_failed)
             }
@@ -789,7 +790,7 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
             }
         }
         state.error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp)) }
-        if (state.canRetryCapture) {
+        if (state.canRetryCapture && !state.importing) {
             Row(Modifier.fillMaxWidth().padding(end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     stringResource(R.string.capture_retry_hint), color = palette.textSecondary, fontSize = 12.sp,

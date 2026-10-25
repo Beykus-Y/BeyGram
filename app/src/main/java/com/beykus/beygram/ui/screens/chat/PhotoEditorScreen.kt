@@ -127,7 +127,7 @@ internal fun PhotoEditorScreen(
     val shownWidth = shown?.width ?: 0
     val shownHeight = shown?.height ?: 0
 
-    Column(Modifier.fillMaxSize().background(palette.screen).consumeOverlayPointerInput().windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().background(palette.screen).overlayPointerBarrier().windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onCancel, enabled = !saving, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Rounded.Close, stringResource(R.string.photo_editor_close_description), tint = palette.textPrimary)
