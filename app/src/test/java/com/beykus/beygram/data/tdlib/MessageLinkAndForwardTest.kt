@@ -37,6 +37,33 @@ class MessageLinkAndForwardTest {
         assertArrayEquals(longArrayOf(30L), request.messageIds)
     }
 
+    @Test fun `batch forward sends every selected id in one request and keeps the album order`() {
+        val request = forwardMessagesRequest(
+            toChatId = 10L,
+            fromChatId = 20L,
+            messageIds = listOf(30L, 31L, 32L),
+            asCopy = false
+        )
+        assertEquals(10L, request.chatId)
+        assertEquals(20L, request.fromChatId)
+        assertArrayEquals(longArrayOf(30L, 31L, 32L), request.messageIds)
+        assertNull(request.topicId)
+        assertFalse(request.sendCopy)
+    }
+
+    @Test fun `forward to a forum topic passes a forum message topic`() {
+        val request = forwardMessagesRequest(
+            toChatId = 10L,
+            fromChatId = 20L,
+            messageIds = listOf(30L),
+            asCopy = false,
+            messageThreadId = 77L
+        )
+        val topic = request.topicId
+        assertTrue(topic is TdApi.MessageTopicForum)
+        assertEquals(77, (topic as TdApi.MessageTopicForum).forumTopicId)
+    }
+
     @Test fun `link permission is separate from forwarding permission`() {
         val linkOnly = com.beykus.beygram.domain.model.MessageCapabilities(canGetLink = true)
         assertTrue(linkOnly.canGetLink)
