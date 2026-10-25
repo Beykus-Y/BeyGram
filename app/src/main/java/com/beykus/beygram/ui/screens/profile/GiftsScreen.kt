@@ -86,6 +86,7 @@ import java.util.Date
 @Composable
 fun GiftsScreen(
     title: String,
+    profileId: Long,
     profileTitle: String,
     isSelf: Boolean,
     load: suspend () -> Result<GiftsInfo>,
@@ -108,7 +109,7 @@ fun GiftsScreen(
     // cancel a purchase or lose its result. This marker only survives process death.
     var pendingGiftId by rememberSaveable { mutableStateOf(0L) }
     val retained by RetainedGiftSendStore.state.collectAsState()
-    val retainedRelevant = retained?.let { it.profileId == giftsProfileId && it.isSelf == isSelf } == true
+    val retainedRelevant = retained?.let { it.profileId == profileId && it.isSelf == isSelf } == true
     val sending = step is GiftSendStep.Sending || retained?.inFlight == true
 
     BackHandler { if (!sending) onBack() }
@@ -216,7 +217,7 @@ fun GiftsScreen(
             selectedGift = null
             return
         }
-        val started = RetainedGiftSendStore.start(giftsProfileId, isSelf, gift.id) { send(gift.id) }
+        val started = RetainedGiftSendStore.start(profileId, isSelf, gift.id) { send(gift.id) }
         if (!started) {
             notice = context.getString(R.string.gifts_block_busy)
             noticeIsError = true

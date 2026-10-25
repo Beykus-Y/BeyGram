@@ -1725,6 +1725,7 @@ private fun BeyGramAppContent(
                         title = stringResource(
                             if (giftsProfileSelf) R.string.gifts_title_own else R.string.gifts_title
                         ),
+                        profileId = giftsProfileId,
                         profileTitle = giftsProfileTitle,
                         isSelf = giftsProfileSelf,
                         load = { repository.giftsInfo(giftsProfileId, giftsProfileSelf) },
