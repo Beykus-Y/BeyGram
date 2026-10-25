@@ -4,6 +4,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChannelAdminEventPage
 import com.beykus.beygram.domain.model.ChannelEventFilter
@@ -35,6 +36,7 @@ import com.beykus.beygram.domain.model.MessageContext
 import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.MessageLimits
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MessageReaction
@@ -49,6 +51,11 @@ import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.AnimationItem
 import com.beykus.beygram.domain.model.AnimationPage
+import com.beykus.beygram.domain.model.BotCommandMenu
+import com.beykus.beygram.domain.model.BotWebAppLaunch
+import com.beykus.beygram.domain.model.BotWebAppSource
+import com.beykus.beygram.domain.model.BotWebAppTheme
+import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.StickerItem
 import com.beykus.beygram.domain.model.StickerSearchPage
@@ -184,6 +191,7 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override fun observeFile(fileId: Int): StateFlow<MediaFileState> = MutableStateFlow(MediaFileState(fileId)).asStateFlow()
     override fun downloadFile(fileId: Int) {}
+    override fun autoDownloadFile(request: AutoDownloadRequest) {}
 
     override suspend fun dismissNotifications(groupId: Int, maxNotificationId: Int): Result<Unit> = Result.success(Unit)
     override fun observeChat(chatId: Long): StateFlow<ChatPreview?> = MutableStateFlow<ChatPreview?>(null).asStateFlow()
@@ -198,6 +206,26 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?> = MutableStateFlow<BotKeyboard?>(null).asStateFlow()
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit> = unavailable()
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer> = unavailable()
+    override suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?> = unavailable()
+    override suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults?> = unavailable()
+    override suspend fun sendInlineBotResult(
+        chatId: Long,
+        queryId: Long,
+        resultId: String,
+        replyToMessageId: Long?,
+        forumTopicId: Long,
+        options: MessageSendOptions
+    ): Result<Unit> = unavailable()
+    override suspend fun openBotWebApp(
+        chatId: Long,
+        botUserId: Long,
+        url: String,
+        source: BotWebAppSource,
+        forumTopicId: Long,
+        replyToMessageId: Long?,
+        theme: BotWebAppTheme
+    ): Result<BotWebAppLaunch> = unavailable()
+    override fun closeBotWebApp(launchId: Long) = Unit
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long): Result<PinnedMessagePage> = unavailable()
     override suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit> = unavailable()
@@ -261,7 +289,23 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition> = unavailable()
     override suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity>): Result<Unit> = unavailable()
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit> = unavailable()
-    override suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean): Result<Unit> = unavailable()
+    override suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, scope: DeleteMessageScope): Result<Unit> = unavailable()
+    override suspend fun forwardMessage(
+        fromChatId: Long,
+        messageId: Long,
+        toChatId: Long,
+        asCopy: Boolean,
+        messageThreadId: Long?,
+        options: MessageSendOptions
+    ): Result<Unit> = unavailable()
+    override suspend fun forwardMessages(
+        fromChatId: Long,
+        messageIds: List<Long>,
+        toChatId: Long,
+        asCopy: Boolean,
+        messageThreadId: Long?,
+        options: MessageSendOptions
+    ): Result<ForwardedMessages> = unavailable()
     override suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean): Result<String> = unavailable()
     override suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>> = unavailable()
     override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = unavailable()

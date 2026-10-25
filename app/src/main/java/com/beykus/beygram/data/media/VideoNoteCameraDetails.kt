@@ -38,6 +38,9 @@ internal object VideoNoteCameraDetails {
                 yesNoUnknown(context, c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)?.let {
                     CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR in it
                 })))
+            appendLine(context.getString(R.string.camera_detail_capture_path,
+                yesNoUnknown(context, CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR in capabilities),
+                yesNoUnknown(context, CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_CONSTRAINED_HIGH_SPEED_VIDEO in capabilities)))
             val active = c.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
             val pixels = c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
             val physical = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)

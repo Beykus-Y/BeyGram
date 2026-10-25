@@ -434,7 +434,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 base.copy(kind = if (type.isChannel) ProfileKind.Channel else ProfileKind.Group,
                     bio = full?.description.orEmpty(), memberCount = full?.memberCount?.takeIf { it > 0 } ?: group?.memberCount,
                     administratorCount = full?.administratorCount?.takeIf { it > 0 }, inviteLink = full?.inviteLink?.inviteLink.orEmpty(),
-                    canListMembers = full?.canGetMembers == true,
+                    canListMembers = full?.canGetMembers == true, canViewStatistics = full?.canGetStatistics == true,
                     usernames = group?.usernames?.activeUsernames.orEmpty().toList(), isVerified = group?.verificationStatus?.isVerified == true)
             }
             else -> base

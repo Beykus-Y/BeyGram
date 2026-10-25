@@ -43,6 +43,31 @@ class MessageMarkupTest {
         assertNull(botKeyboard(null))
     }
 
+    @Test fun `web app buttons keep their URL for the TDLib launch path`() {
+        val markup = TdApi.ReplyMarkupInlineKeyboard(arrayOf(
+            arrayOf(TdApi.InlineKeyboardButton().apply {
+                text = "Mini App"
+                type = TdApi.InlineKeyboardButtonTypeWebApp("https://mini.example/app")
+            })
+        ))
+        val button = inlineKeyboard(markup).single().single()
+        assertEquals(BotButtonKind.WebApp, button.kind)
+        assertEquals("https://mini.example/app", button.value)
+
+        val reply = TdApi.Message().apply {
+            id = 789
+            replyMarkup = TdApi.ReplyMarkupShowKeyboard().apply {
+                rows = arrayOf(arrayOf(TdApi.KeyboardButton().apply {
+                    text = "Open"
+                    type = TdApi.KeyboardButtonTypeWebApp("https://mini.example/reply")
+                }))
+            }
+        }
+        val keyboardButton = botKeyboard(reply)!!.rows.single().single()
+        assertEquals(BotButtonKind.WebApp, keyboardButton.kind)
+        assertEquals("https://mini.example/reply", keyboardButton.value)
+    }
+
     @Test fun `one time reply keyboard retains text buttons and unsupported actions distinctly`() {
         val message = TdApi.Message().apply {
             id = 456

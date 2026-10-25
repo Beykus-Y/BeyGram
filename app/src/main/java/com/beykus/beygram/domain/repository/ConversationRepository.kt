@@ -12,6 +12,35 @@ interface ConversationRepository {
     fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?>
     suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit>
     suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer>
+    /** Commands advertised by the private chat's bot; null for a non-bot chat or a bot without commands. */
+    suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?>
+    /**
+     * Resolves an inline bot by username and asks TDLib for one results page. Pass "" first, then the previous
+     * [InlineBotResults.nextOffset]. No message is sent by this call. A null page means [username] is not an inline
+     * bot (unknown, a user, a channel or a bot without inline mode), which is not an error.
+     */
+    suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String = ""): Result<InlineBotResults?>
+    /** Sends one inline result with the composer's reply, forum topic and delivery options. */
+    suspend fun sendInlineBotResult(
+        chatId: Long,
+        queryId: Long,
+        resultId: String,
+        replyToMessageId: Long? = null,
+        forumTopicId: Long = 0L,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<Unit>
+    /** Opens a Mini App through TDLib; the returned URL and origin policy are authoritative. */
+    suspend fun openBotWebApp(
+        chatId: Long,
+        botUserId: Long,
+        url: String,
+        source: BotWebAppSource,
+        forumTopicId: Long = 0L,
+        replyToMessageId: Long? = null,
+        theme: BotWebAppTheme
+    ): Result<BotWebAppLaunch>
+    /** Informs TDLib that the Mini App screen is gone. Safe to call once per launch; never blocks disposal. */
+    fun closeBotWebApp(launchId: Long)
     val messageLimits: StateFlow<MessageLimits>
     /** Local-first persistent composer drafts, synchronized with TDLib when connected. */
     fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft>
@@ -112,13 +141,35 @@ interface ConversationRepository {
     suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition>
     suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
     suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit>
+    /** Deletes a selection with one DeleteMessages request, after checking the chosen scope for every message. */
+    suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, scope: DeleteMessageScope): Result<Unit>
     /** Marks a chat unread without changing its read watermark; the chat list shows an unread marker. */
     suspend fun markChatUnread(chatId: Long): Result<Unit>
     /**
      * Forwards a message. With [asCopy] the original sender is hidden, like Telegram's "Forward without author";
-     * TDLib refuses either form when the message can't be forwarded.
+     * TDLib refuses either form when the message can't be forwarded. [messageThreadId] targets a forum topic.
      */
-    suspend fun forwardMessage(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean = false): Result<Unit>
+    suspend fun forwardMessage(
+        fromChatId: Long,
+        messageId: Long,
+        toChatId: Long,
+        asCopy: Boolean = false,
+        messageThreadId: Long? = null,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<Unit>
+    /**
+     * Forwards a whole selection with one ForwardMessages request (at most [MAX_MESSAGE_BATCH_SIZE] messages).
+     * [messageIds] must keep album members adjacent so TDLib does not split the album. Each message is checked for
+     * forward rights before anything is sent; a TDLib partial result leaves failed IDs for the caller to keep selected.
+     */
+    suspend fun forwardMessages(
+        fromChatId: Long,
+        messageIds: List<Long>,
+        toChatId: Long,
+        asCopy: Boolean = false,
+        messageThreadId: Long? = null,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<ForwardedMessages>
     /** A t.me link to [messageId], or a Telegram error when the message has no shareable link. */
     suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean = false): Result<String>
     /**

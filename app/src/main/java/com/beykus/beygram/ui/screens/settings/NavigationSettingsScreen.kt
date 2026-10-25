@@ -71,7 +71,7 @@ fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (Tab
                 Text(stringResource(R.string.nav_preview_caption), color = palette.textSecondary, fontSize = 12.sp)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     MainTab.entries.filter { visibility.isVisible(it) }.forEach { tab ->
-                        MainTabItem(tab, selected = tab == MainTab.Chats, onSelect = {}, pillHeight = 30.dp, iconSize = 22.dp)
+                        MainTabItem(tab, selected = tab == MainTab.Chats, onSelect = {}, pillHeight = 30.dp, iconSize = 22.dp, interactive = false)
                     }
                 }
             }

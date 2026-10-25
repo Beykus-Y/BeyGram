@@ -22,6 +22,7 @@ import java.io.InputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -113,6 +114,22 @@ internal class TdChatExportPageSource(
             nextBeforeMessageId = raw.lastOrNull()?.id ?: 0L,
             hasMore = raw.isNotEmpty()
         )
+    }
+
+    /**
+     * TDLib's lookup of the last message sent no later than [dateSeconds]. A failed or empty lookup returns null, and the
+     * export then walks from the newest message, as it did before the bound was resolved.
+     */
+    override suspend fun newestMessageAtOrBefore(dateSeconds: Long): ChatExportMessage? = try {
+        requests(TdApi.GetChatMessageByDate(chatId, dateSeconds.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()))
+            .takeIf { it.id > 0L }
+            ?.let { map(it) }
+    } catch (timeout: TimeoutCancellationException) {
+        null
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
     }
 }
 

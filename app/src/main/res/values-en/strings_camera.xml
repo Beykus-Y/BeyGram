@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="composer_type_camera">Camera</string>
+    <string name="composer_type_audio">Audio</string>
+
+    <string name="camera_close_description">Close camera</string>
+    <string name="camera_mode_photo">Photo</string>
+    <string name="camera_mode_video">Video</string>
+    <string name="camera_mode_photo_description">Photo mode</string>
+    <string name="camera_mode_video_description">Video mode</string>
+    <string name="camera_capture_description">Take photo</string>
+    <string name="camera_record_start_description">Start video recording</string>
+    <string name="camera_record_stop_description">Stop recording</string>
+    <string name="camera_recording_description">Recording video</string>
+    <string name="camera_recording_time">%1$s / %2$s</string>
+    <string name="camera_switch_description">Switch camera</string>
+    <string name="camera_preview_description">Camera viewfinder</string>
+    <string name="camera_zoom_in">Zoom in</string>
+    <string name="camera_zoom_out">Zoom out</string>
+
+    <string name="camera_timer_off">Timer off</string>
+    <string name="camera_timer_three">3 s</string>
+    <string name="camera_timer_ten">10 s</string>
+    <string name="camera_timer_description">Timer: %1$s</string>
+    <string name="camera_timer_off_value">off</string>
+    <string name="camera_timer_seconds_value">%1$d s</string>
+    <string name="camera_timer_cancel">Tap to cancel</string>
+
+    <string name="camera_flash_on">Turn flash on</string>
+    <string name="camera_flash_off">Turn flash off</string>
+    <string name="camera_flash_unavailable">Flash is not available on this camera</string>
+    <string name="camera_flash_failed">Could not change the flash</string>
+
+    <string name="camera_duration_seconds">%1$d s</string>
+    <string name="camera_duration_minutes">%1$d min</string>
+    <string name="camera_video_limit_description">Duration: %1$s</string>
+    <string name="camera_limit_summary">Photos up to 10 MB · videos up to 2 GB, 60 minutes</string>
+
+    <string name="camera_permission_title">Camera access needed</string>
+    <string name="camera_permission_message">Allow BeyGram to use the camera so you can take photos and videos without leaving the chat.</string>
+    <string name="camera_permission_audio_missing">Without microphone access the video will be recorded silently.</string>
+    <string name="camera_permission_action">Allow</string>
+    <string name="camera_permission_denied">Camera access was not granted</string>
+
+    <string name="camera_error_open">Could not open the camera</string>
+    <string name="camera_error_capture">Could not take the photo</string>
+    <string name="camera_error_record">Could not record the video</string>
+    <string name="camera_error_too_short">Recording is too short</string>
+    <string name="capture_retry">Retry</string>
+    <string name="capture_retry_hint">The capture is saved on this device. Retry the import or close the attachments.</string>
+    <string name="capture_retry_missing">The captured file is no longer available. Take a photo or video again.</string>
+
+    <string name="err_video_compress_failed">Could not compress the video</string>
+    <string name="err_audio_compress_failed">Could not compress the audio</string>
+    <string name="video_container_as_file">This video format is sent as a file: compression is supported for MP4/H.264 only.</string>
+
+    <string name="composer_edit_photo_named">Edit photo “%1$s”</string>
+    <string name="photo_editor_title">Photo editor</string>
+    <string name="photo_editor_close_description">Close editor</string>
+    <string name="photo_editor_apply">Done</string>
+    <string name="photo_editor_saving">Saving photo…</string>
+    <string name="photo_editor_preview_failed">Could not open the photo</string>
+    <string name="photo_editor_failed">Could not save the changes</string>
+    <string name="photo_editor_original_failed">Could not attach the original photo</string>
+    <string name="photo_editor_rotate_left">Left</string>
+    <string name="photo_editor_rotate_right">Right</string>
+    <string name="photo_editor_crop_hint">Drag the frame or its corners</string>
+    <string name="photo_editor_crop_description">Crop area</string>
+    <string name="photo_editor_aspect_free">Free</string>
+    <string name="photo_editor_aspect_square">1:1</string>
+    <string name="photo_editor_aspect_four_three">4:3</string>
+    <string name="photo_editor_aspect_sixteen_nine">16:9</string>
+    <string name="photo_editor_quality_title">Quality and size</string>
+    <string name="photo_editor_quality_high">High · 2560 px</string>
+    <string name="photo_editor_quality_balanced">Balanced · 1600 px</string>
+    <string name="photo_editor_quality_compact">Compact · 1280 px</string>
+    <string name="photo_editor_keep_original">Keep original</string>
+    <string name="photo_editor_keep_original_hint">The original will be sent as a separate file.</string>
+    <string name="photo_editor_move_left">Move crop left</string>
+    <string name="photo_editor_move_right">Move crop right</string>
+    <string name="photo_editor_move_up">Move crop up</string>
+    <string name="photo_editor_move_down">Move crop down</string>
+    <string name="photo_editor_send_original">Send uncropped</string>
+
+    <string name="video_quality_chip">Video: %1$s</string>
+    <string name="video_quality_compact">compact</string>
+    <string name="video_quality_balanced">balanced</string>
+    <string name="video_quality_original">original</string>
+    <string name="video_quality_notice">New videos: %1$s</string>
+    <string name="video_compressing">Compressing video… %1$d%%</string>
+    <string name="video_compressing_indeterminate">Compressing video…</string>
+    <string name="video_compression_cancel">Cancel compression</string>
+    <string name="video_compression_cancelled">Compression cancelled, sending the original</string>
+    <string name="video_compression_failed_original">Could not compress the video. Sending the original.</string>
+    <string name="video_compressed">Video compressed: %1$s → %2$s</string>
+    <string name="video_too_long_as_file">The video is longer than 60 minutes — sending it as a file</string>
+    <string name="video_too_large_as_file">The video is larger than 2 GB — sending it as a file</string>
+
+    <string name="audio_quality_chip">Audio: %1$s</string>
+    <string name="audio_quality_compact">compact</string>
+    <string name="audio_quality_balanced">balanced</string>
+    <string name="audio_quality_original">original</string>
+    <string name="audio_quality_notice">New audio files: %1$s</string>
+    <string name="audio_compressing">Compressing audio… %1$d%%</string>
+    <string name="audio_compressing_indeterminate">Compressing audio…</string>
+    <string name="audio_compression_cancel">Cancel audio compression</string>
+    <string name="audio_compression_cancelled">Audio compression cancelled, sending the original</string>
+    <string name="audio_compression_failed_original">Could not compress the audio. Sending the original.</string>
+    <string name="audio_metadata_kept">Audio with tags or cover art is not compressed so its metadata is preserved.</string>
+    <string name="audio_compressed">Audio compressed: %1$s → %2$s</string>
+</resources>
