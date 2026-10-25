@@ -48,7 +48,7 @@
     <string name="premium_gift_code_duration">Premium für %1$s</string>
     <string name="premium_gift_code_duration_unknown">Abo-Dauer ist unbekannt</string>
     <string name="premium_gift_code_months">%1$d Mon.</string>
-    <string name="premium_gift_code_days">%1$d T.</string>
+    <string name="premium_gift_code_days">%1$d Tg.</string>
     <string name="premium_gift_code_creator">Ersteller: %1$s</string>
     <string name="premium_gift_code_creator_unknown">Ersteller unbekannt</string>
     <string name="premium_gift_code_type_giveaway">Giveaway-Code</string>
