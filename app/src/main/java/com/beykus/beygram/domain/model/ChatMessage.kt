@@ -101,7 +101,12 @@ data class ChatHistory(
     val liveArrivals: List<LiveMessageArrival> = emptyList(),
     val liveArrivalSequence: Long = 0L,
     /** Recent temporary-to-server ID replacements, bounded by the history store. */
-    val recentReplacements: List<MessageIdReplacement> = emptyList()
+    val recentReplacements: List<MessageIdReplacement> = emptyList(),
+    /**
+     * Messages loaded outside the window, such as older comments of a channel post's thread. Updates and deletions reach
+     * them like [messages], but they are never part of [messages], so the chat timeline and its paging do not show them.
+     */
+    val outsideWindowMessages: List<ChatMessage> = emptyList()
 )
 
 /** One live insertion, ordered by [sequence] within a history store. A temporary-to-server replacement is not an arrival. */
