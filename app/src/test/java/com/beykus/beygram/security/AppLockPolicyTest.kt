@@ -1,0 +1,112 @@
+package com.beykus.beygram.security
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class AppLockPolicyTest {
+    @Test
+    fun pinMustBeFourToEightDigits() {
+        listOf("1234", "0000", "12345678", "987654").forEach {
+            assertTrue(it, AppLockPolicy.isValidPin(it))
+        }
+        listOf("", "123", "123456789", "12a4", "12 4", "-1234", "１２３４").forEach {
+            assertFalse(it, AppLockPolicy.isValidPin(it))
+        }
+    }
+
+    @Test
+    fun immediatelyLocksRegardlessOfElapsedTime() {
+        assertTrue(AppLockPolicy.shouldLockAfterBackground(AppLockTimeout.Immediately, 0L))
+        assertTrue(AppLockPolicy.shouldLockAfterBackground(AppLockTimeout.Immediately, -1L))
+    }
+
+    @Test
+    fun timedLocksUseTheConfiguredThreshold() {
+        assertFalse(AppLockPolicy.shouldLockAfterBackground(AppLockTimeout.OneMinute, 59_999L))
+        assertTrue(AppLockPolicy.shouldLockAfterBackground(AppLockTimeout.OneMinute, 60_000L))
+        assertFalse(AppLockPolicy.shouldLockAfterBackground(AppLockTimeout.FiveMinutes, 299_999L))
+        assertTrue(AppLockPolicy.shouldLockAfterBackground(AppLockTimeout.FiveMinutes, 300_000L))
+    }
+
+    @Test
+    fun storedTimeoutFallsBackToImmediately() {
+        assertEquals(AppLockTimeout.Immediately, AppLockTimeout.fromStored(0))
+        assertEquals(AppLockTimeout.OneMinute, AppLockTimeout.fromStored(60))
+        assertEquals(AppLockTimeout.FiveMinutes, AppLockTimeout.fromStored(300))
+        assertEquals(AppLockTimeout.Immediately, AppLockTimeout.fromStored(42))
+    }
+
+    @Test
+    fun firstFiveWrongAttemptsHaveNoDelay() {
+        (0..4).forEach { assertEquals(0L, AppLockPolicy.lockoutMillisForFailures(it)) }
+        assertEquals(4, AppLockPolicy.attemptsLeft(1))
+        assertEquals(0, AppLockPolicy.attemptsLeft(5))
+        assertEquals(0, AppLockPolicy.attemptsLeft(9))
+    }
+
+    @Test
+    fun repeatedFailuresBackOffExponentiallyAndCapAtFiveMinutes() {
+        assertEquals(30_000L, AppLockPolicy.lockoutMillisForFailures(5))
+        assertEquals(60_000L, AppLockPolicy.lockoutMillisForFailures(6))
+        assertEquals(120_000L, AppLockPolicy.lockoutMillisForFailures(7))
+        assertEquals(240_000L, AppLockPolicy.lockoutMillisForFailures(8))
+        assertEquals(300_000L, AppLockPolicy.lockoutMillisForFailures(9))
+        assertEquals(300_000L, AppLockPolicy.lockoutMillisForFailures(100))
+    }
+
+    @Test
+    fun lockEnabledWhileAwayRequiresTheNextReturnToAuthenticate() {
+        assertTrue(
+            AppLockPolicy.lockBecameActiveWhileAway(
+                backgrounded = true, activeWhenBackgrounded = false, activeNow = true
+            )
+        )
+        // Ordinary background return with an already active lock uses the timeout instead.
+        assertFalse(
+            AppLockPolicy.lockBecameActiveWhileAway(
+                backgrounded = true, activeWhenBackgrounded = true, activeNow = true
+            )
+        )
+        // Enabling the lock while still in the foreground keeps the current session open.
+        assertFalse(
+            AppLockPolicy.lockBecameActiveWhileAway(
+                backgrounded = false, activeWhenBackgrounded = false, activeNow = true
+            )
+        )
+        assertFalse(
+            AppLockPolicy.lockBecameActiveWhileAway(
+                backgrounded = true, activeWhenBackgrounded = false, activeNow = false
+            )
+        )
+    }
+
+    @Test
+    fun onlyAShortUnlockHandoverSkipsTheBackgroundPolicy() {
+        assertTrue(AppLockPolicy.isUnlockHandover(wasUnlocking = true, backgroundAgeMillis = 120L))
+        assertFalse(AppLockPolicy.isUnlockHandover(wasUnlocking = false, backgroundAgeMillis = 120L))
+        assertFalse(AppLockPolicy.isUnlockHandover(wasUnlocking = true, backgroundAgeMillis = null))
+        assertFalse(AppLockPolicy.isUnlockHandover(wasUnlocking = true, backgroundAgeMillis = 10_000L))
+        assertFalse(AppLockPolicy.isUnlockHandover(wasUnlocking = true, backgroundAgeMillis = -1L))
+    }
+
+    @Test
+    fun onlyAStopShortlyAfterAnAppLaunchIsAnExternalTrip() {
+        assertFalse(AppLockPolicy.isExternalHandoff(launchRequestedAtMillis = null, stoppedAtMillis = 1_000L))
+        assertTrue(AppLockPolicy.isExternalHandoff(launchRequestedAtMillis = 1_000L, stoppedAtMillis = 1_400L))
+        assertTrue(AppLockPolicy.isExternalHandoff(launchRequestedAtMillis = 1_000L, stoppedAtMillis = 11_000L))
+        assertFalse(AppLockPolicy.isExternalHandoff(launchRequestedAtMillis = 1_000L, stoppedAtMillis = 11_001L))
+        assertFalse(AppLockPolicy.isExternalHandoff(launchRequestedAtMillis = 5_000L, stoppedAtMillis = 4_999L))
+    }
+
+    @Test
+    fun aShortExternalTripKeepsTheSessionOpenUntilTenMinutes() {
+        assertTrue(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = true, backgroundAgeMillis = 30_000L))
+        assertTrue(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = true, backgroundAgeMillis = 600_000L))
+        assertFalse(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = true, backgroundAgeMillis = 600_001L))
+        assertFalse(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = false, backgroundAgeMillis = 30_000L))
+        assertFalse(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = true, backgroundAgeMillis = null))
+        assertFalse(AppLockPolicy.isExternalHandoffReturn(wasExternalHandoff = true, backgroundAgeMillis = -1L))
+    }
+}

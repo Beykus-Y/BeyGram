@@ -35,6 +35,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.notifications.NotificationPreferencesStore
 import com.beykus.beygram.notifications.TelegramNotificationService
 import com.beykus.beygram.notifications.AndroidNotificationRenderer
+import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.resolve
@@ -49,6 +50,7 @@ internal fun NotificationPermissionCoordinator(runtime: NotificationRuntime) {
     LaunchedEffect(runtime) {
         if (Build.VERSION.SDK_INT >= 33 && !runtime.preferences.permissionAsked && !AndroidNotificationRenderer.canNotify(context)) {
             runtime.preferences.permissionAsked = true
+            AppLockManager.get(context).expectExternalActivity()
             permission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -132,7 +134,7 @@ fun NotificationSettingsScreen(
             Text(if (running) stringResource(R.string.notif_background_running) else stringResource(R.string.notif_background_stopped), color = palette.textSecondary)
             if (messagesBlocked) Text(stringResource(R.string.notif_messages_channel_blocked), color = palette.warningText)
             if (!allowed) Button(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), onClick = {
-                if (Build.VERSION.SDK_INT >= 33 && !runtime.preferences.permissionAsked) { runtime.preferences.permissionAsked = true; permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                if (Build.VERSION.SDK_INT >= 33 && !runtime.preferences.permissionAsked) { runtime.preferences.permissionAsked = true; AppLockManager.get(context).expectExternalActivity(); permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
                 else open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
             }) { Text(stringResource(R.string.notif_allow_notifications)) }
             TextButton(onClick = { open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text(stringResource(R.string.notif_sound_settings)) }
