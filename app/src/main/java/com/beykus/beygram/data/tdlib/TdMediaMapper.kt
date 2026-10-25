@@ -111,7 +111,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
      * return null: they have their own renderers. The caller decides whether a service event suppresses this value.
      */
     fun special(content: TdApi.MessageContent): MessageSpecialContent? = when (content) {
-        is TdApi.MessagePoll -> content.toSpecialPoll()
+        is TdApi.MessagePoll -> content.toSpecialPoll(content.canAddOption)
         is TdApi.MessageLocation -> MessageSpecialContent.Location(MessageLocationInfo(content.location.toGeoPoint()))
         is TdApi.MessageLiveLocation -> MessageSpecialContent.LiveLocation(
             MessageLiveLocationInfo(
@@ -136,7 +136,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
         else -> MessageSpecialContent.Unsupported(content.javaClass.simpleName)
     }
 
-    private fun TdApi.MessagePoll.toSpecialPoll(): MessageSpecialContent.Poll {
+    private fun TdApi.MessagePoll.toSpecialPoll(canAddOption: Boolean): MessageSpecialContent.Poll {
         val quiz = poll.type as? TdApi.PollTypeQuiz
         val options = poll.options.orEmpty().mapIndexed { index, option ->
             MessagePollOption(
@@ -166,7 +166,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
                 isClosed = poll.isClosed,
                 canSeeResults = poll.canSeeResults,
                 canGetVoters = poll.canGetVoters,
-                canAddOption = content.canAddOption,
+                canAddOption = canAddOption,
                 isQuiz = quiz != null,
                 correctOptionIndices = quiz?.correctOptionIds?.toSet().orEmpty(),
                 explanation = quiz?.explanation?.text.orEmpty(),
