@@ -41,6 +41,7 @@ class MessageSpecialTest {
             question = "Q",
             options = listOf(option("a"), option("b")),
             isQuiz = true,
+            canSeeResults = false,
             correctOptionIndices = setOf(1)
         )
         val answered = unanswered.copy(options = listOf(option("a"), option("b", chosen = true)))

@@ -5,9 +5,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
-import android.os.CancellationSignal
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
+import androidx.core.os.CancellationSignal
 import com.beykus.beygram.domain.model.GeoPoint
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -44,8 +44,7 @@ internal suspend fun currentGeoPoint(context: Context): Result<GeoPoint> {
         val received = requestSingleLocation(context, manager, provider)
         if (received != null) return Result.success(received.toGeoPoint())
     }
-    return lastKnown?.let { Result.success(it.toGeoPoint()) }
-        ?: Result.failure(IllegalStateException("location unavailable"))
+    return Result.failure(IllegalStateException("location unavailable"))
 }
 
 private suspend fun requestSingleLocation(

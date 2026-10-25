@@ -338,7 +338,7 @@ fun ChatScreen(
     }, sendExtra = { draft, options ->
         val result = when (draft) {
             is MessageExtraDraft.Poll -> conversation.sendPoll(chat.id, draft.poll, replyId, forumTopicId = forumTopicId, options = options)
-            is MessageExtraDraft.Location -> conversation.sendLocation(chat.id, draft.point, draft.live, replyId, forumTopicId = forumTopicId, options = options)
+            is MessageExtraDraft.Location -> conversation.sendLocation(chat.id, draft.point, false, replyId, forumTopicId = forumTopicId, options = options)
             is MessageExtraDraft.Contact -> conversation.sendContactCard(chat.id, draft.userId, replyId, forumTopicId = forumTopicId, options = options)
             is MessageExtraDraft.Dice -> conversation.sendDice(chat.id, draft.emoji, replyId, forumTopicId = forumTopicId, options = options)
         }
@@ -346,7 +346,6 @@ fun ChatScreen(
         result
     })
     attachments.allowsPolls = !chat.isSecret
-    attachments.allowsLiveLocation = !chat.isSecret
     var pollComposerOpen by remember(chat.id) { mutableStateOf(false) }
     var contactPickerOpen by remember(chat.id) { mutableStateOf(false) }
     var dicePickerOpen by remember(chat.id) { mutableStateOf(false) }
@@ -367,29 +366,27 @@ fun ChatScreen(
     LaunchedEffect(contactPickerOpen) {
         if (contactPickerOpen && contactPickerContacts == null && !contactPickerLoading) loadContactPicker()
     }
-    suspend fun prepareLocation(live: Boolean) {
+    suspend fun prepareLocation() {
         val point = currentGeoPoint(context).getOrElse {
             attachments.reportError(context.getString(R.string.chat_location_unavailable))
             return
         }
-        attachments.prepareExtra(MessageExtraDraft.Location(point, live))
+        attachments.prepareExtra(MessageExtraDraft.Location(point))
     }
-    var liveLocationRequest by remember(chat.id) { mutableStateOf(false) }
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted.values.any { it }) {
-            scope.launch { prepareLocation(liveLocationRequest) }
+            scope.launch { prepareLocation() }
         } else {
             attachments.reportError(context.getString(R.string.chat_location_permission_denied))
         }
     }
-    fun requestLocation(live: Boolean) {
+    fun requestLocation() {
         if (attachments.sending || attachments.importing) return
-        liveLocationRequest = live
-        if (hasLocationPermission(context)) scope.launch { prepareLocation(live) }
+        if (hasLocationPermission(context)) scope.launch { prepareLocation() }
         else locationPermission.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
     }
     attachments.pickPoll = { pollComposerOpen = true }
-    attachments.pickLocation = ::requestLocation
+    attachments.pickLocation = { requestLocation() }
     attachments.pickContact = { contactPickerOpen = true }
     attachments.pickDice = { dicePickerOpen = true }
     val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, accountId = accountId, onError = { error = it })

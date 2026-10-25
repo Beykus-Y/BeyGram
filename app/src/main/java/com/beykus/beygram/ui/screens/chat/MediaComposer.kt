@@ -26,7 +26,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material3.CircularProgressIndicator
@@ -93,12 +92,11 @@ internal class AttachmentState(
     var pickPhotos: () -> Unit = {}
     var pickDocuments: () -> Unit = {}
     var pickPoll: () -> Unit = {}
-    var pickLocation: (live: Boolean) -> Unit = {}
+    var pickLocation: () -> Unit = {}
     var pickContact: () -> Unit = {}
     var pickDice: () -> Unit = {}
-    /** Secret chats and some channels do not support these attachments; the chips disappear instead of failing. */
+    /** Secret chats do not support server-side polls; the chip disappears instead of failing. */
     var allowsPolls: Boolean = true
-    var allowsLiveLocation: Boolean = true
 
     /** True while the panel replaces the plain composer (files or a poll/location/contact/dice are ready to send). */
     val active: Boolean get() = pending.isNotEmpty() || importing || extra != null
@@ -260,8 +258,7 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                         TypeChip(Icons.Rounded.Image, stringResource(R.string.composer_type_photo_video)) { state.menuOpen = false; state.pickPhotos() }
                         TypeChip(Icons.Rounded.Description, stringResource(R.string.composer_type_file)) { state.menuOpen = false; state.pickDocuments() }
                         if (state.allowsPolls) TypeChip(Icons.Rounded.Poll, stringResource(R.string.composer_type_poll)) { state.menuOpen = false; state.pickPoll() }
-                        TypeChip(Icons.Rounded.LocationOn, stringResource(R.string.composer_type_location)) { state.menuOpen = false; state.pickLocation(false) }
-                        if (state.allowsLiveLocation) TypeChip(Icons.Rounded.MyLocation, stringResource(R.string.composer_type_live_location)) { state.menuOpen = false; state.pickLocation(true) }
+                        TypeChip(Icons.Rounded.LocationOn, stringResource(R.string.composer_type_location)) { state.menuOpen = false; state.pickLocation() }
                         TypeChip(Icons.Rounded.Person, stringResource(R.string.composer_type_contact)) { state.menuOpen = false; state.pickContact() }
                         TypeChip(Icons.Rounded.Casino, stringResource(R.string.composer_type_dice)) { state.menuOpen = false; state.pickDice() }
                     }
@@ -285,7 +282,7 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                             Icon(
                                 when (extra) {
                                     is MessageExtraDraft.Poll -> Icons.Rounded.Poll
-                                    is MessageExtraDraft.Location -> if (extra.live) Icons.Rounded.MyLocation else Icons.Rounded.LocationOn
+                                    is MessageExtraDraft.Location -> Icons.Rounded.LocationOn
                                     is MessageExtraDraft.Contact -> Icons.Rounded.Person
                                     is MessageExtraDraft.Dice -> Icons.Rounded.Casino
                                 },
@@ -376,9 +373,7 @@ private fun extraLabel(extra: MessageExtraDraft): String = when (extra) {
         R.string.composer_extra_poll,
         extra.poll.normalized().question.ifBlank { stringResource(R.string.chat_poll_untitled) }
     )
-    is MessageExtraDraft.Location -> stringResource(
-        if (extra.live) R.string.composer_extra_live_location else R.string.composer_extra_location
-    )
+    is MessageExtraDraft.Location -> stringResource(R.string.composer_extra_location)
     is MessageExtraDraft.Contact -> stringResource(R.string.composer_extra_contact, extra.title)
     is MessageExtraDraft.Dice -> stringResource(R.string.composer_extra_dice, extra.emoji)
 }

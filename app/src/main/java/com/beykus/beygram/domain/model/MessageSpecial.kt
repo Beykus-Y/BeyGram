@@ -172,7 +172,7 @@ enum class PollDraftProblem {
 /** A prepared poll/location/contact/dice message waiting in the composer for the normal Send button. */
 sealed interface MessageExtraDraft {
     data class Poll(val poll: OutgoingPoll) : MessageExtraDraft
-    data class Location(val point: GeoPoint, val live: Boolean) : MessageExtraDraft
+    data class Location(val point: GeoPoint) : MessageExtraDraft
     data class Contact(val userId: Long, val title: String) : MessageExtraDraft
     data class Dice(val emoji: String) : MessageExtraDraft
 }
