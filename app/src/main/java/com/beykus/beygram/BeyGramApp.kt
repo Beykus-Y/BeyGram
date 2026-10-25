@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.archive.archivePreferencesName
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
+import com.beykus.beygram.data.tdlib.AccountDeletionTracker
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
@@ -108,6 +109,7 @@ import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.PrivacySettingsScreen
+import com.beykus.beygram.ui.screens.settings.AccountSecurityScreen
 import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.AutoDownloadSettingsScreen
@@ -472,6 +474,14 @@ private fun BeyGramAppContent(
         }
     }
     var noticeError by remember { mutableStateOf<UiText?>(null) }
+    // Server account deletion outlives this composition. Sticky cleanup errors are
+    // delivered through the process-owned tracker, including after Activity recreation.
+    val accountDeletion by AccountDeletionTracker.state.collectAsStateWithLifecycle()
+    LaunchedEffect(accountDeletion.error) {
+        val error = accountDeletion.error ?: return@LaunchedEffect
+        noticeError = error
+        AccountDeletionTracker.clearError()
+    }
     LaunchedEffect(accountRegistry) {
         try {
             val state = withContext(Dispatchers.IO) { accountRegistry.loadOrCreate() }
@@ -520,6 +530,11 @@ private fun BeyGramAppContent(
         globalSearchSession.reset("")
     }
     val accountSwitchScope = rememberCoroutineScope()
+    // Account deletion must survive Activity recreation; TDLib requests cannot be
+    // cancelled once dispatched, so completion and local cleanup belong to the process.
+    val applicationScope = remember(context) {
+        (context.applicationContext as BeyGramApplication).applicationScope
+    }
     val applyAccountSelection: suspend (String) -> Result<Unit> = { target ->
         val operation = MultiAccountDiagnostics.begin(
             "active_account_switch",
@@ -591,6 +606,28 @@ private fun BeyGramAppContent(
                 )
             }
         }
+    }
+    // Navigation after a confirmed server deletion is deliberately composition-owned.
+    // The request itself runs in applicationScope; this effect lets a recreated
+    // Activity finish the switch to the primary account if the old UI disappeared.
+    LaunchedEffect(accountDeletion.running, accountDeletion.serverDeleted, accountDeletion.accountId) {
+        if (accountDeletion.running || !accountDeletion.serverDeleted) return@LaunchedEffect
+        val deletedAccountId = accountDeletion.accountId ?: return@LaunchedEffect
+        if (deletedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+            if (selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+                routeName = AppRoute.Start.name
+            }
+        } else if (selectedAccountId == deletedAccountId) {
+            applyAccountSelection(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                .onFailure { failure ->
+                    noticeError = UiText.Raw(
+                        context.getString(
+                            accountSwitcherErrorResource(accountSwitcherErrorReason(failure))
+                        )
+                    )
+                }
+        }
+        AccountDeletionTracker.clearTerminal()
     }
     // «Показать в чате» из мини-плеера открывает сообщение, из которого запущен файл. Назад из чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     val currentAuthState by rememberUpdatedState(authState)
@@ -1536,6 +1573,28 @@ private fun BeyGramAppContent(
                         topicCanPost = selectedTopic?.canWrite ?: true,
                         topicUnreadCount = selectedTopic?.unreadCount ?: 0,
                         onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
+                        onOpenUserChat = { userId ->
+                            val sourceAccountId = selectedAccountId
+                            val sourceRepository = repository
+                            memberScope.launch {
+                                sourceRepository.openPrivateChat(userId)
+                                    .onSuccess { chatId ->
+                                        if (selectedAccountId == sourceAccountId) {
+                                            selectedChatId = chatId
+                                            selectedTopicChatId = 0L
+                                            selectedForumTopicId = 0L
+                                            chatBackRouteName = AppRoute.Chats.name
+                                            routeName = AppRoute.Chat.name
+                                        }
+                                    }
+                                    .onFailure { error ->
+                                        if (selectedAccountId == sourceAccountId) {
+                                            noticeError = (error as? UserMessageException)?.text
+                                                ?: UiText.Res(R.string.profile_member_open_failed)
+                                        }
+                                    }
+                            }
+                        },
                         onOpenComments = { post ->
                             threadChannelChatId = selectedChatId
                             threadPostId = post.id
@@ -2006,6 +2065,7 @@ private fun BeyGramAppContent(
                         onLanguage = { routeName = AppRoute.Language.name },
                         onSessions = { routeName = AppRoute.Sessions.name },
                         onPrivacy = { routeName = AppRoute.PrivacySettings.name },
+                        onAccountSecurity = { routeName = AppRoute.AccountSecurity.name },
                         onSecondaryAccounts = { accountSwitcherVisible = true },
                         onChatAnimations = { routeName = AppRoute.ChatAnimations.name },
                         onAppLock = { routeName = AppRoute.AppLock.name }
@@ -2025,6 +2085,81 @@ private fun BeyGramAppContent(
                     terminate = repository::terminateOtherSession,
                     terminateAll = repository::terminateAllOtherSessions
                 )
+                AppRoute.AccountSecurity -> key(selectedAccountId) {
+                    val securityAccountId = selectedAccountId
+                    AccountSecurityScreen(
+                        accountId = securityAccountId,
+                        repository = repository,
+                        currentPhone = myProfile.info?.phone.orEmpty(),
+                        isPrimaryAccount = securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
+                        deletionRunning = accountDeletion.accountId == securityAccountId &&
+                            (accountDeletion.running || accountDeletion.serverDeleted),
+                        requestAccountDeletion = { password, onResult ->
+                            if (!AccountDeletionTracker.begin(securityAccountId)) {
+                                onResult(
+                                    Result.failure(
+                                        IllegalStateException("Account deletion is already running")
+                                    )
+                                )
+                            } else {
+                                applicationScope.launch {
+                                    val deletion = try {
+                                        withContext(Dispatchers.IO) {
+                                            repository.deleteTelegramAccount(password)
+                                        }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: Throwable) {
+                                        Result.failure(failure)
+                                    }
+                                    withContext(Dispatchers.Main) { onResult(deletion) }
+                                    if (!deletion.isSuccess) {
+                                        AccountDeletionTracker.finish(
+                                            securityAccountId,
+                                            serverDeleted = false
+                                        )
+                                        AccountDeletionTracker.clearTerminal()
+                                        return@launch
+                                    }
+                                    if (securityAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+                                        // Never erase the primary TDLib database here. TDLib rebuilds
+                                        // the closed legacy client and publishes WaitPhoneNumber; the
+                                        // composition effect opens the sign-in screen through Start.
+                                        AccountDeletionTracker.finish(
+                                            securityAccountId,
+                                            serverDeleted = true
+                                        )
+                                        return@launch
+                                    }
+                                    var cleanupError: UiText? = null
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            secondaryAccountController.logoutAndDelete(
+                                                securityAccountId,
+                                                serverDeleted = true
+                                            )
+                                        }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Throwable) {
+                                        cleanupError = UiText.Res(
+                                            R.string.account_security_delete_cleanup_failed
+                                        )
+                                    }
+                                    // Account selection is applied by a composition effect
+                                    // observing this tracker, so a recreated Activity can
+                                    // finish the same navigation after cleanup.
+                                    AccountDeletionTracker.finish(
+                                        securityAccountId,
+                                        serverDeleted = true,
+                                        error = cleanupError
+                                    )
+                                }
+                            }
+                        },
+                        onBack = { routeName = AppRoute.Settings.name }
+                    )
+                }
                 AppRoute.NewChat -> NewChatScreen(
                     loadContacts = repository::loadContacts,
                     openPrivateChat = repository::openPrivateChat,

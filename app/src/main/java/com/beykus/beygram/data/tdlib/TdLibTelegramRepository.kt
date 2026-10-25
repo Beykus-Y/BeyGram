@@ -125,6 +125,12 @@ import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.InteractionPolicy
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
+import com.beykus.beygram.domain.model.MessageSpecialContent
+import com.beykus.beygram.domain.model.GeoPoint
+import com.beykus.beygram.domain.model.OutgoingPoll
+import com.beykus.beygram.domain.model.PollVoterInfo
+import com.beykus.beygram.domain.model.PollVotersPage
+import com.beykus.beygram.domain.model.pollVotersNextOffset
 import com.beykus.beygram.domain.model.ChatNotificationPreferences
 import com.beykus.beygram.domain.model.NotificationPresentation
 import com.beykus.beygram.domain.model.NotificationSoundOption
@@ -202,6 +208,7 @@ class TdLibTelegramRepository private constructor(
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences(if (isLegacyAccount) "mihomo_tdlib_proxy" else "mihomo_tdlib_proxy_$accountId", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
+    private val accountSecurity = TdAccountSecurity(tdRequests)
     private val secretChatDirectory = TdSecretChats(tdRequests)
     @Volatile private var secretChatSession = 0L
     private val payments = TdPayments(tdRequests)
@@ -913,6 +920,36 @@ class TdLibTelegramRepository private constructor(
         tdRequests(TdApi.TerminateAllOtherSessions())
         Unit
     }
+
+    override suspend fun cloudPasswordState() = accountSecurity.passwordState()
+    override suspend fun setCloudPassword(
+        currentPassword: String,
+        newPassword: String,
+        hint: String
+    ) = accountSecurity.setPassword(currentPassword, newPassword, hint)
+    override suspend fun setRecoveryEmail(currentPassword: String, email: String) =
+        accountSecurity.setRecoveryEmail(currentPassword, email)
+    override suspend fun confirmRecoveryEmail(code: String) = accountSecurity.confirmRecoveryEmail(code)
+    override suspend fun resendRecoveryEmailCode() = accountSecurity.resendRecoveryEmailCode()
+    override suspend fun cancelRecoveryEmailChange() = accountSecurity.cancelRecoveryEmailChange()
+    override suspend fun deleteTelegramAccount(password: String): Result<Unit> {
+        if (!isLegacyAccount) return accountSecurity.deleteAccount(password)
+        // DeleteAccount destroys the legacy authorization and closes the client rather
+        // than returning it to WaitPhoneNumber. Ask the existing close path to rebuild
+        // the client so the login screen sends requests to a live instance.
+        synchronized(legacyClientLock) { recreateLegacyClientOnClose = true }
+        val result = accountSecurity.deleteAccount(password)
+        val timedOut = result.exceptionOrNull()?.let {
+            it is TimeoutCancellationException || it.cause is TimeoutCancellationException
+        } == true
+        // A timeout is ambiguous: DeleteAccount may have succeeded and the close may
+        // still be on its way. Keep recreation armed so that close recovers the client.
+        if (result.isFailure && !timedOut) {
+            synchronized(legacyClientLock) { recreateLegacyClientOnClose = false }
+        }
+        return result
+    }
+
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = requestResult {
         !TdRequests { client }(TdApi.GetArchiveChatListSettings()).keepUnmutedChatsArchived
     }
@@ -2144,6 +2181,60 @@ class TdLibTelegramRepository private constructor(
         return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
     }
 
+    override suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendPoll(chatId, poll, replyToMessageId, forumTopicId, options)
+    }
+
+    override suspend fun sendLocation(chatId: Long, point: GeoPoint, live: Boolean, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendLocation(chatId, point, live, replyToMessageId, forumTopicId, options)
+    }
+
+    override suspend fun sendContactCard(chatId: Long, userId: Long, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
+        val card = requestResult { contactBook.shareCard(userId) }.getOrElse { return Result.failure(it) }
+        leaveJumpWindow(chatId)
+        return conversationActions.sendContact(chatId, card, replyToMessageId, forumTopicId, options)
+    }
+
+    override suspend fun sendDice(chatId: Long, emoji: String, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
+        leaveJumpWindow(chatId)
+        return conversationActions.sendDice(chatId, emoji, replyToMessageId, forumTopicId, options)
+    }
+
+    override suspend fun votePoll(chatId: Long, messageId: Long, optionIndices: List<Int>): Result<Unit> =
+        conversationActions.votePoll(chatId, messageId, optionIndices)
+
+    override suspend fun stopPoll(chatId: Long, messageId: Long): Result<Unit> =
+        conversationActions.stopPoll(chatId, messageId)
+
+    override suspend fun pollVoters(chatId: Long, messageId: Long, optionIndex: Int, offset: Int, limit: Int): Result<PollVotersPage> = requestResult {
+        val page = tdRequests(TdApi.GetPollVoters(chatId, messageId, optionIndex, offset.coerceAtLeast(0), limit.coerceIn(1, 100)))
+        val voters = page.voters.orEmpty().mapNotNull { it.toPollVoterInfo() }
+        PollVotersPage(voters, page.totalCount, pollVotersNextOffset(offset, voters.size, page.totalCount))
+    }
+
+    override suspend fun addPollOption(chatId: Long, messageId: Long, text: String): Result<Unit> =
+        conversationActions.addPollOption(chatId, messageId, text)
+
+    private fun TdApi.PollVoter.toPollVoterInfo(): PollVoterInfo? {
+        val sender = voterId ?: return null
+        val userId = (sender as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L
+        val chatSenderId = (sender as? TdApi.MessageSenderChat)?.chatId ?: 0L
+        val senderId = userId.takeIf { it > 0L } ?: chatSenderId
+        if (senderId == 0L) return null
+        return PollVoterInfo(
+            senderId = senderId,
+            isUser = userId > 0L,
+            name = profiles.senderName(sender).ifBlank { appContext.getString(R.string.chat_poll_voter_unknown) },
+            dateSeconds = date.toLong()
+        )
+    }
+
+    override suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit> =
+        conversationActions.stopLiveLocation(chatId, messageId)
+
+    override suspend fun contacts(): Result<List<ContactPreview>> = requestResult { contactBook.load() }
     override suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)
         return conversationActions.sendSticker(chatId, sticker, replyToMessageId, forumTopicId, options)
@@ -2346,11 +2437,12 @@ class TdLibTelegramRepository private constructor(
                     if (secretChat) it.copy(isSecretChat = true) else it
                 }
                 val service = serviceMessages.text(update.newContent)
+                val special = mediaMapper.special(update.newContent)?.takeIf { attachment == null && service == null }
                 val transform: (ChatMessage) -> ChatMessage = { message ->
                     val rendered = (update.newContent as? TdApi.MessageCall)?.let {
                         serviceMessages.callText(it, message.isOutgoing)
                     } ?: service
-                    message.withUpdatedContent(update.newContent, attachment,
+                    message.withUpdatedContent(update.newContent, attachment, special,
                         contentText(update.newContent, attachment != null),
                         messageFormattedText(update.newContent)?.domainEntities().orEmpty(), rendered,
                         linkPreview = mediaMapper.linkPreview(update.newContent, secretChat))
@@ -2978,6 +3070,7 @@ class TdLibTelegramRepository private constructor(
         val secretChat = isSecretChat(chatId)
         val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
         val service = event?.text
+        val special = mediaMapper.special(content)?.takeIf { attachment == null && service == null && content !is TdApi.MessageText }
         val scheduledAt = (schedulingState as? TdApi.MessageSchedulingStateSendAtDate)?.sendDate?.takeIf { it > 0 }?.toLong()
         if (event != null) hydrateServiceMember(this, event.userId)
         return ChatMessage(
@@ -2989,6 +3082,7 @@ class TdLibTelegramRepository private constructor(
         dateSeconds = date.toLong(),
         sendState = sendingState.toSendState(),
         media = if (secretChat) attachment?.copy(isSecretChat = true) else attachment,
+        special = special,
         mediaAlbumId = mediaAlbumId,
         senderName = profiles.senderName(senderId),
         senderId = (this.senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
@@ -3131,12 +3225,22 @@ class TdLibTelegramRepository private constructor(
             is TdApi.MessageText      -> UiText.Raw(c.text.text)
             is TdApi.MessageContact   -> c.contact.displayName().takeIf { it.isNotBlank() }?.let { UiText.Raw(it) }
                 ?: UiText.Res(R.string.message_title)
+            is TdApi.MessagePoll      -> c.poll.question?.text?.takeIf { it.isNotBlank() }
+                ?.let { UiText.Res(R.string.chat_preview_poll, listOf(it.take(80))) }
+                ?: UiText.Res(R.string.chat_preview_poll_empty)
+            is TdApi.MessageLocation  -> UiText.Res(R.string.chat_preview_location)
+            is TdApi.MessageLiveLocation -> UiText.Res(R.string.chat_preview_live_location)
+            is TdApi.MessageVenue     -> c.venue.title?.takeIf { it.isNotBlank() }
+                ?.let { UiText.Res(R.string.chat_preview_venue, listOf(it.take(80))) }
+                ?: UiText.Res(R.string.chat_preview_location)
+            is TdApi.MessageDice      -> UiText.Res(R.string.chat_preview_dice, listOf(c.emoji.orEmpty()))
             is TdApi.MessagePhoto     -> UiText.Res(R.string.chat_preview_photo)
             is TdApi.MessageVideo     -> UiText.Res(R.string.chat_preview_video)
             is TdApi.MessageAudio     -> UiText.Res(R.string.chat_preview_audio)
             is TdApi.MessageDocument  -> UiText.Res(R.string.chat_preview_document)
             is TdApi.MessageSticker   -> UiText.Res(R.string.chat_preview_sticker, listOf(c.sticker.emoji))
             is TdApi.MessageVoiceNote -> UiText.Res(R.string.chat_preview_voice)
+            is TdApi.MessageVideoNote -> UiText.Res(R.string.chat_preview_video_note)
             else                      -> UiText.Res(R.string.message_title)
         }
 

@@ -11,6 +11,11 @@ data class ChatMessage(
     val dateSeconds: Long = 0L,
     val sendState: MessageSendState = MessageSendState.Sent,
     val media: MessageMedia? = null,
+    /**
+     * Polls, locations, venues, contacts, dice and the explicit placeholder for unsupported content.
+     * Null means this message has no special content; it must not be rendered as an empty bubble.
+     */
+    val special: MessageSpecialContent? = null,
     /** Telegram's mediaAlbumId; zero means this message is not part of an album. */
     val mediaAlbumId: Long = 0L,
     val senderName: String = "",

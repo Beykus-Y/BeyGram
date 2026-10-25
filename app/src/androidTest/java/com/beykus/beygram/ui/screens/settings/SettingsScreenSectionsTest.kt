@@ -39,6 +39,7 @@ class SettingsScreenSectionsTest {
                     onLanguage = { opened += "language" },
                     onSessions = { opened += "sessions" },
                     onPrivacy = { opened += "privacy" },
+                    onAccountSecurity = { opened += "accountSecurity" },
                     onSecondaryAccounts = { opened += "secondaryAccounts" },
                     onChatAnimations = { opened += "chatAnimations" }
                 )
@@ -61,6 +62,7 @@ class SettingsScreenSectionsTest {
             R.string.settings_chat_animations_title to "chatAnimations",
             R.string.settings_video_recording_title to "video",
             R.string.notif_title to "notifications",
+            R.string.account_security_title to "accountSecurity",
             R.string.privacy_title to "privacy",
             R.string.secondary_accounts_title to "secondaryAccounts",
             R.string.feature_sessions to "sessions",

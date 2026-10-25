@@ -276,6 +276,20 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = unavailable()
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = unavailable()
     override suspend fun terminateAllOtherSessions(): Result<Unit> = unavailable()
+    override suspend fun cloudPasswordState(): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun setCloudPassword(
+        currentPassword: String,
+        newPassword: String,
+        hint: String
+    ): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun setRecoveryEmail(
+        currentPassword: String,
+        email: String
+    ): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun confirmRecoveryEmail(code: String): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun resendRecoveryEmailCode(): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun cancelRecoveryEmailChange(): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
+    override suspend fun deleteTelegramAccount(password: String): Result<Unit> = unavailable()
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = unavailable()
     override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = unavailable()
     override suspend fun markChatRead(chatId: Long): Result<Unit> = unavailable()
@@ -408,6 +422,16 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = unavailable()
     override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter): Result<MessageSearchPage> = unavailable()
     override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
+    override suspend fun sendPoll(chatId: Long, poll: com.beykus.beygram.domain.model.OutgoingPoll, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
+    override suspend fun sendLocation(chatId: Long, point: com.beykus.beygram.domain.model.GeoPoint, live: Boolean, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
+    override suspend fun sendContactCard(chatId: Long, userId: Long, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
+    override suspend fun sendDice(chatId: Long, emoji: String, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
+    override suspend fun votePoll(chatId: Long, messageId: Long, optionIndices: List<Int>): Result<Unit> = unavailable()
+    override suspend fun stopPoll(chatId: Long, messageId: Long): Result<Unit> = unavailable()
+    override suspend fun pollVoters(chatId: Long, messageId: Long, optionIndex: Int, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.PollVotersPage> = unavailable()
+    override suspend fun addPollOption(chatId: Long, messageId: Long, text: String): Result<Unit> = unavailable()
+    override suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit> = unavailable()
+    override suspend fun contacts(): Result<List<ContactPreview>> = Result.success(emptyList())
     override suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
     override suspend fun recentStickers(): Result<List<StickerItem>> = unavailable()
     override suspend fun installedStickerSets(): Result<List<StickerSetSummary>> = unavailable()

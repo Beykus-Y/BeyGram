@@ -48,7 +48,8 @@ import com.beykus.beygram.domain.repository.ReportBotChannel
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
-interface TelegramRepository : ConversationRepository, NotificationRepository, ReportBotChannel, StorageRepository, GroupAdministrationRepository {
+interface TelegramRepository : ConversationRepository, NotificationRepository, ReportBotChannel, StorageRepository,
+    AccountSecurityRepository, GroupAdministrationRepository {
     /** Текущее состояние авторизации. Обновляется реактивно при каждом ответе TDLib. */
     val authState: StateFlow<AuthState>
 

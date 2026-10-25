@@ -131,6 +131,8 @@ fun ChatScreen(
     chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
     onServiceUser: (Long) -> Unit = {},
+    /** Opens a private chat for a contact card's "Message" action; defaults to the profile route. */
+    onOpenUserChat: (Long) -> Unit = onServiceUser,
     /** Opens the channel post's comment thread; only channel posts with a linked discussion group call it. */
     onOpenComments: (ChatMessage) -> Unit = {},
     /** A thread overlay above this chat owns Back until it closes, so the channel must not navigate away. */
@@ -416,11 +418,22 @@ fun ChatScreen(
             val result = conversation.sendSticker(chat.id, sticker, replyId, forumTopicId = forumTopicId, options = options)
             if (result.isSuccess) clearReply()
             result
+        },
+        sendExtra = { draft, options ->
+            val result = when (draft) {
+                is MessageExtraDraft.Poll -> conversation.sendPoll(chat.id, draft.poll, replyId, forumTopicId = forumTopicId, options = options)
+                is MessageExtraDraft.Location -> conversation.sendLocation(chat.id, draft.point, false, replyId, forumTopicId = forumTopicId, options = options)
+                is MessageExtraDraft.Contact -> conversation.sendContactCard(chat.id, draft.userId, replyId, forumTopicId = forumTopicId, options = options)
+                is MessageExtraDraft.Dice -> conversation.sendDice(chat.id, draft.emoji, replyId, forumTopicId = forumTopicId, options = options)
+            }
+            if (result.isSuccess) clearReply()
+            result
         }
     )
     // View-once is a regular-private-chat photo/video feature. TDLib rejects per-message self-destruct in secret chats,
     // groups, channels and Saved Messages, so those keep only the separate chat-wide TTL controls.
     val allowViewOnce = !chat.isSecret && !chat.isGroup && !chat.isChannel && !chat.isSavedMessages
+    ComposerExtraPickers(chat.id, chat.isSecret, conversation, attachments)
     val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, accountId = accountId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.
@@ -1472,6 +1485,31 @@ fun ChatScreen(
                                 } else {
                                     { isGood -> rateTranscription(message, isGood) }
                                 },
+                                onPollVote = { messageId, choices ->
+                                    scope.launch {
+                                        conversation.votePoll(chat.id, messageId, choices)
+                                            .onFailure { error = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                                    }
+                                },
+                                onPollStop = { messageId ->
+                                    scope.launch {
+                                        conversation.stopPoll(chat.id, messageId)
+                                            .onFailure { error = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                    }
+                                },
+                                onStopLiveLocation = { target ->
+                                    if (target.special is MessageSpecialContent.LiveLocation) scope.launch {
+                                        conversation.stopLiveLocation(target.chatId, target.id)
+                                            .onFailure { error = it.userMessage(context, R.string.chat_location_stop_failed) }
+                                    }
+                                },
+                                onWriteContact = onOpenUserChat,
+                                onLoadPollVoters = { messageId, optionIndex, offset ->
+                                    conversation.pollVoters(chat.id, messageId, optionIndex, offset)
+                                },
+                                onAddPollOption = { messageId, text ->
+                                    conversation.addPollOption(chat.id, messageId, text)
+                                },
                                 onAutoDownloadFile = onAutoDownloadFile,
                                 selectionMode = selectionMode,
                                 selected = message.id in selectionIds,
@@ -1612,12 +1650,12 @@ fun ChatScreen(
         // restored if the send fails; hiding it here prevents two simultaneous copies of the same text.
         val displayedFieldText = if (hidingComposerForLaunch && !editing) "" else fieldText
         val displayedFieldEntities = if (hidingComposerForLaunch && !editing) emptyList() else fieldEntities
-        val fieldLimit = when { editing -> editLimit; attachments.active -> limits.caption; else -> limits.text }
+        val fieldLimit = when { editing -> editLimit; attachments.active && attachments.extra == null -> limits.caption; else -> limits.text }
         val overLimit = fieldText.codePointCount(0, fieldText.length) > fieldLimit
         val busy = sending || inlineSending || editBusy || attachments.sending
         val canSend = !busy && when {
             editing -> fieldText != editMessage?.text && (editMessage?.media != null || fieldText.isNotBlank())
-            attachments.active -> attachments.pending.isNotEmpty() && !attachments.importing
+            attachments.active -> attachments.canSend
             else -> fieldText.isNotBlank()
         }
         val sendLabel = if (editing) stringResource(R.string.common_save) else stringResource(R.string.common_send)
@@ -1666,7 +1704,7 @@ fun ChatScreen(
             else FormattingTextField(displayedFieldText, displayedFieldEntities,
                 onChange = { if (!hidingComposerForLaunch) { if (editing) editText = it else typedDraft(it) } },
                 onEntitiesChange = { if (!hidingComposerForLaunch) { if (editing) editEntities = it else updateDraft { state -> state.copy(entities = it) } } },
-                placeholder = if (hidingComposerForLaunch) "" else if (attachments.active) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
+                placeholder = if (hidingComposerForLaunch) "" else if (attachments.active && attachments.extra == null) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
                 locked = busy || hidingComposerForLaunch, isError = false,
                 modifier = Modifier.weight(1f).onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
                 focusRequest = replyFocusRequest)
@@ -2104,12 +2142,23 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     commentsBar: (@Composable () -> Unit)? = null,
     selectionMode: Boolean = false,
     selected: Boolean = false,
-    onToggleSelection: () -> Unit = {}
+    onToggleSelection: () -> Unit = {},
+    onPollVote: ((Long, List<Int>) -> Unit)? = null,
+    onPollStop: ((Long) -> Unit)? = null,
+    onStopLiveLocation: ((ChatMessage) -> Unit)? = null,
+    onWriteContact: ((Long) -> Unit)? = null,
+    onLoadPollVoters: (suspend (messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>)? = null,
+    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
     val shape = bubbleShape(message.isOutgoing, metrics)
     val hasText = message.text.isNotBlank()
+    val special = message.special
+    // A message whose content this build cannot render still gets an explicit card, never an empty bubble.
+    val renderedSpecial = special ?: if (!hasText && message.media == null && message.linkPreview == null &&
+        message.reply == null && message.inlineKeyboard.isEmpty()) MessageSpecialContent.Unsupported() else null
+    val showText = hasText && special !is MessageSpecialContent.Contact
     val circle = message.media?.kind == MediaKind.VideoNote
     // Стикер лежит без пузыря: ни цвета, ни ширины фото.
     val sticker = message.media?.kind == MediaKind.Sticker
@@ -2205,7 +2254,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             }
                         }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
-                        if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
+                        if (showText || renderedSpecial != null || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
                                 Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(metrics.replyRadius))
                                     .border(1.dp, palette.accent, RoundedCornerShape(metrics.replyRadius))
@@ -2214,7 +2263,19 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 }
                             }
-                            if (hasText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile)
+                            renderedSpecial?.let { content ->
+                                SpecialMessageContentView(
+                                    special = content,
+                                    message = message,
+                                    onPollVote = onPollVote,
+                                    onPollStop = onPollStop,
+                                    onStopLiveLocation = onStopLiveLocation,
+                                    onWriteContact = onWriteContact,
+                                    onLoadPollVoters = onLoadPollVoters,
+                                    onAddPollOption = onAddPollOption
+                                )
+                            }
+                            if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile)
                             message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile) }
                             translation?.let { state ->
                                 TranslationBlock(

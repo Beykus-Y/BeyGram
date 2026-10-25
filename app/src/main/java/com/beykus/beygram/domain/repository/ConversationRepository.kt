@@ -94,6 +94,22 @@ interface ConversationRepository {
     suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /** Poll, location, contact and dice are sent as TDLib content, never as formatted text. */
+    suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    suspend fun sendLocation(chatId: Long, point: GeoPoint, live: Boolean = false, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    suspend fun sendContactCard(chatId: Long, userId: Long, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    suspend fun sendDice(chatId: Long, emoji: String, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /** Chosen option positions are 0-based, as TDLib expects. */
+    suspend fun votePoll(chatId: Long, messageId: Long, optionIndices: List<Int>): Result<Unit>
+    suspend fun stopPoll(chatId: Long, messageId: Long): Result<Unit>
+    /** Voters of one option in a non-anonymous poll; [offset] is the number of already loaded voters. */
+    suspend fun pollVoters(chatId: Long, messageId: Long, optionIndex: Int, offset: Int, limit: Int = 50): Result<PollVotersPage>
+    /** Appends an option when TDLib's MessagePoll.canAddOption allows it. */
+    suspend fun addPollOption(chatId: Long, messageId: Long, text: String): Result<Unit>
+    /** Ends an outgoing live-location share by clearing EditMessageLiveLocation.location. */
+    suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit>
+    /** The account's Telegram address book, for the compose-contact picker. */
+    suspend fun contacts(): Result<List<ContactPreview>>
     /**
      * Sends a sticker as a native InputMessageSticker, not as a document. [sticker] carries the TDLib file id,
      * dimensions and emoji; its bytes are never downloaded by the picker. Reply/topic/scheduling apply as usual.

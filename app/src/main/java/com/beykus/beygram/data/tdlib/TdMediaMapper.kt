@@ -2,10 +2,20 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.model.GeoPoint
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageContactInfo
+import com.beykus.beygram.domain.model.MessageDiceInfo
 import com.beykus.beygram.domain.model.MessageLinkPreview
+import com.beykus.beygram.domain.model.MessageLiveLocationInfo
+import com.beykus.beygram.domain.model.MessageLocationInfo
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.MessagePoll
+import com.beykus.beygram.domain.model.MessagePollOption
+import com.beykus.beygram.domain.model.MessageSpecialContent
+import com.beykus.beygram.domain.model.MessageVenueInfo
+import com.beykus.beygram.domain.model.PollVoteRestriction
 import org.drinkless.tdlib.TdApi
 
 internal fun TdApi.File.toMediaFileState(): MediaFileState {
@@ -104,6 +114,97 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
         visibleLinkPreview(content, isSecretChat)
             ?.toMessageLinkPreview(::register)
             ?.takeIf { it.hasContent }
+
+    /**
+     * Polls, locations, venues, contacts, dice and the safe fallback for everything else. Known media and text
+     * return null: they have their own renderers. The caller decides whether a service event suppresses this value.
+     */
+    fun special(content: TdApi.MessageContent): MessageSpecialContent? = when (content) {
+        is TdApi.MessagePoll -> content.toSpecialPoll(content.canAddOption)
+        is TdApi.MessageLocation -> MessageSpecialContent.Location(MessageLocationInfo(content.location.toGeoPoint()))
+        is TdApi.MessageLiveLocation -> MessageSpecialContent.LiveLocation(
+            MessageLiveLocationInfo(
+                point = content.location.location.toGeoPoint(),
+                livePeriodSeconds = content.location.livePeriod,
+                expiresAtSeconds = System.currentTimeMillis() / 1000L + content.expiresIn.coerceAtLeast(0)
+            )
+        )
+        is TdApi.MessageVenue -> content.venue.toSpecialVenue()
+        is TdApi.MessageContact -> MessageSpecialContent.Contact(
+            MessageContactInfo(
+                userId = content.contact.userId,
+                firstName = content.contact.firstName.orEmpty(),
+                lastName = content.contact.lastName.orEmpty(),
+                phone = content.contact.phoneNumber.orEmpty()
+            )
+        )
+        is TdApi.MessageDice -> MessageSpecialContent.Dice(MessageDiceInfo(content.emoji.orEmpty(), content.value))
+        is TdApi.MessageText, is TdApi.MessagePhoto, is TdApi.MessageVideo, is TdApi.MessageAnimation,
+        is TdApi.MessageDocument, is TdApi.MessageAudio, is TdApi.MessageVoiceNote, is TdApi.MessageVideoNote,
+        is TdApi.MessageSticker -> null
+        else -> MessageSpecialContent.Unsupported(content.javaClass.simpleName)
+    }
+
+    private fun TdApi.MessagePoll.toSpecialPoll(canAddOption: Boolean): MessageSpecialContent.Poll {
+        val quiz = poll.type as? TdApi.PollTypeQuiz
+        val options = poll.options.orEmpty().mapIndexed { index, option ->
+            MessagePollOption(
+                id = option.id.orEmpty(),
+                text = option.text?.text.orEmpty(),
+                voterCount = option.voterCount,
+                percentage = option.votePercentage,
+                isChosen = option.isChosen,
+                isBeingChosen = option.isBeingChosen,
+                optionIndex = index
+            )
+        }
+        // TDLib can shuffle option display order for anti-bias; votes still use the original 0-based ids.
+        val order = poll.optionOrder ?: IntArray(0)
+        val displayed = if (order.size == options.size && order.distinct().size == order.size &&
+            order.all { it in options.indices }) order.map { options[it] } else options
+        return MessageSpecialContent.Poll(
+            MessagePoll(
+                id = poll.id,
+                question = poll.question?.text.orEmpty(),
+                description = description?.text.orEmpty(),
+                options = displayed,
+                totalVoterCount = poll.totalVoterCount,
+                isAnonymous = poll.isAnonymous,
+                allowsMultipleAnswers = poll.allowsMultipleAnswers,
+                allowsRevoting = poll.allowsRevoting,
+                isClosed = poll.isClosed,
+                canSeeResults = poll.canSeeResults,
+                canGetVoters = poll.canGetVoters,
+                canAddOption = canAddOption,
+                isQuiz = quiz != null,
+                correctOptionIndices = quiz?.correctOptionIds?.toSet().orEmpty(),
+                explanation = quiz?.explanation?.text.orEmpty(),
+                voteRestriction = poll.voteRestrictionReason.toVoteRestriction()
+            )
+        )
+    }
+
+    private fun TdApi.Venue.toSpecialVenue() = MessageSpecialContent.Venue(
+        MessageVenueInfo(
+            point = location.toGeoPoint(),
+            title = title.orEmpty(),
+            address = address.orEmpty(),
+            provider = provider.orEmpty(),
+            type = type.orEmpty()
+        )
+    )
+
+    private fun TdApi.Location.toGeoPoint() = GeoPoint(latitude, longitude, horizontalAccuracy)
+
+    private fun TdApi.PollVoteRestrictionReason?.toVoteRestriction(): PollVoteRestriction = when (this) {
+        is TdApi.PollVoteRestrictionReasonClosed -> PollVoteRestriction.Closed
+        is TdApi.PollVoteRestrictionReasonCountryRestricted -> PollVoteRestriction.CountryRestricted
+        is TdApi.PollVoteRestrictionReasonMembershipRequired -> PollVoteRestriction.MembershipRequired
+        is TdApi.PollVoteRestrictionReasonScheduled -> PollVoteRestriction.Scheduled
+        is TdApi.PollVoteRestrictionReasonYetUnsent -> PollVoteRestriction.YetUnsent
+        is TdApi.PollVoteRestrictionReasonOther -> PollVoteRestriction.Other
+        else -> PollVoteRestriction.None
+    }
 
     fun caption(content: TdApi.MessageContent): String = when (content) {
         is TdApi.MessagePhoto -> content.caption?.text.orEmpty()
