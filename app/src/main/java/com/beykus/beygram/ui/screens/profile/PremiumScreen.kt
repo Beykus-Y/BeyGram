@@ -18,7 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -160,8 +161,10 @@ private fun PremiumContent(
     onRetry: () -> Unit
 ) {
     val palette = beyGramPalette()
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
-        if (refreshError != null) item("refresh_error") {
+    // A plain scroll container keeps the gift-code workflow and its coroutine composed while
+    // the user inspects features and plans; a lazy item would discard both when scrolled away.
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+        if (refreshError != null) {
             Text(
                 refreshError,
                 color = palette.danger,
@@ -169,110 +172,92 @@ private fun PremiumContent(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp).errorAnnouncement()
             )
         }
-        if (unsupported) item("unsupported") {
+        if (unsupported) {
             MonetizationStateCard(
                 title = stringResource(R.string.monetization_unsupported_title),
                 body = stringResource(R.string.monetization_unsupported_body)
             )
         }
-        item("status") {
-            MonetizationCard {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp).semantics(mergeDescendants = true) {}) {
-                    Text(
-                        stringResource(R.string.premium_status_heading),
-                        color = palette.textSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        stringResource(if (info.isPremium) R.string.premium_status_active else R.string.premium_status_inactive),
-                        color = if (info.isPremium) palette.accentInk else palette.textPrimary,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (info.statusText.isNotBlank()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(info.statusText, color = palette.textPrimary, fontSize = 15.sp)
-                    }
+        MonetizationCard {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp).semantics(mergeDescendants = true) {}) {
+                Text(
+                    stringResource(R.string.premium_status_heading),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    stringResource(if (info.isPremium) R.string.premium_status_active else R.string.premium_status_inactive),
+                    color = if (info.isPremium) palette.accentInk else palette.textPrimary,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                if (info.statusText.isNotBlank()) {
                     Spacer(Modifier.height(6.dp))
+                    Text(info.statusText, color = palette.textPrimary, fontSize = 15.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    stringResource(R.string.premium_status_source_hint),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp
+                )
+            }
+        }
+        MonetizationStateCard(
+            title = stringResource(R.string.premium_purchase_unavailable_title),
+            body = stringResource(R.string.premium_purchase_unavailable_body),
+            tone = MonetizationTone.Warning
+        )
+        PremiumGiftCodeSection(
+            checkCode = checkGiftCode,
+            applyCode = applyGiftCode,
+            onActivated = onRetry
+        )
+        MonetizationSectionHeader(stringResource(R.string.premium_features_title))
+        if (info.features.isEmpty()) {
+            Text(
+                stringResource(R.string.premium_features_empty),
+                color = palette.textSecondary,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+            )
+        } else {
+            MonetizationCard {
+                info.features.forEachIndexed { index, feature ->
+                    if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 18.dp))
                     Text(
-                        stringResource(R.string.premium_status_source_hint),
-                        color = palette.textSecondary,
-                        fontSize = 13.sp
+                        stringResource(premiumFeatureLabel(feature)),
+                        color = palette.textPrimary,
+                        fontSize = 15.sp,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)
                     )
                 }
             }
         }
-        item("purchase_fallback") {
-            MonetizationStateCard(
-                title = stringResource(R.string.premium_purchase_unavailable_title),
-                body = stringResource(R.string.premium_purchase_unavailable_body),
-                tone = MonetizationTone.Warning
-            )
-        }
-        item("gift_code") {
-            PremiumGiftCodeSection(
-                checkCode = checkGiftCode,
-                applyCode = applyGiftCode,
-                onActivated = onRetry
-            )
-        }
-        item("features_header") {
-            MonetizationSectionHeader(stringResource(R.string.premium_features_title))
-        }
-        if (info.features.isEmpty()) {
-            item("features_empty") {
-                Text(
-                    stringResource(R.string.premium_features_empty),
-                    color = palette.textSecondary,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                )
-            }
-        } else {
-            item("features") {
-                MonetizationCard {
-                    info.features.forEachIndexed { index, feature ->
-                        if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 18.dp))
-                        Text(
-                            stringResource(premiumFeatureLabel(feature)),
-                            color = palette.textPrimary,
-                            fontSize = 15.sp,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)
-                        )
-                    }
-                }
-            }
-        }
-        item("plans_header") {
-            MonetizationSectionHeader(stringResource(R.string.premium_plans_title))
-        }
+        MonetizationSectionHeader(stringResource(R.string.premium_plans_title))
         if (info.plans.isEmpty()) {
-            item("plans_empty") {
-                Text(
-                    stringResource(R.string.premium_plans_empty),
-                    color = palette.textSecondary,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                )
-            }
+            Text(
+                stringResource(R.string.premium_plans_empty),
+                color = palette.textSecondary,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+            )
         } else {
-            item("plans") {
-                MonetizationCard {
-                    info.plans.forEachIndexed { index, plan ->
-                        if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 18.dp))
-                        PremiumPlanRow(plan)
-                    }
+            MonetizationCard {
+                info.plans.forEachIndexed { index, plan ->
+                    if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 18.dp))
+                    PremiumPlanRow(plan)
                 }
             }
         }
-        if (loading) item("loading") {
+        if (loading) {
             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent)
             }
         }
-        if (refreshError != null) item("retry") {
+        if (refreshError != null) {
             TextButton(onClick = onRetry, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                 Text(stringResource(R.string.common_retry))
             }
