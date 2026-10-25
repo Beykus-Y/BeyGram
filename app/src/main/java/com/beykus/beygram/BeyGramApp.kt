@@ -107,7 +107,10 @@ import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChannelStatisticsScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
+import com.beykus.beygram.ui.screens.profile.GiftsScreen
+import com.beykus.beygram.ui.screens.profile.PremiumScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
+import com.beykus.beygram.ui.screens.profile.StarsScreen
 import com.beykus.beygram.ui.screens.theme.AppearanceDraftSaver
 import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
@@ -617,6 +620,28 @@ private fun BeyGramAppContent(
     var notificationsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     // Оформление открывают из профиля и из настроек: запоминаем, откуда пришли.
     var appearanceReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyProfile.name) }
+    // Premium, Stars и Gifts — read-only screens opened from profiles; keep the exact source route.
+    var monetizationReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyProfile.name) }
+    var starsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyProfile.name) }
+    var giftsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyProfile.name) }
+    var giftsProfileId by rememberSaveable { mutableStateOf(0L) }
+    var giftsProfileSelf by rememberSaveable { mutableStateOf(false) }
+    var giftsProfileTitle by rememberSaveable { mutableStateOf("") }
+    val openPremium: (AppRoute) -> Unit = { returnTo ->
+        monetizationReturnRouteName = returnTo.name
+        routeName = AppRoute.Premium.name
+    }
+    val openStars: (AppRoute) -> Unit = { returnTo ->
+        starsReturnRouteName = returnTo.name
+        routeName = AppRoute.Stars.name
+    }
+    val openGifts: (Long, Boolean, String, AppRoute) -> Unit = { profileId, self, title, returnTo ->
+        giftsProfileId = profileId
+        giftsProfileSelf = self
+        giftsProfileTitle = title
+        giftsReturnRouteName = returnTo.name
+        routeName = AppRoute.Gifts.name
+    }
     val openTab: (MainTab, AppRoute) -> Unit = { tab, returnTo ->
         tabReturnRouteName = returnTo.name
         routeName = tab.route.name
@@ -1485,7 +1510,8 @@ private fun BeyGramAppContent(
                 }
                 chatFocusMessageId = messageId
                 routeName = AppRoute.Chat.name
-            })
+            },
+            onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.ChatInfo) })
     }
 
     val chatMembersRoute: @Composable () -> Unit = {
@@ -1515,7 +1541,8 @@ private fun BeyGramAppContent(
             onOpenLinkedChannel = { channelId ->
                 selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
             },
-            lastSeenStyle = lastSeenStyle)
+            lastSeenStyle = lastSeenStyle,
+            onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MemberProfile) })
     }
 
     CompositionLocalProvider(LocalPlaybackAccountId provides selectedAccountId) {
@@ -1675,7 +1702,34 @@ private fun BeyGramAppContent(
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
                         onOpenLinkedChannel = { channelId ->
                             selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
-                        }, lastSeenStyle = lastSeenStyle)
+                        }, lastSeenStyle = lastSeenStyle,
+                        onPremium = { openPremium(AppRoute.MyProfile) },
+                        onStars = { openStars(AppRoute.MyProfile) },
+                        onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.MyProfile) })
+                }
+                AppRoute.Premium -> PremiumScreen(
+                    load = repository::premiumInfo,
+                    onBack = { routeName = monetizationReturnRouteName }
+                )
+                AppRoute.Stars -> StarsScreen(
+                    load = repository::starsInfo,
+                    loadMore = repository::starTransactions,
+                    onBack = { routeName = starsReturnRouteName }
+                )
+                AppRoute.Gifts -> if (giftsProfileId == 0L) {
+                    LaunchedEffect(Unit) { routeName = AppRoute.MyProfile.name }
+                } else {
+                    GiftsScreen(
+                        title = stringResource(
+                            if (giftsProfileSelf) R.string.gifts_title_own else R.string.gifts_title
+                        ),
+                        profileTitle = giftsProfileTitle,
+                        isSelf = giftsProfileSelf,
+                        load = { repository.giftsInfo(giftsProfileId, giftsProfileSelf) },
+                        send = { giftId -> repository.sendGift(giftsProfileId, giftsProfileSelf, giftId) },
+                        onOpenStars = { openStars(AppRoute.Gifts) },
+                        onBack = { routeName = giftsReturnRouteName }
+                    )
                 }
                 AppRoute.Appearance -> ThemeSettingsScreen(
                     saved = appearance,
