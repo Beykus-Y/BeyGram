@@ -133,6 +133,7 @@
     <string name="gifts_send_success">Gift sent.</string>
     <string name="gifts_send_failed">Could not send the gift</string>
     <string name="gifts_send_uncertain">Could not confirm the send. Check the Stars history and do not send again.</string>
+    <string name="gifts_uncertain_ack">I checked the history</string>
     <string name="gifts_block_own">You cannot send a gift to yourself.</string>
     <string name="gifts_block_premium">This gift requires Premium.</string>
     <string name="gifts_block_balance_unknown">The Stars balance is unknown. Refresh the screen.</string>

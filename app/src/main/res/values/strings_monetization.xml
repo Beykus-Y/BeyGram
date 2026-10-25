@@ -135,6 +135,7 @@
     <string name="gifts_send_success">Подарок отправлен.</string>
     <string name="gifts_send_failed">Не удалось отправить подарок</string>
     <string name="gifts_send_uncertain">Не удалось подтвердить отправку. Проверьте историю Stars и не отправляйте повторно.</string>
+    <string name="gifts_uncertain_ack">Я проверил историю</string>
     <string name="gifts_block_own">Нельзя отправить подарок себе.</string>
     <string name="gifts_block_premium">Подарок доступен только с Premium.</string>
     <string name="gifts_block_balance_unknown">Баланс Stars неизвестен. Обновите экран.</string>

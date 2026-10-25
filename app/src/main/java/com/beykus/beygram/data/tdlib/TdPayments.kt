@@ -331,6 +331,8 @@ internal class TdPayments(private val requests: TdRequests) {
 
     private suspend fun <T> monetizationResult(block: suspend () -> T): Result<T> = try {
         Result.success(block())
+    // withTimeout raises TimeoutCancellationException, which is also a CancellationException.
+    // It must become a visible read error; only real caller cancellation may propagate.
     } catch (timeout: TimeoutCancellationException) {
         Result.failure(UserMessageException(UiText.Res(R.string.err_monetization_timeout), timeout))
     } catch (cancelled: CancellationException) {

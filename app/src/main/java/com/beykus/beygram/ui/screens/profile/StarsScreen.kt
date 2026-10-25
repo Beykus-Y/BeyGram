@@ -64,6 +64,7 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -119,25 +120,39 @@ fun StarsScreen(
     }
 
     fun requestMore() {
-        if (loadingMore || nextOffset.isBlank()) return
+        // A refresh may still show the previous page; never page from its stale offset.
+        if (loading || loadingMore || nextOffset.isBlank()) return
         val requestedOffset = nextOffset
         val currentGeneration = generation
         scope.launch {
             loadingMore = true
             moreError = null
-            loadMore(requestedOffset)
-                .onSuccess { page ->
-                    if (generation != currentGeneration) return@onSuccess
-                    transactions = (transactions + page.transactions).distinctBy { it.id }
-                    nextOffset = if (page.nextOffset == requestedOffset) "" else page.nextOffset
-                    info = info?.copy(balance = page.balance)
-                }
-                .onFailure { failure ->
-                    if (generation == currentGeneration) {
-                        moreError = failure.userMessage(context, R.string.stars_history_error)
+            try {
+                loadMore(requestedOffset)
+                    .onSuccess { page ->
+                        if (generation != currentGeneration) return@onSuccess
+                        transactions = (transactions + page.transactions).distinctBy { it.id }
+                        nextOffset = if (page.nextOffset == requestedOffset) "" else page.nextOffset
+                        info = info?.copy(balance = page.balance)
                     }
+                    .onFailure { failure ->
+                        if (generation == currentGeneration) {
+                            moreError = failure.userMessage(context, R.string.stars_history_error)
+                        }
+                    }
+            } catch (_: TimeoutCancellationException) {
+                if (generation == currentGeneration) {
+                    moreError = context.getString(R.string.err_monetization_timeout)
                 }
-            if (generation == currentGeneration) loadingMore = false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (generation == currentGeneration) {
+                    moreError = context.getString(R.string.stars_history_error)
+                }
+            } finally {
+                if (generation == currentGeneration) loadingMore = false
+            }
         }
     }
 
@@ -232,7 +247,7 @@ fun StarsScreen(
                         item("more") {
                             TextButton(
                                 onClick = ::requestMore,
-                                enabled = !loadingMore,
+                                enabled = !loadingMore && !loading,
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             ) {
                                 Text(stringResource(R.string.stars_more))

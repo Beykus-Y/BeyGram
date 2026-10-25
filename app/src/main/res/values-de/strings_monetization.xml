@@ -133,6 +133,7 @@
     <string name="gifts_send_success">Geschenk gesendet.</string>
     <string name="gifts_send_failed">Das Geschenk konnte nicht gesendet werden</string>
     <string name="gifts_send_uncertain">Der Versand konnte nicht bestätigt werden. Prüfen Sie den Stars-Verlauf und senden Sie nicht erneut.</string>
+    <string name="gifts_uncertain_ack">Ich habe den Verlauf geprüft</string>
     <string name="gifts_block_own">Sie können sich selbst kein Geschenk senden.</string>
     <string name="gifts_block_premium">Dieses Geschenk erfordert Premium.</string>
     <string name="gifts_block_balance_unknown">Das Stars-Guthaben ist unbekannt. Aktualisieren Sie den Bildschirm.</string>

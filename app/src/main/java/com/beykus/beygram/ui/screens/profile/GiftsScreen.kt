@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -98,9 +99,19 @@ fun GiftsScreen(
     var selectedGift by remember { mutableStateOf<GiftCatalogItem?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeIsError by remember { mutableStateOf(false) }
+    // A submitted SendGift survives rotation only as this marker: the coroutine itself does not.
+    // While non-zero it blocks another purchase until the user acknowledges the warning.
+    var pendingGiftId by rememberSaveable { mutableStateOf(0L) }
     val sending = step is GiftSendStep.Sending
 
     BackHandler { if (!sending) onBack() }
+    LaunchedEffect(Unit) {
+        if (pendingGiftId != 0L) {
+            notice = context.getString(R.string.gifts_send_uncertain)
+            noticeIsError = true
+            step = GiftSendStep.Failed(pendingGiftId, uncertain = true)
+        }
+    }
     LaunchedEffect(reload) {
         loading = true
         error = null
@@ -126,14 +137,14 @@ fun GiftsScreen(
     }
 
     fun chooseGift(gift: GiftCatalogItem) {
-        if (sending) return
+        if (sending || pendingGiftId != 0L) return
         notice = null
         selectedGift = gift
         step = step.next(GiftSendEvent.Select(gift.id))
     }
 
     fun confirmGift() {
-        if (step !is GiftSendStep.Confirming) return
+        if (step !is GiftSendStep.Confirming || pendingGiftId != 0L) return
         val gift = selectedGift ?: return
         val currentInfo = info ?: return
         val nextStep = step.next(GiftSendEvent.Confirm)
@@ -153,6 +164,7 @@ fun GiftsScreen(
             return
         }
         step = nextStep
+        pendingGiftId = gift.id
         scope.launch {
             val outcome = try {
                 send(gift.id)
@@ -164,6 +176,8 @@ fun GiftsScreen(
                 // Never present an unexpected transport failure as a safe retry.
                 GiftSendOutcome.Uncertain
             }
+            // From here the result is known; a rotation before that keeps the marker and warns.
+            pendingGiftId = 0L
             when (outcome) {
                 GiftSendOutcome.Sent -> {
                     notice = context.getString(R.string.gifts_send_success)
@@ -233,14 +247,28 @@ fun GiftsScreen(
                     }
                     notice?.let { message ->
                         item("notice") {
-                            Text(
-                                message,
-                                color = if (noticeIsError) palette.danger else palette.successText,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
-                                    .errorAnnouncement()
-                            )
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+                                Text(
+                                    message,
+                                    color = if (noticeIsError) palette.danger else palette.successText,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.errorAnnouncement()
+                                )
+                                if (pendingGiftId != 0L) {
+                                    TextButton(
+                                        onClick = {
+                                            pendingGiftId = 0L
+                                            notice = null
+                                            noticeIsError = false
+                                            reload++
+                                        },
+                                        modifier = Modifier.heightIn(min = 48.dp)
+                                    ) {
+                                        Text(stringResource(R.string.gifts_uncertain_ack))
+                                    }
+                                }
+                            }
                         }
                     }
                     item("balance") {
@@ -358,7 +386,7 @@ fun GiftsScreen(
                                 GiftCatalogRow(
                                     gift = gift,
                                     blockReason = blockReason,
-                                    enabled = !sending,
+                                    enabled = !sending && pendingGiftId == 0L,
                                     onSend = { chooseGift(gift) }
                                 )
                             }
