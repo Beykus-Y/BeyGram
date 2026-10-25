@@ -1450,6 +1450,7 @@
     <string name="settings_language_en">English</string>
     <string name="settings_language_de">Deutsch</string>
     <string name="settings_language_es">Español</string>
+    <string name="settings_language_fr">Français</string>
     <string name="feature_language_hint">Язык меняется сразу.</string>
     <string name="translation_settings_title">Перевод</string>
     <string name="translation_target_title">Перевести на</string>

@@ -216,7 +216,7 @@ internal fun BotWebAppScreen(
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 Toast.makeText(context, R.string.chat_webapp_crashed, Toast.LENGTH_LONG).show()
-                onClose()
+                currentOnClose()
                 return true
             }
         }

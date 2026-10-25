@@ -27,6 +27,6 @@ class AppLocaleSelectionTest {
     }
 
     @Test fun unsupportedExternalAppLocaleNeverFakesSupportedSelection() {
-        assertEquals(AppLocale.SYSTEM, resolveAppLanguage("fr-FR", "ru"))
+        assertEquals(AppLocale.SYSTEM, resolveAppLanguage("it-IT", "ru"))
     }
 }

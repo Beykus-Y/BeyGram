@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="composer_type_camera">Appareil photo</string>
+    <string name="composer_type_audio">Audio</string>
+
+    <string name="camera_close_description">Fermer l’appareil photo</string>
+    <string name="camera_mode_photo">Photo</string>
+    <string name="camera_mode_video">Vidéo</string>
+    <string name="camera_mode_photo_description">Mode photo</string>
+    <string name="camera_mode_video_description">Mode vidéo</string>
+    <string name="camera_capture_description">Prendre une photo</string>
+    <string name="camera_record_start_description">Démarrer l’enregistrement vidéo</string>
+    <string name="camera_record_stop_description">Arrêter l’enregistrement</string>
+    <string name="camera_recording_description">Enregistrement d’une vidéo</string>
+    <string name="camera_recording_time">%1$s / %2$s</string>
+    <string name="camera_switch_description">Changer d’appareil photo</string>
+    <string name="camera_preview_description">Viseur de l’appareil photo</string>
+    <string name="camera_zoom_in">Zoom avant</string>
+    <string name="camera_zoom_out">Zoom arrière</string>
+
+    <string name="camera_timer_off">Minuteur désactivé</string>
+    <string name="camera_timer_three">3 s</string>
+    <string name="camera_timer_ten">10 s</string>
+    <string name="camera_timer_description">Minuteur : %1$s</string>
+    <string name="camera_timer_off_value">désactivé</string>
+    <string name="camera_timer_seconds_value">%1$d s</string>
+    <string name="camera_timer_cancel">Appuyez pour annuler</string>
+
+    <string name="camera_flash_on">Activer le flash</string>
+    <string name="camera_flash_off">Désactiver le flash</string>
+    <string name="camera_flash_unavailable">Le flash n’est pas disponible sur cet appareil photo</string>
+    <string name="camera_flash_failed">Impossible de modifier le flash</string>
+
+    <string name="camera_duration_seconds">%1$d s</string>
+    <string name="camera_duration_minutes">%1$d min</string>
+    <string name="camera_video_limit_description">Durée : %1$s</string>
+    <string name="camera_limit_summary">Photos jusqu’à 10 Mo · vidéos jusqu’à 2 Go, 60 minutes</string>
+
+    <string name="camera_permission_title">Accès à l’appareil photo requis</string>
+    <string name="camera_permission_message">Autorisez BeyGram à utiliser l’appareil photo pour prendre des photos et des vidéos sans quitter la discussion.</string>
+    <string name="camera_permission_audio_missing">Sans accès au microphone, la vidéo sera enregistrée sans son.</string>
+    <string name="camera_permission_action">Autoriser</string>
+    <string name="camera_permission_denied">L’accès à l’appareil photo n’a pas été accordé</string>
+
+    <string name="camera_error_open">Impossible d’ouvrir l’appareil photo</string>
+    <string name="camera_error_capture">Impossible de prendre la photo</string>
+    <string name="camera_error_record">Impossible d’enregistrer la vidéo</string>
+    <string name="camera_error_too_short">L’enregistrement est trop court</string>
+    <string name="capture_retry">Réessayer</string>
+    <string name="capture_retry_hint">La capture est enregistrée sur cet appareil. Réessayez l’importation ou fermez les pièces jointes.</string>
+    <string name="capture_retry_missing">Le fichier capturé n’est plus disponible. Prenez à nouveau une photo ou une vidéo.</string>
+
+    <string name="err_video_compress_failed">Impossible de compresser la vidéo</string>
+    <string name="err_audio_compress_failed">Impossible de compresser l’audio</string>
+    <string name="video_container_as_file">Ce format vidéo est envoyé comme fichier : la compression n’est prise en charge que pour MP4/H.264.</string>
+
+    <string name="composer_edit_photo_named">Modifier la photo « %1$s »</string>
+    <string name="photo_editor_title">Éditeur de photos</string>
+    <string name="photo_editor_close_description">Fermer l’éditeur</string>
+    <string name="photo_editor_apply">Terminé</string>
+    <string name="photo_editor_saving">Enregistrement de la photo…</string>
+    <string name="photo_editor_preview_failed">Impossible d’ouvrir la photo</string>
+    <string name="photo_editor_failed">Impossible d’enregistrer les modifications</string>
+    <string name="photo_editor_original_failed">Impossible de joindre la photo d’origine</string>
+    <string name="photo_editor_rotate_left">Gauche</string>
+    <string name="photo_editor_rotate_right">Droite</string>
+    <string name="photo_editor_crop_hint">Faites glisser le cadre ou ses coins</string>
+    <string name="photo_editor_crop_description">Zone de recadrage</string>
+    <string name="photo_editor_aspect_free">Libre</string>
+    <string name="photo_editor_aspect_square">1:1</string>
+    <string name="photo_editor_aspect_four_three">4:3</string>
+    <string name="photo_editor_aspect_sixteen_nine">16:9</string>
+    <string name="photo_editor_quality_title">Qualité et taille</string>
+    <string name="photo_editor_quality_high">Élevée · 2560 px</string>
+    <string name="photo_editor_quality_balanced">Équilibrée · 1600 px</string>
+    <string name="photo_editor_quality_compact">Compacte · 1280 px</string>
+    <string name="photo_editor_keep_original">Conserver l’original</string>
+    <string name="photo_editor_keep_original_hint">L’original sera envoyé dans un fichier séparé.</string>
+    <string name="photo_editor_move_left">Déplacer le recadrage à gauche</string>
+    <string name="photo_editor_move_right">Déplacer le recadrage à droite</string>
+    <string name="photo_editor_move_up">Déplacer le recadrage vers le haut</string>
+    <string name="photo_editor_move_down">Déplacer le recadrage vers le bas</string>
+    <string name="photo_editor_send_original">Envoyer sans recadrage</string>
+
+    <string name="video_quality_chip">Vidéo : %1$s</string>
+    <string name="video_quality_compact">compacte</string>
+    <string name="video_quality_balanced">équilibrée</string>
+    <string name="video_quality_original">originale</string>
+    <string name="video_quality_notice">Nouvelles vidéos : %1$s</string>
+    <string name="video_compressing">Compression de la vidéo… %1$d%%</string>
+    <string name="video_compressing_indeterminate">Compression de la vidéo…</string>
+    <string name="video_compression_cancel">Annuler la compression</string>
+    <string name="video_compression_cancelled">Compression annulée, envoi de l’original</string>
+    <string name="video_compression_failed_original">Impossible de compresser la vidéo. Envoi de l’original.</string>
+    <string name="video_compressed">Vidéo compressée : %1$s → %2$s</string>
+    <string name="video_too_long_as_file">La vidéo dépasse 60 minutes — envoi en tant que fichier</string>
+    <string name="video_too_large_as_file">La vidéo dépasse 2 Go — envoi en tant que fichier</string>
+
+    <string name="audio_quality_chip">Audio : %1$s</string>
+    <string name="audio_quality_compact">compact</string>
+    <string name="audio_quality_balanced">équilibré</string>
+    <string name="audio_quality_original">original</string>
+    <string name="audio_quality_notice">Nouveaux fichiers audio : %1$s</string>
+    <string name="audio_compressing">Compression de l’audio… %1$d%%</string>
+    <string name="audio_compressing_indeterminate">Compression de l’audio…</string>
+    <string name="audio_compression_cancel">Annuler la compression audio</string>
+    <string name="audio_compression_cancelled">Compression audio annulée, envoi de l’original</string>
+    <string name="audio_compression_failed_original">Impossible de compresser l’audio. Envoi de l’original.</string>
+    <string name="audio_metadata_kept">L’audio avec des tags ou une pochette n’est pas compressé afin de préserver ses métadonnées.</string>
+    <string name="audio_compressed">Audio compressé : %1$s → %2$s</string>
+</resources>

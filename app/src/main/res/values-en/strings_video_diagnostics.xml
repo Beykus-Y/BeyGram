@@ -132,7 +132,7 @@
     <string name="vn_report_timing_line">  interval p50/p95/max %1$s/%2$s/%3$s ms, coverage %4$s ms, baseline %5$s, expected frames %6$s, estimated missing frames %7$s, repeated timestamps (possible duplicates) %8$d, out-of-order timestamps %9$d</string>
     <string name="vn_report_timing_audio">  audio: samples %1$d, interval p50/p95/max %2$s/%3$s/%4$s ms, repeated timestamps %5$d</string>
     <string name="vn_report_timing_av">  A/V: start offset %1$s ms, end offset %2$s ms, drift %3$s ms: %4$s</string>
-    <string name="vn_report_timing_export">  Media3: encoded frames %1$d, container samples %2$d, difference %3$d; this is not a visual-quality estimate</string>
+    <string name="vn_report_timing_export">  Export: encoded frames %1$d, container samples %2$d, difference %3$d; this is not a visual-quality estimate</string>
     <string name="vn_entry_timing_unknown">Frame timing: not enough timestamps to estimate intervals and dropped frames (UNKNOWN)</string>
     <string name="vn_entry_av_unmeasured">A/V sync not measured: not enough valid video timestamps (UNKNOWN)</string>
     <string name="vn_timing_source_file">from the file</string>

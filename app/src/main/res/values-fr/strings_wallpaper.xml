@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wallpaper_title">Fond d’écran des discussions</string>
+    <string name="wallpaper_option_none">Aucun fond d’écran</string>
+    <string name="wallpaper_option_solid">Couleur unie %1$d</string>
+    <string name="wallpaper_option_gradient">Dégradé %1$d</string>
+    <string name="wallpaper_option_photo">Photo de la galerie</string>
+    <string name="wallpaper_dim">Assombrir le fond d’écran</string>
+    <string name="wallpaper_import_failed">Impossible d’ouvrir cette photo</string>
+    <string name="wallpaper_reset">Effacer le fond d’écran</string>
+    <string name="wallpaper_blur">Flouter la photo</string>
+    <string name="wallpaper_blur_hint">Fonctionne sous Android 12 et versions ultérieures. Sur les versions plus anciennes, la photo est davantage assombrie.</string>
+    <string name="wallpaper_option_solid_custom">Arrière-plan personnalisé</string>
+    <string name="wallpaper_option_gradient_custom">Dégradé personnalisé</string>
+</resources>

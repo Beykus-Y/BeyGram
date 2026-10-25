@@ -278,7 +278,7 @@
     <string name="vn_report_timing_line">  intervalo p50/p95/máx %1$s/%2$s/%3$s ms, cobertura %4$s ms, base %5$s, fotogramas esperados %6$s, fotogramas faltantes estimados %7$s, marcas repetidas (posibles duplicados) %8$d, marcas fuera de orden %9$d</string>
     <string name="vn_report_timing_audio">  audio: muestras %1$d, intervalo p50/p95/máx %2$s/%3$s/%4$s ms, marcas repetidas %5$d</string>
     <string name="vn_report_timing_av">  A/V: desfase al inicio %1$s ms, al final %2$s ms, deriva %3$s ms: %4$s</string>
-    <string name="vn_report_timing_export">  Media3: fotogramas codificados %1$d, muestras en el contenedor %2$d, diferencia %3$d; no es una estimación de calidad visual</string>
+    <string name="vn_report_timing_export">  Exportación: fotogramas codificados %1$d, muestras en el contenedor %2$d, diferencia %3$d; no es una estimación de calidad visual</string>
     <string name="vn_entry_timing_unknown">Tiempos de fotogramas: no hay suficientes marcas para estimar intervalos y fotogramas perdidos (UNKNOWN)</string>
     <string name="vn_entry_av_unmeasured">Sincronización A/V no medida: no hay suficientes marcas de video válidas (UNKNOWN)</string>
     <string name="vn_timing_source_file">del archivo</string>
