@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -433,7 +434,7 @@ private fun CameraValueChip(text: String, selected: Boolean, description: String
     Box(
         Modifier.defaultMinSize(minHeight = 48.dp, minWidth = 48.dp)
             .background(background, RoundedCornerShape(24.dp))
-            .clickable(role = Role.Button, onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .semantics { contentDescription = description }
             .padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center

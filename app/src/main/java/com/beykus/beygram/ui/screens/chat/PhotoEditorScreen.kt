@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -188,7 +190,10 @@ internal fun PhotoEditorScreen(
                 Text(stringResource(R.string.photo_editor_crop_hint), color = palette.textSecondary, fontSize = 11.sp)
             }
             Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 AspectChip(stringResource(R.string.photo_editor_aspect_free), aspect == null && crop.isFull, !saving) {
                     aspect = null
                     crop = NormalizedCrop()
@@ -208,7 +213,10 @@ internal fun PhotoEditorScreen(
             }
             Spacer(Modifier.height(8.dp))
             Text(stringResource(R.string.photo_editor_quality_title), color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 QualityChip(stringResource(R.string.photo_editor_quality_high), quality == PhotoExportQuality.High, !saving) { quality = PhotoExportQuality.High }
                 QualityChip(stringResource(R.string.photo_editor_quality_balanced), quality == PhotoExportQuality.Balanced, !saving) { quality = PhotoExportQuality.Balanced }
                 QualityChip(stringResource(R.string.photo_editor_quality_compact), quality == PhotoExportQuality.Compact, !saving) { quality = PhotoExportQuality.Compact }

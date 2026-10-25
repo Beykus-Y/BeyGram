@@ -250,7 +250,7 @@ internal class AttachmentState(
                         importer.prepareLocal(
                             File(session.sourcePath),
                             asDocument = true,
-                            displayName = "original-${File(session.sourcePath).name}"
+                            displayName = "original.jpg"
                         )
                     } catch (cancelled: CancellationException) {
                         throw cancelled
