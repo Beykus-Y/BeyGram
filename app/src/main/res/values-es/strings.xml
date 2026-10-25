@@ -484,4 +484,13 @@
     <string name="app_lock_biometric_failed">Biometría no reconocida. Introduce el PIN.</string>
     <string name="app_lock_biometric_unavailable_now">La biometría no está disponible ahora. Introduce el PIN.</string>
     <string name="app_lock_biometric_locked">La biometría está bloqueada temporalmente. Introduce el PIN.</string>
+    <string name="settings_chat_animations_title">Animaciones del chat</string>
+    <string name="chat_animations_title">Animaciones del chat</string>
+    <string name="chat_animations_intro">Controla los emoji animados en el texto de los mensajes y los efectos que eligen los remitentes para un mensaje nuevo.</string>
+    <string name="chat_animations_emoji_title">Emoji animados</string>
+    <string name="chat_animations_emoji_detail">Reproducir emoji TGS y WebP dentro del texto del mensaje.</string>
+    <string name="chat_animations_effects_title">Efectos de mensaje</string>
+    <string name="chat_animations_effects_detail">Mostrar el efecto que eligió el remitente para un mensaje nuevo.</string>
+    <string name="chat_animations_reduced_motion">El sistema pide reducir el movimiento. Los emoji y efectos se muestran estáticos, pero tus preferencias se mantienen guardadas.</string>
+    <string name="chat_animations_footnote">Los efectos solo se reproducen en mensajes nuevos, nunca tapan el texto ni cambian el desplazamiento.</string>
 </resources>
