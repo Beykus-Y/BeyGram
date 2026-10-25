@@ -12,6 +12,35 @@ interface ConversationRepository {
     fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?>
     suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit>
     suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer>
+    /** Commands advertised by the private chat's bot; null for a non-bot chat or a bot without commands. */
+    suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?>
+    /**
+     * Resolves an inline bot by username and asks TDLib for one results page. Pass "" first, then the previous
+     * [InlineBotResults.nextOffset]. No message is sent by this call. A null page means [username] is not an inline
+     * bot (unknown, a user, a channel or a bot without inline mode), which is not an error.
+     */
+    suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String = ""): Result<InlineBotResults?>
+    /** Sends one inline result with the composer's reply, forum topic and delivery options. */
+    suspend fun sendInlineBotResult(
+        chatId: Long,
+        queryId: Long,
+        resultId: String,
+        replyToMessageId: Long? = null,
+        forumTopicId: Long = 0L,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<Unit>
+    /** Opens a Mini App through TDLib; the returned URL and origin policy are authoritative. */
+    suspend fun openBotWebApp(
+        chatId: Long,
+        botUserId: Long,
+        url: String,
+        source: BotWebAppSource,
+        forumTopicId: Long = 0L,
+        replyToMessageId: Long? = null,
+        theme: BotWebAppTheme
+    ): Result<BotWebAppLaunch>
+    /** Informs TDLib that the Mini App screen is gone. Safe to call once per launch; never blocks disposal. */
+    fun closeBotWebApp(launchId: Long)
     val messageLimits: StateFlow<MessageLimits>
     /** Local-first persistent composer drafts, synchronized with TDLib when connected. */
     fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft>

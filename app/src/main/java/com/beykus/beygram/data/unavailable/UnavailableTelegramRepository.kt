@@ -49,6 +49,11 @@ import com.beykus.beygram.domain.model.PinnedMessagePage
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
+import com.beykus.beygram.domain.model.BotCommandMenu
+import com.beykus.beygram.domain.model.BotWebAppLaunch
+import com.beykus.beygram.domain.model.BotWebAppSource
+import com.beykus.beygram.domain.model.BotWebAppTheme
+import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.ProfileState
@@ -149,6 +154,69 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun acknowledgeGroupCreation() {}
     override fun acknowledgeUncertainGroupCreation() {}
     override suspend fun createChannel(title: String, description: String): Result<Long> = unavailable()
+    override suspend fun saveGroupSettings(chatId: Long, edit: com.beykus.beygram.domain.model.GroupSettingsEdit): Result<Unit> = unavailable()
+
+    override suspend fun loadGroupManagement(chatId: Long): Result<com.beykus.beygram.domain.model.GroupManagementInfo> = unavailable()
+
+    override suspend fun loadGroupMembers(
+        chatId: Long,
+        filter: com.beykus.beygram.domain.model.GroupMemberFilter,
+        query: String,
+        offset: Int,
+        limit: Int
+    ): Result<com.beykus.beygram.domain.model.GroupMemberPage> = unavailable()
+
+    override suspend fun addGroupMembers(chatId: Long, userIds: List<Long>): Result<com.beykus.beygram.domain.model.GroupMemberAddition> = unavailable()
+
+    override suspend fun banGroupMember(chatId: Long, userId: Long): Result<Unit> = unavailable()
+
+    override suspend fun unbanGroupMember(chatId: Long, userId: Long): Result<Unit> = unavailable()
+
+    override suspend fun restrictGroupMember(chatId: Long, userId: Long): Result<Unit> = unavailable()
+
+    override suspend fun unrestrictGroupMember(chatId: Long, userId: Long, keepMembership: Boolean): Result<Unit> = unavailable()
+
+    override suspend fun setGroupMemberRights(
+        chatId: Long,
+        userId: Long,
+        rights: com.beykus.beygram.domain.model.GroupAdministratorRights
+    ): Result<Unit> = unavailable()
+
+    override suspend fun demoteGroupMember(chatId: Long, userId: Long): Result<Unit> = unavailable()
+
+    override suspend fun loadGroupInviteLinks(chatId: Long): Result<List<com.beykus.beygram.domain.model.GroupInviteLink>> = unavailable()
+
+    override suspend fun createGroupInviteLink(
+        chatId: Long,
+        draft: com.beykus.beygram.domain.model.GroupInviteLinkDraft
+    ): Result<com.beykus.beygram.domain.model.GroupInviteLink> = unavailable()
+
+    override suspend fun editGroupInviteLink(
+        chatId: Long,
+        link: String,
+        draft: com.beykus.beygram.domain.model.GroupInviteLinkDraft
+    ): Result<com.beykus.beygram.domain.model.GroupInviteLink> = unavailable()
+
+    override suspend fun renameGroupSubscriptionInviteLink(
+        chatId: Long,
+        link: String,
+        name: String
+    ): Result<com.beykus.beygram.domain.model.GroupInviteLink> = unavailable()
+
+    override suspend fun revokeGroupInviteLink(chatId: Long, link: String): Result<Unit> = unavailable()
+
+    override suspend fun loadGroupJoinRequests(
+        chatId: Long,
+        offset: String?,
+        limit: Int
+    ): Result<com.beykus.beygram.domain.model.GroupJoinRequestsPage> = unavailable()
+
+    override suspend fun processGroupJoinRequest(chatId: Long, userId: Long, approve: Boolean): Result<Unit> = unavailable()
+
+    override suspend fun setGroupPhoto(chatId: Long, photo: OutgoingMedia): Result<Unit> = unavailable()
+
+    override suspend fun removeGroupPhoto(chatId: Long): Result<Unit> = unavailable()
+
     override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = unavailable()
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = unavailable()
     override suspend fun terminateAllOtherSessions(): Result<Unit> = unavailable()
@@ -214,6 +282,26 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?> = MutableStateFlow<BotKeyboard?>(null).asStateFlow()
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long): Result<Unit> = unavailable()
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer> = unavailable()
+    override suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?> = unavailable()
+    override suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults?> = unavailable()
+    override suspend fun sendInlineBotResult(
+        chatId: Long,
+        queryId: Long,
+        resultId: String,
+        replyToMessageId: Long?,
+        forumTopicId: Long,
+        options: MessageSendOptions
+    ): Result<Unit> = unavailable()
+    override suspend fun openBotWebApp(
+        chatId: Long,
+        botUserId: Long,
+        url: String,
+        source: BotWebAppSource,
+        forumTopicId: Long,
+        replyToMessageId: Long?,
+        theme: BotWebAppTheme
+    ): Result<BotWebAppLaunch> = unavailable()
+    override fun closeBotWebApp(launchId: Long) = Unit
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long): Result<PinnedMessagePage> = unavailable()
     override suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit> = unavailable()

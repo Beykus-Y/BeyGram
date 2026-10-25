@@ -84,6 +84,7 @@ internal fun GroupProfileScreen(
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)?, confirmExport: suspend (Long) -> Boolean,
     messageRights: suspend (Long) -> MessageCapabilities?, forwardMessage: suspend (Long, Long) -> Result<Unit>, chats: List<ChatPreview>,
     onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit,
+    onManage: (() -> Unit)? = null,
     /** Repository-backed automatic download for the shared-media viewer. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
@@ -142,7 +143,14 @@ internal fun GroupProfileScreen(
                     }
                 }
             }
-            item(key = "rows") { ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null)) }
+            item(key = "rows") {
+                Column {
+                    ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null))
+                    if (onManage != null && info.groupAdmin?.canManageAnything == true) {
+                        GroupManagementEntry(info.kind, onManage)
+                    }
+                }
+            }
             if (onStatistics != null) item(key = "statistics") { GroupStatisticsEntry(onStatistics) }
             if (info.administrators.isNotEmpty()) item(key = "administrators") { AdministratorsSection(info.administrators, onOpenUser) }
             stickyHeader(key = "tabs") {

@@ -111,6 +111,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 /** More than one transition can be in flight, but an accidental tap storm must not create an unbounded overlay. */
 private const val MAX_ACTIVE_COMPOSER_LAUNCHES = 4
 
+private data class PendingBotWebApp(val url: String, val botUserId: Long, val messageId: Long, val source: BotWebAppSource)
+
 /** A zero-watermark jump walks history to its beginning; this guard keeps a huge chat from loading forever. */
 private const val MAX_UNREAD_HISTORY_PAGES = 50
 private const val UNREAD_HISTORY_PAGE_TIMEOUT_MS = 15_000L
@@ -254,6 +256,12 @@ fun ChatScreen(
         }
     }
     var error by remember { mutableStateOf<String?>(null) }
+    var botCommandMenu by remember(chat.id) { mutableStateOf<BotCommandMenu?>(null) }
+    var botCommandMenuOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var inlineSending by remember(chat.id) { mutableStateOf(false) }
+    var webAppSession by remember(chat.id) { mutableStateOf<BotWebAppLaunch?>(null) }
+    var pendingWebApp by remember(chat.id) { mutableStateOf<PendingBotWebApp?>(null) }
+    var webAppOpening by remember(chat.id) { mutableStateOf(false) }
     var reactionOptions by remember(chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
@@ -277,6 +285,40 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
+    // Bots expose commands through UserFullInfo; non-bot chats resolve to null without an extra full-info request.
+    LaunchedEffect(chat.id, conversation) {
+        botCommandMenu = conversation.botCommandMenu(chat.id).getOrNull()
+    }
+    fun insertBotCommand(command: String) {
+        if (inlineSending) return
+        val normalized = command.trim().removePrefix("/").trim()
+        if (normalized.isEmpty()) return
+        updateDraft { it.copy(text = "/$normalized ", entities = emptyList()) }
+        replyFocusRequest++
+        botCommandMenuOpen = false
+    }
+    fun requestBotWebApp(url: String, botUserId: Long, messageId: Long, source: BotWebAppSource) {
+        if (webAppSession != null || webAppOpening || pendingWebApp != null) return
+        pendingWebApp = PendingBotWebApp(url, botUserId, messageId, source)
+    }
+    fun launchBotWebApp(request: PendingBotWebApp) {
+        val theme = palette.toBotWebAppTheme()
+        scope.launch {
+            webAppOpening = true
+            try {
+                conversation.openBotWebApp(chat.id, request.botUserId, request.url, request.source, forumTopicId, request.messageId.takeIf { it > 0L }, theme)
+                    .onSuccess { webAppSession = it }
+                    .onFailure { error = it.userMessage(context, R.string.chat_webapp_open_failed) }
+            } finally {
+                webAppOpening = false
+            }
+        }
+    }
+    // The callback owns a short-lived TDLib launch; close it even when recreation or navigation disposes the chat.
+    DisposableEffect(webAppSession?.launchId) {
+        val launchId = webAppSession?.launchId ?: 0L
+        onDispose { conversation.closeBotWebApp(launchId) }
+    }
     val recordingMode by recordingSettings.recordingMode.collectAsStateWithLifecycle()
     val translationPreferences by translationSettings.state.collectAsStateWithLifecycle()
     val recordingRecovery: ChatRecordingRecoveryViewModel = viewModel(key = "chat-recording-$accountId-${chat.id}")
@@ -842,7 +884,7 @@ fun ChatScreen(
     LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             snapshotFlow {
-                if (!window.isWindowFocused || searching || threadOpen || !scrollPosition.readBoundaryChecked) emptyList() else {
+                if (!window.isWindowFocused || searching || threadOpen || attachments.cameraOpen || attachments.editor != null || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
                     val eligible = currentMessages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id }
                     layout.visibleItemsInfo.filter { item ->
@@ -1135,7 +1177,7 @@ fun ChatScreen(
      * the choice applies to this send only and is not kept for the next one.
      */
     fun sendCurrentDraft(options: MessageSendOptions) {
-        if (editId != null) return
+        if (editId != null || inlineSending) return
         if (attachments.active) {
             attachments.send(draft, options) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
             return
@@ -1346,7 +1388,7 @@ fun ChatScreen(
                             else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                                 highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                 onPlayed = { conversation.openMessageContent(chat.id, message.id) },
-                                onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
+                                onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, ::requestBotWebApp) },
                                 onBubblePositioned = bubblePosition,
                                 translation = translationState,
                                 onTranslationRetry = { retryTranslation(message) },
@@ -1495,7 +1537,7 @@ fun ChatScreen(
         val displayedFieldEntities = if (hidingComposerForLaunch && !editing) emptyList() else fieldEntities
         val fieldLimit = when { editing -> editLimit; attachments.active -> limits.caption; else -> limits.text }
         val overLimit = fieldText.codePointCount(0, fieldText.length) > fieldLimit
-        val busy = sending || editBusy || attachments.sending
+        val busy = sending || inlineSending || editBusy || attachments.sending
         val canSend = !busy && when {
             editing -> fieldText != editMessage?.text && (editMessage?.media != null || fieldText.isNotBlank())
             attachments.active -> attachments.pending.isNotEmpty() && !attachments.importing
@@ -1513,10 +1555,34 @@ fun ChatScreen(
         // Chats the user cannot write to get no composer, only a plain notice, as in Telegram.
         if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar()
         if (!deleting && !searching && !selectionMode && canPostHere) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        if (!recordingActive && !editing && !attachments.active) BotInlineResultsPanel(
+            chatId = chat.id,
+            text = draft,
+            active = !sending && !hidingComposerForLaunch,
+            replyToMessageId = replyId,
+            forumTopicId = forumTopicId,
+            conversation = conversation,
+            observeFile = observeFile,
+            onDownloadFile = onDownloadFile,
+            onOpenWebApp = ::requestBotWebApp,
+            onSendingChange = { busy ->
+                inlineSending = busy
+                // The attachment picker would replace the panel whose coroutine is waiting for TDLib.
+                if (busy) attachments.menuOpen = false
+            },
+            onSent = { sentText ->
+                updateDraft { if (it.text == sentText) it.copy(text = "", entities = emptyList()) else it }
+                if (replyId != null) clearReply()
+            }
+        )
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
-                if (!editing) AttachmentButton(attachments, enabled = !sending)
-                else Spacer(Modifier.width(8.dp))
+                if (!editing) {
+                    botCommandMenu?.takeIf { it.commands.isNotEmpty() }?.let {
+                        BotCommandButton(enabled = !sending && !inlineSending && !attachments.active) { botCommandMenuOpen = true }
+                    }
+                    AttachmentButton(attachments, enabled = !sending && !inlineSending)
+                } else Spacer(Modifier.width(8.dp))
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
             else if (videoNote.active) VideoNoteRecordingDock(videoNote, Modifier.weight(1f), onCancel = videoNote::discardLocked)
@@ -1593,7 +1659,7 @@ fun ChatScreen(
             color = palette.warningText, fontSize = 12.sp,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
         )
-        if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation)
+        if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation, ::requestBotWebApp)
         }
     }
     ComposerLaunchOverlay(
@@ -1609,6 +1675,7 @@ fun ChatScreen(
             if (composerDraftLaunchKey == it.key) composerDraftLaunchKey = null
         }
     )
+    AttachmentMediaHost(attachments)
     }
     // Each unacknowledged video draft remains in the app center. Only the oldest is shown;
     // later previews are retained, not overwritten by a second showPreview() call.
@@ -1762,6 +1829,28 @@ fun ChatScreen(
         conversation = conversation,
         onDismiss = { exportOpen = false }
     )
+    botCommandMenu?.let { menu ->
+        if (botCommandMenuOpen) BotCommandSheet(chat.title, menu, onDismiss = { botCommandMenuOpen = false }, onInsert = ::insertBotCommand)
+    }
+    pendingWebApp?.let { request ->
+        AlertDialog(
+            onDismissRequest = { pendingWebApp = null },
+            title = { Text(stringResource(R.string.chat_webapp_consent_title)) },
+            text = { Text(stringResource(R.string.chat_webapp_consent)) },
+            confirmButton = {
+                TextButton(onClick = { pendingWebApp = null; launchBotWebApp(request) }) {
+                    Text(stringResource(R.string.chat_webapp_open_action))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingWebApp = null }) { Text(stringResource(R.string.common_cancel)) }
+            }
+        )
+    }
+    webAppSession?.let { session ->
+        // DisposableEffect above closes the TDLib launch when this state is cleared or the screen is disposed.
+        BotWebAppScreen(session, title = chat.title, onClose = { webAppSession = null })
+    }
 }
 
 @Composable

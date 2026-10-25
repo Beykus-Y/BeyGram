@@ -52,6 +52,38 @@ internal suspend fun <T> conversationResult(timeoutMessage: UiText = MESSAGE_TIM
 /** Контакты, звонки и чаты: сообщений здесь нет, поэтому 404 не значит удалённое сообщение. */
 internal suspend fun <T> requestResult(block: suspend () -> T): Result<T> = telegramResult(REQUEST_TIMEOUT, block, ::requestErrorText)
 
+/**
+ * Администрирование группы: отказ прав, лимит запросов и конфликты участника должны объясняться
+ * по-разному, чтобы администратор понимал, что можно исправить, а что нет.
+ */
+internal suspend fun <T> groupResult(block: suspend () -> T): Result<T> =
+    telegramResult(UiText.Res(R.string.err_group_action_failed), block, ::groupErrorText)
+
+private fun groupErrorText(error: Exception): UiText {
+    val message = error.message.orEmpty()
+    return when {
+        error.isFloodWait() -> UiText.Res(R.string.err_tdlib_flood_wait)
+        message.contains("USERNAME_OCCUPIED") -> UiText.Res(R.string.err_username_taken)
+        message.contains("USERNAME_INVALID") -> UiText.Res(R.string.err_username_invalid)
+        message.contains("USERNAME_PURCHASE_AVAILABLE") -> UiText.Res(R.string.err_username_purchase)
+        message.contains("CHAT_ADMIN_REQUIRED") || message.contains("CHAT_NOT_ENOUGH_RIGHTS") ||
+            message.contains("CHAT_WRITE_FORBIDDEN") || message.contains("CHAT_FORBIDDEN") ||
+            message.contains("CHANNEL_PRIVATE") || message.contains("CHAT_MEMBER_REQUIRED") ||
+            message.contains("CHAT_OWNER") || message.contains("administrator rights", ignoreCase = true) ||
+            message.contains("Not enough rights", ignoreCase = true) ->
+            UiText.Res(R.string.err_group_rights_missing)
+        message.contains("USER_ALREADY_PARTICIPANT") || message.contains("already a participant", ignoreCase = true) ->
+            UiText.Res(R.string.err_group_member_already)
+        message.contains("USER_NOT_PARTICIPANT") || message.contains("not a participant", ignoreCase = true) ->
+            UiText.Res(R.string.err_group_member_not_found)
+        message.contains("PRIVACY", ignoreCase = true) -> UiText.Res(R.string.err_group_add_privacy)
+        message.contains("INVITE_LINK") -> UiText.Res(R.string.err_group_invite_invalid)
+        message.contains("CHAT_TITLE_EMPTY") -> UiText.Res(R.string.err_group_title_required)
+        message.contains("PHOTO", ignoreCase = true) -> UiText.Res(R.string.err_group_photo_failed)
+        else -> UiText.Res(R.string.err_group_action_failed)
+    }
+}
+
 /** Translation and recognition have their own friendly errors; a secret-chat refusal is never a generic failure. */
 internal suspend fun <T> translationResult(block: suspend () -> T): Result<T> =
     telegramResult(UiText.Res(R.string.err_translation_failed), block) { error ->
