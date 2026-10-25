@@ -110,6 +110,7 @@
     <string name="err_vpn_telegram_connect_failed">Telegram konnte nicht mit dem Proxy verbunden werden</string>
     <string name="err_statistics_unavailable">Statistiken sind nur für Kanaladministratoren verfügbar</string>
     <string name="channel_statistics_title">Kanalstatistik</string>
+    <string name="group_statistics_title">Gruppenstatistik</string>
     <string name="channel_statistics_members">Abonnenten</string>
     <string name="channel_statistics_growth">Wachstum im Zeitraum</string>
     <string name="channel_statistics_views">Durchschnittliche Aufrufe</string>
@@ -119,9 +120,9 @@
     <string name="channel_statistics_percent">%1$d%%</string>
     <string name="channel_statistics_period">Zeitraum: %1$s — %2$s</string>
     <string name="channel_statistics_top_senders">Top-Autoren</string>
-    <string name="channel_statistics_messages">Nachrichten</string>
-    <string name="channel_statistics_viewers">Betrachter</string>
-    <string name="channel_statistics_senders">Absender</string>
+    <string name="channel_statistics_messages">Gesendete Nachrichten</string>
+    <string name="channel_statistics_viewers">Betrachter der Nachrichten</string>
+    <string name="channel_statistics_senders">Absender von Nachrichten</string>
     <string name="channel_statistics_charts_title">Diagramme</string>
     <string name="channel_statistics_charts_empty">Telegram hat für diesen Zeitraum keine Diagrammdaten geliefert</string>
     <string name="channel_statistics_chart_members">Abonnentenwachstum</string>

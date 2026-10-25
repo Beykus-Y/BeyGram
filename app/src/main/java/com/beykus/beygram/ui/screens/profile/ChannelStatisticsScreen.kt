@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ChannelStatisticsScreen(
     title: String,
+    @StringRes headerTitle: Int,
     loadStatistics: suspend () -> Result<ChannelStatisticsSummary>,
     loadEvents: suspend (Long, ChannelEventFilter) -> Result<ChannelAdminEventPage>,
     onOpenPost: (Long) -> Unit,
@@ -132,7 +134,7 @@ fun ChannelStatisticsScreen(
         Modifier.fillMaxSize().background(palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
     ) {
-        ProfileToolbar(stringResource(R.string.channel_statistics_title), onBack)
+        ProfileToolbar(stringResource(headerTitle), onBack)
         // One scroll container: statistics, filters and the log remain reachable with large fonts and in landscape.
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -264,23 +266,9 @@ fun ChannelStatisticsScreen(
 
 @Composable
 private fun StatCard(value: ChannelStatisticsSummary, palette: BeyGramPalette, modifier: Modifier = Modifier) {
-    val rows = if (value.isChannel) listOf(
-        R.string.channel_statistics_members to formatCount(value.memberCount),
-        R.string.channel_statistics_growth to "${formatDecimal(value.memberGrowthPercent)}%",
-        R.string.channel_statistics_views to formatCount(value.meanViewCount),
-        R.string.channel_statistics_shares to formatCount(value.meanShareCount),
-        R.string.channel_statistics_reactions to formatCount(value.meanReactionCount),
-        R.string.channel_statistics_notifications to stringResource(
-            R.string.channel_statistics_percent,
-            value.notificationsPercent
-        )
-    ) else listOf(
-        R.string.channel_statistics_members to formatCount(value.memberCount),
-        R.string.channel_statistics_growth to "${formatDecimal(value.memberGrowthPercent)}%",
-        R.string.channel_statistics_messages to formatCount(value.messageCount),
-        R.string.channel_statistics_viewers to formatCount(value.viewerCount),
-        R.string.channel_statistics_senders to formatCount(value.senderCount)
-    )
+    val rows = statisticsMetrics(value.isChannel).map { metric ->
+        metricLabel(metric) to metricValue(metric, value)
+    }
     Column(
         modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(16.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -292,6 +280,32 @@ private fun StatCard(value: ChannelStatisticsSummary, palette: BeyGramPalette, m
             }
         }
     }
+}
+
+@Composable
+private fun metricValue(metric: StatisticsMetric, value: ChannelStatisticsSummary): String = when (metric) {
+    StatisticsMetric.Members -> formatCount(value.memberCount)
+    StatisticsMetric.Growth -> "${formatDecimal(value.memberGrowthPercent)}%"
+    StatisticsMetric.MeanViews -> formatCount(value.meanViewCount)
+    StatisticsMetric.MeanShares -> formatCount(value.meanShareCount)
+    StatisticsMetric.MeanReactions -> formatCount(value.meanReactionCount)
+    StatisticsMetric.Notifications -> stringResource(R.string.channel_statistics_percent, value.notificationsPercent)
+    StatisticsMetric.Messages -> formatCount(value.messageCount)
+    StatisticsMetric.Viewers -> formatCount(value.viewerCount)
+    StatisticsMetric.Senders -> formatCount(value.senderCount)
+}
+
+@StringRes
+private fun metricLabel(metric: StatisticsMetric): Int = when (metric) {
+    StatisticsMetric.Members -> R.string.channel_statistics_members
+    StatisticsMetric.Growth -> R.string.channel_statistics_growth
+    StatisticsMetric.MeanViews -> R.string.channel_statistics_views
+    StatisticsMetric.MeanShares -> R.string.channel_statistics_shares
+    StatisticsMetric.MeanReactions -> R.string.channel_statistics_reactions
+    StatisticsMetric.Notifications -> R.string.channel_statistics_notifications
+    StatisticsMetric.Messages -> R.string.channel_statistics_messages
+    StatisticsMetric.Viewers -> R.string.channel_statistics_viewers
+    StatisticsMetric.Senders -> R.string.channel_statistics_senders
 }
 
 private fun filterLabel(filter: ChannelEventFilter): Int = when (filter) {

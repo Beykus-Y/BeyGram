@@ -80,6 +80,7 @@ internal fun GroupProfileScreen(
     onBack: () -> Unit, onRefresh: () -> Unit, onAvatarClick: () -> Unit,
     onDelete: suspend () -> Result<Unit>, onDeleted: () -> Unit,
     onMembers: () -> Unit, onOpenUser: (Long) -> Unit,
+    onStatistics: (() -> Unit)?,
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)?, confirmExport: suspend (Long) -> Boolean,
     messageRights: suspend (Long) -> MessageCapabilities?, forwardMessage: suspend (Long, Long) -> Result<Unit>, chats: List<ChatPreview>,
     onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit
@@ -100,8 +101,8 @@ internal fun GroupProfileScreen(
     var viewing by remember(info.id) { mutableStateOf<Long?>(null) }
     val window = activeTab.kind?.let { windows.getValue(it) }
     val title = info.title.ifBlank { stringResource(R.string.user_name_unknown) }
-    // Индекс полоски вкладок в списке: перед ней идут шапка, строки и, если есть, администраторы.
-    val tabsIndex = if (info.administrators.isEmpty()) 2 else 3
+    // Индекс полоски вкладок в списке: перед ней идут шапка, строки, статистика (если доступна) и администраторы.
+    val tabsIndex = 2 + (if (onStatistics != null) 1 else 0) + (if (info.administrators.isEmpty()) 0 else 1)
     val nearEnd by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= listState.layoutInfo.totalItemsCount - PREFETCH_ROWS } ?: true } }
     // Пока список дошёл до конца вкладки, грузим её страницы; первая страница вкладки грузится тем же путём.
     if (window != null) LaunchedEffect(window, nearEnd, window.messages.size, window.hasOlder) {
@@ -140,6 +141,7 @@ internal fun GroupProfileScreen(
                 }
             }
             item(key = "rows") { ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null)) }
+            if (onStatistics != null) item(key = "statistics") { GroupStatisticsEntry(onStatistics) }
             if (info.administrators.isNotEmpty()) item(key = "administrators") { AdministratorsSection(info.administrators, onOpenUser) }
             stickyHeader(key = "tabs") {
                 GroupTabRow(
@@ -161,6 +163,23 @@ internal fun GroupProfileScreen(
         observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened)
+}
+
+/** Entry point shown only when TDLib's canGetStatistics allowed the current admin to open stats. */
+@Composable
+private fun GroupStatisticsEntry(onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).heightIn(min = 48.dp)
+    ) {
+        Text(
+            stringResource(R.string.group_statistics_title),
+            color = palette.accentInk,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
 }
 
 /** Панель профиля группы. Название появляется здесь, когда шапка уходит за экран; читается из [collapse] при рисовании. */

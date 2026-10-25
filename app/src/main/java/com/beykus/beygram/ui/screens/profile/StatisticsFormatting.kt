@@ -16,6 +16,38 @@ internal fun formatDate(seconds: Int): String =
 internal fun formatDateTime(seconds: Int): String =
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(seconds.toLong() * 1000L))
 
+/** Rows of the summary card; supergroups have totals, channels have per-post means. */
+internal enum class StatisticsMetric {
+    Members,
+    Growth,
+    MeanViews,
+    MeanShares,
+    MeanReactions,
+    Notifications,
+    Messages,
+    Viewers,
+    Senders
+}
+
+internal fun statisticsMetrics(isChannel: Boolean): List<StatisticsMetric> = if (isChannel) {
+    listOf(
+        StatisticsMetric.Members,
+        StatisticsMetric.Growth,
+        StatisticsMetric.MeanViews,
+        StatisticsMetric.MeanShares,
+        StatisticsMetric.MeanReactions,
+        StatisticsMetric.Notifications
+    )
+} else {
+    listOf(
+        StatisticsMetric.Members,
+        StatisticsMetric.Growth,
+        StatisticsMetric.Messages,
+        StatisticsMetric.Viewers,
+        StatisticsMetric.Senders
+    )
+}
+
 /** Compact axis labels: the canvas has no room for grouped thousands on a phone. */
 internal fun formatCompactCount(value: Long): String {
     val magnitude = abs(value)

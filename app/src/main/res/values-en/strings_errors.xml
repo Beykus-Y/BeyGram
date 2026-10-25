@@ -15,6 +15,7 @@
     <string name="err_schedule_time_future">Choose a time in the future</string>
     <string name="err_statistics_unavailable">Statistics are available only to channel administrators</string>
     <string name="channel_statistics_title">Channel statistics</string>
+    <string name="group_statistics_title">Group statistics</string>
     <string name="channel_statistics_members">Subscribers</string>
     <string name="channel_statistics_growth">Growth for the period</string>
     <string name="channel_statistics_views">Average views</string>
@@ -24,9 +25,9 @@
     <string name="channel_statistics_percent">%1$d%%</string>
     <string name="channel_statistics_period">Period: %1$s — %2$s</string>
     <string name="channel_statistics_top_senders">Top authors</string>
-    <string name="channel_statistics_messages">Messages</string>
-    <string name="channel_statistics_viewers">Viewed messages</string>
-    <string name="channel_statistics_senders">Sent messages</string>
+    <string name="channel_statistics_messages">Messages sent</string>
+    <string name="channel_statistics_viewers">Message viewers</string>
+    <string name="channel_statistics_senders">Message senders</string>
     <string name="channel_statistics_charts_title">Charts</string>
     <string name="channel_statistics_charts_empty">Telegram returned no chart data for this period</string>
     <string name="channel_statistics_chart_members">Subscriber growth</string>

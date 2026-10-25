@@ -371,6 +371,7 @@
     <string name="err_schedule_time_future">Выберите время в будущем</string>
     <string name="err_statistics_unavailable">Статистика доступна только администраторам канала</string>
     <string name="channel_statistics_title">Статистика канала</string>
+    <string name="group_statistics_title">Статистика группы</string>
     <string name="channel_statistics_members">Подписчики</string>
     <string name="channel_statistics_growth">Рост за период</string>
     <string name="channel_statistics_views">Средние просмотры</string>
@@ -380,9 +381,9 @@
     <string name="channel_statistics_percent">%1$d%%</string>
     <string name="channel_statistics_period">Период: %1$s — %2$s</string>
     <string name="channel_statistics_top_senders">Активные авторы</string>
-    <string name="channel_statistics_messages">Сообщения</string>
-    <string name="channel_statistics_viewers">Смотрели сообщения</string>
-    <string name="channel_statistics_senders">Писали сообщения</string>
+    <string name="channel_statistics_messages">Отправлено сообщений</string>
+    <string name="channel_statistics_viewers">Просмотрели сообщения</string>
+    <string name="channel_statistics_senders">Отправили сообщения</string>
     <string name="channel_statistics_charts_title">Графики</string>
     <string name="channel_statistics_charts_empty">Telegram не вернул данные для графиков за этот период</string>
     <string name="channel_statistics_chart_members">Рост подписчиков</string>

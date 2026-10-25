@@ -63,6 +63,7 @@ import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
 import com.beykus.beygram.navigation.TabVisibility
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.canOpenGroupStatistics
 import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
@@ -349,6 +350,10 @@ private fun BeyGramAppContent(
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     // Открытый из статистики пост возвращает в статистику, а сама статистика — в исходный чат.
     var statisticsChatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    // Статистику можно открыть из чата или из профиля супергруппы; возврат должен вести туда же.
+    var statisticsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chat.name) }
+    // Заголовок зависит от точки входа: канал и супергруппа подписываются по-разному.
+    var statisticsHeaderTitleRes by rememberSaveable { mutableIntStateOf(R.string.channel_statistics_title) }
     // Account badges are expensive: subscribe only while the shared account
     // switcher, a system share chooser or the recovery screen is visible.
     val accountMetadataVisible = accountSwitcherVisible || incomingShare != null ||
@@ -1404,6 +1409,8 @@ private fun BeyGramAppContent(
                                 if (chatBackRouteName != AppRoute.ChannelStatistics.name) {
                                     statisticsChatBackRouteName = chatBackRouteName
                                 }
+                                statisticsReturnRouteName = AppRoute.Chat.name
+                                statisticsHeaderTitleRes = R.string.channel_statistics_title
                                 routeName = AppRoute.ChannelStatistics.name
                             }
                         } else null,
@@ -1463,6 +1470,13 @@ private fun BeyGramAppContent(
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
+            onStatistics = if (canOpenGroupStatistics(info.info)) {
+                {
+                    statisticsReturnRouteName = AppRoute.ChatInfo.name
+                    statisticsHeaderTitleRes = R.string.group_statistics_title
+                    routeName = AppRoute.ChannelStatistics.name
+                }
+            } else null,
             onEdit = { routeName = AppRoute.MyProfile.name }, setPhoto = repository::setMyProfilePhoto,
             loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
             setPreviousProfilePhoto = repository::setPreviousProfilePhoto,
@@ -1661,8 +1675,10 @@ private fun BeyGramAppContent(
                 AppRoute.ChatInfo -> chatInfoRoute()
                 AppRoute.ChannelStatistics -> {
                     val statsChat by repository.chats.collectAsStateWithLifecycle()
+                    val statsPreview = statsChat.firstOrNull { it.id == selectedChatId }
                     ChannelStatisticsScreen(
-                        title = statsChat.firstOrNull { it.id == selectedChatId }?.title.orEmpty(),
+                        title = statsPreview?.title.orEmpty(),
+                        headerTitle = statisticsHeaderTitleRes,
                         loadStatistics = { repository.channelStatistics(selectedChatId) },
                         loadEvents = { from, filter -> repository.channelAdminEvents(selectedChatId, from, filter) },
                         onOpenPost = { messageId ->
@@ -1671,8 +1687,10 @@ private fun BeyGramAppContent(
                             routeName = AppRoute.Chat.name
                         },
                         onBack = {
-                            chatBackRouteName = statisticsChatBackRouteName
-                            routeName = AppRoute.Chat.name
+                            if (statisticsReturnRouteName == AppRoute.Chat.name) {
+                                chatBackRouteName = statisticsChatBackRouteName
+                            }
+                            routeName = statisticsReturnRouteName
                         }
                     )
                 }
