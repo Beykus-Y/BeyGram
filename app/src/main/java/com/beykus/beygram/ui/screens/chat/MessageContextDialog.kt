@@ -63,6 +63,12 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                 .onFailure { failure -> Toast.makeText(androidContext, failure.userMessage(androidContext, R.string.chat_reaction_failed), Toast.LENGTH_SHORT).show() }
         }
     }
+    // Poll mutations refresh the shared history store; reload this separate snapshot so vote/results/options are visible.
+    fun refreshPollSnapshot() {
+        reactionScope.launch {
+            conversation.messageContext(chatId, targetId).onSuccess { context = it }
+        }
+    }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -85,19 +91,24 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                             onPollVote = { messageId, choices ->
                                 reactionScope.launch {
                                     conversation.votePoll(message.chatId, messageId, choices)
+                                        .onSuccess { refreshPollSnapshot() }
                                         .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_vote_failed), Toast.LENGTH_SHORT).show() }
                                 }
                             },
                             onPollStop = { messageId ->
                                 reactionScope.launch {
                                     conversation.stopPoll(message.chatId, messageId)
+                                        .onSuccess { refreshPollSnapshot() }
                                         .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_stop_failed), Toast.LENGTH_SHORT).show() }
                                 }
                             },
                             onLoadPollVoters = { messageId, optionIndex, offset ->
                                 conversation.pollVoters(message.chatId, messageId, optionIndex, offset)
                             },
-                            onAddPollOption = { messageId, text -> conversation.addPollOption(message.chatId, messageId, text) })
+                            onAddPollOption = { messageId, text ->
+                                conversation.addPollOption(message.chatId, messageId, text)
+                                    .onSuccess { refreshPollSnapshot() }
+                            })
                     }
                 }
             }
