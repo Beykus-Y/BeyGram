@@ -74,7 +74,7 @@
     <string name="photo_editor_move_right">Сдвинуть рамку вправо</string>
     <string name="photo_editor_move_up">Сдвинуть рамку вверх</string>
     <string name="photo_editor_move_down">Сдвинуть рамку вниз</string>
-    <string name="photo_editor_send_original">Отправить без изменений</string>
+    <string name="photo_editor_send_original">Отправить без кадрирования</string>
 
     <string name="video_quality_chip">Видео: %1$s</string>
     <string name="video_quality_compact">экономное</string>

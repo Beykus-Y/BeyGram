@@ -7,7 +7,7 @@ internal enum class CameraCaptureMode { Photo, Video }
 internal val cameraTimerOptions = listOf(0, 3, 10)
 
 /** Duration choices for regular videos; the hard Telegram-safe cap stays [CAMERA_VIDEO_HARD_LIMIT_SECONDS]. */
-internal val cameraVideoLimitOptions = listOf(15, 60, 600)
+internal val cameraVideoLimitOptions = listOf(15, 60, 600, 3600)
 internal const val CAMERA_VIDEO_HARD_LIMIT_SECONDS = 60 * 60
 internal const val CAMERA_MIN_VIDEO_DURATION_MS = 1_000L
 

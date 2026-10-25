@@ -158,6 +158,10 @@ internal class AttachmentState(
     /** Full-screen camera entry; it hands one cache file back and closes without leaving the chat. */
     fun openCamera() {
         if (sending || importing) return
+        if (pending.size >= MediaLimits.MAX_ATTACHMENTS) {
+            errorState.value = context.getString(R.string.composer_too_many_attachments)
+            return
+        }
         menuOpen = false
         errorState.value = null
         cameraOpen = true
@@ -198,6 +202,10 @@ internal class AttachmentState(
     fun sendEditorOriginal() {
         val session = editor ?: return
         if (editorSaving) return
+        if (pending.size >= MediaLimits.MAX_ATTACHMENTS) {
+            editorError = context.getString(R.string.composer_too_many_attachments)
+            return
+        }
         editor = null
         editorError = null
         if (session.temporary) importCaptureFile(File(session.sourcePath))
@@ -206,9 +214,19 @@ internal class AttachmentState(
     fun savePhotoEdit(rotation: PhotoRotation, crop: NormalizedCrop, quality: PhotoExportQuality, keepOriginal: Boolean) {
         val session = editor ?: return
         if (editorSaving) return
+        val additionsExpected = when {
+            session.replaceItem != null && keepOriginal -> 1
+            session.replaceItem != null -> 0
+            keepOriginal -> 2
+            else -> 1
+        }
+        if (pending.size + additionsExpected > MediaLimits.MAX_ATTACHMENTS) {
+            editorError = context.getString(R.string.composer_too_many_attachments)
+            return
+        }
+        editorSaving = true
+        editorError = null
         editorJob = scope.launch {
-            editorSaving = true
-            editorError = null
             try {
                 val exported = PhotoEditor(context).export(File(session.sourcePath), rotation, crop, quality)
                 try {
@@ -224,10 +242,10 @@ internal class AttachmentState(
                     }
                     val replaced = session.replaceItem
                     if (!keepOriginal && replaced != null) {
-                        pendingState.value = ArrayList(pending.filterNot { it.path == replaced.path } + additions + edited)
+                        pendingState.value = ArrayList(pending.filterNot { it.path == replaced.path } + edited + additions)
                         importer.discard(replaced)
                     } else {
-                        pendingState.value = ArrayList(pending + additions + edited)
+                        pendingState.value = ArrayList(pending + edited + additions)
                     }
                     editor = null
                     if (session.temporary) File(session.sourcePath).delete()
@@ -250,6 +268,7 @@ internal class AttachmentState(
             errorState.value = null
             try {
                 val prepared = importer.prepareLocal(file)
+                file.delete()
                 pendingState.value = ArrayList(pending + prepared)
                 if (prepared.kind == MediaKind.Video) maybeCompressVideo(prepared)
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -324,6 +343,7 @@ internal class AttachmentState(
         try {
             val compressed = task.await()
             replacePending(original, compressed)
+            File(original.path).takeIf { it.absolutePath != compressed.path }?.delete()
             notice = context.getString(
                 R.string.video_compressed,
                 android.text.format.Formatter.formatShortFileSize(context, original.size),

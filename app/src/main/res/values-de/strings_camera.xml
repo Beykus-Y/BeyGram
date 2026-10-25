@@ -74,7 +74,7 @@
     <string name="photo_editor_move_right">Zuschnitt nach rechts verschieben</string>
     <string name="photo_editor_move_up">Zuschnitt nach oben verschieben</string>
     <string name="photo_editor_move_down">Zuschnitt nach unten verschieben</string>
-    <string name="photo_editor_send_original">Unverändert senden</string>
+    <string name="photo_editor_send_original">Ohne Zuschnitt senden</string>
 
     <string name="video_quality_chip">Video: %1$s</string>
     <string name="video_quality_compact">kompakt</string>

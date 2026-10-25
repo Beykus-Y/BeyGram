@@ -140,8 +140,12 @@ internal class CameraCaptureController(
         }, executor)
     }
 
-    fun setMode(value: CameraCaptureMode) {
+    fun selectMode(value: CameraCaptureMode) {
         if (recording || startingRecording || countdown > 0 || value == mode) return
+        if (value != mode) {
+            camcorderTorchOff()
+            flashEnabled = false
+        }
         mode = value
         if (started) bindCurrentMode()
     }
@@ -283,7 +287,8 @@ internal class CameraCaptureController(
                 CameraCaptureMode.Video -> {
                     val recorder = Recorder.Builder()
                         .setQualitySelector(QualitySelector.from(Quality.HD, FallbackStrategy.lowerQualityOrHigherThan(Quality.HD)))
-                        .setTargetVideoEncodingBitRate(4_000_000)
+                        // Matches the Balanced preset, so a normal camera take is sent without a second encode.
+                        .setTargetVideoEncodingBitRate(2_500_000)
                         .build()
                     VideoCapture.Builder(recorder)
                         .setMirrorMode(MirrorMode.MIRROR_MODE_ON_FRONT_ONLY)
@@ -297,6 +302,9 @@ internal class CameraCaptureController(
             flashAvailable = runCatching { bound.cameraInfo.hasFlashUnit() }.getOrDefault(false)
             zoomRatio = 1f
             runCatching { bound.cameraControl.setZoomRatio(1f) }
+            if (mode == CameraCaptureMode.Video && flashEnabled) {
+                runCatching { bound.cameraControl.enableTorch(true) }
+            }
             ready = true
         }.onFailure {
             ready = false

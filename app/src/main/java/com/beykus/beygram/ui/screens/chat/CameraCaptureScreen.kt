@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -108,7 +110,7 @@ internal fun CameraCaptureScreen(
     }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         cameraGranted = granted
-        if (!granted) error = context.getString(R.string.camera_permission_denied)
+        error = if (granted) null else context.getString(R.string.camera_permission_denied)
     }
     val audioPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         audioGranted = granted
@@ -329,14 +331,19 @@ private fun CountdownOverlay(controller: CameraCaptureController) {
 
 @Composable
 private fun CameraDurationChips(controller: CameraCaptureController) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         cameraVideoLimitOptions.forEach { seconds ->
             val selected = controller.videoLimitSeconds == cameraVideoLimitSeconds(seconds)
             CameraValueChip(
                 text = when (seconds) {
                     15 -> stringResource(R.string.camera_duration_seconds, 15)
                     60 -> stringResource(R.string.camera_duration_minutes, 1)
-                    else -> stringResource(R.string.camera_duration_minutes, 10)
+                    600 -> stringResource(R.string.camera_duration_minutes, 10)
+                    else -> stringResource(R.string.camera_duration_minutes, 60)
                 },
                 selected = selected,
                 description = stringResource(R.string.camera_video_limit_description, duration(seconds)),
@@ -353,14 +360,14 @@ private fun ModeSwitch(controller: CameraCaptureController, audioGranted: Boolea
             text = stringResource(R.string.camera_mode_photo),
             selected = controller.mode == CameraCaptureMode.Photo,
             description = stringResource(R.string.camera_mode_photo_description),
-            onClick = { controller.setMode(CameraCaptureMode.Photo) }
+            onClick = { controller.selectMode(CameraCaptureMode.Photo) }
         )
         CameraValueChip(
             text = stringResource(R.string.camera_mode_video),
             selected = controller.mode == CameraCaptureMode.Video,
             description = stringResource(R.string.camera_mode_video_description),
             onClick = {
-                controller.setMode(CameraCaptureMode.Video)
+                controller.selectMode(CameraCaptureMode.Video)
                 if (!audioGranted) onRequestAudio()
             }
         )
