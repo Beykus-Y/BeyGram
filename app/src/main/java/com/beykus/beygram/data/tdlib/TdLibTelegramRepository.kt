@@ -36,7 +36,21 @@ import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.BotKeyboard
 import com.beykus.beygram.domain.model.BotCallbackAnswer
+import com.beykus.beygram.domain.model.BotCommandMenu
+import com.beykus.beygram.domain.model.BotWebAppLaunch
+import com.beykus.beygram.domain.model.BotWebAppSource
+import com.beykus.beygram.domain.model.BotWebAppTheme
+import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.GroupAdministratorRights
+import com.beykus.beygram.domain.model.GroupInviteLink
+import com.beykus.beygram.domain.model.GroupInviteLinkDraft
+import com.beykus.beygram.domain.model.GroupJoinRequestsPage
+import com.beykus.beygram.domain.model.GroupManagementInfo
+import com.beykus.beygram.domain.model.GroupMemberAddition
+import com.beykus.beygram.domain.model.GroupMemberFilter
+import com.beykus.beygram.domain.model.GroupMemberPage
+import com.beykus.beygram.domain.model.GroupSettingsEdit
 import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.data.media.VideoNoteSendTracking
@@ -422,6 +436,7 @@ class TdLibTelegramRepository private constructor(
         })
     }
     private val profiles = TdProfiles({ client }, mediaFiles)
+    private val groupAdministration = TdGroupAdministration(tdRequests, profiles)
     private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
     private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()
@@ -1262,9 +1277,39 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
+    private val botFeatures = TdBotFeatures { client }
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
+    override suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?> = botFeatures.commandMenu(chatId)
+    override suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults?> =
+        botFeatures.inlineQuery(chatId, username, query, offset)
+    override suspend fun sendInlineBotResult(
+        chatId: Long,
+        queryId: Long,
+        resultId: String,
+        replyToMessageId: Long?,
+        forumTopicId: Long,
+        options: MessageSendOptions
+    ): Result<Unit> {
+        leaveJumpWindow(chatId)
+        conversationEffects.endActivity(chatId, ChatActivity.Typing)
+        return botFeatures.sendInlineResult(chatId, queryId, resultId, replyToMessageId, forumTopicId, options)
+    }
+    override suspend fun openBotWebApp(
+        chatId: Long,
+        botUserId: Long,
+        url: String,
+        source: BotWebAppSource,
+        forumTopicId: Long,
+        replyToMessageId: Long?,
+        theme: BotWebAppTheme
+    ): Result<BotWebAppLaunch> = botFeatures.openWebApp(chatId, botUserId, url, source, forumTopicId, replyToMessageId, theme)
+    override fun closeBotWebApp(launchId: Long) {
+        // TDLib launch ids are signed and may be negative; only zero means there is nothing to close.
+        if (launchId == 0L) return
+        authScope.launch(Dispatchers.IO) { botFeatures.closeWebApp(launchId) }
+    }
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })
@@ -1435,6 +1480,71 @@ class TdLibTelegramRepository private constructor(
         profiles.loadProfilePhotos(profileId, offset, limit)
     override suspend fun deleteMyProfilePhoto(photoId: Long) = profiles.deleteMyPhoto(photoId)
     override suspend fun setPreviousProfilePhoto(photoId: Long) = profiles.setPreviousPhoto(photoId)
+
+    override suspend fun loadGroupManagement(chatId: Long): Result<GroupManagementInfo> =
+        groupResult { groupAdministration.info(chatId) }
+
+    override suspend fun loadGroupMembers(
+        chatId: Long,
+        filter: GroupMemberFilter,
+        query: String,
+        offset: Int,
+        limit: Int
+    ): Result<GroupMemberPage> = groupResult { groupAdministration.members(chatId, filter, query, offset, limit) }
+
+    override suspend fun addGroupMembers(chatId: Long, userIds: List<Long>): Result<GroupMemberAddition> =
+        groupResult { groupAdministration.addMembers(chatId, userIds) }
+
+    override suspend fun banGroupMember(chatId: Long, userId: Long): Result<Unit> =
+        groupResult { groupAdministration.banMember(chatId, userId) }
+
+    override suspend fun unbanGroupMember(chatId: Long, userId: Long): Result<Unit> =
+        groupResult { groupAdministration.unbanMember(chatId, userId) }
+
+    override suspend fun restrictGroupMember(chatId: Long, userId: Long): Result<Unit> =
+        groupResult { groupAdministration.restrictMember(chatId, userId) }
+
+    override suspend fun unrestrictGroupMember(chatId: Long, userId: Long, keepMembership: Boolean): Result<Unit> =
+        groupResult { groupAdministration.unrestrictMember(chatId, userId, keepMembership) }
+
+    override suspend fun setGroupMemberRights(
+        chatId: Long,
+        userId: Long,
+        rights: GroupAdministratorRights
+    ): Result<Unit> = groupResult { groupAdministration.setAdministratorRights(chatId, userId, rights) }
+
+    override suspend fun demoteGroupMember(chatId: Long, userId: Long): Result<Unit> =
+        groupResult { groupAdministration.demoteMember(chatId, userId) }
+
+    override suspend fun loadGroupInviteLinks(chatId: Long): Result<List<GroupInviteLink>> =
+        groupResult { groupAdministration.inviteLinks(chatId) }
+
+    override suspend fun createGroupInviteLink(chatId: Long, draft: GroupInviteLinkDraft): Result<GroupInviteLink> =
+        groupResult { groupAdministration.createInviteLink(chatId, draft) }
+
+    override suspend fun editGroupInviteLink(chatId: Long, link: String, draft: GroupInviteLinkDraft): Result<GroupInviteLink> =
+        groupResult { groupAdministration.editInviteLink(chatId, link, draft) }
+
+    override suspend fun renameGroupSubscriptionInviteLink(chatId: Long, link: String, name: String): Result<GroupInviteLink> =
+        groupResult { groupAdministration.renameSubscriptionInviteLink(chatId, link, name) }
+
+    override suspend fun revokeGroupInviteLink(chatId: Long, link: String): Result<Unit> =
+        groupResult { groupAdministration.revokeInviteLink(chatId, link) }
+
+    override suspend fun loadGroupJoinRequests(chatId: Long, offset: String?, limit: Int): Result<GroupJoinRequestsPage> =
+        groupResult { groupAdministration.joinRequests(chatId, offset, limit) }
+
+    override suspend fun processGroupJoinRequest(chatId: Long, userId: Long, approve: Boolean): Result<Unit> =
+        groupResult { groupAdministration.processJoinRequest(chatId, userId, approve) }
+
+    override suspend fun saveGroupSettings(chatId: Long, edit: GroupSettingsEdit): Result<Unit> =
+        groupResult { groupAdministration.saveSettings(chatId, edit) }
+
+    override suspend fun setGroupPhoto(chatId: Long, photo: OutgoingMedia): Result<Unit> =
+        groupResult { groupAdministration.setPhoto(chatId, photo) }
+
+    override suspend fun removeGroupPhoto(chatId: Long): Result<Unit> =
+        groupResult { groupAdministration.removePhoto(chatId) }
 
     /**
      * Промежуточный кэш чатов: TDLib отдаёт чаты через несколько обновлений,
