@@ -1,5 +1,7 @@
 package com.beykus.beygram.domain.model
 
+import com.beykus.beygram.domain.UiText
+
 /** Basic information about one active story, enough to draw a progress segment before the content is loaded. */
 data class StoryPreview(
     val storyId: Int,
@@ -115,6 +117,22 @@ data class StoryPostTicket(
     /** TDLib file ids of the uploaded media; used to mark the staged upload as safely evictable. */
     val fileIds: List<Int> = emptyList()
 )
+
+/**
+ * Repository-owned state of one publish attempt. It is keyed by an identifier persisted by the
+ * publisher, so an activity recreation can reconnect to a PostStory call that is still in flight
+ * instead of submitting the same draft twice.
+ */
+sealed interface StorySubmissionState {
+    data object Idle : StorySubmissionState
+    data object Submitting : StorySubmissionState
+    data class Pending(val ticket: StoryPostTicket) : StorySubmissionState
+    data class Published(val ticket: StoryPostTicket) : StorySubmissionState
+    data class Failed(
+        val reason: StoryPostDenial = StoryPostDenial.Unavailable,
+        val error: UiText? = null
+    ) : StorySubmissionState
+}
 
 sealed interface StoryPostEvent {
     data class Published(

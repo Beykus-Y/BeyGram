@@ -29,6 +29,7 @@ import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPostPermission
 import com.beykus.beygram.domain.model.StoryPostTarget
 import com.beykus.beygram.domain.model.StoryPostTicket
+import com.beykus.beygram.domain.model.StorySubmissionState
 import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.ProfileEdit
@@ -98,7 +99,10 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun setStoryPrivacy(storyId: Int, privacy: StoryPrivacy, selectedUserIds: List<Long> = emptyList()): Result<Unit>
     /** Toggle whether an expired story stays accessible in the profile. */
     suspend fun setStoryPostedToChatPage(posterChatId: Long, storyId: Int, posted: Boolean): Result<Unit>
+    /** State of one publisher-owned submission, keyed by a UI-persisted identifier. */
+    fun storySubmissionState(submissionId: String): StateFlow<StorySubmissionState>
     suspend fun publishStory(
+        submissionId: String,
         targetChatId: Long,
         media: OutgoingMedia,
         caption: String,

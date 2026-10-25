@@ -29,6 +29,7 @@ import com.beykus.beygram.domain.model.StoryPostPermission
 import com.beykus.beygram.domain.model.StoryPostTarget
 import com.beykus.beygram.domain.model.StoryPostTicket
 import com.beykus.beygram.domain.model.StoryPrivacy
+import com.beykus.beygram.domain.model.StorySubmissionState
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.GlobalMessagePage
 import com.beykus.beygram.domain.model.GlobalSearchFilter
@@ -86,6 +87,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     private val noHistory = MutableStateFlow(ChatHistory()).asStateFlow()
     private val noDeletions = MutableStateFlow<Set<Long>>(emptySet()).asStateFlow()
     private val noProfile = MutableStateFlow(ProfileState()).asStateFlow()
+    private val noStorySubmission = MutableStateFlow<StorySubmissionState>(StorySubmissionState.Idle).asStateFlow()
     private val noTyping = MutableStateFlow<List<String>>(emptyList()).asStateFlow()
 
     override val authState: StateFlow<AuthState> = MutableStateFlow<AuthState>(AuthState.Idle).asStateFlow()
@@ -119,12 +121,14 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun storyArchive(fromStoryId: Int): Result<StoryArchivePage> = Result.success(StoryArchivePage())
     override suspend fun storyPostPermission(chatId: Long): Result<StoryPostPermission> = unavailable()
     override suspend fun storyPostTargets(): Result<List<StoryPostTarget>> = Result.success(emptyList())
+    override fun storySubmissionState(submissionId: String): StateFlow<StorySubmissionState> = noStorySubmission
     override fun abandonStoryUpload(posterChatId: Long, storyId: Int) {}
     override suspend fun storyCaptionLimit(): Result<Int> = Result.success(1_024)
     override suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String): Result<Unit> = unavailable()
     override suspend fun setStoryPrivacy(storyId: Int, privacy: StoryPrivacy, selectedUserIds: List<Long>): Result<Unit> = unavailable()
     override suspend fun setStoryPostedToChatPage(posterChatId: Long, storyId: Int, posted: Boolean): Result<Unit> = unavailable()
     override suspend fun publishStory(
+        submissionId: String,
         targetChatId: Long,
         media: OutgoingMedia,
         caption: String,

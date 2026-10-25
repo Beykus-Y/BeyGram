@@ -17,6 +17,7 @@ import com.beykus.beygram.domain.model.StoryPostTicket
 import com.beykus.beygram.domain.model.StoryPostTarget
 import com.beykus.beygram.domain.model.StoryPreview
 import com.beykus.beygram.domain.model.StoryPrivacy
+import com.beykus.beygram.domain.model.StorySubmissionState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.initialsOf
 import com.beykus.beygram.domain.model.matchesPendingStoryEvent
@@ -43,6 +44,7 @@ import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToLong
 
@@ -71,6 +73,7 @@ internal class TdStories(
     private val unblockedChats = mutableSetOf<Long>()
     private val uploadJobs = mutableMapOf<Pair<Long, Int>, Job>()
     private val abandonedUploads = mutableSetOf<Pair<Long, Int>>()
+    private val submissionStates = ConcurrentHashMap<String, MutableStateFlow<StorySubmissionState>>()
     private var selfId = 0L
     private var selfChatId = 0L
     private var generation = 0
@@ -454,7 +457,16 @@ internal class TdStories(
         Unit
     }
 
+    /** State of one publish attempt, shared with a recreated publisher screen. */
+    fun submissionState(submissionId: String): StateFlow<StorySubmissionState> =
+        submissionStates.computeIfAbsent(submissionId) { MutableStateFlow(StorySubmissionState.Idle) }
+
+    private fun updateSubmission(submissionId: String, state: StorySubmissionState) {
+        submissionStates.computeIfAbsent(submissionId) { MutableStateFlow(StorySubmissionState.Idle) }.value = state
+    }
+
     suspend fun publishStory(
+        submissionId: String,
         targetChatId: Long,
         media: OutgoingMedia,
         caption: String,
@@ -466,10 +478,11 @@ internal class TdStories(
     ): Result<StoryPostTicket> {
         // Submission is process-owned: leaving the publisher must not orphan an already submitted
         // PostStory request. The repository also tracks/handles its terminal update.
+        updateSubmission(submissionId, StorySubmissionState.Submitting)
         val ownerActive = AtomicBoolean(true)
         val operation = scope.async {
             publishStoryRequest(
-                targetChatId, media, caption, privacy, selectedUserIds, activePeriodSeconds,
+                submissionId, targetChatId, media, caption, privacy, selectedUserIds, activePeriodSeconds,
                 protectContent, keepInProfile, ownerActive
             )
         }
@@ -482,6 +495,7 @@ internal class TdStories(
     }
 
     private suspend fun publishStoryRequest(
+        submissionId: String,
         targetChatId: Long,
         media: OutgoingMedia,
         caption: String,
@@ -536,9 +550,22 @@ internal class TdStories(
                 protectContent
             ), POST_TIMEOUT_MS)
             val ticket = StoryPostTicket(chatId, story.id, story.isBeingPosted, story.content.uploadFileIds())
-            if (ticket.isPending) trackUpload(ticket, media, initiallyAbandoned = !ownerActive.get())
-            else markPublishedStoryUpload(media, ticket.fileIds)
+            if (ticket.isPending) {
+                updateSubmission(submissionId, StorySubmissionState.Pending(ticket))
+                trackUpload(ticket, media, submissionId, initiallyAbandoned = !ownerActive.get())
+            } else {
+                markPublishedStoryUpload(media, ticket.fileIds)
+                updateSubmission(submissionId, StorySubmissionState.Published(ticket))
+            }
             ticket
+        }
+        if (result.isFailure) {
+            updateSubmission(
+                submissionId,
+                StorySubmissionState.Failed(
+                    error = (result.exceptionOrNull() as? UserMessageException)?.text
+                )
+            )
         }
         if (result.isFailure && !ownerActive.get()) discardStoryUpload(media)
         return result
@@ -548,7 +575,12 @@ internal class TdStories(
      * A pending story may be published after the publisher screen is gone. The repository keeps
      * listening for its terminal update and marks the staged upload evictable on success.
      */
-    private fun trackUpload(ticket: StoryPostTicket, media: OutgoingMedia, initiallyAbandoned: Boolean = false) {
+    private fun trackUpload(
+        ticket: StoryPostTicket,
+        media: OutgoingMedia,
+        submissionId: String,
+        initiallyAbandoned: Boolean = false
+    ) {
         val key = ticket.posterChatId to ticket.storyId
         if (initiallyAbandoned) {
             synchronized(lock) { abandonedUploads += key }
@@ -560,8 +592,26 @@ internal class TdStories(
                 }
                 val abandoned = synchronized(lock) { abandonedUploads.remove(key) != null }
                 when (event) {
-                    is StoryPostEvent.Published -> markPublishedStoryUpload(media, event.fileIds)
-                    is StoryPostEvent.Failed -> if (abandoned) discardStoryUpload(media)
+                    is StoryPostEvent.Published -> {
+                        markPublishedStoryUpload(media, event.fileIds)
+                        updateSubmission(
+                            submissionId,
+                            StorySubmissionState.Published(
+                                ticket.copy(
+                                    storyId = event.storyId,
+                                    isPending = false,
+                                    fileIds = event.fileIds
+                                )
+                            )
+                        )
+                    }
+                    is StoryPostEvent.Failed -> {
+                        if (abandoned) discardStoryUpload(media)
+                        updateSubmission(
+                            submissionId,
+                            StorySubmissionState.Failed(reason = event.reason)
+                        )
+                    }
                 }
             } finally {
                 synchronized(lock) {

@@ -87,26 +87,29 @@ import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.StoryDetail
 import com.beykus.beygram.domain.model.StoryPostDenial
-import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPostPermission
+import com.beykus.beygram.domain.model.StoryPostTicket
 import com.beykus.beygram.domain.model.StoryPostTarget
 import com.beykus.beygram.domain.model.StoryPrivacy
-import com.beykus.beygram.domain.model.matchesPendingStoryEvent
+import com.beykus.beygram.domain.model.StorySubmissionState
 import com.beykus.beygram.domain.model.storyActivePeriodChoices
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
+import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import java.util.UUID
 
 
 private val SelectedStoryUsersSaver = Saver<Set<Long>, LongArray>(
@@ -153,8 +156,8 @@ fun StoryPublisherScreen(
     var videoTrimmed by rememberSaveable { mutableStateOf(false) }
     var preparing by remember { mutableStateOf(false) }
     var publishing by remember { mutableStateOf(false) }
-    var pendingPosterChatId by rememberSaveable { mutableLongStateOf(0L) }
-    var pendingStoryId by rememberSaveable { mutableIntStateOf(0) }
+    var submissionId by rememberSaveable { mutableStateOf("") }
+    var pendingTicket by remember { mutableStateOf<StoryPostTicket?>(null) }
     var caption by rememberSaveable { mutableStateOf("") }
     var captionLimit by remember { mutableIntStateOf(1_024) }
     var privacy by rememberSaveable { mutableStateOf(StoryPrivacy.Everyone) }
@@ -175,11 +178,18 @@ fun StoryPublisherScreen(
     var permissionAttempt by remember { mutableIntStateOf(0) }
     var targets by remember { mutableStateOf<List<StoryPostTarget>>(emptyList()) }
     var targetChatId by rememberSaveable { mutableLongStateOf(0L) }
+    val idleSubmission = remember { MutableStateFlow<StorySubmissionState>(StorySubmissionState.Idle) }
+    val submissionFlow: StateFlow<StorySubmissionState> = remember(repository, submissionId) {
+        submissionId.takeIf { it.isNotBlank() }?.let(repository::storySubmissionState) ?: idleSubmission
+    }
+    val submissionState by submissionFlow.collectAsStateWithLifecycle()
 
     val premium = myProfile?.isPremium == true
     val periods = storyActivePeriodChoices(premium)
     val denied = (permission as? StoryPostPermission.Denied)?.reason
-    val busy = publishing || pendingStoryId != 0
+    val submissionInFlight = submissionState is StorySubmissionState.Submitting ||
+        submissionState is StorySubmissionState.Pending
+    val busy = publishing || pendingTicket != null || submissionInFlight
     val selectedTarget = targets.firstOrNull { it.chatId == targetChatId }
     val isSelfTarget = selectedTarget?.isSelf != false
 
@@ -210,8 +220,9 @@ fun StoryPublisherScreen(
     val close: () -> Unit = {
         // An accepted/still-running upload owns its staged file outside this screen. Never delete
         // it here; the repository's pending-upload observer marks it evictable on success.
-        if (!publishing && pendingStoryId == 0) discard(media)
-        if (pendingStoryId != 0) repository.abandonStoryUpload(pendingPosterChatId, pendingStoryId)
+        val ticketToAbandon = pendingTicket ?: (submissionState as? StorySubmissionState.Pending)?.ticket
+        if (!publishing && !submissionInFlight && ticketToAbandon == null) discard(media)
+        ticketToAbandon?.let { repository.abandonStoryUpload(it.posterChatId, it.storyId) }
         media = null
         onBack()
     }
@@ -259,43 +270,55 @@ fun StoryPublisherScreen(
         }
     }
 
-    // The pending ticket is saveable: activity recreation resumes the same terminal update instead
-    // of allowing a second PostStory for the draft that is already uploading.
-    LaunchedEffect(pendingPosterChatId, pendingStoryId) {
-        val posterChatId = pendingPosterChatId
-        val storyId = pendingStoryId
-        if (storyId == 0) return@LaunchedEffect
-        publishing = true
-        val event = repository.storyPostEvents.first { candidate ->
-            matchesPendingStoryEvent(candidate, posterChatId, storyId)
-        }
-        publishing = false
-        pendingPosterChatId = 0L
-        pendingStoryId = 0
-        when (event) {
-            is StoryPostEvent.Published -> {
-                markPublishedStoryUpload(media, event.fileIds, accountId)
+    // The submission id survives activity recreation. The repository owns the in-flight PostStory
+    // call, so a recreated screen reconnects to its pending/published/failed state instead of
+    // allowing a second submission for the same draft.
+    LaunchedEffect(submissionState, submissionId) {
+        when (val state = submissionState) {
+            StorySubmissionState.Idle -> Unit
+            StorySubmissionState.Submitting -> publishing = true
+            is StorySubmissionState.Pending -> {
+                publishing = true
+                pendingTicket = state.ticket
+            }
+            is StorySubmissionState.Published -> {
+                publishing = false
+                pendingTicket = null
+                markPublishedStoryUpload(media, state.ticket.fileIds, accountId)
                 media = null
+                submissionId = ""
                 onPublished()
             }
-            is StoryPostEvent.Failed -> {
-                error = context.getString(storyPostDenialText(event.reason))
+            is StorySubmissionState.Failed -> {
+                publishing = false
+                pendingTicket = null
+                error = state.error?.resolve(context)
+                    ?: context.getString(storyPostDenialText(state.reason))
+                submissionId = ""
             }
         }
     }
 
     val startPublish: () -> Unit = {
         val item = media
+        val inFlight = submissionId.takeIf { it.isNotBlank() }
+            ?.let { repository.storySubmissionState(it).value }
+            ?.let { it is StorySubmissionState.Submitting || it is StorySubmissionState.Pending }
+            ?: false
         when {
             item == null -> error = context.getString(R.string.stories_publish_need_media)
+            inFlight -> Unit
             isSelfTarget && privacy == StoryPrivacy.SelectedUsers && selectedUsers.isEmpty() ->
                 error = context.getString(R.string.stories_selected_empty)
             permission is StoryPostPermission.Denied -> Unit
             else -> {
+                val id = UUID.randomUUID().toString()
+                submissionId = id
                 publishing = true
                 error = null
                 scope.launch {
                     repository.publishStory(
+                        submissionId = id,
                         targetChatId = targetChatId,
                         media = item,
                         caption = caption,
@@ -304,20 +327,7 @@ fun StoryPublisherScreen(
                         activePeriodSeconds = activePeriod,
                         protectContent = protectContent,
                         keepInProfile = keepInProfile
-                    ).onSuccess { ticket ->
-                        if (!ticket.isPending) {
-                            publishing = false
-                            markPublishedStoryUpload(item, ticket.fileIds, accountId)
-                            media = null
-                            onPublished()
-                            return@onSuccess
-                        }
-                        pendingPosterChatId = ticket.posterChatId
-                        pendingStoryId = ticket.storyId
-                    }.onFailure {
-                        publishing = false
-                        error = it.userMessage(context, R.string.stories_publish_failed)
-                    }
+                    )
                 }
             }
         }

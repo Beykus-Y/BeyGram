@@ -539,6 +539,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun storyArchive(fromStoryId: Int) = stories.archive(fromStoryId)
     override suspend fun storyPostPermission(chatId: Long) = stories.postPermission(chatId)
     override suspend fun storyPostTargets() = stories.postTargets()
+    override fun storySubmissionState(submissionId: String) = stories.submissionState(submissionId)
     override fun abandonStoryUpload(posterChatId: Long, storyId: Int) = stories.abandonUpload(posterChatId, storyId)
     override suspend fun storyCaptionLimit() = stories.captionLimit()
     override suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String) =
@@ -548,6 +549,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun setStoryPostedToChatPage(posterChatId: Long, storyId: Int, posted: Boolean) =
         stories.setPostedToChatPage(posterChatId, storyId, posted)
     override suspend fun publishStory(
+        submissionId: String,
         targetChatId: Long,
         media: OutgoingMedia,
         caption: String,
@@ -556,7 +558,7 @@ class TdLibTelegramRepository private constructor(
         activePeriodSeconds: Int,
         protectContent: Boolean,
         keepInProfile: Boolean
-    ) = stories.publishStory(targetChatId, media, caption, privacy, selectedUserIds, activePeriodSeconds, protectContent, keepInProfile)
+    ) = stories.publishStory(submissionId, targetChatId, media, caption, privacy, selectedUserIds, activePeriodSeconds, protectContent, keepInProfile)
 
     /** TDLib is the cursor owner: each LoadChats call fetches the next server-backed page. */
     override suspend fun loadMoreFolderChats(folderId: Int): Result<Unit> = requestResult {
