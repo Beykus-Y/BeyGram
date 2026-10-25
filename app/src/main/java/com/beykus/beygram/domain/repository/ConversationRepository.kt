@@ -73,8 +73,8 @@ interface ConversationRepository {
     /** Chosen option positions are 0-based, as TDLib expects. */
     suspend fun votePoll(chatId: Long, messageId: Long, optionIndices: List<Int>): Result<Unit>
     suspend fun stopPoll(chatId: Long, messageId: Long): Result<Unit>
-    /** Ends an outgoing live-location share by editing it to a zero live period. */
-    suspend fun stopLiveLocation(chatId: Long, messageId: Long, point: GeoPoint): Result<Unit>
+    /** Ends an outgoing live-location share by clearing EditMessageLiveLocation.location. */
+    suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit>
     /** The account's Telegram address book, for the compose-contact picker. */
     suspend fun contacts(): Result<List<ContactPreview>>
     /** Scheduled queue straight from TDLib; no local scheduled-message cache is created. */

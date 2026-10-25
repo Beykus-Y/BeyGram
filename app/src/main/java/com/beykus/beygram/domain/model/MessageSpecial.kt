@@ -53,8 +53,11 @@ data class MessagePoll(
         get() = !isClosed && voteRestriction == PollVoteRestriction.None &&
             !(isQuiz && hasVoted) && !(hasVoted && !allowsRevoting)
 
-    /** Results stay hidden for polls that forbid seeing them until the user votes or the poll closes. */
-    val revealsResults: Boolean get() = canSeeResults || isClosed || hasVoted
+    /**
+     * TDLib is the authority on result visibility. Some polls hide results until they close, so voting must not
+     * reveal counts that the server zeroes while they are hidden.
+     */
+    val revealsResults: Boolean get() = canSeeResults
 
     fun isCorrect(index: Int): Boolean = isQuiz && index in correctOptionIndices
 

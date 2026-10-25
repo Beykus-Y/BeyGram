@@ -1668,8 +1668,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun stopPoll(chatId: Long, messageId: Long): Result<Unit> =
         conversationActions.stopPoll(chatId, messageId)
 
-    override suspend fun stopLiveLocation(chatId: Long, messageId: Long, point: GeoPoint): Result<Unit> =
-        conversationActions.stopLiveLocation(chatId, messageId, point)
+    override suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit> =
+        conversationActions.stopLiveLocation(chatId, messageId)
 
     override suspend fun contacts(): Result<List<ContactPreview>> = requestResult { contactBook.load() }
 

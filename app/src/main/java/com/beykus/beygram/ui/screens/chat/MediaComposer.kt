@@ -86,6 +86,10 @@ internal class AttachmentState(
         private set
     var extra by mutableStateOf<MessageExtraDraft?>(null)
         private set
+    /** True while a location fix is in flight; the composer blocks other attachment choices and Send. */
+    var locating by mutableStateOf(false)
+        private set
+    private val locationRequests = LocationRequestGate()
     val pending: List<OutgoingMedia> get() = pendingState.value
     val error: String? get() = errorState.value
     private var importJob: Job? = null
@@ -98,14 +102,14 @@ internal class AttachmentState(
     /** Secret chats do not support server-side polls; the chip disappears instead of failing. */
     var allowsPolls: Boolean = true
 
-    /** True while the panel replaces the plain composer (files or a poll/location/contact/dice are ready to send). */
-    val active: Boolean get() = pending.isNotEmpty() || importing || extra != null
+    /** True while the panel replaces the plain composer (files, a location fix, or a prepared extra). */
+    val active: Boolean get() = pending.isNotEmpty() || importing || extra != null || locating
 
     /** The normal Send button is enabled when the prepared attachment can be delivered. */
-    val canSend: Boolean get() = !sending && !importing && (pending.isNotEmpty() || extra != null)
+    val canSend: Boolean get() = !sending && !importing && !locating && (pending.isNotEmpty() || extra != null)
 
     fun prepare(uris: List<android.net.Uri>, asDocument: Boolean) {
-        if (uris.isEmpty()) return
+        if (uris.isEmpty() || locating) return
         if (uris.size > 10) { errorState.value = context.getString(R.string.composer_too_many_attachments); return }
         extra = null
         importJob = scope.launch {
@@ -124,13 +128,45 @@ internal class AttachmentState(
 
     /** Puts a poll/location/contact/dice in the panel; the normal Send button then applies reply and send options. */
     fun prepareExtra(draft: MessageExtraDraft) {
-        if (sending || importing) return
+        if (sending || importing || locating) return
         importJob?.cancel()
         if (pending.isNotEmpty()) scope.launch { pending.toList().forEach { importer.discard(it) } }
         pendingState.value = arrayListOf()
         extra = draft
         errorState.value = null
         menuOpen = false
+    }
+
+    /**
+     * Reserves the attachment slot for one location fix. While it is pending, other attachment choices and Send
+     * are refused, so a late fix can never overwrite a poll/contact/dice the user picked afterwards.
+     */
+    fun beginLocationRequest(): Int? {
+        if (sending || importing || locating) return null
+        val request = locationRequests.begin() ?: return null
+        locating = true
+        errorState.value = null
+        menuOpen = false
+        return request
+    }
+
+    /** Applies a completed fix only if it is still the active request; a cancelled/late fix is ignored. */
+    fun completeLocationRequest(request: Int, draft: MessageExtraDraft.Location?): Boolean {
+        if (!locationRequests.complete(request)) return false
+        locating = false
+        if (draft == null) return true
+        importJob?.cancel()
+        if (pending.isNotEmpty()) scope.launch { pending.toList().forEach { importer.discard(it) } }
+        pendingState.value = arrayListOf()
+        extra = draft
+        errorState.value = null
+        menuOpen = false
+        return true
+    }
+
+    fun cancelLocationRequest() {
+        locationRequests.cancel()
+        locating = false
     }
 
     fun removeExtra() {
@@ -150,6 +186,7 @@ internal class AttachmentState(
 
     fun discardAll() {
         if (sending) return
+        cancelLocationRequest()
         importJob?.cancel()
         val discarded = pending.toList()
         pendingState.value = arrayListOf()
@@ -161,7 +198,7 @@ internal class AttachmentState(
     }
 
     fun send(caption: String, options: MessageSendOptions, onCaptionChange: (String) -> Unit) {
-        if (sending || importing) return
+        if (sending || importing || locating) return
         val preparedExtra = extra
         if (preparedExtra != null) {
             scope.launch {
@@ -232,7 +269,7 @@ internal fun rememberAttachmentState(
 internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
     val palette = beyGramPalette()
     val context = LocalContext.current
-    IconButton(onClick = { state.menuOpen = !state.menuOpen }, enabled = enabled && !state.sending && !state.importing,
+    IconButton(onClick = { state.menuOpen = !state.menuOpen }, enabled = enabled && !state.sending && !state.importing && !state.locating,
         modifier = Modifier.size(48.dp).semantics { contentDescription = context.getString(R.string.composer_attach_description) }) {
         Icon(Icons.Rounded.AttachFile, contentDescription = null, tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary, modifier = Modifier.size(24.dp))
     }
@@ -272,6 +309,18 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (state.locating) {
+                        Row(
+                            Modifier.clip(RoundedCornerShape(14.dp)).background(palette.surface2)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.chat_location_locating), color = palette.textPrimary,
+                                fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     state.extra?.let { extra ->
                         val label = extraLabel(extra)
                         Row(
@@ -324,7 +373,7 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                     Icon(Icons.Rounded.Close, stringResource(R.string.composer_cancel_attachments), tint = palette.textSecondary)
                 }
             }
-            if (state.extra == null) {
+            if (state.extra == null && !state.locating) {
                 val count = caption.codePointCount(0, caption.length)
                 Text("$count / $captionLimit", color = if (count > captionLimit) palette.danger else palette.textSecondary, fontSize = 12.sp,
                     modifier = Modifier.padding(start = 2.dp, bottom = 2.dp))
@@ -354,6 +403,37 @@ internal fun AttachmentRemoveButton(fileName: String, enabled: Boolean, onClick:
             tint = palette.textSecondary.copy(alpha = if (enabled) 1f else 0.38f),
             modifier = Modifier.size(18.dp)
         )
+    }
+}
+
+/**
+ * Pure reservation gate for the asynchronous location fix. It makes late callbacks harmless and lets the attachment
+ * state refuse competing choices while one fix owns the slot.
+ */
+internal class LocationRequestGate {
+    private var generation = 0
+    private var active: Int? = null
+
+    val isBusy: Boolean get() = active != null
+
+    /** Returns a request token, or null when another fix already owns the slot. */
+    fun begin(): Int? {
+        if (active != null) return null
+        val request = ++generation
+        active = request
+        return request
+    }
+
+    /** True only for the request that still owns the slot; cancelled or older tokens are ignored. */
+    fun complete(request: Int): Boolean {
+        if (active != request) return false
+        active = null
+        return true
+    }
+
+    fun cancel() {
+        generation++
+        active = null
     }
 }
 

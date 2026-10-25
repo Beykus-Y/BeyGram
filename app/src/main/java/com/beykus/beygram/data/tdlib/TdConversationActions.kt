@@ -390,20 +390,9 @@ internal class TdConversationActions(
         refreshMappedMessage(chatId, messageId)
     }.onFailure { recordSendFailure("poll_stop", it) }
 
-    /** A zero live period is Telegram's way to end an outgoing live-location message. */
-    suspend fun stopLiveLocation(chatId: Long, messageId: Long, point: GeoPoint): Result<Unit> = conversationResult<Unit> {
-        if (!point.isValid) throw UserMessageException(UiText.Res(R.string.chat_location_unavailable))
-        val updated = request(TdApi.EditMessageLiveLocation().apply {
-            this.chatId = chatId
-            this.messageId = messageId
-            replyMarkup = null
-            location = TdApi.LiveLocation().apply {
-                this.location = TdApi.Location(point.latitude, point.longitude, point.accuracyMeters)
-                livePeriod = 0
-                heading = 0
-                proximityAlertRadius = 0
-            }
-        })
+    /** TDLib stops a live-location share only when EditMessageLiveLocation.location is null. */
+    suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit> = conversationResult<Unit> {
+        val updated = request(stopLiveLocationRequest(chatId, messageId))
         if (updated.schedulingState == null) history.put(map(updated))
     }.onFailure { recordSendFailure("live_location_stop", it) }
 
@@ -888,6 +877,14 @@ internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopic
 internal fun pinMessageRequest(chatId: Long, messageId: Long, pinned: Boolean): TdApi.Function<TdApi.Ok> =
     if (pinned) TdApi.PinChatMessage(chatId, messageId, true, false)
     else TdApi.UnpinChatMessage(chatId, messageId)
+
+/** TDLib's documented stop operation: a null location clears the share, not a zero live period. */
+internal fun stopLiveLocationRequest(chatId: Long, messageId: Long) = TdApi.EditMessageLiveLocation().apply {
+    this.chatId = chatId
+    this.messageId = messageId
+    replyMarkup = null
+    location = null
+}
 
 /** Медиа в журнале видны и принятые, и неудачные: текстовые сообщения слишком частые, поэтому там только сбои. */
 private fun recordMediaAccepted(kind: String) = recordAppEvent(

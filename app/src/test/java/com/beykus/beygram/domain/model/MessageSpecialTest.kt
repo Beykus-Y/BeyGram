@@ -50,7 +50,9 @@ class MessageSpecialTest {
         assertTrue(unanswered.canVote)
         assertFalse(answered.canVote)
         assertFalse(unanswered.revealsResults)
-        assertTrue(answered.revealsResults)
+        // Voting alone does not expose results for a hide-until-closed poll; TDLib keeps counts zeroed.
+        assertFalse(answered.revealsResults)
+        assertTrue(answered.copy(isClosed = true, canSeeResults = true).revealsResults)
         assertTrue(answered.isCorrect(1))
         assertFalse(answered.isCorrect(0))
         assertEquals(listOf(1), answered.chosenOptionIndices)

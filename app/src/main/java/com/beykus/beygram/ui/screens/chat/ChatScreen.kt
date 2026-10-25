@@ -366,23 +366,24 @@ fun ChatScreen(
     LaunchedEffect(contactPickerOpen) {
         if (contactPickerOpen && contactPickerContacts == null && !contactPickerLoading) loadContactPicker()
     }
-    suspend fun prepareLocation() {
-        val point = currentGeoPoint(context).getOrElse {
-            attachments.reportError(context.getString(R.string.chat_location_unavailable))
-            return
+    fun locateNow() {
+        val request = attachments.beginLocationRequest() ?: return
+        scope.launch {
+            val point = currentGeoPoint(context).getOrNull()
+            val accepted = attachments.completeLocationRequest(request, point?.let { MessageExtraDraft.Location(it) })
+            if (accepted && point == null) attachments.reportError(context.getString(R.string.chat_location_unavailable))
         }
-        attachments.prepareExtra(MessageExtraDraft.Location(point))
     }
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted.values.any { it }) {
-            scope.launch { prepareLocation() }
+            locateNow()
         } else {
             attachments.reportError(context.getString(R.string.chat_location_permission_denied))
         }
     }
     fun requestLocation() {
-        if (attachments.sending || attachments.importing) return
-        if (hasLocationPermission(context)) scope.launch { prepareLocation() }
+        if (attachments.sending || attachments.importing || attachments.locating) return
+        if (hasLocationPermission(context)) locateNow()
         else locationPermission.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
     }
     attachments.pickPoll = { pollComposerOpen = true }
@@ -1236,9 +1237,8 @@ fun ChatScreen(
                                     }
                                 },
                                 onStopLiveLocation = { target ->
-                                    val live = target.special as? MessageSpecialContent.LiveLocation
-                                    if (live != null) scope.launch {
-                                        conversation.stopLiveLocation(target.chatId, target.id, live.location.point)
+                                    if (target.special is MessageSpecialContent.LiveLocation) scope.launch {
+                                        conversation.stopLiveLocation(target.chatId, target.id)
                                             .onFailure { error = it.userMessage(context, R.string.chat_location_stop_failed) }
                                     }
                                 },

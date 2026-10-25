@@ -145,6 +145,7 @@
     <string name="chat_location_accuracy">Точность: ±%1$d м</string>
     <string name="chat_location_no_map_app">Нет приложения карт. Установите карты или откройте координаты вручную.</string>
     <string name="chat_location_permission_denied">Нет доступа к геопозиции. Разрешите его в настройках приложения.</string>
+    <string name="chat_location_locating">Определяем геопозицию…</string>
     <string name="chat_location_unavailable">Не удалось определить геопозицию. Проверьте, что геолокация включена.</string>
     <string name="chat_location_send_failed">Не удалось отправить геопозицию</string>
     <string name="chat_location_stop_failed">Не удалось остановить трансляцию</string>
