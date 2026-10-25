@@ -75,6 +75,39 @@ class SpecialContentMappingTest {
     }
 
     @Test
+    fun `shuffled poll order keeps the original option ids for voting`() {
+        val poll = TdApi.Poll().apply {
+            id = 99L
+            question = TdApi.FormattedText("Shuffled", emptyArray())
+            options = arrayOf(
+                pollOption("a", "First", 0, 0, false),
+                pollOption("b", "Second", 0, 0, false)
+            )
+            totalVoterCount = 0
+            recentVoterIds = emptyArray()
+            canGetVoters = false
+            canSeeResults = true
+            isAnonymous = true
+            allowsMultipleAnswers = false
+            allowsRevoting = true
+            membersOnly = false
+            countryCodes = emptyArray()
+            optionOrder = intArrayOf(1, 0)
+            type = TdApi.PollTypeRegular()
+            openPeriod = 0
+            closeDate = 0
+            isClosed = false
+            voteRestrictionReason = null
+        }
+        val special = mapper.special(TdApi.MessagePoll().apply { this.poll = poll }) as MessageSpecialContent.Poll
+
+        assertEquals("Second", special.poll.options[0].text)
+        assertEquals(1, special.poll.options[0].optionIndex)
+        assertEquals("First", special.poll.options[1].text)
+        assertEquals(0, special.poll.options[1].optionIndex)
+    }
+
+    @Test
     fun `live location keeps its expiry and coordinates`() {
         val content = TdApi.MessageLiveLocation().apply {
             location = TdApi.LiveLocation().apply {
