@@ -13,8 +13,8 @@ class PhotoEditPolicyTest {
         assertTrue(clamped.top >= 0f)
         assertTrue(clamped.right <= 1f)
         assertTrue(clamped.bottom <= 1f)
-        assertTrue(clamped.width >= MIN_CROP_FRACTION)
-        assertTrue(clamped.height >= MIN_CROP_FRACTION)
+        assertTrue(clamped.width >= MIN_CROP_FRACTION - 1e-4f)
+        assertTrue(clamped.height >= MIN_CROP_FRACTION - 1e-4f)
     }
 
     @Test

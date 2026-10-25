@@ -45,6 +45,8 @@
     <string name="camera_error_capture">Не удалось снять фото</string>
     <string name="camera_error_record">Не удалось записать видео</string>
     <string name="camera_error_too_short">Запись слишком короткая</string>
+    <string name="capture_retry">Повторить</string>
+    <string name="capture_retry_hint">Снимок сохранён на устройстве. Повторите импорт или закройте вложения.</string>
 
     <string name="err_video_compress_failed">Не удалось сжать видео</string>
 

@@ -309,9 +309,9 @@ private fun CameraPermissionPanel(
             Text(it, color = Color(0xFFFFB4B4), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.errorAnnouncement())
         }
         Spacer(Modifier.height(20.dp))
-        Button(onClick = onRequest) { Text(stringResource(R.string.camera_permission_action)) }
+        Button(onClick = onRequest, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) { Text(stringResource(R.string.camera_permission_action)) }
         Spacer(Modifier.height(8.dp))
-        TextButton(onClick = onClose) { Text(stringResource(R.string.common_close), color = Color.White) }
+        TextButton(onClick = onClose, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) { Text(stringResource(R.string.common_close), color = Color.White) }
     }
 }
 

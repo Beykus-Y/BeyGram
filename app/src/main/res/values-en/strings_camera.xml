@@ -45,6 +45,8 @@
     <string name="camera_error_capture">Could not take the photo</string>
     <string name="camera_error_record">Could not record the video</string>
     <string name="camera_error_too_short">Recording is too short</string>
+    <string name="capture_retry">Retry</string>
+    <string name="capture_retry_hint">The capture is saved on this device. Retry the import or close the attachments.</string>
 
     <string name="err_video_compress_failed">Could not compress the video</string>
 

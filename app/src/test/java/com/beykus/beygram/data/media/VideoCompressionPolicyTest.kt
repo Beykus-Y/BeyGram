@@ -114,6 +114,17 @@ class VideoCompressionPolicyTest {
     }
 
     @Test
+    fun compressionRequiresMeaningfulSavings() {
+        // 720p at ~3 Mbps: a re-encode would save less than 15%, so the original is kept.
+        val plan = videoCompressionPlan(
+            info(width = 1280, height = 720, size = 22L * 1024 * 1024),
+            VideoQualityOption.Balanced
+        )
+        assertFalse(plan.transcode)
+        assertEquals(VideoPlanReason.NotWorthIt, plan.reason)
+    }
+
+    @Test
     fun estimatedBytesCountVideoAndAudio() {
         assertEquals(19_710_000L, estimatedVideoBytes(60, 2_500_000, 128_000))
         assertEquals(0L, estimatedVideoBytes(0, 2_500_000, 128_000))

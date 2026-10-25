@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -78,8 +79,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
+import kotlin.coroutines.coroutineContext
 
 /** A photo opened in the editor: either a temporary camera take or an already staged attachment. */
 internal data class PhotoEditorSession(
@@ -121,6 +125,8 @@ internal class AttachmentState(
         private set
     var notice by mutableStateOf<String?>(null)
         private set
+    var canRetryCapture by mutableStateOf(false)
+        private set
     var videoQuality by mutableStateOf(VideoCompressionPreferences(context).load())
         private set
     val pending: List<OutgoingMedia> get() = pendingState.value
@@ -131,6 +137,7 @@ internal class AttachmentState(
     private var compressionJob: Job? = null
     private var importJob: Job? = null
     private var editorJob: Job? = null
+    private var failedCapture: File? = null
     var pickPhotos: () -> Unit = {}
     var pickDocuments: () -> Unit = {}
 
@@ -139,13 +146,20 @@ internal class AttachmentState(
 
     fun prepare(uris: List<android.net.Uri>, asDocument: Boolean) {
         if (uris.isEmpty()) return
-        if (uris.size > MediaLimits.MAX_ATTACHMENTS) { errorState.value = context.getString(R.string.composer_too_many_attachments); return }
+        if (pending.size + uris.size > MediaLimits.MAX_ATTACHMENTS) {
+            errorState.value = context.getString(R.string.composer_too_many_attachments)
+            return
+        }
         importJob = scope.launch {
             importing = true
             errorState.value = null
             try {
                 for (uri in uris) {
                     val prepared = importer.prepare(uri, asDocument)
+                    try { coroutineContext.ensureActive() } catch (cancelled: CancellationException) {
+                        importer.discard(prepared)
+                        throw cancelled
+                    }
                     pendingState.value = ArrayList(pending + prepared)
                     if (!asDocument && prepared.kind == MediaKind.Video) maybeCompressVideo(prepared)
                 }
@@ -254,11 +268,15 @@ internal class AttachmentState(
                         stagedOriginal = null
                         throw failure
                     }
+                    try { coroutineContext.ensureActive() } catch (cancelled: CancellationException) {
+                        importer.discard(edited)
+                        throw cancelled
+                    }
                     val originalCopy = stagedOriginal
                     val replaced = session.replaceItem
                     if (!keepOriginal && replaced != null) {
                         pendingState.value = ArrayList(pending.filterNot { it.path == replaced.path } + edited + listOfNotNull(originalCopy))
-                        importer.discard(replaced)
+                        runCatching { importer.discard(replaced) }
                     } else {
                         pendingState.value = ArrayList(pending + edited + listOfNotNull(originalCopy))
                     }
@@ -267,7 +285,10 @@ internal class AttachmentState(
                 } finally {
                     exported.file.delete()
                 }
-            } catch (cancelled: CancellationException) { throw cancelled }
+            } catch (cancelled: CancellationException) {
+                stagedOriginal?.let { importer.discard(it) }
+                throw cancelled
+            }
             catch (failure: Exception) {
                 stagedOriginal?.let { importer.discard(it) }
                 editorError = failure.userMessage(context, R.string.photo_editor_failed)
@@ -278,7 +299,9 @@ internal class AttachmentState(
 
     private fun importCaptureFile(file: File) {
         if (sending || importing) {
-            file.delete()
+            // Keep the only copy of the take available for a retry instead of deleting it.
+            failedCapture = file
+            canRetryCapture = true
             return
         }
         importJob = scope.launch {
@@ -287,15 +310,35 @@ internal class AttachmentState(
             try {
                 val prepared = importer.prepareLocal(file)
                 file.delete()
+                failedCapture?.takeIf { it.absolutePath != file.absolutePath }?.delete()
+                failedCapture = null
+                canRetryCapture = false
+                try { coroutineContext.ensureActive() } catch (cancelled: CancellationException) {
+                    importer.discard(prepared)
+                    throw cancelled
+                }
                 pendingState.value = ArrayList(pending + prepared)
                 if (prepared.kind == MediaKind.Video) maybeCompressVideo(prepared)
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { errorState.value = failure.userMessage(context, R.string.composer_prepare_failed) }
-            finally {
-                importing = false
+            } catch (cancelled: CancellationException) {
                 file.delete()
+                throw cancelled
             }
+            catch (failure: Exception) {
+                // The camera/editor is already closed; retain the take so the user can retry it.
+                failedCapture = file
+                canRetryCapture = true
+                errorState.value = failure.userMessage(context, R.string.composer_prepare_failed)
+            }
+            finally { importing = false }
         }
+    }
+
+    fun retryCapture() {
+        val file = failedCapture ?: return
+        if (importing || sending) return
+        failedCapture = null
+        canRetryCapture = false
+        importCaptureFile(file)
     }
 
     fun remove(item: OutgoingMedia) {
@@ -350,7 +393,7 @@ internal class AttachmentState(
         if (!plan.transcode) return
         compressionCancelled = false
         processing = MediaProcessing(original.path, original.fileName, progress = 0f)
-        val output = File(source.parentFile, "compressed-${java.util.UUID.randomUUID()}.mp4")
+        val output = File(source.parentFile, "compressed-${UUID.randomUUID()}.mp4")
         // Never let a failed child cancel the composer scope: the failure is a normal result and the
         // original attachment must stay usable.
         val task = scope.async<Result<OutgoingMedia>> {
@@ -372,6 +415,8 @@ internal class AttachmentState(
                 notice = context.getString(R.string.video_compression_failed_original)
                 return
             }
+            // The composer may have been cleared while the transform finished; do not resurrect it.
+            coroutineContext.ensureActive()
             replacePending(original, compressed)
             File(original.path).takeIf { it.absolutePath != compressed.path }?.delete()
             notice = context.getString(
@@ -402,6 +447,9 @@ internal class AttachmentState(
         importJob?.cancel()
         compressionJob?.cancel()
         editorJob?.cancel()
+        failedCapture?.delete()
+        failedCapture = null
+        canRetryCapture = false
         editor?.let { session -> if (session.temporary) File(session.sourcePath).delete() }
         editor = null
         editorSaving = false
@@ -454,7 +502,7 @@ internal fun rememberAttachmentState(
     val error = rememberSaveable(accountId, chatId) { mutableStateOf<String?>(null) }
     val currentSend by androidx.compose.runtime.rememberUpdatedState(sendMedia)
     val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error) { media, caption, options -> currentSend(media, caption, options) } }
-    val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { state.prepare(it, false) }
+    val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MediaLimits.MAX_ATTACHMENTS)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
     state.pickPhotos = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
     state.pickDocuments = { documents.launch(arrayOf("*/*")) }
@@ -594,6 +642,17 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
             }
         }
         state.error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp)) }
+        if (state.canRetryCapture) {
+            Row(Modifier.fillMaxWidth().padding(end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(R.string.capture_retry_hint), color = palette.textSecondary, fontSize = 12.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { state.retryCapture() }, enabled = !state.importing && !state.sending, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.Refresh, stringResource(R.string.capture_retry), tint = palette.accent)
+                }
+            }
+        }
         state.notice?.let { message ->
             Row(Modifier.fillMaxWidth().padding(end = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(

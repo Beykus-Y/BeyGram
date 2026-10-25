@@ -109,4 +109,5 @@ internal fun videoCompressionPlan(info: VideoSourceInfo, option: VideoQualityOpt
 
 private const val TINY_VIDEO_BYTES = 1_500_000L
 private const val EFFICIENT_BITRATE_FACTOR = 1.15f
-private const val NOT_WORTH_IT_FACTOR = 0.95f
+/** Re-encode only when the estimated output is at least 15% smaller than the original. */
+private const val NOT_WORTH_IT_FACTOR = 0.85f

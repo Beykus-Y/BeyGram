@@ -128,7 +128,8 @@ internal fun PhotoEditorScreen(
             )
             TextButton(
                 onClick = { onSave(rotation, crop, quality, keepOriginal) },
-                enabled = !saving && shown != null && !loadFailed
+                enabled = !saving && shown != null && !loadFailed,
+                modifier = Modifier.defaultMinSize(minHeight = 48.dp)
             ) {
                 Text(stringResource(R.string.photo_editor_apply), color = if (saving) palette.textSecondary else palette.accent, fontWeight = FontWeight.SemiBold)
             }
