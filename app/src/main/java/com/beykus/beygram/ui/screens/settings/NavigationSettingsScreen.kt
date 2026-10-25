@@ -39,7 +39,7 @@ import com.beykus.beygram.ui.components.icon
 import com.beykus.beygram.ui.components.title
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
-/** Настройка нижнего меню: какие разделы показывать внизу экрана. Чаты показываются всегда. */
+/** Настройка навигации: какие разделы показывать. Чаты показываются всегда; на широком экране разделы стоят рейкой. */
 @Composable
 fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (TabVisibility) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()

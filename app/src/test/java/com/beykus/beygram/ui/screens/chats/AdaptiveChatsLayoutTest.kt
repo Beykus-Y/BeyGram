@@ -37,4 +37,14 @@ class AdaptiveChatsLayoutTest {
         assertNull(chatListHighlightedId(showChat = false, selectedChatId = 42L))
         assertNull(chatListHighlightedId(showChat = true, selectedChatId = 0L))
     }
+
+    @Test fun placeholderPaneClearsTheRowHighlight() {
+        // Правая панель показывает «Выберите чат», пока выбранный чат не найден:
+        // подсветки и selected в списке быть не должно.
+        assertNull(chatListHighlightedId(showChat = true, selectedChatId = 42L, chatResolved = false))
+        assertEquals(
+            42L,
+            chatListHighlightedId(showChat = true, selectedChatId = 42L, chatResolved = true)
+        )
+    }
 }

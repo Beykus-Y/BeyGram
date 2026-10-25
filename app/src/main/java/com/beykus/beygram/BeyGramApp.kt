@@ -70,7 +70,7 @@ import com.beykus.beygram.domain.model.canOpenGroupStatistics
 import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
-import com.beykus.beygram.ui.components.MainTabBar
+import com.beykus.beygram.ui.components.MainTabRail
 import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -1295,6 +1295,14 @@ private fun BeyGramAppContent(
         val folderLists by repository.folderChats.collectAsStateWithLifecycle()
         val folderLoading by repository.folderLoadStates.collectAsStateWithLifecycle()
         val activeStories by repository.activeStories.collectAsStateWithLifecycle()
+        // Правая панель ищет чат через observeChat, а список — запасной вариант из основного
+        // списка. Подсветка должна использовать тот же источник: иначе чат из папки, которого
+        // нет в основном списке, открывается справа без выделения.
+        val observedChat by remember(repository, selectedChatId) {
+            repository.observeChat(selectedChatId)
+        }.collectAsStateWithLifecycle()
+        val selectedChatResolved = selectedChatId != 0L &&
+            (observedChat?.id == selectedChatId || chats.any { it.id == selectedChatId })
         LaunchedEffect(repository, authState) {
             if (authState == AuthState.Ready) repository.refreshActiveStories()
         }
@@ -1349,7 +1357,11 @@ private fun BeyGramAppContent(
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
             },
-            highlightedChatId = chatListHighlightedId(twoPane && chatOpen, selectedChatId),
+            highlightedChatId = chatListHighlightedId(
+                showChat = twoPane && chatOpen,
+                selectedChatId = selectedChatId,
+                chatResolved = selectedChatResolved
+            ),
             compactHeader = twoPane,
             state = chatsScreenState
         )
@@ -1894,16 +1906,16 @@ private fun BeyGramAppContent(
                             ChatsTwoPaneScaffold(
                                 listPaneWidth = chatListPaneWidthDp(maxWidth.value).dp,
                                 showNavigation = route == AppRoute.Chats,
-                                navigation = {
-                                    // Нижнее меню остаётся прежним; на широком экране оно
-                                    // занимает всю ширину под обеими панелями.
-                                    NowPlayingBar()
-                                    MainTabBar(
+                                navigationRail = {
+                                    // Та же навигация, что и на телефоне, но вертикальной рейкой:
+                                    // нижнее меню на широком экране не помещается.
+                                    MainTabRail(
                                         tabs = MainTab.entries.filter { tabVisibility.isVisible(it) },
                                         selected = MainTab.Chats,
                                         onSelect = selectTab
                                     )
                                 },
+                                playerBar = { NowPlayingBar() },
                                 list = { chatsList(true, route != AppRoute.Chats) },
                                 detail = {
                                     if (route == AppRoute.Chats) ChatsDetailPlaceholder()

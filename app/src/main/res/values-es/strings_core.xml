@@ -150,9 +150,9 @@
     <string name="global_search_title">Buscar en todos los chats</string>
     <string name="nav_hint_all_hidden">Si dejas solo Chats visible, Llamadas, Contactos y Ajustes estarán disponibles en tu perfil.</string>
     <string name="nav_hint_some_hidden">Puedes abrir las secciones ocultas desde el área Secciones de tu perfil.</string>
-    <string name="nav_intro">Elige qué secciones aparecen en la barra inferior. Chats siempre está visible. Las secciones ocultas pasan a tu perfil.</string>
+    <string name="nav_intro">Elige qué secciones aparecen en la navegación. Chats siempre está visible. Las secciones ocultas pasan a tu perfil.</string>
     <string name="nav_locked_hint">obligatorio</string>
-    <string name="nav_preview_caption">Tu barra inferior se verá así</string>
+    <string name="nav_preview_caption">Tu navegación se verá así</string>
     <string name="start_connection_checking">Comprobando la disponibilidad de Telegram…</string>
     <string name="start_connection_connected">Conectado a Telegram</string>
     <string name="start_connection_no_network">Sin conexión de red</string>

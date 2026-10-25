@@ -137,9 +137,9 @@
     <string name="global_search_title">Alle Chats durchsuchen</string>
     <string name="nav_hint_all_hidden">Wenn Sie nur Chats sichtbar lassen, sind Anrufe, Kontakte und Einstellungen in Ihrem Profil verfügbar.</string>
     <string name="nav_hint_some_hidden">Sie können ausgeblendete Abschnitte im Bereich „Abschnitte“ Ihres Profils öffnen.</string>
-    <string name="nav_intro">Wählen Sie aus, welche Abschnitte in der unteren Leiste angezeigt werden. Chats sind immer sichtbar. Ausgeblendete Abschnitte werden in Ihr Profil verschoben.</string>
+    <string name="nav_intro">Wählen Sie aus, welche Abschnitte in der Navigation angezeigt werden. Chats sind immer sichtbar. Ausgeblendete Abschnitte werden in Ihr Profil verschoben.</string>
     <string name="nav_locked_hint">erforderlich</string>
-    <string name="nav_preview_caption">Ihre untere Leiste wird so aussehen</string>
+    <string name="nav_preview_caption">Ihre Navigation wird so aussehen</string>
     <string name="start_connection_checking">Überprüfen der Telegram-Verfügbarkeit…</string>
     <string name="start_connection_connected">Verbunden mit Telegram</string>
     <string name="start_connection_no_network">Keine Netzwerkverbindung</string>

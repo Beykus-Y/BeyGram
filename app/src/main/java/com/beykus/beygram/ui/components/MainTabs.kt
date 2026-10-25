@@ -6,18 +6,28 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Call
@@ -53,7 +63,7 @@ import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.TabVisibility
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 
-/** Подпись раздела в нижнем меню. */
+/** Подпись раздела в навигации: нижнем меню телефона или рейке широкого экрана. */
 internal val MainTab.title: String
     @Composable get() = when (this) {
         MainTab.Chats -> stringResource(R.string.tabs_chats)
@@ -62,7 +72,7 @@ internal val MainTab.title: String
         MainTab.Settings -> stringResource(R.string.settings_title)
     }
 
-/** Иконка раздела в нижнем меню. */
+/** Иконка раздела в навигации: нижнем меню телефона или рейке широкого экрана. */
 internal val MainTab.icon: ImageVector
     get() = when (this) {
         MainTab.Chats -> Icons.Rounded.ChatBubble
@@ -157,7 +167,7 @@ internal fun MainTabItem(
     }
 }
 
-/** Нижнее меню: только видимые разделы, выше навигационной панели системы. */
+/** Нижнее меню телефона: только видимые разделы, выше навигационной панели системы. */
 @Composable
 internal fun MainTabBar(tabs: List<MainTab>, selected: MainTab?, onSelect: (MainTab) -> Unit) {
     val palette = beyGramPalette()
@@ -167,6 +177,8 @@ internal fun MainTabBar(tabs: List<MainTab>, selected: MainTab?, onSelect: (Main
             .background(palette.surface)
             .navigationBarsPadding()
             .padding(start = 8.dp, top = 10.dp, end = 8.dp, bottom = 8.dp)
+            // Тот же набор взаимоисключающих вкладок, что и в рейке широкого экрана.
+            .selectableGroup()
     ) {
         tabs.forEach { tab ->
             MainTabItem(
@@ -180,7 +192,8 @@ internal fun MainTabBar(tabs: List<MainTab>, selected: MainTab?, onSelect: (Main
 }
 
 /**
- * Раздел с нижним меню: содержимое занимает место над баром. [key] сохраняет состояние экрана при переключении
+ * Раздел с навигацией: содержимое занимает место над нижним меню на телефоне или справа от
+ * вертикальной рейки на широком экране. [key] сохраняет состояние экрана при переключении
  * разделов, поэтому список чатов возвращается на прежнюю позицию.
  */
 @Composable
@@ -192,11 +205,35 @@ internal fun MainTabsScaffold(
     stateHolder: SaveableStateHolder,
     content: @Composable () -> Unit
 ) {
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            stateHolder.SaveableStateProvider(key) { content() }
+    val tabs = MainTab.entries.filter { visibility.isVisible(it) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (usesMainNavigationRail(maxWidth.value)) {
+            Row(Modifier.fillMaxSize()) {
+                MainTabRail(tabs = tabs, selected = selected, onSelect = onSelect)
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        // Начало экрана уже заняла рейка: разделу не нужен ещё один ведущий отступ.
+                        .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
+                        // Нижнего меню больше нет, поэтому содержимое и плеер сами держатся
+                        // выше системной навигации.
+                        .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+                ) {
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        stateHolder.SaveableStateProvider(key) { content() }
+                    }
+                    NowPlayingBar()
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    stateHolder.SaveableStateProvider(key) { content() }
+                }
+                NowPlayingBar()
+                MainTabBar(tabs = tabs, selected = selected, onSelect = onSelect)
+            }
         }
-        NowPlayingBar()
-        MainTabBar(tabs = MainTab.entries.filter { visibility.isVisible(it) }, selected = selected, onSelect = onSelect)
     }
 }

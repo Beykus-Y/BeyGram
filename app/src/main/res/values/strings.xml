@@ -770,10 +770,10 @@
     <string name="message_title">Сообщение</string>
     <string name="nav_hint_all_hidden">Если оставить только «Чаты», Звонки, Контакты и Настройки появятся в профиле.</string>
     <string name="nav_hint_some_hidden">Скрытые разделы открываются из профиля, в блоке «Разделы».</string>
-    <string name="nav_intro">Выберите разделы внизу экрана. Чаты всегда на месте. Скрытые разделы переезжают в профиль.</string>
+    <string name="nav_intro">Выберите разделы навигации. Чаты всегда на месте. Скрытые разделы переезжают в профиль.</string>
     <string name="nav_locked_hint">обязательно</string>
-    <string name="nav_preview_caption">Так будет выглядеть нижнее меню</string>
-    <string name="nav_title">Нижнее меню</string>
+    <string name="nav_preview_caption">Так будет выглядеть навигация</string>
+    <string name="nav_title">Навигация</string>
     <string name="notif_action_reply">Ответить</string>
     <string name="notif_action_stop">Остановить</string>
     <string name="notif_allow_background_work">Разрешить работу во сне</string>

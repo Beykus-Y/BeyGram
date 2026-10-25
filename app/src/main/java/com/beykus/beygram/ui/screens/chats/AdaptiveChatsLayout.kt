@@ -65,51 +65,95 @@ internal fun chatListPaneWidthDp(widthDp: Float): Float =
 /**
  * Подсвеченный чат в списке. В однопанельном режиме строка не выделяется: открытый чат и так занимает
  * весь экран, а в двухпанельном список показывает, какая переписка действительно открыта справа.
- * После возврата к списку, пока правая панель пуста, подсветки нет.
+ * [chatResolved] = false означает, что правая панель ещё не нашла чат и показывает заглушку
+ * «Выберите чат»: в этот момент ни одна строка не должна оставаться подсвеченной или selected.
+ * После возврата к списку, пока правая панель пуста, подсветки тоже нет.
  */
-internal fun chatListHighlightedId(showChat: Boolean, selectedChatId: Long): Long? =
-    selectedChatId.takeIf { showChat && it != 0L }
+internal fun chatListHighlightedId(
+    showChat: Boolean,
+    selectedChatId: Long,
+    chatResolved: Boolean = true
+): Long? = selectedChatId.takeIf { showChat && chatResolved && it != 0L }
 
 /**
- * Две панели: список чатов слева, открытый чат справа. Нижнее меню и мини-плеер остаются на всю ширину
- * окна и показываются только когда справа нет переписки (у чата есть собственный плеер и поле ввода).
+ * Две панели: список чатов слева, открытый чат справа. На широком экране разделы стоят
+ * вертикальной рейкой у ведущего края, а мини-плеер остаётся под панелями. Когда чат открыт,
+ * навигация не показывается — как и нижнее меню на телефоне: у чата есть собственный плеер
+ * и поле ввода.
  */
 @Composable
 internal fun ChatsTwoPaneScaffold(
     listPaneWidth: Dp,
     showNavigation: Boolean,
-    navigation: @Composable () -> Unit,
+    navigationRail: @Composable () -> Unit,
+    playerBar: @Composable () -> Unit,
+    list: @Composable () -> Unit,
+    detail: @Composable () -> Unit
+) {
+    if (!showNavigation) {
+        ChatsPanes(
+            modifier = Modifier.fillMaxSize(),
+            listPaneWidth = listPaneWidth,
+            listKeepsClearOfNavigationBar = true,
+            list = list,
+            detail = detail
+        )
+        return
+    }
+    Row(Modifier.fillMaxSize()) {
+        navigationRail()
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                // Ведущий отступ заняла рейка; строка состояния и конец экрана остаются панелям.
+                .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
+                // Нижнего меню нет, поэтому и панели, и плеер держатся выше системной навигации.
+                .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+        ) {
+            ChatsPanes(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                listPaneWidth = listPaneWidth,
+                listKeepsClearOfNavigationBar = false,
+                list = list,
+                detail = detail
+            )
+            playerBar()
+        }
+    }
+}
+
+/** Список, разделитель и переписка. [listKeepsClearOfNavigationBar] нужен, когда внизу нет меню. */
+@Composable
+private fun ChatsPanes(
+    modifier: Modifier,
+    listPaneWidth: Dp,
+    listKeepsClearOfNavigationBar: Boolean,
     list: @Composable () -> Unit,
     detail: @Composable () -> Unit
 ) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.weight(1f).fillMaxWidth()) {
-            Box(
-                Modifier
-                    .width(listPaneWidth)
-                    .fillMaxHeight()
-                    // Без нижнего меню список сам отступает от системной навигации. Чат делает
-                    // это внутри себя вместе с клавиатурой, поэтому его панель не трогаем.
-                    .then(
-                        if (showNavigation) Modifier
-                        else Modifier.windowInsetsPadding(
-                            WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)
-                        )
-                    )
-            ) { list() }
-            Box(Modifier.fillMaxHeight().width(1.dp).background(palette.divider))
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    // The chat owns the end inset; the start one already belongs to the list pane.
-                    .consumeWindowInsets(
-                        WindowInsets.safeDrawing.only(WindowInsetsSides.Start)
-                    )
-            ) { detail() }
-        }
-        if (showNavigation) navigation()
+    Row(modifier) {
+        Box(
+            Modifier
+                .width(listPaneWidth)
+                .fillMaxHeight()
+                .then(
+                    if (listKeepsClearOfNavigationBar) Modifier.windowInsetsPadding(
+                        WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)
+                    ) else Modifier
+                )
+        ) { list() }
+        Box(Modifier.fillMaxHeight().width(1.dp).background(palette.divider))
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                // The chat owns the end inset; the start one already belongs to the list pane/rail.
+                .consumeWindowInsets(
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Start)
+                )
+        ) { detail() }
     }
 }
 
