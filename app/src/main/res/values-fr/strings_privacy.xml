@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="privacy_title">Confidentialité et sécurité</string>
+    <string name="privacy_intro">Ces règles sont stockées dans Telegram et s’appliquent à ce compte sur tous les appareils. L’affichage de la dernière connexion ne modifie que le texte dans les discussions ; ce n’est pas une règle de confidentialité.</string>
+    <string name="privacy_group_visible">Qui peut voir</string>
+    <string name="privacy_group_contact">Qui peut vous contacter</string>
+    <string name="privacy_setting_phone">Numéro de téléphone</string>
+    <string name="privacy_setting_photo">Photo de profil</string>
+    <string name="privacy_setting_last_seen">Dernière connexion</string>
+    <string name="privacy_setting_bio">Bio</string>
+    <string name="privacy_setting_forwarded">Messages transférés</string>
+    <string name="privacy_setting_calls">Appels</string>
+    <string name="privacy_setting_messages">Messages sans paiement</string>
+    <string name="privacy_setting_messages_hint">Les exceptions permettent d’envoyer des messages sans paiement. La disponibilité des messages payants est un paramètre de compte distinct.</string>
+    <string name="privacy_setting_groups">Groupes et canaux</string>
+    <string name="privacy_setting_find_by_phone">Recherche par numéro de téléphone</string>
+    <string name="privacy_audience_everyone">Tout le monde</string>
+    <string name="privacy_audience_contacts">Mes contacts</string>
+    <string name="privacy_audience_nobody">Personne</string>
+    <string name="privacy_audience_custom">Règles Telegram personnalisées</string>
+    <string name="privacy_managed_elsewhere">Géré dans Telegram. La modification est désactivée ici afin de ne pas perdre les règles complexes.</string>
+    <string name="privacy_exceptions_always">Toujours autorisés : %1$d</string>
+    <string name="privacy_exceptions_never">Jamais autorisés : %1$d</string>
+    <string name="privacy_exceptions_manage">Exceptions…</string>
+    <string name="privacy_exceptions_always_title">Toujours autoriser</string>
+    <string name="privacy_exceptions_never_title">Ne jamais autoriser</string>
+    <string name="privacy_exceptions_empty">Aucune exception</string>
+    <string name="privacy_exceptions_add_always">Ajouter aux toujours autorisés</string>
+    <string name="privacy_exceptions_add_never">Ajouter aux jamais autorisés</string>
+    <string name="privacy_exceptions_search">Rechercher des contacts</string>
+    <string name="privacy_exceptions_no_contacts">Aucun contact correspondant</string>
+    <string name="privacy_contacts_failed">Impossible de charger les contacts</string>
+    <string name="privacy_load_failed">Impossible de charger les paramètres de confidentialité</string>
+    <string name="privacy_save_failed">Impossible d’enregistrer le paramètre</string>
+    <string name="privacy_blocked_users_title">Utilisateurs bloqués</string>
+    <string name="privacy_blocked_users_detail">Gérer la liste de blocage du compte</string>
+    <string name="privacy_last_seen_hint">L’affichage de la dernière connexion dans les discussions est un paramètre distinct : Affichage de la dernière connexion.</string>
+
+    <string name="blocked_title">Utilisateurs bloqués</string>
+    <string name="blocked_intro">Le blocage empêche les messages et les appels. Il ne supprime ni le contact ni l’historique de discussion.</string>
+    <string name="blocked_count">Bloqués : %1$d</string>
+    <string name="blocked_empty">Aucun utilisateur bloqué</string>
+    <string name="blocked_load_failed">Impossible de charger la liste de blocage</string>
+    <string name="blocked_unblock">Débloquer</string>
+    <string name="blocked_unblocked">Utilisateur débloqué</string>
+    <string name="blocked_report_spam">Signaler comme spam</string>
+    <string name="blocked_report_spam_warning">Envoyer un signalement à Telegram ? L’utilisateur ne saura pas qui l’a signalé.</string>
+    <string name="blocked_report_sent">Signalement envoyé</string>
+    <string name="blocked_report_failed">Impossible d’envoyer le signalement</string>
+    <string name="blocked_user_type">Utilisateur</string>
+    <string name="blocked_bot_type">Bot</string>
+    <string name="blocked_chat_type">Discussion</string>
+
+    <string name="feature_unblock_user">Débloquer l’utilisateur</string>
+    <string name="feature_unblock_warning">Cet utilisateur pourra à nouveau vous envoyer des messages et vous appeler. Le contact et l’historique de discussion sont conservés.</string>
+    <string name="feature_report_spam">Signaler comme spam</string>
+    <string name="feature_report_spam_warning">Envoyer un signalement à Telegram ? Cela ne supprimera pas le contact et ne modifiera pas l’historique de discussion.</string>
+
+    <string name="err_report_spam_unavailable">Telegram n’a pas proposé d’option de signalement de spam.</string>
+    <string name="err_report_spam_requires_text">Telegram exige une description du signalement. Veuillez utiliser le client officiel pour ce signalement.</string>
+    <string name="err_report_spam_requires_messages">Telegram exige la sélection de messages à signaler.</string>
+</resources>

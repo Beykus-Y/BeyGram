@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="storage_category_files">Fichiers</string>
+    <string name="storage_category_music">Musique</string>
+    <string name="storage_category_other">Autocollants et autres</string>
+    <string name="storage_category_photos">Photos</string>
+    <string name="storage_category_videos">Vidéos</string>
+    <string name="storage_category_voice_notes">Messages vocaux et vidéo</string>
+    <string name="storage_clear_all">Vider tout le cache</string>
+    <string name="storage_clear_all_title">Vider tout le cache ?</string>
+    <string name="storage_clear_confirm">Vider</string>
+    <string name="storage_clear_failed">Impossible de vider le cache. Veuillez réessayer.</string>
+    <string name="storage_clear_selected">Vider la sélection</string>
+    <string name="storage_clear_selected_title">Vider les éléments sélectionnés ?</string>
+    <string name="storage_clear_text">Les fichiers seront supprimés de cet appareil et téléchargés à nouveau si nécessaire. Vos discussions et messages resteront intacts.</string>
+    <string name="storage_clearing">Suppression des fichiers… %1$d%%</string>
+    <string name="storage_database">Base de données et données de l’application</string>
+    <string name="storage_database_detail">Messages, discussions et journaux. Le vidage du cache ne les affecte pas.</string>
+    <string name="storage_footnote">La limite du cache et la durée de conservation sont vérifiées à la connexion, toutes les 6 heures et après chaque modification. Vos conversations ne sont jamais supprimées.</string>
+    <string name="storage_freed">Espace libéré : %1$s</string>
+    <string name="storage_limit_detail">Si le cache dépasse cette limite, BeyGram supprime les fichiers qui n’ont pas été ouverts depuis le plus longtemps.</string>
+    <string name="storage_limit_gigabytes">%1$d Go</string>
+    <string name="storage_limit_title">Limite de taille du cache</string>
+    <string name="storage_limit_unlimited">Illimité</string>
+    <string name="storage_load_failed">Impossible de calculer l’espace de stockage. Veuillez réessayer plus tard.</string>
+    <string name="storage_retention_detail">Les fichiers non ouverts depuis longtemps sont supprimés après la période sélectionnée.</string>
+    <string name="storage_retention_forever">Toujours</string>
+    <string name="storage_retention_month">1 mois</string>
+    <string name="storage_retention_three_days">3 jours</string>
+    <string name="storage_retention_title">Conserver les fichiers pendant</string>
+    <string name="storage_retention_week">1 semaine</string>
+    <string name="storage_selected_size">Sélectionné pour le nettoyage : %1$s</string>
+    <string name="storage_settings_save_failed">Impossible d’enregistrer ce paramètre. La valeur précédente reste inchangée.</string>
+    <string name="storage_size_bytes">%1$s o</string>
+    <string name="storage_size_gigabytes">%1$s Go</string>
+    <string name="storage_size_kilobytes">%1$s Ko</string>
+    <string name="storage_size_megabytes">%1$s Mo</string>
+    <string name="storage_uploads">Fichiers en attente d’envoi</string>
+    <string name="storage_uploads_detail">Les fichiers non envoyés sont conservés jusqu’à leur envoi. Les copies des fichiers envoyés sont supprimées selon l’ancienneté du cache et les limites de taille, sauf si la discussion ouverte en a besoin.</string>
+    <string name="storage_usage_loading">Calcul de l’espace de stockage…</string>
+    <string name="storage_usage_title">Stockage de l’application</string>
+</resources>

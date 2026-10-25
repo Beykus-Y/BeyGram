@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="account_security_title">Compte et sécurité</string>
+    <string name="account_security_intro">Ces paramètres s’appliquent uniquement au compte sélectionné. Les autres comptes ne sont pas affectés.</string>
+
+    <string name="account_security_2fa_title">Mot de passe cloud (2FA)</string>
+    <string name="account_security_2fa_enabled">Activé</string>
+    <string name="account_security_2fa_disabled">Désactivé</string>
+    <string name="account_security_2fa_description">Le mot de passe cloud protège la connexion et est stocké sur les serveurs de Telegram. BeyGram ne l’enregistre pas sur cet appareil.</string>
+    <string name="account_security_2fa_hint">Indice : %1$s</string>
+    <string name="account_security_2fa_set">Définir un mot de passe</string>
+    <string name="account_security_2fa_change">Modifier le mot de passe</string>
+    <string name="account_security_2fa_disable">Désactiver la 2FA</string>
+    <string name="account_security_2fa_set_success">Mot de passe cloud défini</string>
+    <string name="account_security_2fa_change_success">Mot de passe cloud modifié</string>
+    <string name="account_security_2fa_disable_success">Mot de passe cloud désactivé</string>
+
+    <string name="account_security_dialog_set_password">Définir le mot de passe cloud</string>
+    <string name="account_security_dialog_change_password">Modifier le mot de passe cloud</string>
+    <string name="account_security_current_password">Mot de passe actuel</string>
+    <string name="account_security_new_password">Nouveau mot de passe</string>
+    <string name="account_security_confirm_password">Répéter le nouveau mot de passe</string>
+    <string name="account_security_password_hint">Indice du mot de passe (facultatif)</string>
+    <string name="account_security_password_hint_public">Toute personne tentant de se connecter verra cet indice.</string>
+    <string name="account_security_password_rule">Au moins 4 caractères.</string>
+    <string name="account_security_password_empty">Saisissez un nouveau mot de passe</string>
+    <string name="account_security_password_short">Le mot de passe est trop court</string>
+    <string name="account_security_password_mismatch">Les mots de passe ne correspondent pas</string>
+    <string name="account_security_current_password_required">Saisissez le mot de passe actuel</string>
+    <string name="account_security_disable_warning">Sans mot de passe cloud, la connexion n’est protégée que par le code reçu par SMS ou Telegram. Désactiver la 2FA ?</string>
+
+    <string name="account_security_email_title">E-mail de récupération</string>
+    <string name="account_security_email_configured">Configuré</string>
+    <string name="account_security_email_not_configured">Non configuré</string>
+    <string name="account_security_email_requires_password">Définissez d’abord un mot de passe cloud : Telegram n’accepte pas d’e-mail de récupération sans mot de passe.</string>
+    <string name="account_security_email_description">L’e-mail aide à restaurer l’accès si vous oubliez le mot de passe cloud.</string>
+    <string name="account_security_email_add">Ajouter un e-mail</string>
+    <string name="account_security_email_change">Modifier l’e-mail</string>
+    <string name="account_security_email_remove">Supprimer l’e-mail</string>
+    <string name="account_security_email_label">E-mail</string>
+    <string name="account_security_email_sent">Code de confirmation envoyé à %1$s</string>
+    <string name="account_security_email_updated">E-mail de récupération mis à jour</string>
+    <string name="account_security_email_removed">E-mail de récupération supprimé</string>
+    <string name="account_security_email_remove_warning">Supprimer l’e-mail de récupération ? La restauration du mot de passe sera plus difficile.</string>
+    <string name="account_security_email_remove_confirm">Supprimer l’e-mail</string>
+    <string name="account_security_email_pending_title">Confirmer le nouvel e-mail</string>
+    <string name="account_security_email_pending_body">Telegram a envoyé un code à %1$s. Le nouvel e-mail deviendra actif après confirmation.</string>
+    <string name="account_security_email_code">Code reçu par e-mail</string>
+    <string name="account_security_email_confirm">Confirmer</string>
+    <string name="account_security_email_resend">Renvoyer le code</string>
+    <string name="account_security_email_cancel_change">Annuler la modification de l’e-mail</string>
+    <string name="account_security_email_code_invalid">Code reçu par e-mail invalide ou expiré</string>
+    <string name="account_security_email_invalid">Vérifiez l’adresse e-mail</string>
+    <string name="account_security_email_not_allowed">Telegram n’accepte pas cette adresse e-mail</string>
+
+    <string name="account_security_phone_title">Numéro de téléphone</string>
+    <string name="account_security_phone_current">Numéro actuel : %1$s</string>
+    <string name="account_security_phone_unavailable_title">Le changement de numéro de téléphone est indisponible</string>
+    <string name="account_security_phone_unavailable_body">Telegram autorise le changement de numéro de téléphone uniquement dans les applications officielles Android et iOS. BeyGram ne peut pas effectuer cette opération en toute sécurité : modifiez le numéro dans l’application Telegram officielle et il sera mis à jour ici. Le compte, les discussions et les autres appareils sont conservés.</string>
+
+    <string name="account_security_delete_title">Supprimer le compte</string>
+    <string name="account_security_delete_description">Supprime le compte sur les serveurs de Telegram ainsi que les discussions cloud, les contacts et les appartenances aux groupes. Il ne s’agit pas d’une simple déconnexion sur cet appareil.</string>
+    <string name="account_security_delete_action">Supprimer définitivement le compte</string>
+    <string name="account_security_delete_dialog_title">Supprimer définitivement le compte ?</string>
+    <string name="account_security_delete_warning">Cette action est irréversible : Telegram supprimera le compte et toutes les données associées sur ses serveurs. Le numéro de téléphone pourra être utilisé pour un nouveau compte.</string>
+    <string name="account_security_delete_local_note_primary">BeyGram ne supprime pas les données locales du compte principal : une fois le compte supprimé sur le serveur, elles restent sur l’appareil. Les autres comptes ne sont pas affectés.</string>
+    <string name="account_security_delete_local_note_secondary">Après confirmation du serveur, BeyGram supprime uniquement la session locale de ce compte. Les autres comptes ne sont pas affectés.</string>
+    <string name="account_security_delete_type_word">Saisissez « %1$s » pour confirmer</string>
+    <string name="account_security_delete_confirm_word">SUPPRIMER</string>
+    <string name="account_security_delete_word_mismatch">Saisissez exactement le mot de confirmation</string>
+    <string name="account_security_delete_confirm">Supprimer définitivement</string>
+    <string name="account_security_delete_busy">Suppression du compte…</string>
+    <string name="account_security_deleted_on_server">Le compte a été supprimé sur le serveur</string>
+    <string name="account_security_delete_cleanup_failed">Le compte a été supprimé sur le serveur, mais la session locale n’a pas pu être supprimée. Déconnectez ce compte dans le sélecteur de comptes pour le retirer.</string>
+
+    <string name="account_security_password_missing">Saisissez le mot de passe cloud</string>
+    <string name="account_security_password_too_fresh">Le mot de passe a été modifié récemment. Réessayez plus tard.</string>
+    <string name="account_security_phone_occupied">Ce numéro de téléphone appartient déjà à un compte Telegram</string>
+    <string name="account_security_action_failed">Impossible de mettre à jour la sécurité du compte</string>
+    <string name="account_security_load_failed">Impossible de charger les paramètres de sécurité</string>
+</resources>

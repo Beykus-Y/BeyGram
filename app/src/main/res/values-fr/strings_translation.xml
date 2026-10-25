@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="message_action_translate">Traduire</string>
+    <string name="translation_settings_title">Traduction</string>
+    <string name="translation_target_title">Traduire vers</string>
+    <string name="translation_translating">Traduction en cours…</string>
+    <string name="translation_translated_to">Traduit vers %1$s</string>
+    <string name="translation_dismiss">Masquer la traduction</string>
+    <string name="translation_auto_title">Traduire automatiquement</string>
+    <string name="translation_auto_hint">La traduction manuelle est toujours disponible. Cette version ne lance pas de traductions automatiques.</string>
+    <string name="translation_language_en">Anglais</string>
+    <string name="translation_language_ru">Russe</string>
+    <string name="translation_language_uk">Ukrainien</string>
+    <string name="translation_language_de">Allemand</string>
+    <string name="translation_language_fr">Français</string>
+    <string name="translation_language_es">Espagnol</string>
+    <string name="translation_language_it">Italien</string>
+    <string name="translation_language_tr">Turc</string>
+    <string name="translation_language_zh">Chinois</string>
+    <string name="translation_language_ar">Arabe</string>
+    <string name="err_translation_failed">Impossible de traduire le message</string>
+    <string name="err_translation_secret_chat">La traduction n’est pas disponible dans les discussions secrètes</string>
+    <string name="transcription_action">Transcrire</string>
+    <string name="transcription_pending">Transcription en cours…</string>
+    <string name="transcription_rate_good">Bonne transcription</string>
+    <string name="transcription_rate_bad">Mauvaise transcription</string>
+    <string name="err_transcription_failed">Impossible de transcrire le message</string>
+    <string name="err_transcription_secret_chat">La transcription n’est pas disponible dans les discussions secrètes</string>
+</resources>
