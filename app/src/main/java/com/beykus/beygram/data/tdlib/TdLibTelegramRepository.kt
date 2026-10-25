@@ -97,7 +97,14 @@ import com.beykus.beygram.domain.model.StoryPostTicket
 import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
+import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.MessageLinkTarget
+import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
+import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
+import com.beykus.beygram.domain.model.PremiumInfo
+import com.beykus.beygram.domain.model.StarTransactionsPage
+import com.beykus.beygram.domain.model.StarsInfo
 import com.beykus.beygram.domain.model.FolderChatPosition
 import com.beykus.beygram.domain.model.TelegramChatFolders
 import com.beykus.beygram.domain.model.TelegramFolderDraft
@@ -194,6 +201,7 @@ class TdLibTelegramRepository private constructor(
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences(if (isLegacyAccount) "mihomo_tdlib_proxy" else "mihomo_tdlib_proxy_$accountId", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
+    private val payments = TdPayments(tdRequests)
     private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
     private val messageDrafts = TdChatDrafts(appContext, accountId) { client }
 
@@ -1502,6 +1510,17 @@ class TdLibTelegramRepository private constructor(
         profiles.loadProfilePhotos(profileId, offset, limit)
     override suspend fun deleteMyProfilePhoto(photoId: Long) = profiles.deleteMyPhoto(photoId)
     override suspend fun setPreviousProfilePhoto(photoId: Long) = profiles.setPreviousPhoto(photoId)
+
+    override suspend fun premiumInfo(): Result<PremiumInfo> = payments.premiumInfo()
+    override suspend fun checkPremiumGiftCode(code: String): Result<PremiumGiftCodeInfo> =
+        payments.checkPremiumGiftCode(code)
+    override suspend fun applyPremiumGiftCode(code: String): PremiumGiftCodeApplyOutcome =
+        payments.applyPremiumGiftCode(code)
+    override suspend fun starsInfo(): Result<StarsInfo> = payments.starsInfo()
+    override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = payments.starTransactions(offset)
+    override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)
+    override suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome =
+        payments.sendGift(profileId, isSelf, giftId)
 
     override suspend fun loadGroupManagement(chatId: Long): Result<GroupManagementInfo> =
         groupResult { groupAdministration.info(chatId) }

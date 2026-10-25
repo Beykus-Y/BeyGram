@@ -14,6 +14,13 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
+import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
+import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
+import com.beykus.beygram.domain.model.PremiumInfo
+import com.beykus.beygram.domain.model.StarTransactionsPage
+import com.beykus.beygram.domain.model.StarsInfo
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.BlockedSenderKind
 import com.beykus.beygram.domain.model.BlockedSendersPage
@@ -132,6 +139,27 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit>
     /** Reuse an existing Telegram profile photo as the current (non-public) avatar. */
     suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit>
+
+    /** Read-only Premium status, capabilities and plans. This build never starts a payment. */
+    suspend fun premiumInfo(): Result<PremiumInfo>
+
+    /** Inspect a Premium gift code without applying it. The code is never stored or logged. */
+    suspend fun checkPremiumGiftCode(code: String): Result<PremiumGiftCodeInfo>
+
+    /** Apply one Premium gift code after explicit confirmation. Never retried by the repository. */
+    suspend fun applyPremiumGiftCode(code: String): PremiumGiftCodeApplyOutcome
+
+    /** Stars balance, the first page of transactions and informational top-up options. */
+    suspend fun starsInfo(): Result<StarsInfo>
+
+    /** Next transaction page, newest-offset cursor from [StarsInfo.nextOffset]. */
+    suspend fun starTransactions(offset: String): Result<StarTransactionsPage>
+
+    /** Gift catalog and, for the own profile, received gifts and collections. */
+    suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo>
+
+    /** Sends one gift after explicit confirmation. The repository never retries it. */
+    suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome
 
     /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
     suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>
