@@ -175,7 +175,9 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             section(R.string.diag_full_report_fps, fpsCheck.report),
             section(R.string.diag_full_report_telegram, lossState.report),
             section(R.string.diag_full_report_highspeed, highSpeedReport),
-            section(R.string.diag_full_report_videos, reports.take(5).joinToString("\n\n") { it.asText(context) { st -> videoNoteStatusText(context, st) } })
+            section(R.string.diag_full_report_videos, reports.take(5).joinToString("\n\n") {
+                it.asText(context, { st -> videoNoteStatusText(context, st) })
+            })
         ).joinToString("\n\n")
     }
     fun buildFullJson(compact: Boolean): String = VideoNoteDiagnosticJson.encode(VideoNoteDiagnosticJsonDocument(
