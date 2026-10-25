@@ -607,6 +607,16 @@ internal class TdStories(
     private fun takeAbandonedSubmission(submissionId: String): Boolean =
         synchronized(lock) { abandonedSubmissions.remove(submissionId) }
 
+    private fun markSubmissionIndeterminate(submissionId: String) {
+        val previous = synchronized(lock) { persistedSubmissions[submissionId] }
+        persistSubmission(
+            submissionId,
+            previous?.copy(kind = "indeterminate")
+                ?: PersistedSubmission("indeterminate", 0L, null, System.currentTimeMillis())
+        )
+        startSubmissionRecovery(submissionId)
+    }
+
     private fun loadSubmissionLedger() {
         val loaded = runCatching {
             if (!submissionLedger.isFile) return@runCatching
@@ -701,7 +711,12 @@ internal class TdStories(
         val resolvedTicket = initial.ticket ?: run {
             val targetChatId = initial.targetChatId.takeIf { it != 0L } ?: ensureSelfChatId()
             var discovered = findBeingPostedStory(targetChatId, initial)
-            val deadline = System.currentTimeMillis() + SUBMISSION_LOOKUP_MS
+            val lookupWindow = if (initial.kind == "indeterminate") {
+                INDETERMINATE_LOOKUP_MS
+            } else {
+                SUBMISSION_LOOKUP_MS
+            }
+            val deadline = System.currentTimeMillis() + lookupWindow
             while (discovered == null && System.currentTimeMillis() < deadline) {
                 delay(2_000)
                 discovered = findBeingPostedStory(targetChatId, initial)
@@ -733,7 +748,7 @@ internal class TdStories(
             }
             terminal.complete(event)
         }
-        val deadline = initial.createdAt + SUBMISSION_RECOVERY_MS
+        val deadline = System.currentTimeMillis() + SUBMISSION_RECOVERY_MS
         submissionTickets[resolvedTicket.posterChatId to resolvedTicket.storyId] = submissionId
         var misses = 0
         try {
@@ -988,13 +1003,18 @@ internal class TdStories(
             ticket
         }
         if (result.isFailure) {
-            updateSubmission(
-                submissionId,
-                StorySubmissionState.Failed(
-                    error = (result.exceptionOrNull() as? UserMessageException)?.text
+            val failure = result.exceptionOrNull()
+            if (failure is UserMessageException && failure.cause is TimeoutCancellationException) {
+                // TDLib keeps processing a request after the local wait times out. Keep the
+                // submission indeterminate and reconcile it instead of allowing a duplicate.
+                markSubmissionIndeterminate(submissionId)
+            } else {
+                updateSubmission(
+                    submissionId,
+                    StorySubmissionState.Failed(error = (failure as? UserMessageException)?.text)
                 )
-            )
-            if (takeAbandonedSubmission(submissionId)) discardStoryUpload(media)
+                if (takeAbandonedSubmission(submissionId)) discardStoryUpload(media)
+            }
         }
         return result
     }
@@ -1238,6 +1258,7 @@ internal class TdStories(
         const val DEFAULT_TIMEOUT_MS = 30_000L
         const val POST_TIMEOUT_MS = 60_000L
         const val SUBMISSION_LOOKUP_MS = 60_000L
+        const val INDETERMINATE_LOOKUP_MS = 5 * 60_000L
         const val SUBMISSION_RECOVERY_MS = 15 * 60_000L
         const val PENDING_STORY_WINDOW_MS = 15_000L
         const val RECENT_STORY_WINDOW_MS = 2 * 60_000L
