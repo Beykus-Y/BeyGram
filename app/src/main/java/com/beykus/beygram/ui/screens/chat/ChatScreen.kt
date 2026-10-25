@@ -235,6 +235,7 @@ fun ChatScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var botCommandMenu by remember(chat.id) { mutableStateOf<BotCommandMenu?>(null) }
     var botCommandMenuOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var inlineSending by remember(chat.id) { mutableStateOf(false) }
     var webAppSession by remember(chat.id) { mutableStateOf<BotWebAppLaunch?>(null) }
     var pendingWebApp by remember(chat.id) { mutableStateOf<PendingBotWebApp?>(null) }
     var webAppOpening by remember(chat.id) { mutableStateOf(false) }
@@ -288,6 +289,11 @@ fun ChatScreen(
                 webAppOpening = false
             }
         }
+    }
+    // The callback owns a short-lived TDLib launch; close it even when recreation or navigation disposes the chat.
+    DisposableEffect(webAppSession?.launchId) {
+        val launchId = webAppSession?.launchId ?: 0L
+        onDispose { conversation.closeBotWebApp(launchId) }
     }
     val recordingMode by recordingSettings.recordingMode.collectAsStateWithLifecycle()
     val translationPreferences by translationSettings.state.collectAsStateWithLifecycle()
@@ -993,7 +999,7 @@ fun ChatScreen(
      * the choice applies to this send only and is not kept for the next one.
      */
     fun sendCurrentDraft(options: MessageSendOptions) {
-        if (editId != null) return
+        if (editId != null || inlineSending) return
         if (attachments.active) {
             attachments.send(draft, options) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
             return
@@ -1301,7 +1307,7 @@ fun ChatScreen(
         val displayedFieldEntities = if (hidingComposerForLaunch && !editing) emptyList() else fieldEntities
         val fieldLimit = when { editing -> editLimit; attachments.active -> limits.caption; else -> limits.text }
         val overLimit = fieldText.codePointCount(0, fieldText.length) > fieldLimit
-        val busy = sending || editBusy || attachments.sending
+        val busy = sending || inlineSending || editBusy || attachments.sending
         val canSend = !busy && when {
             editing -> fieldText != editMessage?.text && (editMessage?.media != null || fieldText.isNotBlank())
             attachments.active -> attachments.pending.isNotEmpty() && !attachments.importing
@@ -1329,6 +1335,7 @@ fun ChatScreen(
             observeFile = observeFile,
             onDownloadFile = onDownloadFile,
             onOpenWebApp = ::requestBotWebApp,
+            onSendingChange = { inlineSending = it },
             onSent = { sentText ->
                 updateDraft { if (it.text == sentText) it.copy(text = "", entities = emptyList()) else it }
                 if (replyId != null) clearReply()
@@ -1560,10 +1567,8 @@ fun ChatScreen(
         )
     }
     webAppSession?.let { session ->
-        BotWebAppScreen(session, title = chat.title, onClose = {
-            webAppSession = null
-            scope.launch { conversation.closeBotWebApp(session.launchId) }
-        })
+        // DisposableEffect above closes the TDLib launch when this state is cleared or the screen is disposed.
+        BotWebAppScreen(session, title = chat.title, onClose = { webAppSession = null })
     }
 }
 

@@ -1091,7 +1091,10 @@ class TdLibTelegramRepository private constructor(
         replyToMessageId: Long?,
         theme: BotWebAppTheme
     ): Result<BotWebAppLaunch> = botFeatures.openWebApp(chatId, botUserId, url, source, forumTopicId, replyToMessageId, theme)
-    override suspend fun closeBotWebApp(launchId: Long): Result<Unit> = botFeatures.closeWebApp(launchId)
+    override fun closeBotWebApp(launchId: Long) {
+        if (launchId <= 0L) return
+        authScope.launch(Dispatchers.IO) { botFeatures.closeWebApp(launchId) }
+    }
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })

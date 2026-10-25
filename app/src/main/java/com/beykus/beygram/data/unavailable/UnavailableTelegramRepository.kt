@@ -216,7 +216,7 @@ class UnavailableTelegramRepository : TelegramRepository {
         replyToMessageId: Long?,
         theme: BotWebAppTheme
     ): Result<BotWebAppLaunch> = unavailable()
-    override suspend fun closeBotWebApp(launchId: Long): Result<Unit> = unavailable()
+    override fun closeBotWebApp(launchId: Long) = Unit
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long): Result<PinnedMessagePage> = unavailable()
     override suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit> = unavailable()

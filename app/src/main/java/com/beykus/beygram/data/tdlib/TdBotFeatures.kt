@@ -177,7 +177,7 @@ private fun inlineResult(result: TdApi.InlineQueryResult): InlineBotResult? = wh
         result.id, result.title, result.description, InlineBotResultKind.Article, result.thumbnail?.file?.id
     )
     is TdApi.InlineQueryResultPhoto -> InlineBotResult(
-        result.id, result.title, result.description, InlineBotResultKind.Photo, largestPhotoFileId(result.photo)
+        result.id, result.title, result.description, InlineBotResultKind.Photo, previewPhotoFileId(result.photo)
     )
     is TdApi.InlineQueryResultVideo -> InlineBotResult(
         result.id, result.title, result.description, InlineBotResultKind.Video, result.video?.thumbnail?.file?.id
@@ -214,10 +214,14 @@ private fun inlineResult(result: TdApi.InlineQueryResult): InlineBotResult? = wh
     )
     is TdApi.InlineQueryResultGame -> InlineBotResult(
         result.id, result.game?.title.orEmpty(), result.game?.description.orEmpty(), InlineBotResultKind.Game,
-        largestPhotoFileId(result.game?.photo)
+        previewPhotoFileId(result.game?.photo)
     )
     else -> null
 }
 
-private fun largestPhotoFileId(photo: TdApi.Photo?): Int? =
-    photo?.sizes?.maxByOrNull { it.width }?.photo?.id
+/** Inline previews are 44dp, so download the smallest 96px+ size instead of a full-resolution photo. */
+private fun previewPhotoFileId(photo: TdApi.Photo?): Int? {
+    val sizes = photo?.sizes.orEmpty()
+    val preferred = sizes.filter { it.width >= 96 }.minByOrNull { it.width } ?: sizes.minByOrNull { it.width }
+    return preferred?.photo?.id
+}

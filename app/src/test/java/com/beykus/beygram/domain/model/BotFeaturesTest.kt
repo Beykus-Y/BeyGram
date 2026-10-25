@@ -12,8 +12,9 @@ class BotFeaturesTest {
         assertEquals(ParsedInlineQuery("inline_bot", "cats"), parseInlineQuery("@inline_bot cats"))
         assertEquals(ParsedInlineQuery("inline_bot", ""), parseInlineQuery("@inline_bot"))
         assertEquals(ParsedInlineQuery("inline_bot", "two words"), parseInlineQuery("@inline_bot   two words"))
+        assertEquals(ParsedInlineQuery("gif", "cats"), parseInlineQuery("@gif cats"))
         assertNull(parseInlineQuery("hello @inline_bot cats"))
-        assertNull(parseInlineQuery("@bot cats"))
+        assertNull(parseInlineQuery("@ab cats"))
         assertNull(parseInlineQuery("@inline.bot cats"))
         assertNull(parseInlineQuery("@inline_bot, cats"))
     }

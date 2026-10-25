@@ -9,11 +9,13 @@ data class BotCommandMenu(val botUserId: Long, val commands: List<BotCommand>)
 /** A draft that starts with `@bot` and optionally a query. */
 data class ParsedInlineQuery(val username: String, val query: String)
 
-private val INLINE_QUERY = Regex("^@([A-Za-z][A-Za-z0-9_]{4,31})(?:\\s+([\\s\\S]*))?$")
+// Legacy inline bots such as @gif, @pic and @wiki have short usernames, so length alone must not hide them.
+private val INLINE_QUERY = Regex("^@([A-Za-z][A-Za-z0-9_]{2,31})(?:\\s+([\\s\\S]*))?$")
 
 /**
- * Telegram usernames are 5-32 characters, start with a letter and contain letters, digits and underscores.
- * The mention must be the first thing in the composer; an ordinary sentence containing @name stays a message.
+ * A mention of 3-32 characters starts with a letter and contains letters, digits and underscores. The mention must be
+ * the first thing in the composer; an ordinary sentence containing @name stays a message. TDLib verifies that the
+ * resolved user is an inline bot before any query is sent.
  */
 fun parseInlineQuery(text: String): ParsedInlineQuery? {
     if (!text.startsWith("@")) return null

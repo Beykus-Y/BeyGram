@@ -64,6 +64,7 @@ internal fun BotInlineResultsPanel(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
     onOpenWebApp: (url: String, botUserId: Long, messageId: Long, source: BotWebAppSource) -> Unit,
+    onSendingChange: (Boolean) -> Unit,
     onSent: (String) -> Unit
 ) {
     val parsed = remember(text) { parseInlineQuery(text) }
@@ -77,6 +78,8 @@ internal fun BotInlineResultsPanel(
     var loadError by remember(chatId, parsed.username) { mutableStateOf<String?>(null) }
     var sendError by remember(chatId, parsed.username) { mutableStateOf<String?>(null) }
     var attempt by remember(chatId) { mutableIntStateOf(0) }
+    // If the draft changes while TDLib is still sending, this panel leaves composition and must release the composer.
+    DisposableEffect(Unit) { onDispose { onSendingChange(false) } }
 
     LaunchedEffect(chatId, parsed.username, parsed.query, active, attempt) {
         if (!active) return@LaunchedEffect
@@ -94,8 +97,10 @@ internal fun BotInlineResultsPanel(
     fun send(result: InlineBotResult) {
         val answer = results ?: return
         if (sending) return
+        // The composer also observes this flag, so a second tap cannot send the literal "@bot query" alongside the result.
+        sending = true
+        onSendingChange(true)
         scope.launch {
-            sending = true
             sendError = null
             try {
                 conversation.sendInlineBotResult(chatId, answer.queryId, result.id, replyToMessageId, forumTopicId)
@@ -103,6 +108,7 @@ internal fun BotInlineResultsPanel(
                     .onFailure { sendError = it.userMessage(context, R.string.chat_inline_send_failed) }
             } finally {
                 sending = false
+                onSendingChange(false)
             }
         }
     }
@@ -134,6 +140,16 @@ internal fun BotInlineResultsPanel(
             )
         }
         val answer = results
+        if (answer != null && answer.buttonWebAppUrl.isNotBlank()) {
+            val openLabel = stringResource(R.string.chat_inline_open_webapp)
+            TextButton(
+                onClick = { onOpenWebApp(answer.buttonWebAppUrl, answer.botUserId, 0L, BotWebAppSource.InlineQueryButton) },
+                enabled = !sending,
+                modifier = Modifier.padding(start = 6.dp)
+            ) {
+                Text(answer.buttonText.ifBlank { openLabel }, color = palette.accent)
+            }
+        }
         when {
             loadError != null -> Unit
             answer == null && loading -> Text(
@@ -148,22 +164,10 @@ internal fun BotInlineResultsPanel(
                 fontSize = 13.sp,
                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 10.dp)
             )
-            answer != null -> {
-                if (answer.buttonWebAppUrl.isNotBlank()) {
-                    val openLabel = stringResource(R.string.chat_inline_open_webapp)
-                    TextButton(
-                        onClick = { onOpenWebApp(answer.buttonWebAppUrl, answer.botUserId, 0L, BotWebAppSource.InlineQueryButton) },
-                        enabled = !sending,
-                        modifier = Modifier.padding(start = 6.dp)
-                    ) {
-                        Text(answer.buttonText.ifBlank { openLabel }, color = palette.accent)
-                    }
-                }
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 236.dp)) {
-                    items(answer.results, key = { it.id }) { result ->
-                        InlineResultRow(result, sending, observeFile, onDownloadFile) { send(result) }
-                        HorizontalDivider(color = palette.divider.copy(alpha = 0.5f))
-                    }
+            answer != null -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 236.dp)) {
+                items(answer.results, key = { it.id }) { result ->
+                    InlineResultRow(result, sending, observeFile, onDownloadFile) { send(result) }
+                    HorizontalDivider(color = palette.divider.copy(alpha = 0.5f))
                 }
             }
         }

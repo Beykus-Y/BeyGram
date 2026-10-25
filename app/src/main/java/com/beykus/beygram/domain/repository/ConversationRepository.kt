@@ -35,8 +35,8 @@ interface ConversationRepository {
         replyToMessageId: Long? = null,
         theme: BotWebAppTheme
     ): Result<BotWebAppLaunch>
-    /** Informs TDLib that the Mini App screen is gone. Safe to call once per launch. */
-    suspend fun closeBotWebApp(launchId: Long): Result<Unit>
+    /** Informs TDLib that the Mini App screen is gone. Safe to call once per launch; never blocks disposal. */
+    fun closeBotWebApp(launchId: Long)
     val messageLimits: StateFlow<MessageLimits>
     /** Local-first persistent composer drafts, synchronized with TDLib when connected. */
     fun observeMessageDraft(chatId: Long): StateFlow<MessageDraft>
