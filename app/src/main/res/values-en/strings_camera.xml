@@ -67,6 +67,10 @@
     <string name="photo_editor_quality_compact">Compact · 1280 px</string>
     <string name="photo_editor_keep_original">Keep original</string>
     <string name="photo_editor_keep_original_hint">The original will be sent as a separate file.</string>
+    <string name="photo_editor_move_left">Move crop left</string>
+    <string name="photo_editor_move_right">Move crop right</string>
+    <string name="photo_editor_move_up">Move crop up</string>
+    <string name="photo_editor_move_down">Move crop down</string>
     <string name="photo_editor_send_original">Send without changes</string>
 
     <string name="video_quality_chip">Video: %1$s</string>

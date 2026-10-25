@@ -67,6 +67,10 @@
     <string name="photo_editor_quality_compact">Kompakt · 1280 px</string>
     <string name="photo_editor_keep_original">Original behalten</string>
     <string name="photo_editor_keep_original_hint">Das Original wird als separate Datei gesendet.</string>
+    <string name="photo_editor_move_left">Zuschnitt nach links verschieben</string>
+    <string name="photo_editor_move_right">Zuschnitt nach rechts verschieben</string>
+    <string name="photo_editor_move_up">Zuschnitt nach oben verschieben</string>
+    <string name="photo_editor_move_down">Zuschnitt nach unten verschieben</string>
     <string name="photo_editor_send_original">Unverändert senden</string>
 
     <string name="video_quality_chip">Video: %1$s</string>

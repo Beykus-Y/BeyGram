@@ -89,7 +89,9 @@ internal class OutgoingMediaImporter(context: Context, private val accountId: St
             if (destination.length() > MediaLimits.MAX_PHOTO_BYTES) {
                 throw UserMessageException(UiText.Res(R.string.err_media_photo_too_large, listOf(MediaLimits.maxPhotoMegabytes)))
             }
-            val thumb = withContext(Dispatchers.IO) { decodeThumbnail(destination) }?.let { writeThumbnail(it, directory) }
+            val thumb = withContext(Dispatchers.IO) { decodeThumbnail(destination) }?.let { decoded ->
+                try { writeThumbnail(decoded, directory) } finally { if (!decoded.isRecycled) decoded.recycle() }
+            }
             OutgoingMedia(
                 destination.absolutePath, name, mimeType, MediaKind.Photo, width.coerceAtLeast(0), height.coerceAtLeast(0),
                 thumbnailPath = thumb?.first?.absolutePath, size = destination.length(),

@@ -59,11 +59,16 @@ internal class PhotoEditor(private val context: Context) {
         try {
             val directory = File(context.cacheDir, EXPORT_DIRECTORY).apply { mkdirs() }
             val file = directory.resolve("edited-${UUID.randomUUID()}.${photoExportExtension(hasAlpha)}")
-            val format = if (hasAlpha) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-            file.outputStream().use { output ->
-                check(outputBitmap.compress(format, quality.jpegQuality, output)) { "Cannot encode edited photo" }
+            try {
+                val format = if (hasAlpha) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                file.outputStream().use { output ->
+                    check(outputBitmap.compress(format, quality.jpegQuality, output)) { "Cannot encode edited photo" }
+                }
+                check(file.length() > 0L) { "Empty edited photo" }
+            } catch (failure: Throwable) {
+                file.delete()
+                throw failure
             }
-            check(file.length() > 0L) { "Empty edited photo" }
             Export(file, outputBitmap.width, outputBitmap.height, photoExportMimeType(hasAlpha))
         } finally {
             recycleDistinct(decoded, rotated, cropped, resized, outputBitmap)

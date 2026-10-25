@@ -77,6 +77,7 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -127,6 +128,7 @@ internal class AttachmentState(
     private val videoPreferences = VideoCompressionPreferences(context)
     private val compressor = VideoCompressor(context)
     private var compressionCancelled = false
+    private var compressionJob: Job? = null
     private var importJob: Job? = null
     private var editorJob: Job? = null
     var pickPhotos: () -> Unit = {}
@@ -285,12 +287,13 @@ internal class AttachmentState(
     fun cancelCompression() {
         if (processing == null) return
         compressionCancelled = true
-        importJob?.cancel()
+        compressionJob?.cancel()
     }
 
     /**
      * Applies the size/duration limits and, when needed, one Media3 Transformer pass. The original
      * stays pending until the compressed file is adopted, so a failure or cancel loses nothing.
+     * Compression runs in its own job: cancelling it never aborts import of the remaining picks.
      */
     private suspend fun maybeCompressVideo(original: OutgoingMedia) {
         val option = videoQuality
@@ -311,11 +314,15 @@ internal class AttachmentState(
         compressionCancelled = false
         processing = MediaProcessing(original.path, original.fileName, progress = 0f)
         val output = File(source.parentFile, "compressed.mp4")
-        try {
+        val task = scope.async {
             compressor.compress(source, output, plan, info) { progress ->
                 processing = processing?.copy(progress = progress)
             }
-            val compressed = importer.adoptCompressedVideo(original, output)
+            importer.adoptCompressedVideo(original, output)
+        }
+        compressionJob = task
+        try {
+            val compressed = task.await()
             replacePending(original, compressed)
             notice = context.getString(
                 R.string.video_compressed,
@@ -324,12 +331,17 @@ internal class AttachmentState(
             )
         } catch (cancelled: CancellationException) {
             output.delete()
-            if (!compressionCancelled) throw cancelled
+            // A leave-the-screen cancellation must keep propagating; an explicit cancel keeps the original.
+            if (!compressionCancelled) {
+                task.cancel()
+                throw cancelled
+            }
             notice = context.getString(R.string.video_compression_cancelled)
         } catch (failure: Exception) {
             output.delete()
             notice = context.getString(R.string.video_compression_failed_original)
         } finally {
+            if (compressionJob === task) compressionJob = null
             processing = null
         }
     }
@@ -341,6 +353,7 @@ internal class AttachmentState(
     fun discardAll() {
         if (sending) return
         importJob?.cancel()
+        compressionJob?.cancel()
         editorJob?.cancel()
         editor?.let { session -> if (session.temporary) File(session.sourcePath).delete() }
         editor = null

@@ -53,8 +53,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -214,7 +217,7 @@ internal fun PhotoEditorScreen(
                     .toggleable(value = keepOriginal, enabled = !saving, role = Role.Checkbox) { keepOriginal = it },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Switch(checked = keepOriginal, onCheckedChange = null, enabled = !saving)
+                Switch(checked = keepOriginal, onCheckedChange = null, enabled = !saving, modifier = Modifier.clearAndSetSemantics { })
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.photo_editor_keep_original), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
@@ -238,13 +241,18 @@ private fun CropEditor(
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
-    val handleTouch = with(density) { 32.dp.toPx() }
+    val handleTouch = with(density) { 32.dp.toPx() }.toDouble()
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val availableWidth = with(density) { maxWidth.toPx() }
         val availableHeight = with(density) { maxHeight.toPx() }
         val scale = minOf(availableWidth / bitmap.width, availableHeight / bitmap.height)
         val imageWidth = with(density) { (bitmap.width * scale).toDp() }
         val imageHeight = with(density) { (bitmap.height * scale).toDp() }
+        val cropDescription = stringResource(R.string.photo_editor_crop_description)
+        val moveLeft = stringResource(R.string.photo_editor_move_left)
+        val moveRight = stringResource(R.string.photo_editor_move_right)
+        val moveUp = stringResource(R.string.photo_editor_move_up)
+        val moveDown = stringResource(R.string.photo_editor_move_down)
         Box(
             Modifier.size(imageWidth, imageHeight)
                 .pointerInput(bitmap.width, bitmap.height) {
@@ -282,10 +290,19 @@ private fun CropEditor(
                         onDragCancel = { dragging = false; edge = null }
                     )
                 }
+                .semantics {
+                    contentDescription = cropDescription
+                    customActions = listOf(
+                        CustomAccessibilityAction(moveLeft) { onCropChange(moveCrop(crop, -ACCESSIBLE_CROP_STEP, 0f)); true },
+                        CustomAccessibilityAction(moveRight) { onCropChange(moveCrop(crop, ACCESSIBLE_CROP_STEP, 0f)); true },
+                        CustomAccessibilityAction(moveUp) { onCropChange(moveCrop(crop, 0f, -ACCESSIBLE_CROP_STEP)); true },
+                        CustomAccessibilityAction(moveDown) { onCropChange(moveCrop(crop, 0f, ACCESSIBLE_CROP_STEP)); true }
+                    )
+                }
         ) {
             Image(
                 bitmap = bitmap.asImageBitmap(),
-                contentDescription = stringResource(R.string.photo_editor_crop_description),
+                contentDescription = null,
                 contentScale = ContentScale.FillBounds,
                 modifier = Modifier.fillMaxSize()
             )
@@ -359,3 +376,5 @@ private fun QualityChip(label: String, selected: Boolean, enabled: Boolean, onCl
         Text(label, color = if (selected) palette.accentInk else palette.textPrimary, fontSize = 11.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
+
+private const val ACCESSIBLE_CROP_STEP = 0.05f

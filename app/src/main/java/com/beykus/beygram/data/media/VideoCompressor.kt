@@ -17,7 +17,6 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -101,7 +100,7 @@ internal class VideoCompressor(private val context: Context) {
                     }
                 }
                 try {
-                    suspendCancellableCoroutine { continuation ->
+                    suspendCancellableCoroutine<Unit> { continuation ->
                         val mediaItem = MediaItem.fromUri(Uri.fromFile(source))
                         val edited = EditedMediaItem.Builder(mediaItem)
                             .setEffects(Effects(emptyList(), listOf(Presentation.createForHeight(plan.targetHeight))))
@@ -149,10 +148,7 @@ internal class VideoCompressor(private val context: Context) {
             check(output.isFile && output.length() > 0L) { "Empty compressed video" }
         } catch (failure: Throwable) {
             output.delete()
-            if (failure is CancellationException) throw failure
             throw failure
-        } finally {
-            transformer = null
         }
     }
 

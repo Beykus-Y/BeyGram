@@ -103,17 +103,15 @@ internal fun CameraCaptureScreen(
             onError = { error = it }
         )
     }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        cameraGranted = result[Manifest.permission.CAMERA]
-            ?: (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
-        audioGranted = result[Manifest.permission.RECORD_AUDIO]
-            ?: (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
-        if (!cameraGranted) error = context.getString(R.string.camera_permission_denied)
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        cameraGranted = granted
+        if (!granted) error = context.getString(R.string.camera_permission_denied)
+    }
+    val audioPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        audioGranted = granted
     }
     LaunchedEffect(Unit) {
-        if (!cameraGranted || !audioGranted) {
-            permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
-        }
+        if (!cameraGranted) cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
     }
     LaunchedEffect(cameraGranted, controller) {
         if (cameraGranted) controller.start()
@@ -140,14 +138,14 @@ internal fun CameraCaptureScreen(
                 audioGranted = audioGranted,
                 error = error,
                 onDismissError = { error = null },
+                onRequestAudio = { audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
                 onClose = { controller.close(); onClose() }
             )
             if (controller.countdown > 0) CountdownOverlay(controller)
         } else {
             CameraPermissionPanel(
-                audioGranted = audioGranted,
                 error = error,
-                onRequest = { permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)) },
+                onRequest = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
                 onClose = onClose
             )
         }
@@ -160,6 +158,7 @@ private fun CameraChrome(
     audioGranted: Boolean,
     error: String?,
     onDismissError: () -> Unit,
+    onRequestAudio: () -> Unit,
     onClose: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -192,7 +191,13 @@ private fun CameraChrome(
             ) {
                 Icon(
                     if (controller.flashEnabled) Icons.Rounded.FlashOn else Icons.Rounded.FlashOff,
-                    stringResource(if (controller.flashEnabled) R.string.camera_flash_off else R.string.camera_flash_on),
+                    stringResource(
+                        when {
+                            !controller.flashAvailable -> R.string.camera_flash_unavailable
+                            controller.flashEnabled -> R.string.camera_flash_off
+                            else -> R.string.camera_flash_on
+                        }
+                    ),
                     tint = if (controller.flashAvailable) Color.White else Color.White.copy(alpha = 0.38f)
                 )
             }
@@ -232,7 +237,7 @@ private fun CameraChrome(
                 Spacer(Modifier.height(8.dp))
             }
             if (!controller.recording && !controller.startingRecording) {
-                ModeSwitch(controller)
+                ModeSwitch(controller, audioGranted, onRequestAudio)
                 Spacer(Modifier.height(10.dp))
             }
             if (controller.recording || controller.startingRecording) {
@@ -274,7 +279,6 @@ private fun CameraChrome(
 
 @Composable
 private fun CameraPermissionPanel(
-    audioGranted: Boolean,
     error: String?,
     onRequest: () -> Unit,
     onClose: () -> Unit
@@ -287,10 +291,6 @@ private fun CameraPermissionPanel(
         Text(stringResource(R.string.camera_permission_title), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(stringResource(R.string.camera_permission_message), color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, textAlign = TextAlign.Center)
-        if (!audioGranted) {
-            Spacer(Modifier.height(8.dp))
-            Text(stringResource(R.string.camera_permission_audio_missing), color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, textAlign = TextAlign.Center)
-        }
         error?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = Color(0xFFFFB4B4), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.errorAnnouncement())
@@ -336,7 +336,7 @@ private fun CameraDurationChips(controller: CameraCaptureController) {
 }
 
 @Composable
-private fun ModeSwitch(controller: CameraCaptureController) {
+private fun ModeSwitch(controller: CameraCaptureController, audioGranted: Boolean, onRequestAudio: () -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         CameraValueChip(
             text = stringResource(R.string.camera_mode_photo),
@@ -348,7 +348,10 @@ private fun ModeSwitch(controller: CameraCaptureController) {
             text = stringResource(R.string.camera_mode_video),
             selected = controller.mode == CameraCaptureMode.Video,
             description = stringResource(R.string.camera_mode_video_description),
-            onClick = { controller.setMode(CameraCaptureMode.Video) }
+            onClick = {
+                controller.setMode(CameraCaptureMode.Video)
+                if (!audioGranted) onRequestAudio()
+            }
         )
     }
 }

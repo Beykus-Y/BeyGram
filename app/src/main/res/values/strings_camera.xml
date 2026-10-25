@@ -67,6 +67,10 @@
     <string name="photo_editor_quality_compact">Экономное · 1280 px</string>
     <string name="photo_editor_keep_original">Сохранить оригинал</string>
     <string name="photo_editor_keep_original_hint">Оригинал отправится отдельным файлом.</string>
+    <string name="photo_editor_move_left">Сдвинуть рамку влево</string>
+    <string name="photo_editor_move_right">Сдвинуть рамку вправо</string>
+    <string name="photo_editor_move_up">Сдвинуть рамку вверх</string>
+    <string name="photo_editor_move_down">Сдвинуть рамку вниз</string>
     <string name="photo_editor_send_original">Отправить без изменений</string>
 
     <string name="video_quality_chip">Видео: %1$s</string>

@@ -31,7 +31,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.beykus.beygram.R
-import com.beykus.beygram.data.media.CAMERA_VIDEO_HARD_LIMIT_SECONDS
 import com.beykus.beygram.data.media.CameraCaptureMode
 import com.beykus.beygram.data.media.CameraTakeOutcome
 import com.beykus.beygram.data.media.cameraCaptureFileName
@@ -94,8 +93,6 @@ internal class CameraCaptureController(
         private set
     var elapsedMs by mutableLongStateOf(0L)
         private set
-    var hasAudioPermission by mutableStateOf(false)
-        private set
 
     private val executor = ContextCompat.getMainExecutor(context)
     private var provider: ProcessCameraProvider? = null
@@ -120,7 +117,6 @@ internal class CameraCaptureController(
     init {
         cleanupStaleCaptures()
         lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
-        hasAudioPermission = granted(Manifest.permission.RECORD_AUDIO)
     }
 
     fun start() {
@@ -182,6 +178,8 @@ internal class CameraCaptureController(
         camcorderTorchOff()
         frontCamera = !frontCamera
         flashEnabled = false
+        // Force a rebind: the mode is unchanged, so the cached bound mode would skip it.
+        boundMode = null
         bindCurrentMode()
     }
 
@@ -297,12 +295,12 @@ internal class CameraCaptureController(
             val bound = cameraProvider.bindToLifecycle(lifecycleOwner, selector, previewUseCase, useCase)
             camera = bound
             flashAvailable = runCatching { bound.cameraInfo.hasFlashUnit() }.getOrDefault(false)
-            hasAudioPermission = granted(Manifest.permission.RECORD_AUDIO)
             zoomRatio = 1f
             runCatching { bound.cameraControl.setZoomRatio(1f) }
             ready = true
         }.onFailure {
             ready = false
+            boundMode = null
             onError(context.getString(R.string.camera_error_open))
         }
     }
@@ -360,7 +358,6 @@ internal class CameraCaptureController(
         takeFile = file
         startingTake = file
         takeHasAudio = granted(Manifest.permission.RECORD_AUDIO)
-        hasAudioPermission = takeHasAudio
         takeStopRequested = false
         takeDiscard = false
         startingRecording = true
@@ -470,6 +467,5 @@ internal class CameraCaptureController(
 
     companion object {
         private const val CAPTURE_DIRECTORY = "media-capture"
-        internal const val MAX_VIDEO_LIMIT_SECONDS = CAMERA_VIDEO_HARD_LIMIT_SECONDS
     }
 }
