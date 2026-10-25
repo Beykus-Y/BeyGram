@@ -18,9 +18,11 @@ import com.beykus.beygram.domain.model.StoryPreview
 import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.initialsOf
+import com.beykus.beygram.domain.model.matchesPendingStoryEvent
 import com.beykus.beygram.domain.model.orderedStoryBar
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -32,10 +34,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
+import java.io.File
 import kotlin.math.roundToLong
 
 /**
@@ -48,7 +52,8 @@ import kotlin.math.roundToLong
 internal class TdStories(
     private val client: () -> Client,
     private val profiles: TdProfiles,
-    private val mediaFiles: MediaFileStore
+    private val mediaFiles: MediaFileStore,
+    private val accountId: String
 ) {
     private val requests = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -59,6 +64,7 @@ internal class TdStories(
     private val requestedChats = mutableSetOf<Long>()
     private val blockedChats = mutableSetOf<Long>()
     private val unblockedChats = mutableSetOf<Long>()
+    private val uploadJobs = mutableMapOf<Pair<Long, Int>, Job>()
     private var selfId = 0L
     private var selfChatId = 0L
     private var generation = 0
@@ -95,6 +101,8 @@ internal class TdStories(
             requestedChats.clear()
             blockedChats.clear()
             unblockedChats.clear()
+            uploadJobs.values.forEach { it.cancel() }
+            uploadJobs.clear()
             selfId = 0L
             selfChatId = 0L
             activeLoadInFlight = false
@@ -439,7 +447,40 @@ internal class TdStories(
             keepInProfile,
             protectContent
         ), POST_TIMEOUT_MS)
-        StoryPostTicket(chatId, story.id, story.isBeingPosted, story.content.uploadFileIds())
+        val ticket = StoryPostTicket(chatId, story.id, story.isBeingPosted, story.content.uploadFileIds())
+        if (ticket.isPending) trackUpload(ticket, media)
+        ticket
+    }
+
+    /**
+     * A pending story may be published after the publisher screen is gone. The repository keeps
+     * listening for its terminal update and marks the staged upload evictable on success.
+     */
+    private fun trackUpload(ticket: StoryPostTicket, media: OutgoingMedia) {
+        val key = ticket.posterChatId to ticket.storyId
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                val event = postEvents.first {
+                    matchesPendingStoryEvent(it, ticket.posterChatId, ticket.storyId)
+                }
+                if (event is StoryPostEvent.Published) markPublishedStoryUpload(media, event.fileIds)
+            } finally {
+                synchronized(lock) { uploadJobs.remove(key) }
+            }
+        }
+        synchronized(lock) {
+            uploadJobs.put(key, job)?.cancel()
+        }
+        job.start()
+    }
+
+    private fun markPublishedStoryUpload(media: OutgoingMedia, fileIds: List<Int>) {
+        val source = File(media.path)
+        val parent = source.parentFile ?: return
+        val folder = if (parent.name == "original" && parent.parentFile != null) parent.parentFile!! else parent
+        fileIds.asSequence().filter { it > 0 }.distinct().forEach { fileId ->
+            runCatching { markSentUpload(folder, fileId, accountId) }
+        }
     }
 
     private suspend fun ensureSelfChatId(): Long {

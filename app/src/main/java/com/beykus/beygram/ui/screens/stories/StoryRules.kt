@@ -3,7 +3,6 @@ package com.beykus.beygram.ui.screens.stories
 import com.beykus.beygram.domain.model.StoryDetail
 import com.beykus.beygram.domain.model.StoryMedia
 import com.beykus.beygram.domain.model.StoryMediaKind
-import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPreview
 
 /** A file the viewer may ask TDLib to download before or while a story is shown. */
@@ -79,16 +78,6 @@ fun storyDurationMillis(story: StoryDetail?): Long {
             else precise.coerceIn(MIN_STORY_DURATION_MS, MAX_VIDEO_STORY_DURATION_MS)
         }
     }
-}
-
-/**
- * A pending ticket owns only its own terminal update. `TdStories` replays several events, so a
- * failure of an earlier upload must not clear a newer ticket for the same poster.
- */
-fun matchesPendingStoryEvent(event: StoryPostEvent, posterChatId: Long, storyId: Int): Boolean = when (event) {
-    is StoryPostEvent.Published -> event.posterChatId == posterChatId &&
-        (event.storyId == storyId || event.oldStoryId == storyId)
-    is StoryPostEvent.Failed -> event.posterChatId == posterChatId && event.storyId == storyId
 }
 
 enum class StoryTapTarget { Previous, Next }

@@ -90,6 +90,7 @@ import com.beykus.beygram.domain.model.StoryPostDenial
 import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPostPermission
 import com.beykus.beygram.domain.model.StoryPrivacy
+import com.beykus.beygram.domain.model.matchesPendingStoryEvent
 import com.beykus.beygram.domain.model.storyActivePeriodChoices
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
@@ -194,11 +195,11 @@ fun StoryPublisherScreen(
         if (item != null) cleanupScope.launch { importer.discard(item) }
     }
     val close: () -> Unit = {
-        if (!busy) {
-            discard(media)
-            media = null
-            onBack()
-        }
+        // An accepted/still-running upload owns its staged file outside this screen. Never delete
+        // it here; the repository's pending-upload observer marks it evictable on success.
+        if (!publishing && pendingStoryId == 0) discard(media)
+        media = null
+        onBack()
     }
     BackHandler { close() }
 
@@ -315,7 +316,7 @@ fun StoryPublisherScreen(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = close, enabled = !busy) {
+            IconButton(onClick = close) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
             }
             Text(

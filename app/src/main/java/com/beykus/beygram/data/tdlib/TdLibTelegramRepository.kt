@@ -402,7 +402,7 @@ class TdLibTelegramRepository private constructor(
         })
     }
     private val profiles = TdProfiles({ client }, mediaFiles)
-    private val stories = TdStories({ client }, profiles, mediaFiles)
+    private val stories = TdStories({ client }, profiles, mediaFiles, accountId)
     private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
     private val returningFromArchive = ConcurrentHashMap.newKeySet<Long>()

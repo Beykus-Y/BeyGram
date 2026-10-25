@@ -109,6 +109,16 @@ sealed interface StoryPostEvent {
     data class Failed(val posterChatId: Long, val storyId: Int, val reason: StoryPostDenial) : StoryPostEvent
 }
 
+/**
+ * A pending ticket owns only its own terminal update. `TdStories` replays several events, so a
+ * failure of an earlier upload must not clear a newer ticket for the same poster.
+ */
+fun matchesPendingStoryEvent(event: StoryPostEvent, posterChatId: Long, storyId: Int): Boolean = when (event) {
+    is StoryPostEvent.Published -> event.posterChatId == posterChatId &&
+        (event.storyId == storyId || event.oldStoryId == storyId)
+    is StoryPostEvent.Failed -> event.posterChatId == posterChatId && event.storyId == storyId
+}
+
 /** Active periods accepted by TDLib: 6, 12, 24 and 48 hours. Only 24 hours is available without Premium. */
 fun storyActivePeriodChoices(premium: Boolean): List<Int> =
     if (premium) listOf(6 * 3600, 12 * 3600, 24 * 3600, 48 * 3600) else listOf(24 * 3600)
