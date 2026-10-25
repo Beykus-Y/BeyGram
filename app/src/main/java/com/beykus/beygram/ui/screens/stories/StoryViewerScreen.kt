@@ -86,7 +86,7 @@ import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.screens.chat.LocalMediaImage
+import com.beykus.beygram.ui.screens.chat.CustomEmojiImage
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.NonCancellable
@@ -860,11 +860,14 @@ private fun StoryReactionGlyph(option: ReactionOption, repository: TelegramRepos
         Text("…", fontSize = 20.sp, color = Color.White)
         return
     }
-    val file by remember(emoji.fileId) { repository.observeFile(emoji.fileId) }.collectAsStateWithLifecycle()
-    LaunchedEffect(emoji.fileId) { repository.downloadFile(emoji.fileId) }
-    val path = file.localPath
-    if (path != null) LocalMediaImage(path, Modifier.size(30.dp))
-    else Text(emoji.emoji.ifBlank { "…" }, fontSize = 20.sp, color = Color.White)
+    CustomEmojiImage(
+        emoji = emoji,
+        size = 30.dp,
+        observeFile = repository::observeFile,
+        downloadFile = repository::downloadFile
+    ) {
+        Text(emoji.emoji.ifBlank { "…" }, fontSize = 20.sp, color = Color.White)
+    }
 }
 
 @Composable

@@ -700,11 +700,11 @@ internal class TdStories(
         val initial = synchronized(lock) { persistedSubmissions[submissionId] } ?: return
         val resolvedTicket = initial.ticket ?: run {
             val targetChatId = initial.targetChatId.takeIf { it != 0L } ?: ensureSelfChatId()
-            val deadline = initial.createdAt + SUBMISSION_LOOKUP_MS
-            var discovered: StoryPostTicket? = null
+            var discovered = findBeingPostedStory(targetChatId, initial)
+            val deadline = System.currentTimeMillis() + SUBMISSION_LOOKUP_MS
             while (discovered == null && System.currentTimeMillis() < deadline) {
+                delay(2_000)
                 discovered = findBeingPostedStory(targetChatId, initial)
-                if (discovered == null) delay(2_000)
             }
             val found = discovered
             if (found == null) {
