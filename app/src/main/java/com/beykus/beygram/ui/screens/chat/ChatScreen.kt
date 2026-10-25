@@ -267,6 +267,7 @@ fun ChatScreen(
         botCommandMenu = conversation.botCommandMenu(chat.id).getOrNull()
     }
     fun insertBotCommand(command: String) {
+        if (inlineSending) return
         val normalized = command.trim().removePrefix("/").trim()
         if (normalized.isEmpty()) return
         updateDraft { it.copy(text = "/$normalized ", entities = emptyList()) }
@@ -1345,7 +1346,7 @@ fun ChatScreen(
             if (!recordingActive) {
                 if (!editing) {
                     botCommandMenu?.takeIf { it.commands.isNotEmpty() }?.let {
-                        BotCommandButton(enabled = !sending && !attachments.active) { botCommandMenuOpen = true }
+                        BotCommandButton(enabled = !sending && !inlineSending && !attachments.active) { botCommandMenuOpen = true }
                     }
                     AttachmentButton(attachments, enabled = !sending)
                 } else Spacer(Modifier.width(8.dp))
