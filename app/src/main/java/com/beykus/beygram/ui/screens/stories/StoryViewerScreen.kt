@@ -231,6 +231,7 @@ fun StoryViewerScreen(
     var showDelete by remember { mutableStateOf(false) }
     var deleteStoryId by remember { mutableIntStateOf(0) }
     var showEdit by remember { mutableStateOf(false) }
+    var editStoryId by remember { mutableIntStateOf(0) }
     var editSaving by remember { mutableStateOf(false) }
     var editError by remember { mutableStateOf<String?>(null) }
     var editCaptionLimit by remember { mutableIntStateOf(1_024) }
@@ -289,6 +290,12 @@ fun StoryViewerScreen(
             editCaptionLimit = repository.storyCaptionLimit().getOrDefault(1_024).coerceAtLeast(1)
         }
     }
+    LaunchedEffect(showEdit, editStoryId, current?.storyId) {
+        if (showEdit && editStoryId != 0 && current?.storyId != null && current.storyId != editStoryId) {
+            showEdit = false
+            editError = null
+        }
+    }
 
     val goPrevious: () -> Unit = {
         if (index > 0) index-- else {
@@ -332,6 +339,8 @@ fun StoryViewerScreen(
     }
     val canEditPrivacy = entry?.isSelf == true && detail?.canSetPrivacySettings == true
     val canEditStory = detail?.canBeEdited == true || canEditPrivacy
+    val editingStory = detail?.takeIf { editStoryId != 0 && it.storyId == editStoryId }
+    val editingCanEditPrivacy = entry?.isSelf == true && editingStory?.canSetPrivacySettings == true
 
     if (stories.isEmpty()) {
         StoryEmptyView(
@@ -477,7 +486,10 @@ fun StoryViewerScreen(
                     )
                 }
                 if (canEditStory) {
-                    IconButton(onClick = { showEdit = true }, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = {
+                        editStoryId = detail?.storyId ?: current?.storyId ?: 0
+                        if (editStoryId != 0) showEdit = true
+                    }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Rounded.Edit, stringResource(R.string.stories_edit), tint = Color.White)
                     }
                 }
@@ -552,20 +564,25 @@ fun StoryViewerScreen(
         )
     }
 
-    if (showEdit) {
+    if (showEdit && editingStory != null) {
         StoryEditDialog(
-            initialCaption = detail?.caption.orEmpty(),
+            initialCaption = editingStory.caption,
             captionLimit = editCaptionLimit,
-            initialPrivacy = detail?.privacy,
-            initialSelectedUserIds = detail?.privacyUserIds.orEmpty(),
-            canEditCaption = detail?.canBeEdited == true,
-            canEditPrivacy = canEditPrivacy,
+            initialPrivacy = editingStory.privacy,
+            initialSelectedUserIds = editingStory.privacyUserIds,
+            canEditCaption = editingStory.canBeEdited,
+            canEditPrivacy = editingCanEditPrivacy,
             saving = editSaving,
             error = editError,
             repository = repository,
-            onDismiss = { if (!editSaving) showEdit = false },
+            onDismiss = {
+                if (!editSaving) {
+                    showEdit = false
+                    editStoryId = 0
+                }
+            },
             onSave = { caption, privacy, ids ->
-                detail?.let { story ->
+                detail?.takeIf { it.storyId == editStoryId }?.let { story ->
                     scope.launch {
                         editSaving = true
                         editError = null
@@ -574,7 +591,8 @@ fun StoryViewerScreen(
                             repository.editStoryCaption(posterChatId, story.storyId, caption)
                                 .onFailure { failure = it }
                         }
-                        if (failure == null && privacy != null && canEditPrivacy &&
+                        if (failure == null && privacy != null &&
+                            entry?.isSelf == true && story.canSetPrivacySettings &&
                             (privacy != story.privacy || ids.toSet() != story.privacyUserIds.toSet())
                         ) {
                             repository.setStoryPrivacy(story.storyId, privacy, ids)
@@ -591,6 +609,7 @@ fun StoryViewerScreen(
                                 privacyUserIds = if (privacy != null) ids else story.privacyUserIds
                             )
                             showEdit = false
+                            editStoryId = 0
                             notice = context.getString(R.string.stories_edit_saved)
                             retry++
                         }

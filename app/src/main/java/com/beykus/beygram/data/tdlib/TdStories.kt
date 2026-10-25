@@ -847,6 +847,8 @@ internal class TdStories(
         val dimensions = content.mediaDimensions()
         if (fingerprint.mediaWidth > 0 && dimensions != null && dimensions.first != fingerprint.mediaWidth) return false
         if (fingerprint.mediaHeight > 0 && dimensions != null && dimensions.second != fingerprint.mediaHeight) return false
+        val size = content.primaryFileSize()
+        if (fingerprint.mediaSize > 0L && size != null && size > 0L && size != fingerprint.mediaSize) return false
         return true
     }
 

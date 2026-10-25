@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -156,13 +157,15 @@ internal fun StoryArchiveViewer(
                 val path = fullFile.localPath
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (path == null) StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
-                    else StoryVideo(
-                        path = path,
-                        playing = playing && resumed,
-                        onFailure = { playing = false; error = context.getString(R.string.stories_media_unsupported) },
-                        onEnded = { playing = false; videoEnded = true },
-                        restartToken = restartToken
-                    )
+                    else key(story?.storyId ?: 0) {
+                        StoryVideo(
+                            path = path,
+                            playing = playing && resumed,
+                            onFailure = { playing = false; error = context.getString(R.string.stories_media_unsupported) },
+                            onEnded = { playing = false; videoEnded = true },
+                            restartToken = restartToken
+                        )
+                    }
                     if (fullFile.error != null && fullFile.localPath == null) {
                         StoryDownloadError(fullFile) { media?.fileId?.let(repository::downloadFile) }
                     }
