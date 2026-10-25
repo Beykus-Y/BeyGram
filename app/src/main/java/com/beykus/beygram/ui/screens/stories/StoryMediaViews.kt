@@ -83,8 +83,8 @@ internal fun StoryPhoto(
     }
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when {
-            path != null -> LocalMediaImage(path, Modifier.fillMaxSize())
-            mini != null -> Image(mini, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            path != null -> LocalMediaImage(path, Modifier.fillMaxSize(), fit = true)
+            mini != null -> Image(mini, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
             file.error != null || thumbnail.error != null -> Text(
                 stringResource(R.string.stories_image_failed),
                 color = Color.White.copy(alpha = 0.8f),
