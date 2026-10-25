@@ -150,9 +150,9 @@
     <string name="global_search_title">Rechercher dans toutes les discussions</string>
     <string name="nav_hint_all_hidden">Si vous laissez uniquement Discussions visible, Appels, Contacts et Paramètres seront disponibles dans votre profil.</string>
     <string name="nav_hint_some_hidden">Vous pouvez ouvrir les sections masquées depuis la zone Sections de votre profil.</string>
-    <string name="nav_intro">Choisissez les sections affichées dans la barre inférieure. Les discussions sont toujours visibles. Les sections masquées passent dans votre profil.</string>
+    <string name="nav_intro">Choisissez les sections affichées dans la navigation. Les discussions sont toujours visibles. Les sections masquées passent dans votre profil.</string>
     <string name="nav_locked_hint">requis</string>
-    <string name="nav_preview_caption">Votre barre inférieure ressemblera à ceci</string>
+    <string name="nav_preview_caption">Votre navigation ressemblera à ceci</string>
     <string name="start_connection_checking">Vérification de la disponibilité de Telegram…</string>
     <string name="start_connection_connected">Connecté à Telegram</string>
     <string name="start_connection_no_network">Aucune connexion réseau</string>

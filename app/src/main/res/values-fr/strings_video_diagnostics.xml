@@ -289,4 +289,17 @@
     <string name="vn_entry_fov_unchanged">non observé</string>
     <string name="vn_entry_source_plan">Mode CameraX : %1$s, taille attendue %2$d×%3$d. Il s’agit d’une configuration demandée, pas d’un RAW mesuré ; vérifiez les dimensions réelles du fichier.</string>
     <string name="fps_cause_stream_60">La taille de flux caméra sélectionnée n’annonce pas 60 FPS ; une solution de repli compatible a été choisie (sans images dupliquées)</string>
+    <string name="vn_report_advice">Ce qui peut être modifié : %1$s</string>
+    <string name="vn_report_raw_timing">Minutage de l’enregistrement d’origine :</string>
+    <string name="vn_report_output_timing">Minutage du fichier final :</string>
+    <string name="vn_report_timing_line">  intervalle p50/p95/max %1$s/%2$s/%3$s ms, couverture %4$s ms, référence %5$s, images attendues %6$s, images manquantes estimées %7$s, horodatages répétés (doublons possibles) %8$d, horodatages dans le désordre %9$d</string>
+    <string name="vn_report_timing_audio">  audio : échantillons %1$d, intervalle p50/p95/max %2$s/%3$s/%4$s ms, horodatages répétés %5$d</string>
+    <string name="vn_report_timing_av">  A/V : décalage au début %1$s ms, décalage à la fin %2$s ms, dérive %3$s ms : %4$s</string>
+    <string name="vn_report_timing_export">  Export : images encodées %1$d, échantillons dans le conteneur %2$d, différence %3$d ; ce n’est pas une estimation de la qualité visuelle</string>
+    <string name="vn_entry_timing_unknown">Minutage des images : pas assez d’horodatages pour estimer les intervalles et les images perdues (UNKNOWN)</string>
+    <string name="vn_entry_av_unmeasured">Synchronisation A/V non mesurée : pas assez d’horodatages vidéo valides (UNKNOWN)</string>
+    <string name="vn_timing_source_file">d’après le fichier</string>
+    <string name="vn_timing_source_target">d’après la demande</string>
+    <string name="vn_timing_source_median">d’après l’intervalle médian</string>
+    <string name="vn_timing_source_unknown">inconnue</string>
 </resources>
