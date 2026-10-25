@@ -41,7 +41,6 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.BotWebAppLaunch
 import com.beykus.beygram.domain.model.BotWebAppTheme
 import com.beykus.beygram.domain.model.isAllowedWebAppNavigation
-import com.beykus.beygram.domain.model.normalizedWebAppUrl
 import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.beyGramPalette
 import java.net.URI
@@ -93,7 +92,10 @@ internal fun BotWebAppScreen(session: BotWebAppLaunch, title: String, onClose: (
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val target = request.url.toString()
-                if (!request.isForMainFrame) return normalizedWebAppUrl(target) == null
+                if (!request.isForMainFrame) {
+                    // Cross-origin iframes are blocked when TDLib requires the launch origin; https-only otherwise.
+                    return !isAllowedWebAppNavigation(session.url, target, session.requireSameOrigin)
+                }
                 return !allowMainFrame(target)
             }
 
@@ -101,6 +103,11 @@ internal fun BotWebAppScreen(session: BotWebAppLaunch, title: String, onClose: (
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean = !allowMainFrame(url)
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                if (!isAllowedWebAppNavigation(session.url, url, session.requireSameOrigin)) {
+                    view.stopLoading()
+                    showBlockedNavigation()
+                    return
+                }
                 currentUrl = url
                 loadError = false
             }
