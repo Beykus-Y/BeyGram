@@ -53,7 +53,9 @@ data class ChatMessage(
     /** Seconds left before the chat's TTL deletes this message; null when no chat TTL applies. */
     val autoDeleteInSeconds: Long? = null,
     /** TDLib replaced an expired self-destructing attachment with MessageExpired*; the bubble shows a placeholder. */
-    val expiredMediaKind: MediaKind? = null
+    val expiredMediaKind: MediaKind? = null,
+    /** TDLib's Message.effectId: the effect chosen by the sender, or zero when the message has none. */
+    val effectId: Long = 0L
 ) {
     /** View-once media is the per-message "open once" type, not every attachment in a secret chat. */
     val isViewOnce: Boolean get() = selfDestruct is MessageSelfDestruct.Immediately

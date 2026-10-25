@@ -379,6 +379,15 @@
     <string name="thread_read_only">Du kannst in dieser Diskussionsgruppe nicht schreiben</string>
     <string name="thread_reply_placeholder">Kommentar</string>
     <string name="thread_reply_not_loaded">Der Kommentar ist nicht geladen</string>
+    <string name="settings_chat_animations_title">Chat-Animationen</string>
+    <string name="chat_animations_title">Chat-Animationen</string>
+    <string name="chat_animations_intro">Steuern Sie animierte Emojis im Nachrichtentext und die Effekte, die Absender für eine neue Nachricht auswählen.</string>
+    <string name="chat_animations_emoji_title">Animierte Emojis</string>
+    <string name="chat_animations_emoji_detail">TGS- und WebP-Emojis im Nachrichtentext abspielen.</string>
+    <string name="chat_animations_effects_title">Nachrichteneffekte</string>
+    <string name="chat_animations_effects_detail">Den vom Absender gewählten Effekt für eine neue Nachricht anzeigen.</string>
+    <string name="chat_animations_reduced_motion">Das System wünscht weniger Bewegung. Emojis und Effekte werden statisch angezeigt, Ihre Auswahl bleibt gespeichert.</string>
+    <string name="chat_animations_footnote">Effekte laufen nur bei neuen Nachrichten, blockieren den Text nicht und verändern das Scrollen nicht.</string>
     <string name="secret_chat_create_action">Geheimer Chat</string>
     <string name="secret_chat_create_hint">Ende-zu-Ende-verschlüsselt, nur auf diesem Gerät</string>
     <string name="secret_chat_pick_contact">Wähle einen Kontakt für einen geheimen Chat</string>

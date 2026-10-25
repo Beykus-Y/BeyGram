@@ -1798,6 +1798,15 @@
     <string name="thread_read_only">В этой группе обсуждения нельзя писать</string>
     <string name="thread_reply_placeholder">Комментарий</string>
     <string name="thread_reply_not_loaded">Комментарий не загружен</string>
+    <string name="settings_chat_animations_title">Анимации чата</string>
+    <string name="chat_animations_title">Анимации чата</string>
+    <string name="chat_animations_intro">Управляйте анимированными эмодзи в тексте сообщений и эффектами, которые отправитель выбрал для нового сообщения.</string>
+    <string name="chat_animations_emoji_title">Анимированные эмодзи</string>
+    <string name="chat_animations_emoji_detail">Проигрывать TGS- и WebP-эмодзи в тексте сообщений.</string>
+    <string name="chat_animations_effects_title">Эффекты сообщений</string>
+    <string name="chat_animations_effects_detail">Показывать эффект, выбранный отправителем для нового сообщения.</string>
+    <string name="chat_animations_reduced_motion">Система просит уменьшить движение. Эмодзи и эффекты показываются статично, но настройки сохраняются.</string>
+    <string name="chat_animations_footnote">Эффекты показываются только для новых сообщений, не блокируют текст и не мешают прокрутке.</string>
     <string name="secret_chat_create_action">Секретный чат</string>
     <string name="secret_chat_create_hint">Сквозное шифрование, только на этом устройстве</string>
     <string name="secret_chat_pick_contact">Выберите собеседника для секретного чата</string>

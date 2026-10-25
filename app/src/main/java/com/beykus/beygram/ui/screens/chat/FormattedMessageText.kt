@@ -5,6 +5,8 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,20 +17,27 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.*
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
+import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.theme.LocalMessageLineSpacing
 import com.beykus.beygram.ui.theme.LocalMessageTextSize
+import kotlinx.coroutines.flow.StateFlow
 
 internal fun entitySpan(kind: TextStyleKind, accent: Color, secondary: Color): SpanStyle = when (kind) {
     TextStyleKind.Bold -> SpanStyle(fontWeight = FontWeight.Bold)
@@ -47,17 +56,34 @@ internal fun safeMessageUrl(value: String): String? {
     return url.takeIf { runCatching { URI(it).scheme?.lowercase() }.getOrNull() in setOf("http", "https", "tg", "mailto", "tel") }
 }
 
+internal typealias ObserveCustomEmoji = (Long) -> StateFlow<CustomEmoji?>
+internal typealias ObserveMediaFile = (Int) -> StateFlow<MediaFileState>
+internal typealias DownloadMediaFile = (Int) -> Unit
+
 @Composable
-internal fun FormattedMessageText(message: ChatMessage, modifier: Modifier = Modifier) =
-    FormattedMessageText(message.text, message.entities, message.id, modifier)
+internal fun FormattedMessageText(
+    message: ChatMessage,
+    observeCustomEmoji: ObserveCustomEmoji? = null,
+    observeFile: ObserveMediaFile? = null,
+    downloadFile: DownloadMediaFile? = null,
+    modifier: Modifier = Modifier
+) = FormattedMessageText(message.text, message.entities, message.id, observeCustomEmoji, observeFile, downloadFile, modifier)
 
 /** Used for inline translations, whose text and entities are not fields of the original [ChatMessage]. */
 @Composable
-internal fun FormattedMessageText(text: String, entities: List<MessageTextEntity>, messageId: Long, modifier: Modifier = Modifier) {
+internal fun FormattedMessageText(
+    text: String,
+    entities: List<MessageTextEntity>,
+    messageId: Long,
+    observeCustomEmoji: ObserveCustomEmoji? = null,
+    observeFile: ObserveMediaFile? = null,
+    downloadFile: DownloadMediaFile? = null,
+    modifier: Modifier = Modifier
+) {
     val palette = beyGramPalette()
     val parts = remember(text, entities) { splitMessageText(text, entities) }
     if (parts.size == 1 && parts.single().block == null) {
-        RichTextPart(messageId, parts.single(), modifier)
+        RichTextPart(messageId, parts.single(), observeCustomEmoji, observeFile, downloadFile, modifier)
         return
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -65,7 +91,9 @@ internal fun FormattedMessageText(text: String, entities: List<MessageTextEntity
             key(messageId, index, part.text) {
                 when (part.block) {
                     TextStyleKind.Quote -> Box(Modifier.clip(RoundedCornerShape(6.dp)).background(palette.accent.copy(alpha = 0.12f))) {
-                        Row(Modifier.padding(start = 11.dp, end = 25.dp, top = 6.dp, bottom = 6.dp)) { RichTextPart(messageId, part) }
+                        Row(Modifier.padding(start = 11.dp, end = 25.dp, top = 6.dp, bottom = 6.dp)) {
+                            RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile)
+                        }
                         Box(Modifier.matchParentSize().drawWithContent {
                             drawRect(palette.accent, size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height))
                         })
@@ -73,9 +101,9 @@ internal fun FormattedMessageText(text: String, entities: List<MessageTextEntity
                             modifier = Modifier.align(Alignment.TopEnd).padding(end = 5.dp, top = 1.dp))
                     }
                     TextStyleKind.Pre -> Box(Modifier.clip(RoundedCornerShape(6.dp)).background(palette.textSecondary.copy(alpha = 0.09f)).padding(8.dp)) {
-                        RichTextPart(messageId, part)
+                        RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile)
                     }
-                    else -> RichTextPart(messageId, part)
+                    else -> RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile)
                 }
             }
         }
@@ -83,7 +111,14 @@ internal fun FormattedMessageText(text: String, entities: List<MessageTextEntity
 }
 
 @Composable
-private fun RichTextPart(messageId: Long, part: MessageTextPart, modifier: Modifier = Modifier) {
+private fun RichTextPart(
+    messageId: Long,
+    part: MessageTextPart,
+    observeCustomEmoji: ObserveCustomEmoji?,
+    observeFile: ObserveMediaFile?,
+    downloadFile: DownloadMediaFile?,
+    modifier: Modifier = Modifier
+) {
     val palette = beyGramPalette()
     val messageSize = LocalMessageTextSize.current
     val lineSpacing = LocalMessageLineSpacing.current
@@ -96,9 +131,25 @@ private fun RichTextPart(messageId: Long, part: MessageTextPart, modifier: Modif
     val masked = part.text.toCharArray().also { chars ->
         hidden.forEach { entity -> for (index in entity.offset until entity.offset + entity.length) if (chars[index] != '\n') chars[index] = '•' }
     }.concatToString()
+    val animationsEnabled = LocalChatAnimationPreferences.current.animatedEmoji && !systemReducedMotion()
+    val emojiLookupReady = observeCustomEmoji != null && observeFile != null && downloadFile != null
+    // Emoji in a hidden spoiler must not download or appear before the spoiler is revealed.
+    val inlineEmoji = remember(part.text, entities, hidden, animationsEnabled, emojiLookupReady) {
+        if (!animationsEnabled || !emojiLookupReady) emptyList() else {
+            inlineCustomEmojiRuns(part.text, entities, enabled = true).filterNot { run ->
+                hidden.any { it.offset < run.end && it.offset + it.length > run.offset }
+            }
+        }
+    }
     val annotated = buildAnnotatedString {
-        // Retain the original glyph metrics; the overlay hides them without changing wrapping.
-        append(part.text)
+        // Inline content uses the original glyphs as alternate text, so every offset and style below stays unchanged.
+        var cursor = 0
+        inlineEmoji.forEach { run ->
+            append(part.text.substring(cursor, run.offset))
+            appendInlineContent(inlineEmojiId(run), run.alternate)
+            cursor = run.end
+        }
+        append(part.text.substring(cursor))
         entities.forEach { entity ->
             val start = entity.offset
             val end = start + entity.length
@@ -133,6 +184,21 @@ private fun RichTextPart(messageId: Long, part: MessageTextPart, modifier: Modif
             )) { revealed = true }, it.offset, it.offset + it.length)
         }
     }
+    val observeEmoji = observeCustomEmoji
+    val observe = observeFile
+    val download = downloadFile
+    val inlineContent: Map<String, InlineTextContent> =
+        if (inlineEmoji.isEmpty() || observeEmoji == null || observe == null || download == null) emptyMap() else {
+            inlineEmoji.associate { run ->
+                val id = inlineEmojiId(run)
+                id to InlineTextContent(
+                    // Same height as the line's text keeps wrapping and bubble measurement identical to plain text.
+                    Placeholder(width = messageSize, height = messageSize, placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter)
+                ) { alternateText ->
+                    InlineCustomEmojiGlyph(run.customEmojiId, alternateText, messageSize, observeEmoji, observe, download)
+                }
+            }
+        }
     val accessibility = if (hidden.isEmpty()) Modifier else Modifier.clearAndSetSemantics {
         text = AnnotatedString(masked)
         onClick(context.getString(R.string.chat_reveal_spoiler)) { revealed = true; true }
@@ -159,5 +225,37 @@ private fun RichTextPart(messageId: Long, part: MessageTextPart, modifier: Modif
         }
     }, color = palette.messageText, fontSize = messageSize,
         fontFamily = if (part.block == TextStyleKind.Pre) FontFamily.Monospace else FontFamily.Default,
-        lineHeight = (messageSize.value * lineSpacing).sp, onTextLayout = { layout = it })
+        lineHeight = (messageSize.value * lineSpacing).sp, inlineContent = inlineContent,
+        onTextLayout = { layout = it })
+}
+
+private fun inlineEmojiId(run: InlineCustomEmojiRun): String = "custom-emoji:${run.customEmojiId}:${run.offset}"
+
+/**
+ * One animated custom emoji in the text flow. The placeholder keeps the original emoji as its alternate text, so a
+ * missing TGS/WebP file, WebM sticker or disabled animation still shows the ordinary emoji instead of a gap.
+ */
+@Composable
+private fun InlineCustomEmojiGlyph(
+    customEmojiId: Long,
+    alternateText: String,
+    size: TextUnit,
+    observeCustomEmoji: ObserveCustomEmoji,
+    observeFile: ObserveMediaFile,
+    downloadFile: DownloadMediaFile
+) {
+    val custom by remember(customEmojiId) { observeCustomEmoji(customEmojiId) }.collectAsStateWithLifecycle()
+    val density = LocalDensity.current
+    val pixelSize = with(density) { size.toDp() }
+    val fallback = alternateText.ifBlank { "🙂" }
+    Box(Modifier.fillMaxSize().clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+        val emoji = custom
+        if (emoji != null) {
+            CustomEmojiImage(emoji, pixelSize, observeFile, downloadFile) {
+                Text(fallback, fontSize = size, lineHeight = size, textAlign = TextAlign.Center, maxLines = 1)
+            }
+        } else {
+            Text(fallback, fontSize = size, lineHeight = size, textAlign = TextAlign.Center, maxLines = 1)
+        }
+    }
 }

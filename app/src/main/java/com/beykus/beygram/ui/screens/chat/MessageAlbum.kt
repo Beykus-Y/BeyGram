@@ -186,7 +186,7 @@ internal fun MessageAlbumBubble(
                                     onClick = { if (selectionMode) onToggleSelection() },
                                     onLongClick = { if (selectionMode) onToggleSelection() else onActions(captionMessage.id) }
                                 ).padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp)) {
-                                    captions.forEach { FormattedMessageText(it) }
+                                    captions.forEach { FormattedMessageText(it, observeCustomEmoji, observeFile, onDownloadFile) }
                                 }
                             }
                         }

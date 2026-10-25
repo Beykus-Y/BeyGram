@@ -1420,6 +1420,7 @@ class TdLibTelegramRepository private constructor(
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })
     private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
+    private val messageEffects = TdMessageEffects(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
 
     // ---- Память и кэш --------------------------------------------------------
@@ -1504,6 +1505,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean) =
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
+    override fun observeMessageEffect(effectId: Long) = messageEffects.observe(effectId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
     override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
@@ -3098,6 +3100,7 @@ class TdLibTelegramRepository private constructor(
         replyCount = interactionInfo?.replyInfo?.replyCount ?: 0,
         linkPreview = if (event == null) mediaMapper.linkPreview(content, secretChat) else null,
         scheduledAtSeconds = scheduledAt,
+        effectId = effectId,
         selfDestruct = messageSelfDestructOf(selfDestructType),
         selfDestructInSeconds = selfDestructIn.takeIf { it > 0.0 }?.toLong(),
         autoDeleteInSeconds = autoDeleteIn.takeIf { it > 0.0 }?.toLong(),

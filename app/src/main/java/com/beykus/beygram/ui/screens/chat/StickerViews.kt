@@ -43,9 +43,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
 private val STICKER_SIZE = 160.dp
-private const val TGS_MIME = "application/x-tgsticker"
-private const val WEBM_MIME = "video/webm"
-private const val WEBP_MIME = "image/webp"
+internal const val TGS_MIME = "application/x-tgsticker"
+internal const val WEBM_MIME = "video/webm"
+internal const val WEBP_MIME = "image/webp"
 
 /**
  * Стикер без рамки фото: ни цвета пузыря, ни подписи. TGS играет через Lottie, WebP показывается картинкой (анимированный
@@ -120,24 +120,30 @@ internal fun StickerPreview(
  * который Lottie не разобрал), вместо анимации показывается [fallback]. Вне экрана композиция уходит и анимация останавливается.
  */
 @Composable
-internal fun TgsSticker(path: String, modifier: Modifier = Modifier, playing: Boolean = true, fallback: @Composable () -> Unit) {
+internal fun TgsSticker(
+    path: String,
+    modifier: Modifier = Modifier,
+    playing: Boolean = true,
+    iterations: Int = LottieConstants.IterateForever,
+    fallback: @Composable () -> Unit
+) {
     val decoded by produceState<Result<String>?>(null, path) {
         value = withContext(Dispatchers.IO) { runCatching { readTgsJson(File(path)) } }
     }
     val result = decoded ?: return
     val json = result.getOrNull()
-    if (json != null) LottieSticker(json, modifier, playing, fallback) else fallback()
+    if (json != null) LottieSticker(json, modifier, playing, iterations, fallback) else fallback()
 }
 
 @Composable
-private fun LottieSticker(json: String, modifier: Modifier, playing: Boolean, fallback: @Composable () -> Unit) {
+private fun LottieSticker(json: String, modifier: Modifier, playing: Boolean, iterations: Int, fallback: @Composable () -> Unit) {
     val spec = remember(json) { LottieCompositionSpec.JsonString(json) }
     val result = rememberLottieComposition(spec)
     if (result.isFailure) {
         fallback()
         return
     }
-    val progress by animateLottieCompositionAsState(result.value, isPlaying = playing, iterations = LottieConstants.IterateForever)
+    val progress by animateLottieCompositionAsState(result.value, isPlaying = playing, iterations = iterations)
     LottieAnimation(composition = result.value, progress = { progress }, modifier = modifier)
 }
 
