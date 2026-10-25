@@ -84,6 +84,8 @@ internal fun StoryArchiveViewer(
     }
     val story = stories.getOrNull(index)
     var playing by remember(story?.storyId) { mutableStateOf(true) }
+    var videoEnded by remember(story?.storyId) { mutableStateOf(false) }
+    var restartToken by remember(story?.storyId) { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showEdit by remember { mutableStateOf(false) }
@@ -146,7 +148,8 @@ internal fun StoryArchiveViewer(
                         path = path,
                         playing = playing,
                         onFailure = { playing = false; error = context.getString(R.string.stories_media_unsupported) },
-                        onEnded = { playing = false }
+                        onEnded = { playing = false; videoEnded = true },
+                        restartToken = restartToken
                     )
                     if (fullFile.error != null && fullFile.localPath == null) {
                         StoryDownloadError(fullFile) { media?.fileId?.let(repository::downloadFile) }
@@ -224,7 +227,17 @@ internal fun StoryArchiveViewer(
                         Icon(Icons.Rounded.SkipNext, stringResource(R.string.stories_next), tint = Color.White)
                     }
                     if (media?.kind == StoryMediaKind.Video && fullFile.localPath != null) {
-                        IconButton(onClick = { playing = !playing }, modifier = Modifier.size(48.dp)) {
+                        IconButton(onClick = {
+                            if (playing) {
+                                playing = false
+                            } else {
+                                if (videoEnded) {
+                                    videoEnded = false
+                                    restartToken++
+                                }
+                                playing = true
+                            }
+                        }, modifier = Modifier.size(48.dp)) {
                             Icon(
                                 if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                                 stringResource(if (playing) R.string.stories_pause else R.string.stories_resume),

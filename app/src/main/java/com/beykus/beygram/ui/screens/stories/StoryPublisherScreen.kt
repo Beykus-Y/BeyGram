@@ -186,7 +186,9 @@ fun StoryPublisherScreen(
     LaunchedEffect(repository) {
         captionLimit = repository.storyCaptionLimit().getOrDefault(1_024).coerceAtLeast(1)
         targets = repository.storyPostTargets().getOrElse { emptyList() }
-        if (targets.isNotEmpty() && targets.none { it.chatId == targetChatId }) {
+        if (targets.isEmpty()) {
+            targetChatId = 0L
+        } else if (targets.none { it.chatId == targetChatId }) {
             targetChatId = targets.firstOrNull { it.isSelf }?.chatId ?: targets.first().chatId
         }
     }
