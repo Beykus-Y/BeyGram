@@ -83,6 +83,7 @@
     <string name="settings_language_en">English</string>
     <string name="settings_language_de">Deutsch</string>
     <string name="settings_language_es">Español</string>
+    <string name="settings_language_fr">Français</string>
     <string name="feature_language_hint">El idioma cambia inmediatamente.</string>
     <string name="sessions_intro">Consulta dónde has iniciado sesión en Telegram. Finalizar otras sesiones no cerrará la sesión en este dispositivo.</string>
     <string name="sessions_current">Sesión actual</string>

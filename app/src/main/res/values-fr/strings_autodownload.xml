@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_auto_download_title">Téléchargement automatique des médias</string>
+    <string name="auto_download_intro">Choisissez ce que l’application télécharge automatiquement sur chaque réseau. Les téléchargements manuels fonctionnent toujours.</string>
+    <string name="auto_download_network_wifi">Wi-Fi</string>
+    <string name="auto_download_network_mobile">Données mobiles</string>
+    <string name="auto_download_network_roaming">Itinérance</string>
+    <string name="auto_download_network_other">Autre réseau</string>
+    <string name="auto_download_limit_title">Limite de taille</string>
+    <string name="auto_download_limit_mb">%1$d Mo</string>
+    <string name="auto_download_limit_unlimited">Sans limite</string>
+    <string name="auto_download_data_saver">Économiser les données</string>
+    <string name="auto_download_data_saver_detail">Désactive tous les téléchargements automatiques sur les données mobiles, en itinérance et en Wi-Fi limité. Le bouton Télécharger reste disponible.</string>
+    <string name="auto_download_secret_note">Les discussions secrètes, les photos éphémères et les pièces jointes masquées ne sont jamais téléchargées automatiquement.</string>
+    <string name="auto_download_manual_note">Le bouton Télécharger d’une pièce jointe la télécharge toujours, même au-delà de la limite.</string>
+    <string name="auto_download_streaming_note">Les vidéos à démarrage rapide peuvent être lues pendant le téléchargement. Si l’index du fichier se trouve à la fin, la vidéo s’ouvre après le téléchargement complet.</string>
+    <string name="auto_download_save_failed">Impossible d’enregistrer les paramètres</string>
+</resources>
