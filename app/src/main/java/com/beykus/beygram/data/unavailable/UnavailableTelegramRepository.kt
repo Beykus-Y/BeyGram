@@ -58,6 +58,12 @@ import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramNotifications
 import com.beykus.beygram.domain.model.TelegramProxyDraft
+import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.MonetizationUnavailableException
+import com.beykus.beygram.domain.model.PremiumInfo
+import com.beykus.beygram.domain.model.StarTransactionsPage
+import com.beykus.beygram.domain.model.StarsInfo
 import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.repository.TelegramRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -100,6 +106,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override val notificationPresentation: StateFlow<NotificationPresentation> = MutableStateFlow(NotificationPresentation()).asStateFlow()
 
     private fun <T> unavailable(): Result<T> = Result.failure(UserMessageException(UiText.Res(R.string.err_telegram_not_running)))
+    private fun <T> monetizationUnavailable(): Result<T> =
+        Result.failure(MonetizationUnavailableException(UiText.Res(R.string.err_monetization_unavailable)))
 
     override fun observeChatInfo(chatId: Long): StateFlow<ProfileState> = noProfile
     override fun refreshChatInfo(chatId: Long) {}
@@ -110,6 +118,12 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.ProfilePhotosPage> = unavailable()
     override suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit> = unavailable()
     override suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit> = unavailable()
+    override suspend fun premiumInfo(): Result<PremiumInfo> = monetizationUnavailable()
+    override suspend fun starsInfo(): Result<StarsInfo> = monetizationUnavailable()
+    override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = monetizationUnavailable()
+    override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = monetizationUnavailable()
+    override suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome =
+        GiftSendOutcome.Blocked(UiText.Res(R.string.err_monetization_unavailable))
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = unavailable()
     override suspend fun setChatPinned(chatId: Long, pinned: Boolean): Result<Unit> = unavailable()
     override suspend fun setChatMuted(chatId: Long, muted: Boolean): Result<Unit> = unavailable()

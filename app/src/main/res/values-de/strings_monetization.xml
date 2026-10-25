@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Profile entry points -->
+    <string name="profile_monetization_header">Abo und Geschenke</string>
+    <string name="profile_monetization_premium">Telegram Premium</string>
+    <string name="profile_monetization_stars">Telegram Stars</string>
+    <string name="profile_monetization_gifts_own">Meine Geschenke</string>
+    <string name="profile_monetization_gifts_send">Geschenk senden</string>
+
+    <!-- Shared unsupported/error states -->
+    <string name="monetization_unsupported_title">Nicht unterstützt</string>
+    <string name="monetization_unsupported_body">Dieser Bereich benötigt eine aktive Telegram-Sitzung. Es gibt hier keine Demo-Zahlungen und keine erfundenen Daten.</string>
+    <string name="err_monetization_unavailable">Der Bereich ist ohne aktive Telegram-Verbindung nicht verfügbar</string>
+    <string name="err_monetization_unauthorized">Die Telegram-Sitzung ist nicht autorisiert. Melden Sie sich erneut an</string>
+    <string name="err_monetization_timeout">Telegram hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut</string>
+    <string name="err_monetization_failed">Die Anfrage an Telegram konnte nicht abgeschlossen werden</string>
+
+    <!-- Premium -->
+    <string name="premium_title">Telegram Premium</string>
+    <string name="premium_status_heading">Abo-Status</string>
+    <string name="premium_status_active">Premium ist aktiv</string>
+    <string name="premium_status_inactive">Premium ist nicht aktiv</string>
+    <string name="premium_status_source_hint">Ablaufdatum und Status kommen von Telegram.</string>
+    <string name="premium_features_title">Premium-Funktionen</string>
+    <string name="premium_features_empty">Telegram hat keine Funktionsliste geliefert.</string>
+    <string name="premium_plans_title">Tarife</string>
+    <string name="premium_plans_empty">Es sind keine Tarife verfügbar.</string>
+    <string name="premium_plan_months">%1$d Mon.</string>
+    <string name="premium_plan_current">Aktueller Tarif</string>
+    <string name="premium_plan_upgrade">Upgrade</string>
+    <string name="premium_plan_discount">%1$d%% Rabatt</string>
+    <string name="premium_purchase_unavailable_title">Kauf nicht verfügbar</string>
+    <string name="premium_purchase_unavailable_body">In diesem Build gibt es keinen Zahlungsanbieter. Die Tarife dienen nur zur Information; es wird nicht bezahlt und es werden keine Kartendaten abgefragt.</string>
+    <string name="premium_load_error">Premium-Daten konnten nicht geladen werden</string>
+
+    <string name="premium_feature_accent_color">Akzentfarbe</string>
+    <string name="premium_feature_advanced_chat_management">Erweiterte Chatverwaltung</string>
+    <string name="premium_feature_animated_profile_photo">Animiertes Profilbild</string>
+    <string name="premium_feature_app_icons">App-Symbole</string>
+    <string name="premium_feature_background_for_both">Hintergrund für beide Seiten</string>
+    <string name="premium_feature_business">Business-Funktionen</string>
+    <string name="premium_feature_chat_boost">Kanal-Boosts</string>
+    <string name="premium_feature_checklists">Checklisten</string>
+    <string name="premium_feature_custom_emoji">Benutzerdefinierte Emojis</string>
+    <string name="premium_feature_disabled_ads">Werbefrei</string>
+    <string name="premium_feature_emoji_status">Emoji-Status</string>
+    <string name="premium_feature_forum_topic_icon">Symbole für Forumsthemen</string>
+    <string name="premium_feature_improved_download_speed">Schnelleres Herunterladen</string>
+    <string name="premium_feature_increased_limits">Höhere Limits</string>
+    <string name="premium_feature_increased_upload_file_size">Größere Uploads</string>
+    <string name="premium_feature_last_seen_times">Genaue Online-Zeit</string>
+    <string name="premium_feature_message_effects">Nachrichteneffekte</string>
+    <string name="premium_feature_message_privacy">Nachrichten-Privatsphäre</string>
+    <string name="premium_feature_paid_messages">Bezahlte Nachrichten</string>
+    <string name="premium_feature_profile_badge">Premium-Abzeichen</string>
+    <string name="premium_feature_protect_private_chat_content">Schutz privater Chat-Inhalte</string>
+    <string name="premium_feature_real_time_chat_translation">Echtzeit-Chatübersetzung</string>
+    <string name="premium_feature_saved_messages_tags">Tags in „Gespeichertes“</string>
+    <string name="premium_feature_text_composition">Erweiterte Textformatierung</string>
+    <string name="premium_feature_unique_reactions">Einzigartige Reaktionen</string>
+    <string name="premium_feature_unique_stickers">Einzigartige Sticker</string>
+    <string name="premium_feature_upgraded_stories">Verbesserte Stories</string>
+    <string name="premium_feature_voice_recognition">Spracherkennung</string>
+    <string name="premium_feature_other">Weitere Premium-Funktion</string>
+
+    <!-- Stars -->
+    <string name="stars_title">Telegram Stars</string>
+    <string name="stars_balance_heading">Guthaben</string>
+    <string name="stars_balance_value">%1$s Stars</string>
+    <string name="stars_balance_hint">Das Guthaben kommt von Telegram. Stars werden nie ohne ausdrückliche Bestätigung ausgegeben.</string>
+    <string name="stars_history_title">Transaktionsverlauf</string>
+    <string name="stars_history_empty">Noch keine Transaktionen.</string>
+    <string name="stars_history_error">Der Transaktionsverlauf konnte nicht geladen werden</string>
+    <string name="stars_more">Mehr anzeigen</string>
+    <string name="stars_topup_title">Aufladen</string>
+    <string name="stars_topup_unavailable_title">Aufladen nicht verfügbar</string>
+    <string name="stars_topup_unavailable_body">In diesem Build ist kein Zahlungsanbieter verbunden. Pakete dienen nur zur Information; es wird nicht bezahlt.</string>
+    <string name="stars_topup_empty">Telegram hat keine Aufladeoptionen angeboten.</string>
+    <string name="stars_topup_error">Aufladeoptionen konnten nicht geladen werden.</string>
+    <string name="stars_topup_option_stars">%1$s Stars</string>
+    <string name="stars_topup_option_price">%1$s</string>
+    <string name="stars_load_error">Das Stars-Guthaben konnte nicht geladen werden</string>
+    <string name="stars_tx_topup">Aufladung</string>
+    <string name="stars_tx_gift_purchase">Geschenk gekauft</string>
+    <string name="stars_tx_gift_sale">Geschenk verkauft</string>
+    <string name="stars_tx_gift_upgrade">Geschenk verbessert</string>
+    <string name="stars_tx_gift_transfer">Geschenk übertragen</string>
+    <string name="stars_tx_gift_auction">Geschenkauktion</string>
+    <string name="stars_tx_premium">Premium gekauft</string>
+    <string name="stars_tx_paid_message_send">Bezahlte Nachricht gesendet</string>
+    <string name="stars_tx_paid_message_receive">Bezahlte Nachricht erhalten</string>
+    <string name="stars_tx_paid_reaction_send">Bezahlte Reaktion gesendet</string>
+    <string name="stars_tx_paid_reaction_receive">Bezahlte Reaktion erhalten</string>
+    <string name="stars_tx_paid_media_purchase">Bezahlte Medien gekauft</string>
+    <string name="stars_tx_paid_media_sale">Bezahlte Medien verkauft</string>
+    <string name="stars_tx_subscription_purchase">Abo gekauft</string>
+    <string name="stars_tx_subscription_sale">Abo verkauft</string>
+    <string name="stars_tx_withdrawal">Auszahlung</string>
+    <string name="stars_tx_other">Andere Transaktion</string>
+    <string name="stars_tx_refund">Rückerstattung</string>
+
+    <!-- Gifts -->
+    <string name="gifts_title">Geschenke</string>
+    <string name="gifts_title_own">Meine Geschenke</string>
+    <string name="gifts_target">Für: %1$s</string>
+    <string name="gifts_balance">Guthaben: %1$s Stars</string>
+    <string name="gifts_balance_unknown">Stars-Guthaben ist unbekannt</string>
+    <string name="gifts_open_stars">Stars und Verlauf</string>
+    <string name="gifts_catalog_title">Verfügbare Geschenke</string>
+    <string name="gifts_catalog_own_hint">Geschenke können im Profil eines anderen Benutzers gesendet werden.</string>
+    <string name="gifts_catalog_empty">Es sind keine Geschenke verfügbar.</string>
+    <string name="gifts_received_title">Erhaltene Geschenke</string>
+    <string name="gifts_received_empty">Noch keine Geschenke erhalten.</string>
+    <string name="gifts_received_error">Erhaltene Geschenke konnten nicht geladen werden</string>
+    <string name="gifts_collections_title">Sammlungen</string>
+    <string name="gifts_collections_empty">Noch keine Sammlungen.</string>
+    <string name="gifts_collections_error">Sammlungen konnten nicht geladen werden</string>
+    <plurals name="gifts_collection_count">
+        <item quantity="one">%1$d Geschenk</item>
+        <item quantity="other">%1$d Geschenke</item>
+    </plurals>
+    <string name="gifts_cost">%1$s Stars</string>
+    <string name="gifts_premium_only">Nur mit Premium</string>
+    <string name="gifts_sold_out">Ausverkauft</string>
+    <string name="gifts_remaining">Noch %1$d</string>
+    <string name="gifts_auction_only">Nur bei Auktion</string>
+    <string name="gifts_send">Senden</string>
+    <string name="gifts_send_dialog_title">Dieses Geschenk senden?</string>
+    <string name="gifts_send_dialog_body">Das Geschenk für %1$s Stars senden? Die Stars werden vom Guthaben abgebucht.</string>
+    <string name="gifts_send_dialog_balance">Verbleibend nach dem Senden: %1$s Stars.</string>
+    <string name="gifts_send_confirm">Für %1$s Stars senden</string>
+    <string name="gifts_sending">Wird gesendet…</string>
+    <string name="gifts_send_success">Geschenk gesendet.</string>
+    <string name="gifts_send_failed">Das Geschenk konnte nicht gesendet werden</string>
+    <string name="gifts_send_uncertain">Der Versand konnte nicht bestätigt werden. Prüfen Sie den Stars-Verlauf und senden Sie nicht erneut.</string>
+    <string name="gifts_block_own">Sie können sich selbst kein Geschenk senden.</string>
+    <string name="gifts_block_premium">Dieses Geschenk erfordert Premium.</string>
+    <string name="gifts_block_balance_unknown">Das Stars-Guthaben ist unbekannt. Aktualisieren Sie den Bildschirm.</string>
+    <string name="gifts_block_sold_out">Dieses Geschenk ist ausverkauft.</string>
+    <string name="gifts_block_auction">Dieses Geschenk gibt es nur bei einer Auktion.</string>
+    <string name="gifts_block_balance">Nicht genug Stars. Laden Sie Ihr Guthaben auf.</string>
+    <string name="gifts_block_busy">Warten Sie, bis der aktuelle Versand abgeschlossen ist.</string>
+    <string name="gifts_sender_unknown">Unbekannter Absender</string>
+    <string name="gifts_from">Von: %1$s</string>
+    <string name="gifts_upgraded">Verbessert</string>
+    <string name="gifts_refunded">Erstattet</string>
+    <string name="gifts_private">Privat</string>
+    <string name="gifts_load_error">Geschenke konnten nicht geladen werden</string>
+    <string name="err_gift_recipient_unsupported">Geschenke können nur an Benutzer gesendet werden</string>
+    <string name="err_gift_unavailable">Dieses Geschenk ist nicht mehr verfügbar</string>
+    <string name="err_gift_insufficient_stars">Nicht genug Stars für dieses Geschenk</string>
+    <string name="err_gift_send_busy">Ein Geschenkversand läuft bereits</string>
+    <string name="err_gift_sold_out">Dieses Geschenk ist ausverkauft</string>
+</resources>
