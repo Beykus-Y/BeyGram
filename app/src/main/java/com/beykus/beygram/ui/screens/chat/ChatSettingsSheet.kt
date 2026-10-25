@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.WallpaperPresets
@@ -64,6 +65,8 @@ internal fun ChatSettingsSheet(
     conversation: ConversationRepository,
     overrides: ChatOverridesStore,
     globalWallpaper: ChatWallpaper,
+    isSecretChat: Boolean = false,
+    onSecretChatClosed: () -> Unit = {},
     onClose: () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -77,14 +80,16 @@ internal fun ChatSettingsSheet(
     var busy by remember(chatId) { mutableStateOf(false) }
     var error by remember(chatId) { mutableStateOf<String?>(null) }
     var soundMenu by remember { mutableStateOf(false) }
+    val secretChats by conversation.secretChats.collectAsStateWithLifecycle()
 
-    LaunchedEffect(chatId, conversation) {
+    LaunchedEffect(chatId, conversation, isSecretChat) {
         loading = true
         error = null
         conversation.chatNotificationPreferences(chatId)
             .onSuccess { preferences = it }
             .onFailure { error = it.userMessage(context, R.string.chat_settings_load_failed) }
         conversation.savedNotificationSounds().onSuccess { sounds = it }
+        if (isSecretChat) conversation.refreshSecretChat(chatId)
         loading = false
     }
 
@@ -210,6 +215,15 @@ internal fun ChatSettingsSheet(
                         },
                         enabled = !busy
                     ) { Text(stringResource(R.string.chat_settings_reset), color = palette.accent) }
+                }
+                if (isSecretChat) {
+                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(vertical = 8.dp))
+                    SecretChatSettingsSection(
+                        chatId = chatId,
+                        details = secretChats[chatId],
+                        conversation = conversation,
+                        onSecretChatClosed = onSecretChatClosed
+                    )
                 }
             }
         },

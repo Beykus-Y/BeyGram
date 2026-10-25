@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.GroupAdd
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -70,6 +71,7 @@ import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.GroupCreationState
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.SecretChatEligibility
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -83,6 +85,7 @@ import kotlinx.coroutines.launch
 internal fun NewChatScreen(
     loadContacts: suspend () -> Result<List<ContactPreview>>,
     openPrivateChat: suspend (Long) -> Result<Long>,
+    createSecretChat: suspend (Long) -> Result<Long>,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onBack: () -> Unit,
@@ -110,6 +113,8 @@ internal fun NewChatScreen(
     var invitePreview by remember { mutableStateOf<ChatInvitePreview?>(null) }
     var inviteUrl by remember { mutableStateOf("") }
     var inviteJoining by remember { mutableStateOf(false) }
+    // Picking a contact while this mode is on creates an E2E secret chat instead of opening a cloud conversation.
+    var secretMode by remember { mutableStateOf(false) }
 
     LaunchedEffect(refreshToken) {
         loading = true
@@ -183,6 +188,35 @@ internal fun NewChatScreen(
             icon = Icons.Rounded.Campaign,
             onClick = onNewChannel
         )
+        NewChatAction(
+            title = stringResource(R.string.secret_chat_create_action),
+            subtitle = stringResource(R.string.secret_chat_create_hint),
+            icon = Icons.Rounded.Lock,
+            onClick = { secretMode = !secretMode; openError = null }
+        )
+        if (secretMode) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                    .background(palette.accentSoft, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    stringResource(R.string.secret_chat_pick_contact),
+                    color = palette.accentInk,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    stringResource(R.string.secret_chat_device_notice),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                TextButton(onClick = { secretMode = false; openError = null }, modifier = Modifier.align(Alignment.End)) {
+                    Text(stringResource(R.string.secret_chat_pick_cancel), color = palette.accent)
+                }
+            }
+        }
         Text(
             stringResource(R.string.new_chat_public_title),
             color = palette.textSecondary,
@@ -256,13 +290,23 @@ internal fun NewChatScreen(
                         selected = false
                     ) {
                         if (openingUser == null) {
+                            if (secretMode && !SecretChatEligibility.canStart(contact.userId, isSelf = false, isBot = contact.isBot)) {
+                                openError = context.getString(R.string.secret_chat_bot_unavailable)
+                                return@NewChatContactRow
+                            }
                             scope.launch {
                                 openingUser = contact.userId
                                 openError = null
                                 try {
-                                    openPrivateChat(contact.userId)
+                                    val result = if (secretMode) createSecretChat(contact.userId) else openPrivateChat(contact.userId)
+                                    result
                                         .onSuccess { onChatOpened(it) }
-                                        .onFailure { openError = it.userMessage(context, R.string.contacts_open_chat_failed) }
+                                        .onFailure {
+                                            openError = it.userMessage(
+                                                context,
+                                                if (secretMode) R.string.secret_chat_create_failed else R.string.contacts_open_chat_failed
+                                            )
+                                        }
                                 } finally {
                                     openingUser = null
                                 }

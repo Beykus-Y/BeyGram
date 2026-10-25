@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
@@ -214,6 +215,13 @@ fun ChatScreen(
     val chatOverrideState by chatOverrides.state.collectAsStateWithLifecycle()
     val globalWallpaper = LocalChatWallpaper.current
     val chatWallpaper = chatOverrideState[chat.id]?.wallpaper ?: globalWallpaper
+    val secretChats by remember(conversation) { conversation.secretChats }.collectAsStateWithLifecycle()
+    val secretChat = secretChats[chat.id]
+    LaunchedEffect(chat.id, chat.isSecret, conversation) {
+        if (chat.isSecret) conversation.refreshSecretChat(chat.id)
+    }
+    // A secret chat must stay out of Recents screenshots and screen recordings while it is open.
+    SecureWindowWhileVisible(chat.isSecret)
     // A channel's linked discussion group is stable for the visit; no per-post request is needed to show the chip.
     var linkedDiscussionChatId by remember(chat.id) { mutableLongStateOf(0L) }
     LaunchedEffect(chat.id, chat.isChannel, conversation) {
@@ -334,6 +342,8 @@ fun ChatScreen(
         if (result.isSuccess) clearReply()
         result
     }
+    // View-once is a private-chat photo/video feature; groups, channels and Saved Messages never show the toggle.
+    val allowViewOnce = !chat.isGroup && !chat.isChannel && !chat.isSavedMessages
     val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, accountId = accountId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.
@@ -959,14 +969,19 @@ fun ChatScreen(
      */
     fun sendCurrentDraft(options: MessageSendOptions) {
         if (editId != null) return
+        // View-once is selected in the attachment panel; scheduling or groups silently drop the flag instead of
+        // producing a TDLib error, and the composer hides those paths for view-once media.
+        val effectiveOptions = if (attachments.active) {
+            options.copy(viewOnce = attachments.viewOnce && ViewOncePolicy.canSend(attachments.pending, allowViewOnce, options.scheduledAtSeconds != null))
+        } else options
         if (attachments.active) {
-            attachments.send(draft, options) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
+            attachments.send(draft, effectiveOptions) { value -> updateDraft { it.copy(text = value, entities = if (value.isEmpty()) emptyList() else it.entities) } }
             return
         }
         val outgoingAnimation = messageAnimations.direction(outgoing = true)
         val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
         // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
-        val launch = if (options.scheduledAtSeconds == null && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
+        val launch = if (effectiveOptions.scheduledAtSeconds == null && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
             composerFieldBounds?.let { source ->
                 composerLaunchCounter += 1
                 ComposerLaunch(
@@ -988,14 +1003,14 @@ fun ChatScreen(
         scope.launch {
             var delivered = false
             try {
-                val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId, options = options)
+                val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId, options = effectiveOptions)
                 if (result.isSuccess) {
                     delivered = true
                     updateDraft { MessageDraft() }
                     launch?.awaitingSend = false
                     if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
-                    if (options.scheduledAtSeconds != null) {
+                    if (effectiveOptions.scheduledAtSeconds != null) {
                         Toast.makeText(context, context.getString(R.string.chat_schedule_success), Toast.LENGTH_SHORT).show()
                     }
                 } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
@@ -1013,7 +1028,11 @@ fun ChatScreen(
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (actionMessage != null) MessageActionsBar(
-            capabilities = capabilities, error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
+            capabilities = capabilities?.let { caps ->
+                // TDLib already forbids this; keep a local guard so a stale capability response cannot expose view-once.
+                if (actionMessage.isViewOnce) caps.copy(canForward = false, canCopy = false, canGetLink = false, canEdit = false) else caps
+            },
+            error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
             canPin = canTogglePin(capabilities?.canPin == true), isPinned = actionMessage.isPinned,
             onClose = ::closeActions, onRetry = { capabilitiesAttempt++ },
             onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
@@ -1063,7 +1082,8 @@ fun ChatScreen(
             onScheduled = { scheduledMessagesOpen = true },
             onChatSettings = { chatSettingsOpen = true },
             onStatistics = onStatistics,
-            onExport = { exportOpen = true }
+            onExport = { exportOpen = true },
+            secretChat = secretChat
         )
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
@@ -1248,7 +1268,7 @@ fun ChatScreen(
         } else if (editMessage != null) {
             EditBanner(editMessage.text.ifBlank { editMessage.summary() }, editMessage.media != null, editText.codePointCount(0, editText.length), editLimit, editError, onClose = ::closeEdit)
         } else if (!searching) {
-            AttachmentPanel(attachments, draft, limits.caption)
+            AttachmentPanel(attachments, draft, limits.caption, allowViewOnce)
             if (replyId != null) Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
                     Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -1331,8 +1351,8 @@ fun ChatScreen(
                     enabled = canSend,
                     onClickLabel = sendLabel,
                     role = Role.Button,
-                    onLongClickLabel = if (!editing) stringResource(R.string.chat_send_options) else null,
-                    onLongClick = if (editing) null else { { sendOptionsOpen = true } }
+                    onLongClickLabel = if (!editing && !attachments.viewOnce) stringResource(R.string.chat_send_options) else null,
+                    onLongClick = if (editing || attachments.viewOnce) null else { { sendOptionsOpen = true } }
                 ) {
                     if (editing) {
                         scope.launch {
@@ -1415,19 +1435,20 @@ fun ChatScreen(
     // Действия над сообщением есть только у сообщений из загруженной истории: редактирование ищет их в ленте.
     val viewedInChat = messages.firstOrNull { it.id == selectedMediaId }
     val viewed = viewedInChat ?: mediaWindow.messages.firstOrNull { it.id == selectedMediaId }
-    val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it) } }
-    val historyPages = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it) } } }
+    val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce) } }
+    val historyPages = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce) } } }
     // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
     val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
-        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it) } })
+        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce) } })
     if (viewed != null && viewed.media != null) MediaViewer(
         pages = viewerPages, selectedId = viewed.id, onSelect = { selectedMediaId = it },
         observeFile = observeFile, downloadFile = onDownloadFile, onViewed = { id -> conversation.openMessageContent(chat.id, id) }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
-        canExport = viewedRights?.canSave == true, confirmExport = { id -> conversation.messageCapabilities(chat.id, id).getOrNull()?.canSave == true },
+        canExport = viewedRights?.let { ViewOncePolicy.canExport(it.canSave, viewed.isViewOnce) } == true,
+        confirmExport = { id -> conversation.messageCapabilities(chat.id, id).getOrNull()?.canSave == true },
         actions = viewedInChat?.let { MediaViewerActions(
-            canForward = viewedRights?.canForward == true,
-            canEdit = viewedRights?.canEdit == true,
+            canForward = viewedRights?.let { ViewOncePolicy.canForward(it.canForward, viewed.isViewOnce) } == true,
+            canEdit = viewedRights?.canEdit == true && !viewed.isViewOnce,
             canDelete = viewedRights?.let { it.canDeleteForSelf || it.canDeleteForAll } == true,
             onForward = { forwardAsCopy = false; forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
@@ -1478,6 +1499,8 @@ fun ChatScreen(
         conversation = conversation,
         overrides = chatOverrides,
         globalWallpaper = globalWallpaper,
+        isSecretChat = chat.isSecret,
+        onSecretChatClosed = onBack,
         onClose = { chatSettingsOpen = false }
     )
     if (exportOpen) ChatExportDialog(
@@ -1503,7 +1526,7 @@ private fun ChatTopBar(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
     hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
     onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onStatistics: (() -> Unit)? = null,
-    onExport: () -> Unit = {}
+    onExport: () -> Unit = {}, secretChat: SecretChatDetails? = null
 ) {
     val palette = beyGramPalette()
     var menuOpen by remember { mutableStateOf(false) }
@@ -1522,8 +1545,26 @@ private fun ChatTopBar(
                 ChatAvatar(chat, 40.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(forumTopicTitle ?: chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(chatPresenceLine(chat, info, lastSeenStyle, now).resolve(), color = palette.textSecondary, fontSize = 13.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(forumTopicTitle ?: chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (chat.isSecret && forumTopicTitle == null) {
+                            Spacer(Modifier.width(6.dp))
+                            Icon(
+                                Icons.Rounded.Lock,
+                                contentDescription = stringResource(R.string.a11y_secret_chat_lock),
+                                tint = palette.accent,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        if (chat.isSecret) secretChatStatusLine(secretChat)
+                        else chatPresenceLine(chat, info, lastSeenStyle, now).resolve(),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
             if (!chat.isSecret) IconButton(onClick = onScheduled) { Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_scheduled_title), tint = palette.textSecondary) }
@@ -1589,6 +1630,15 @@ internal fun ChannelCommentsBar(count: Int, onClick: () -> Unit) {
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
         }
     }
+}
+
+/** TDLib replaces expired self-destructing content with an empty MessageExpired* object. */
+private fun expiredMediaLabelRes(kind: MediaKind): Int = when (kind) {
+    MediaKind.Photo -> R.string.media_expired_photo
+    MediaKind.Video -> R.string.media_expired_video
+    MediaKind.VideoNote -> R.string.media_expired_video_note
+    MediaKind.Voice -> R.string.media_expired_voice
+    else -> R.string.media_expired_other
 }
 
 @Composable
@@ -1671,7 +1721,22 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 transcriptionRequestError = transcriptionRequestError,
                                 transcriptionRated = transcriptionRated,
                                 onTranscribe = onTranscribe,
-                                onRateTranscription = onRateTranscription)
+                                onRateTranscription = onRateTranscription,
+                                viewOnce = message.isViewOnce)
+                        }
+                        message.expiredMediaKind?.let { kind ->
+                            Row(
+                                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.Lock, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    stringResource(expiredMediaLabelRes(kind)),
+                                    color = palette.textSecondary,
+                                    fontSize = 14.sp
+                                )
+                            }
                         }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
