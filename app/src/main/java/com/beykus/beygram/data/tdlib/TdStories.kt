@@ -530,7 +530,9 @@ internal class TdStories(
                         createdAt = System.currentTimeMillis(),
                         caption = previous?.caption.orEmpty(),
                         mediaKind = previous?.mediaKind.orEmpty(),
-                        mediaSize = previous?.mediaSize ?: 0L
+                        mediaSize = previous?.mediaSize ?: 0L,
+                        mediaWidth = previous?.mediaWidth ?: 0,
+                        mediaHeight = previous?.mediaHeight ?: 0
                     )
                 )
             }
@@ -545,7 +547,9 @@ internal class TdStories(
                         createdAt = System.currentTimeMillis(),
                         caption = previous?.caption.orEmpty(),
                         mediaKind = previous?.mediaKind.orEmpty(),
-                        mediaSize = previous?.mediaSize ?: 0L
+                        mediaSize = previous?.mediaSize ?: 0L,
+                        mediaWidth = previous?.mediaWidth ?: 0,
+                        mediaHeight = previous?.mediaHeight ?: 0
                     )
                 )
             }
@@ -572,7 +576,9 @@ internal class TdStories(
                 createdAt = System.currentTimeMillis(),
                 caption = caption.trim(),
                 mediaKind = media.kind.name,
-                mediaSize = media.size.takeIf { it > 0L } ?: runCatching { File(media.path).length() }.getOrDefault(0L)
+                mediaSize = media.size.takeIf { it > 0L } ?: runCatching { File(media.path).length() }.getOrDefault(0L),
+                mediaWidth = media.width,
+                mediaHeight = media.height
             )
         )
     }
@@ -617,6 +623,8 @@ internal class TdStories(
                 }
                 val mediaKind = parts.getOrNull(8).orEmpty()
                 val mediaSize = parts.getOrNull(9)?.toLongOrNull() ?: 0L
+                val mediaWidth = parts.getOrNull(10)?.toIntOrNull() ?: 0
+                val mediaHeight = parts.getOrNull(11)?.toIntOrNull() ?: 0
                 val ticket = if (kind == "pending" || kind == "published") {
                     val posterChatId = parts[3].toLongOrNull() ?: return@forEach
                     val storyId = parts[4].toIntOrNull() ?: return@forEach
@@ -632,7 +640,9 @@ internal class TdStories(
                     createdAt = createdAt,
                     caption = caption,
                     mediaKind = mediaKind,
-                    mediaSize = mediaSize
+                    mediaSize = mediaSize,
+                    mediaWidth = mediaWidth,
+                    mediaHeight = mediaHeight
                 )
             }
         }
@@ -655,7 +665,9 @@ internal class TdStories(
                     Base64.getUrlEncoder().withoutPadding()
                         .encodeToString(submission.caption.toByteArray(Charsets.UTF_8)),
                     submission.mediaKind,
-                    submission.mediaSize
+                    submission.mediaSize,
+                    submission.mediaWidth,
+                    submission.mediaHeight
                 ).joinToString("\t")
             }
             val temporary = File(submissionLedger.absolutePath + ".tmp")
@@ -691,7 +703,7 @@ internal class TdStories(
             val deadline = initial.createdAt + SUBMISSION_LOOKUP_MS
             var discovered: StoryPostTicket? = null
             while (discovered == null && System.currentTimeMillis() < deadline) {
-                discovered = findBeingPostedStory(targetChatId)
+                discovered = findBeingPostedStory(targetChatId, initial)
                 if (discovered == null) delay(2_000)
             }
             val found = discovered
@@ -806,15 +818,36 @@ internal class TdStories(
         }
     }
 
-    private suspend fun findBeingPostedStory(chatId: Long): StoryPostTicket? {
-        val active = runCatching { requests(TdApi.GetChatActiveStories(chatId)) }.getOrNull() ?: return null
-        active.stories?.toList().orEmpty().take(20).forEach { info ->
-            val story = runCatching { requests(TdApi.GetStory(chatId, info.storyId, false)) }.getOrNull()
-            if (story?.isBeingPosted == true) {
-                return StoryPostTicket(chatId, story.id, true, story.content.uploadFileIds())
-            }
+    private suspend fun findBeingPostedStory(
+        chatId: Long,
+        fingerprint: PersistedSubmission
+    ): StoryPostTicket? {
+        if (fingerprint.mediaKind.isBlank()) return null
+        if (fingerprint.caption.isEmpty() && (fingerprint.mediaWidth <= 0 || fingerprint.mediaHeight <= 0)) {
+            return null
         }
-        return null
+        val active = runCatching { requests(TdApi.GetChatActiveStories(chatId)) }.getOrNull() ?: return null
+        return active.stories?.toList().orEmpty()
+            .filter { it.date.toLong() * 1_000L >= fingerprint.createdAt - PENDING_STORY_WINDOW_MS }
+            .sortedByDescending { it.storyId }
+            .take(20)
+            .firstNotNullOfOrNull { info ->
+                val story = runCatching { requests(TdApi.GetStory(chatId, info.storyId, false)) }.getOrNull()
+                    ?: return@firstNotNullOfOrNull null
+                if (!story.isBeingPosted || !story.matchesPendingFingerprint(fingerprint)) {
+                    return@firstNotNullOfOrNull null
+                }
+                StoryPostTicket(chatId, story.id, true, story.content.uploadFileIds())
+            }
+    }
+
+    private fun TdApi.Story.matchesPendingFingerprint(fingerprint: PersistedSubmission): Boolean {
+        if (content.mediaKindKey() != fingerprint.mediaKind) return false
+        if (caption?.text.orEmpty().trim() != fingerprint.caption) return false
+        val dimensions = content.mediaDimensions()
+        if (fingerprint.mediaWidth > 0 && dimensions != null && dimensions.first != fingerprint.mediaWidth) return false
+        if (fingerprint.mediaHeight > 0 && dimensions != null && dimensions.second != fingerprint.mediaHeight) return false
+        return true
     }
 
     private suspend fun findRecentStory(chatId: Long, createdAt: Long, fingerprint: PersistedSubmission): StoryPostTicket? {
@@ -847,6 +880,14 @@ internal class TdStories(
             ?.photo
             ?.let { it.size.takeIf { size -> size > 0L } ?: it.expectedSize }
         is TdApi.StoryContentVideo -> video.video.let { it.size.takeIf { size -> size > 0L } ?: it.expectedSize }
+        else -> null
+    }
+
+    private fun TdApi.StoryContent.mediaDimensions(): Pair<Int, Int>? = when (this) {
+        is TdApi.StoryContentPhoto -> photo.sizes.orEmpty()
+            .maxByOrNull { it.width.toLong() * it.height }
+            ?.let { it.width to it.height }
+        is TdApi.StoryContentVideo -> video.width to video.height
         else -> null
     }
 
@@ -1186,7 +1227,9 @@ internal class TdStories(
         val createdAt: Long,
         val caption: String = "",
         val mediaKind: String = "",
-        val mediaSize: Long = 0L
+        val mediaSize: Long = 0L,
+        val mediaWidth: Int = 0,
+        val mediaHeight: Int = 0
     )
 
     private companion object {
@@ -1194,6 +1237,7 @@ internal class TdStories(
         const val POST_TIMEOUT_MS = 60_000L
         const val SUBMISSION_LOOKUP_MS = 60_000L
         const val SUBMISSION_RECOVERY_MS = 15 * 60_000L
+        const val PENDING_STORY_WINDOW_MS = 15_000L
         const val RECENT_STORY_WINDOW_MS = 2 * 60_000L
         const val ARCHIVE_PAGE_SIZE = 100
         const val MAX_ACTIVE_STORY_PAGES = 5
