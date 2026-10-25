@@ -56,14 +56,14 @@
     <string name="account_security_phone_title">Phone number</string>
     <string name="account_security_phone_current">Current number: %1$s</string>
     <string name="account_security_phone_unavailable_title">Phone number change is unavailable</string>
-    <string name="account_security_phone_unavailable_body">Telegram allows changing a phone number through TDLib only in official Android and iOS apps. BeyGram cannot safely perform this operation: change the number in the official Telegram app and it will update here. The account, chats and other devices are preserved.</string>
+    <string name="account_security_phone_unavailable_body">Telegram allows changing a phone number only in official Android and iOS apps. BeyGram cannot safely perform this operation: change the number in the official Telegram app and it will update here. The account, chats and other devices are preserved.</string>
 
     <string name="account_security_delete_title">Delete account</string>
     <string name="account_security_delete_description">Deletes the account on Telegram servers together with cloud chats, contacts and group memberships. This is not a regular sign-out on this device.</string>
     <string name="account_security_delete_action">Delete account permanently</string>
     <string name="account_security_delete_dialog_title">Delete the account permanently?</string>
     <string name="account_security_delete_warning">This cannot be undone: Telegram will delete the account and all related server data. The phone number can be used for a new account.</string>
-    <string name="account_security_delete_local_note_primary">BeyGram does not delete the main account local TDLib database: after the server account is deleted, it stays on the device. Other accounts are not affected.</string>
+    <string name="account_security_delete_local_note_primary">BeyGram does not delete the local data of the main account: after the server account is deleted, it stays on the device. Other accounts are not affected.</string>
     <string name="account_security_delete_local_note_secondary">After server confirmation, BeyGram deletes only this account local session. Other accounts are not affected.</string>
     <string name="account_security_delete_type_word">Type “%1$s” to confirm</string>
     <string name="account_security_delete_confirm_word">DELETE</string>

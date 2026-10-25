@@ -56,14 +56,14 @@
     <string name="account_security_phone_title">Номер телефона</string>
     <string name="account_security_phone_current">Текущий номер: %1$s</string>
     <string name="account_security_phone_unavailable_title">Смена номера недоступна</string>
-    <string name="account_security_phone_unavailable_body">Telegram разрешает менять номер через TDLib только официальным приложениям Android и iOS. BeyGram не может безопасно выполнить эту операцию: смените номер в официальном Telegram, и он обновится здесь. Аккаунт, чаты и другие устройства сохранятся.</string>
+    <string name="account_security_phone_unavailable_body">Telegram разрешает менять номер только официальным приложениям Android и iOS. BeyGram не может безопасно выполнить эту операцию: смените номер в официальном Telegram, и он обновится здесь. Аккаунт, чаты и другие устройства сохранятся.</string>
 
     <string name="account_security_delete_title">Удаление аккаунта</string>
     <string name="account_security_delete_description">Удаляет аккаунт на серверах Telegram вместе с облачными чатами, контактами и членством в группах. Это не обычный выход из аккаунта на этом устройстве.</string>
     <string name="account_security_delete_action">Удалить аккаунт навсегда</string>
     <string name="account_security_delete_dialog_title">Удалить аккаунт навсегда?</string>
     <string name="account_security_delete_warning">Это действие необратимо: Telegram удалит аккаунт и все связанные с ним данные с серверов. Номер телефона можно будет использовать для нового аккаунта.</string>
-    <string name="account_security_delete_local_note_primary">BeyGram не удаляет локальную базу TDLib основного аккаунта: после удаления аккаунта на сервере она останется на устройстве. Другие аккаунты не затрагиваются.</string>
+    <string name="account_security_delete_local_note_primary">BeyGram не удаляет локальные данные основного аккаунта: после удаления аккаунта на сервере они останутся на устройстве. Другие аккаунты не затрагиваются.</string>
     <string name="account_security_delete_local_note_secondary">После подтверждения сервером BeyGram удалит локальную сессию только этого аккаунта. Другие аккаунты не затрагиваются.</string>
     <string name="account_security_delete_type_word">Введите «%1$s», чтобы подтвердить</string>
     <string name="account_security_delete_confirm_word">УДАЛИТЬ</string>

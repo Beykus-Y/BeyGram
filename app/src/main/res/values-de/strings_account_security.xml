@@ -56,14 +56,14 @@
     <string name="account_security_phone_title">Telefonnummer</string>
     <string name="account_security_phone_current">Aktuelle Nummer: %1$s</string>
     <string name="account_security_phone_unavailable_title">Nummernwechsel nicht verfügbar</string>
-    <string name="account_security_phone_unavailable_body">Telegram erlaubt den Nummernwechsel über TDLib nur in offiziellen Android- und iOS-Apps. BeyGram kann diesen Vorgang nicht sicher ausführen: Ändern Sie die Nummer in der offiziellen Telegram-App, dann wird sie hier aktualisiert. Konto, Chats und andere Geräte bleiben erhalten.</string>
+    <string name="account_security_phone_unavailable_body">Telegram erlaubt den Nummernwechsel nur in offiziellen Android- und iOS-Apps. BeyGram kann diesen Vorgang nicht sicher ausführen: Ändern Sie die Nummer in der offiziellen Telegram-App, dann wird sie hier aktualisiert. Konto, Chats und andere Geräte bleiben erhalten.</string>
 
     <string name="account_security_delete_title">Konto löschen</string>
     <string name="account_security_delete_description">Löscht das Konto auf den Telegram-Servern zusammen mit Cloud-Chats, Kontakten und Gruppenmitgliedschaften. Das ist keine normale Abmeldung auf diesem Gerät.</string>
     <string name="account_security_delete_action">Konto endgültig löschen</string>
     <string name="account_security_delete_dialog_title">Konto endgültig löschen?</string>
     <string name="account_security_delete_warning">Das kann nicht rückgängig gemacht werden: Telegram löscht das Konto und alle zugehörigen Serverdaten. Die Telefonnummer kann für ein neues Konto verwendet werden.</string>
-    <string name="account_security_delete_local_note_primary">BeyGram löscht die lokale TDLib-Datenbank des Hauptkontos nicht: Nach dem Löschen des Serverkontos bleibt sie auf dem Gerät. Andere Konten sind nicht betroffen.</string>
+    <string name="account_security_delete_local_note_primary">BeyGram löscht die lokalen Daten des Hauptkontos nicht: Nach dem Löschen des Serverkontos bleiben sie auf dem Gerät. Andere Konten sind nicht betroffen.</string>
     <string name="account_security_delete_local_note_secondary">Nach der Serverbestätigung löscht BeyGram nur die lokale Sitzung dieses Kontos. Andere Konten sind nicht betroffen.</string>
     <string name="account_security_delete_type_word">Geben Sie „%1$s“ zur Bestätigung ein</string>
     <string name="account_security_delete_confirm_word">LÖSCHEN</string>
