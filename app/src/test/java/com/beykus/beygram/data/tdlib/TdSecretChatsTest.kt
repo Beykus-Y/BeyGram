@@ -50,6 +50,13 @@ class TdSecretChatsTest {
     }
 
     @Test
+    fun `lifecycle update cannot roll back a newer ttl`() {
+        assertEquals(86_400, mergedSecretChatTtl(currentTtl = 86_400, fallbackTtl = 0))
+        assertEquals(3_600, mergedSecretChatTtl(currentTtl = null, fallbackTtl = 3_600))
+        assertEquals(0, mergedSecretChatTtl(currentTtl = -1, fallbackTtl = 3_600))
+    }
+
+    @Test
     fun `expired content keeps the attachment kind for a placeholder`() {
         assertEquals(MediaKind.Photo, expiredMediaKindOf(TdApi.MessageExpiredPhoto()))
         assertEquals(MediaKind.Video, expiredMediaKindOf(TdApi.MessageExpiredVideo()))

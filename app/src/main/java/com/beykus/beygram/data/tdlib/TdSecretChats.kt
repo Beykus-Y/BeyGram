@@ -71,7 +71,9 @@ internal class TdSecretChats(private val requests: TdRequests) {
 
     /** Applies UpdateSecretChat. The chat id is resolved by the repository from the chat cache. */
     fun apply(chatId: Long, secret: TdApi.SecretChat, ttlSeconds: Int) {
-        put(secret.toDetails(chatId, ttlSeconds))
+        // TdProfiles does not cache UpdateChatMessageAutoDeleteTime, so a lifecycle/key update can carry an older TTL.
+        // Keep the directory's current value whenever it was already loaded.
+        put(secret.toDetails(chatId, mergedSecretChatTtl(_details.value[chatId]?.ttlSeconds, ttlSeconds)))
     }
 
     fun applyTtl(chatId: Long, ttlSeconds: Int) {
@@ -119,6 +121,10 @@ internal fun secretChatStateOf(state: TdApi.SecretChatState): SecretChatState = 
     is TdApi.SecretChatStateReady -> SecretChatState.Ready
     else -> SecretChatState.Closed
 }
+
+/** Prefers the TTL already published by UpdateChatMessageAutoDeleteTime over a stale Chat snapshot. */
+internal fun mergedSecretChatTtl(currentTtl: Int?, fallbackTtl: Int): Int =
+    currentTtl?.coerceAtLeast(0) ?: fallbackTtl.coerceAtLeast(0)
 
 internal fun TdApi.SecretChat.toDetails(chatId: Long, ttlSeconds: Int): SecretChatDetails = SecretChatDetails(
     chatId = chatId,
