@@ -118,6 +118,7 @@ import com.beykus.beygram.ui.screens.settings.StableUpdatesScreen
 import com.beykus.beygram.ui.screens.start.StartScreen
 import com.beykus.beygram.ui.screens.profile.ChannelStatisticsScreen
 import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
+import com.beykus.beygram.ui.screens.profile.GroupManagementScreen
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
 import com.beykus.beygram.ui.screens.theme.AppearanceDraftSaver
 import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
@@ -1498,6 +1499,7 @@ private fun BeyGramAppContent(
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
+            onManage = { routeName = AppRoute.ChatManagement.name },
             onStatistics = if (canOpenGroupStatistics(info.info)) {
                 {
                     statisticsReturnRouteName = AppRoute.ChatInfo.name
@@ -1544,6 +1546,18 @@ private fun BeyGramAppContent(
                 observeFile = repository::observeFile, downloadFile = repository::downloadFile,
                 onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatMembers) },
                 onBack = { routeName = AppRoute.ChatInfo.name })
+        }
+    }
+    val chatManagementRoute: @Composable () -> Unit = {
+        key(selectedChatId) {
+            GroupManagementScreen(
+                chatId = selectedChatId,
+                repository = repository,
+                observeFile = repository::observeFile,
+                downloadFile = repository::downloadFile,
+                onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatManagement) },
+                onBack = { routeName = AppRoute.ChatInfo.name }
+            )
         }
     }
     val memberProfileRoute: @Composable () -> Unit = {
@@ -1758,6 +1772,7 @@ private fun BeyGramAppContent(
                     )
                 }
                 AppRoute.ChatMembers -> chatMembersRoute()
+                AppRoute.ChatManagement -> chatManagementRoute()
                 AppRoute.MemberProfile -> memberProfileRoute()
                 AppRoute.MyProfile -> {
                     LaunchedEffect(repository) { repository.refreshMyProfile() }
