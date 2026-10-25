@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -400,6 +401,23 @@ internal class TdStories(
         activePeriodSeconds: Int,
         protectContent: Boolean,
         keepInProfile: Boolean
+    ): Result<StoryPostTicket> {
+        // Submission is process-owned: leaving the publisher must not orphan an already submitted
+        // PostStory request. The repository also tracks/handles its terminal update.
+        val operation = scope.async {
+            publishStoryRequest(media, caption, privacy, selectedUserIds, activePeriodSeconds, protectContent, keepInProfile)
+        }
+        return operation.await()
+    }
+
+    private suspend fun publishStoryRequest(
+        media: OutgoingMedia,
+        caption: String,
+        privacy: StoryPrivacy,
+        selectedUserIds: List<Long>,
+        activePeriodSeconds: Int,
+        protectContent: Boolean,
+        keepInProfile: Boolean
     ): Result<StoryPostTicket> = storyRequest(POST_TIMEOUT_MS) {
         if (media.kind != MediaKind.Photo && media.kind != MediaKind.Video) {
             throw UserMessageException(UiText.Res(R.string.stories_media_invalid))
@@ -420,10 +438,6 @@ internal class TdStories(
             throw UserMessageException(UiText.Res(R.string.stories_selected_empty))
         }
         val chatId = ensureSelfChatId()
-        val permission = requests(TdApi.CanPostStory(chatId)).toPermission()
-        if (permission is StoryPostPermission.Denied) {
-            throw UserMessageException(permission.reason.message())
-        }
         val content = when (media.kind) {
             MediaKind.Photo -> TdApi.InputStoryContentPhoto(TdApi.InputFileLocal(media.path), intArrayOf())
             else -> TdApi.InputStoryContentVideo(
@@ -449,6 +463,7 @@ internal class TdStories(
         ), POST_TIMEOUT_MS)
         val ticket = StoryPostTicket(chatId, story.id, story.isBeingPosted, story.content.uploadFileIds())
         if (ticket.isPending) trackUpload(ticket, media)
+        else markPublishedStoryUpload(media, ticket.fileIds)
         ticket
     }
 
@@ -594,16 +609,6 @@ internal class TdStories(
         is TdApi.CanPostStoryResultBoostNeeded -> StoryPostDenial.BoostRequired
         is TdApi.CanPostStoryResultLiveStoryIsActive -> StoryPostDenial.LiveStoryActive
         else -> StoryPostDenial.Unavailable
-    }
-
-    private fun StoryPostDenial.message(): UiText = when (this) {
-        StoryPostDenial.PremiumRequired -> UiText.Res(R.string.stories_denied_premium)
-        StoryPostDenial.ActiveStoryLimit -> UiText.Res(R.string.stories_denied_active_limit)
-        StoryPostDenial.WeeklyLimit -> UiText.Res(R.string.stories_denied_weekly)
-        StoryPostDenial.MonthlyLimit -> UiText.Res(R.string.stories_denied_monthly)
-        StoryPostDenial.BoostRequired -> UiText.Res(R.string.stories_denied_boost)
-        StoryPostDenial.LiveStoryActive -> UiText.Res(R.string.stories_denied_live)
-        StoryPostDenial.Unavailable -> UiText.Res(R.string.stories_denied_unknown)
     }
 
     private suspend fun <T> storyRequest(timeoutMillis: Long = DEFAULT_TIMEOUT_MS, block: suspend () -> T): Result<T> =
