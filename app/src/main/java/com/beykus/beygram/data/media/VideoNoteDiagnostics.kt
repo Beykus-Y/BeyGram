@@ -53,12 +53,17 @@ data class VideoNoteDiagnosticReport(
     /** Localized explanation of the FPS fallback; survives app restarts with the report. */
     val fallbackReason: String? = null,
     /** Stable enum key of [VideoNoteFpsCause]; safe for machine-readable reports. */
-    val fpsCause: String? = null
+    val fpsCause: String? = null,
+    /** Timestamp/A/V metrics of the RAW recording; null when the stage was not measured. */
+    val rawTiming: VideoNoteStageTiming? = null,
+    /** Timestamp/A/V metrics of the exported MP4; null when the stage was not measured. */
+    val outputTiming: VideoNoteStageTiming? = null
 ) {
     /** [statusLabel] turns a [VideoNoteStatus] key into the localized label shown in the list. */
     fun asText(context: Context, statusLabel: (String) -> String, compact: Boolean = false): String = buildString {
         fun fps(value: Double?) = value?.let { String.format(Locale.US, "%.2f", it) }
             ?: context.getString(R.string.loss_report_not_measured)
+        val stage = videoNoteFpsLimitStage(targetFps, attemptedMaxFps, rawFps, outputFps)
         appendLine(context.getString(R.string.vn_report_heading))
         appendLine(context.getString(R.string.vn_report_session, id))
         appendLine(context.getString(R.string.vn_report_time, Date(startedAt).toString()))
@@ -67,12 +72,23 @@ data class VideoNoteDiagnosticReport(
             attemptedMaxFps?.toString() ?: context.getString(R.string.camera_report_range_default)))
         appendLine(context.getString(R.string.vn_report_raw, fps(rawFps)))
         appendLine(context.getString(R.string.vn_report_final, fps(outputFps)))
-        appendLine(context.getString(R.string.vn_report_stage,
-            fpsLimitStageText(context, videoNoteFpsLimitStage(targetFps, attemptedMaxFps, rawFps, outputFps))))
+        appendLine(context.getString(R.string.vn_report_stage, fpsLimitStageText(context, stage)))
+        rawTiming?.let {
+            appendLine(context.getString(R.string.vn_report_raw_timing))
+            stageTimingLines(context, it).forEach(::appendLine)
+        }
+        outputTiming?.let {
+            appendLine(context.getString(R.string.vn_report_output_timing))
+            stageTimingLines(context, it).forEach(::appendLine)
+        }
         if (compact) {
             appendLine(context.getString(R.string.camera_report_device,
                 Build.MANUFACTURER, Build.MODEL, Build.VERSION.SDK_INT))
             fallbackReason?.let { appendLine(context.getString(R.string.vn_report_fallback, it)) }
+        }
+        if (fpsCause != null) {
+            appendLine(context.getString(R.string.vn_report_advice,
+                videoNoteQualityAdvice(context, fpsCause, attemptedMaxFps ?: targetFps, stage)))
         }
         if (sensorFps != null || rawFps != null || outputFps != null) {
             appendLine(rootCauseText(context, diagnoseVideoNoteFps(VideoNoteStageEvidence(
@@ -135,7 +151,9 @@ object VideoNoteDiagnostics {
                     attemptedMaxFps = if (json.has("attemptedMaxFps")) json.getInt("attemptedMaxFps") else null,
                     sensorFps = if (json.has("sensorFps")) json.getDouble("sensorFps") else null,
                     fallbackReason = if (json.has("fallbackReason")) json.getString("fallbackReason") else null,
-                    fpsCause = if (json.has("fpsCause")) json.getString("fpsCause") else null
+                    fpsCause = if (json.has("fpsCause")) json.getString("fpsCause") else null,
+                    rawTiming = json.optJSONObject("rawTiming")?.toStageTiming(),
+                    outputTiming = json.optJSONObject("outputTiming")?.toStageTiming()
                 )
             }
         }.onFailure { Log.w(TAG, "Cannot read stored video diagnostics: ${it.javaClass.simpleName}") }
@@ -264,38 +282,74 @@ object VideoNoteDiagnostics {
             text(if (changed) R.string.vn_entry_fov_changed else R.string.vn_entry_fov_unchanged)))
     }
 
-    suspend fun inspect(id: String, stage: String, file: File, output: Boolean = false) {
+    /**
+     * Reads encoded sample timestamps and audio timing of one finalized file. [exportFrameCount] is
+     * what Media3 Transformer reported for this export; it is compared with the container sample
+     * count, never presented as a visual-quality result.
+     */
+    suspend fun inspect(
+        id: String,
+        stage: String,
+        file: File,
+        output: Boolean = false,
+        exportFrameCount: Int? = null
+    ) {
         if (!hasReport(id)) return
+        // The recording's explicit attempted rate is a valid baseline when the container omits
+        // KEY_FRAME_RATE. It is labelled TARGET_FPS in the report, never presented as file metadata.
+        val targetFps = mutableReports.value.firstOrNull { it.id == id }
+            ?.let { it.attemptedMaxFps ?: it.targetFps }
         // Run after the camera/Transformer has finalized the MP4; only encoded sample PTS are read.
-        val result = withContext(Dispatchers.IO) { runCatching { analyzeVideoNoteFrameSamples(file) } }
+        val result = withContext(Dispatchers.IO) {
+            runCatching { analyzeVideoNoteFrameSamples(file, targetFps) }
+        }
         val audioResult = withContext(Dispatchers.IO) { runCatching { analyzeVideoNoteAudio(file) } }
         val audio = audioResult.getOrNull()
         result.fold(
             onSuccess = { data ->
-                fun orUnknown(v: Number?, divisor: Int = 1) = v?.let { (it.toLong() / divisor).toString() } ?: "?"
-                val avLine = if (audioResult.isFailure) text(R.string.vn_entry_av_failed, audioResult.exceptionOrNull()?.javaClass?.simpleName ?: "?")
-                else avSyncOf(data.firstVideoUs, data.lastVideoUs, audio)?.let { sync ->
-                    if (audio != null && audio.sampleCount == 0) text(R.string.vn_entry_av_unreadable)
-                    else if (sync.verdict == AvSyncVerdict.NO_AUDIO) text(R.string.vn_entry_av_none)
-                    else text(R.string.vn_entry_av, orUnknown(audio?.sampleRate), orUnknown(audio?.channels),
-                        orUnknown(audio?.bitrateBps, 1000), String.format(Locale.US, "%.0f", sync.startOffsetMs),
-                        String.format(Locale.US, "%.0f", sync.endOffsetMs), String.format(Locale.US, "%.0f", sync.driftMs),
-                        text(when (sync.verdict) {
-                            AvSyncVerdict.IN_SYNC, AvSyncVerdict.NO_AUDIO -> R.string.vn_av_in_sync
-                            AvSyncVerdict.START_OFFSET -> R.string.vn_av_start_offset
-                            AvSyncVerdict.DRIFT -> R.string.vn_av_drift
-                        }))
+                // A failed/unreadable audio inspection is not proof that the file has no audio.
+                // Keep the persisted A/V snapshot null instead of storing NO_AUDIO with zero offsets.
+                val sync = if (audioResult.isFailure || audio?.sampleCount == 0) {
+                    null
+                } else avSyncOf(data.firstVideoUs, data.lastVideoUs, audio)
+                val timing = videoNoteStageTiming(data.frameCount, data.timing, audio, sync, exportFrameCount)
+                val avLine = when {
+                    audioResult.isFailure -> text(R.string.vn_entry_av_failed,
+                        audioResult.exceptionOrNull()?.javaClass?.simpleName ?: "?")
+                    audio == null -> text(R.string.vn_entry_av_none)
+                    audio.sampleCount == 0 -> text(R.string.vn_entry_av_unreadable)
+                    sync == null -> text(R.string.vn_entry_av_unmeasured)
+                    sync.verdict == AvSyncVerdict.NO_AUDIO -> text(R.string.vn_entry_av_none)
+                    else -> {
+                        fun orUnknown(v: Number?, divisor: Int = 1) =
+                            v?.let { (it.toLong() / divisor).toString() } ?: "?"
+                        text(R.string.vn_entry_av, orUnknown(audio.sampleRate), orUnknown(audio.channels),
+                            orUnknown(audio.bitrateBps, 1000),
+                            String.format(Locale.US, "%.0f", sync.startOffsetMs),
+                            String.format(Locale.US, "%.0f", sync.endOffsetMs),
+                            String.format(Locale.US, "%.0f", sync.driftMs),
+                            text(when (sync.verdict) {
+                                AvSyncVerdict.IN_SYNC, AvSyncVerdict.NO_AUDIO -> R.string.vn_av_in_sync
+                                AvSyncVerdict.START_OFFSET -> R.string.vn_av_start_offset
+                                AvSyncVerdict.DRIFT -> R.string.vn_av_drift
+                            }))
+                    }
                 }
                 modify(id) { old ->
                     val raw = if (output) old.rawFps else data.measuredFps
                     val final = if (output) data.measuredFps else old.outputFps
                     val finding = if (output) videoNoteFpsLimitStage(old.targetFps, old.attemptedMaxFps, raw, final) else null
+                    val context = localContext ?: appContext
+                    val detail = listOf(stage + ": " + (context?.let(data::summary) ?: data.frameCount)) +
+                        (context?.let { stageTimingLines(it, timing) } ?: emptyList()) +
+                        listOf(avLine) +
+                        listOfNotNull(finding?.let { text(R.string.vn_entry_finding, stageText(it)) })
                     old.copy(
                         rawFps = raw,
                         outputFps = final,
-                        entries = (old.entries + stamp("$stage: ${localContext?.let(data::summary) ?: data.frameCount}") +
-                            listOfNotNull(avLine?.let(::stamp)) +
-                            listOfNotNull(finding?.let { stamp(text(R.string.vn_entry_finding, stageText(it))) })).takeLast(MAX_ENTRIES)
+                        rawTiming = if (output) old.rawTiming else timing,
+                        outputTiming = if (output) timing else old.outputTiming,
+                        entries = (old.entries + detail.map(::stamp)).takeLast(MAX_ENTRIES)
                     )
                 }
             },
@@ -336,6 +390,8 @@ object VideoNoteDiagnostics {
                     report.sensorFps?.let { put("sensorFps", it) }
                     report.fallbackReason?.let { put("fallbackReason", it) }
                     report.fpsCause?.let { put("fpsCause", it) }
+                    report.rawTiming?.let { put("rawTiming", it.toJson()) }
+                    report.outputTiming?.let { put("outputTiming", it.toJson()) }
                 })
             }
             val bytes = array.toString().toByteArray(Charsets.UTF_8)
@@ -363,3 +419,106 @@ object VideoNoteDiagnostics {
         return "[$time] $message"
     }
 }
+
+/** Detailed but compact timing lines shared by the TXT report and the full log. */
+internal fun stageTimingLines(context: Context, timing: VideoNoteStageTiming): List<String> {
+    fun value(number: Number?): String = number?.toString() ?: context.getString(R.string.loss_no_data)
+    fun ms(number: Double?): String = number?.let { String.format(Locale.US, "%.1f", it) }
+        ?: context.getString(R.string.loss_no_data)
+    val lines = mutableListOf<String>()
+    if (timing.p50GapMs == null && timing.p95GapMs == null && timing.maxGapMs == null) {
+        lines += context.getString(R.string.vn_entry_timing_unknown)
+    } else {
+        lines += context.getString(R.string.vn_report_timing_line,
+            ms(timing.p50GapMs), ms(timing.p95GapMs), ms(timing.maxGapMs),
+            ms(timing.coveredMs), timingSourceText(context, timing.timingSource),
+            value(timing.expectedFrames), value(timing.estimatedDroppedFrames),
+            timing.repeatedTimestamps ?: 0, timing.reorderedTimestamps ?: 0)
+    }
+    val audioCount = timing.audioSampleCount ?: 0
+    if (audioCount > 0) {
+        lines += context.getString(R.string.vn_report_timing_audio,
+            audioCount, ms(timing.audioGapP50Ms), ms(timing.audioGapP95Ms), ms(timing.audioMaxGapMs),
+            timing.audioRepeatedTimestamps ?: 0)
+    }
+    val verdict = timing.avVerdict
+    if (verdict != null && verdict != AvSyncVerdict.NO_AUDIO) {
+        lines += context.getString(R.string.vn_report_timing_av,
+            ms(timing.avStartOffsetMs), ms(timing.avEndOffsetMs), ms(timing.avDriftMs),
+            context.getString(when (verdict) {
+                AvSyncVerdict.IN_SYNC, AvSyncVerdict.NO_AUDIO -> R.string.vn_av_in_sync
+                AvSyncVerdict.START_OFFSET -> R.string.vn_av_start_offset
+                AvSyncVerdict.DRIFT -> R.string.vn_av_drift
+            }))
+    }
+    timing.exportFrameCount?.let { exported ->
+        lines += context.getString(R.string.vn_report_timing_export,
+            exported, timing.frameCount, timing.frameCount - exported)
+    }
+    return lines
+}
+
+internal fun timingSourceText(context: Context, source: VideoNoteTimingSource?): String = context.getString(when (source) {
+    VideoNoteTimingSource.FILE_FPS -> R.string.vn_timing_source_file
+    VideoNoteTimingSource.TARGET_FPS -> R.string.vn_timing_source_target
+    VideoNoteTimingSource.MEDIAN_GAP -> R.string.vn_timing_source_median
+    VideoNoteTimingSource.UNKNOWN, null -> R.string.vn_timing_source_unknown
+})
+
+private fun VideoNoteStageTiming.toJson(): JSONObject = JSONObject().apply {
+    put("frameCount", frameCount)
+    p50GapMs?.let { put("p50GapMs", it) }
+    p95GapMs?.let { put("p95GapMs", it) }
+    maxGapMs?.let { put("maxGapMs", it) }
+    coveredMs?.let { put("coveredMs", it) }
+    timingSource?.let { put("timingSource", it.name) }
+    expectedIntervalMs?.let { put("expectedIntervalMs", it) }
+    expectedFrames?.let { put("expectedFrames", it) }
+    estimatedDroppedFrames?.let { put("estimatedDroppedFrames", it) }
+    repeatedTimestamps?.let { put("repeatedTimestamps", it) }
+    reorderedTimestamps?.let { put("reorderedTimestamps", it) }
+    audioSampleCount?.let { put("audioSampleCount", it) }
+    audioGapP50Ms?.let { put("audioGapP50Ms", it) }
+    audioGapP95Ms?.let { put("audioGapP95Ms", it) }
+    audioMaxGapMs?.let { put("audioMaxGapMs", it) }
+    audioRepeatedTimestamps?.let { put("audioRepeatedTimestamps", it) }
+    avStartOffsetMs?.let { put("avStartOffsetMs", it) }
+    avEndOffsetMs?.let { put("avEndOffsetMs", it) }
+    avDriftMs?.let { put("avDriftMs", it) }
+    avVerdict?.let { put("avVerdict", it.name) }
+    exportFrameCount?.let { put("exportFrameCount", it) }
+}
+
+private fun JSONObject.toStageTiming(): VideoNoteStageTiming? {
+    if (!has("frameCount")) return null
+    fun enumValue(name: String): String? = optString(name, "").takeIf { it.isNotBlank() }
+    return VideoNoteStageTiming(
+        frameCount = optInt("frameCount", 0),
+        p50GapMs = optDoubleOrNull("p50GapMs"),
+        p95GapMs = optDoubleOrNull("p95GapMs"),
+        maxGapMs = optDoubleOrNull("maxGapMs"),
+        coveredMs = optDoubleOrNull("coveredMs"),
+        timingSource = enumValue("timingSource")?.let { runCatching { VideoNoteTimingSource.valueOf(it) }.getOrNull() },
+        expectedIntervalMs = optDoubleOrNull("expectedIntervalMs"),
+        expectedFrames = optIntOrNull("expectedFrames"),
+        estimatedDroppedFrames = optIntOrNull("estimatedDroppedFrames"),
+        repeatedTimestamps = optIntOrNull("repeatedTimestamps"),
+        reorderedTimestamps = optIntOrNull("reorderedTimestamps"),
+        audioSampleCount = optIntOrNull("audioSampleCount"),
+        audioGapP50Ms = optDoubleOrNull("audioGapP50Ms"),
+        audioGapP95Ms = optDoubleOrNull("audioGapP95Ms"),
+        audioMaxGapMs = optDoubleOrNull("audioMaxGapMs"),
+        audioRepeatedTimestamps = optIntOrNull("audioRepeatedTimestamps"),
+        avStartOffsetMs = optDoubleOrNull("avStartOffsetMs"),
+        avEndOffsetMs = optDoubleOrNull("avEndOffsetMs"),
+        avDriftMs = optDoubleOrNull("avDriftMs"),
+        avVerdict = enumValue("avVerdict")?.let { runCatching { AvSyncVerdict.valueOf(it) }.getOrNull() },
+        exportFrameCount = optIntOrNull("exportFrameCount")
+    )
+}
+
+private fun JSONObject.optDoubleOrNull(key: String): Double? =
+    if (has(key) && !isNull(key)) optDouble(key) else null
+
+private fun JSONObject.optIntOrNull(key: String): Int? =
+    if (has(key) && !isNull(key)) optInt(key) else null

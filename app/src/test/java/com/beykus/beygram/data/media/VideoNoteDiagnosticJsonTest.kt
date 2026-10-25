@@ -77,6 +77,46 @@ class VideoNoteDiagnosticJsonTest {
         assertEquals(listOf("detail one", "detail two"), full.entries)
     }
 
+    @Test fun timingMetricsRoundTripWithoutLosingUnknownValues() {
+        val timing = VideoNoteStageTiming(
+            frameCount = 120,
+            p50GapMs = 16.7,
+            p95GapMs = 34.2,
+            maxGapMs = 120.0,
+            coveredMs = 2_000.0,
+            timingSource = VideoNoteTimingSource.FILE_FPS,
+            expectedIntervalMs = 16.7,
+            expectedFrames = 121,
+            estimatedDroppedFrames = 3,
+            repeatedTimestamps = 1,
+            reorderedTimestamps = 0,
+            audioSampleCount = 2_000,
+            audioGapP50Ms = 21.3,
+            avStartOffsetMs = 12.0,
+            avEndOffsetMs = 15.0,
+            avDriftMs = 3.0,
+            avVerdict = AvSyncVerdict.IN_SYNC,
+            exportFrameCount = 120
+        )
+        val source = VideoNoteDiagnosticReport(
+            id = "session-timing",
+            startedAt = 1_700_000_000_000L,
+            status = VideoNoteStatus.SENT,
+            targetFps = 60,
+            entries = emptyList(),
+            attemptedMaxFps = 60,
+            rawFps = 59.8,
+            outputFps = 59.5,
+            fpsCause = VideoNoteFpsCause.AS_REQUESTED.name,
+            rawTiming = timing,
+            outputTiming = timing.copy(estimatedDroppedFrames = null)
+        )
+        val decoded = VideoNoteDiagnosticJson.decode(source.asJson(compact = true))!!.reports.single()
+        assertEquals(timing.toJsonTiming(), decoded.rawTiming)
+        assertEquals(timing.copy(estimatedDroppedFrames = null).toJsonTiming(), decoded.outputTiming)
+        assertTrue(decoded.entries.isEmpty())
+    }
+
     @Test fun unknownSchemaVersionIsRejectedNotGuessed() {
         val encoded = VideoNoteDiagnosticJson.encode(
             VideoNoteDiagnosticJsonDocument(1L, false, listOf(report()))

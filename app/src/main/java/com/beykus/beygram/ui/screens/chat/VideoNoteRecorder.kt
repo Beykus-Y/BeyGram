@@ -11,7 +11,6 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
-import android.os.Build
 import android.os.StatFs
 import android.os.SystemClock
 import android.util.Range
@@ -739,9 +738,9 @@ internal class VideoNoteRecorder(
                     frameDurationNs = result.get(CaptureResult.SENSOR_FRAME_DURATION),
                     targetFpsRange = result.get(CaptureResult.CONTROL_AE_TARGET_FPS_RANGE)?.let { it.lower..it.upper },
                     aeState = result.get(CaptureResult.CONTROL_AE_STATE),
-                    videoStabilizationMode = if (Build.VERSION.SDK_INT >= 33) {
-                        result.get(CaptureResult.CONTROL_VIDEO_STABILIZATION_MODE)
-                    } else null,
+                    // CONTROL_VIDEO_STABILIZATION_MODE exists since API 21. Only the API 33+
+                    // PREVIEW_STABILIZATION value is newer; the key itself must be read on all levels.
+                    videoStabilizationMode = result.get(CaptureResult.CONTROL_VIDEO_STABILIZATION_MODE),
                     opticalStabilizationMode = result.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE)
                 )
             }

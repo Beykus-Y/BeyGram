@@ -14,7 +14,9 @@ internal data class VideoNoteAudioStats(
     val lastUs: Long,
     val sampleRate: Int?,
     val channels: Int?,
-    val bitrateBps: Int?
+    val bitrateBps: Int?,
+    /** Gap percentiles/repeated timestamps from the audio samples; null without usable timing. */
+    val timing: VideoNoteFrameTiming? = null
 )
 
 /** Audio against video inside one file (issue #234, §10). Offsets are audio minus video. */
@@ -26,7 +28,7 @@ internal data class VideoNoteAvSync(
     val verdict: AvSyncVerdict
 )
 
-internal enum class AvSyncVerdict { IN_SYNC, START_OFFSET, DRIFT, NO_AUDIO }
+enum class AvSyncVerdict { IN_SYNC, START_OFFSET, DRIFT, NO_AUDIO }
 
 /** Tolerance for a clip to count as in sync: about three frames at 30 FPS. */
 internal const val AV_SYNC_TOLERANCE_MS = 100.0
@@ -65,6 +67,7 @@ internal fun analyzeVideoNoteAudio(file: File): VideoNoteAudioStats? {
         var count = 0
         var first = Long.MAX_VALUE
         var last = Long.MIN_VALUE
+        val timestamps = ArrayList<Long>(1024)
         // The end of the track is signalled by readSampleData, not by a negative time: an MP4 written with an
         // edit list (the exported file) can start its audio before zero, and that must not read as "no audio".
         val buffer = ByteBuffer.allocate(AUDIO_SAMPLE_BUFFER_BYTES)
@@ -73,6 +76,7 @@ internal fun analyzeVideoNoteAudio(file: File): VideoNoteAudioStats? {
             val pts = extractor.sampleTime
             first = minOf(first, pts)
             last = maxOf(last, pts)
+            timestamps += pts
             count++
             if (!extractor.advance()) break
         }
@@ -81,7 +85,8 @@ internal fun analyzeVideoNoteAudio(file: File): VideoNoteAudioStats? {
             sampleCount = count, firstUs = if (count == 0) 0L else first, lastUs = if (count == 0) 0L else last,
             sampleRate = if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) format.getInteger(MediaFormat.KEY_SAMPLE_RATE) else null,
             channels = if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else null,
-            bitrateBps = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) format.getInteger(MediaFormat.KEY_BIT_RATE) else null
+            bitrateBps = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) format.getInteger(MediaFormat.KEY_BIT_RATE) else null,
+            timing = analyzeVideoNoteFrameTiming(timestamps)
         )
     } finally {
         extractor.release()

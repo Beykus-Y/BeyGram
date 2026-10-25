@@ -52,12 +52,46 @@ internal object VideoNoteDiagnosticJson {
         append(",\"confidence\":").append(report.confidence?.let { ReportJson.quote(it) } ?: "null")
         append(",\"fallback_reason\":").append(report.fallbackReason?.let { ReportJson.quote(it) } ?: "null")
         append(",\"fps_cause\":").append(report.fpsCause?.let { ReportJson.quote(it) } ?: "null")
+        append(",\"raw_timing\":")
+        appendTiming(report.rawTiming)
+        append(",\"output_timing\":")
+        appendTiming(report.outputTiming)
         append(",\"entries\":[")
         report.entries.forEachIndexed { index, entry ->
             if (index > 0) append(',')
             append(ReportJson.quote(entry))
         }
         append("]}")
+    }
+
+    private fun StringBuilder.appendTiming(timing: VideoNoteDiagnosticJsonTiming?) {
+        if (timing == null) {
+            append("null")
+            return
+        }
+        append('{')
+        append("\"frame_count\":").append(timing.frameCount)
+        append(",\"p50_gap_ms\":").append(number(timing.p50GapMs))
+        append(",\"p95_gap_ms\":").append(number(timing.p95GapMs))
+        append(",\"max_gap_ms\":").append(number(timing.maxGapMs))
+        append(",\"covered_ms\":").append(number(timing.coveredMs))
+        append(",\"timing_source\":").append(timing.timingSource?.let { ReportJson.quote(it) } ?: "null")
+        append(",\"expected_interval_ms\":").append(number(timing.expectedIntervalMs))
+        append(",\"expected_frames\":").append(timing.expectedFrames?.toString() ?: "null")
+        append(",\"estimated_dropped_frames\":").append(timing.estimatedDroppedFrames?.toString() ?: "null")
+        append(",\"repeated_timestamps\":").append(timing.repeatedTimestamps?.toString() ?: "null")
+        append(",\"reordered_timestamps\":").append(timing.reorderedTimestamps?.toString() ?: "null")
+        append(",\"audio_sample_count\":").append(timing.audioSampleCount?.toString() ?: "null")
+        append(",\"audio_p50_gap_ms\":").append(number(timing.audioGapP50Ms))
+        append(",\"audio_p95_gap_ms\":").append(number(timing.audioGapP95Ms))
+        append(",\"audio_max_gap_ms\":").append(number(timing.audioMaxGapMs))
+        append(",\"audio_repeated_timestamps\":").append(timing.audioRepeatedTimestamps?.toString() ?: "null")
+        append(",\"av_start_offset_ms\":").append(number(timing.avStartOffsetMs))
+        append(",\"av_end_offset_ms\":").append(number(timing.avEndOffsetMs))
+        append(",\"av_drift_ms\":").append(number(timing.avDriftMs))
+        append(",\"av_verdict\":").append(timing.avVerdict?.let { ReportJson.quote(it) } ?: "null")
+        append(",\"export_frame_count\":").append(timing.exportFrameCount?.toString() ?: "null")
+        append('}')
     }
 
     private fun number(value: Double?): String =
@@ -109,7 +143,36 @@ internal object VideoNoteDiagnosticJson {
             confidence = string("confidence"),
             fallbackReason = string("fallback_reason"),
             fpsCause = string("fps_cause"),
-            entries = entries
+            entries = entries,
+            rawTiming = (this["raw_timing"] as? Map<*, *>)?.toTiming(),
+            outputTiming = (this["output_timing"] as? Map<*, *>)?.toTiming()
+        )
+    }
+
+    private fun Map<*, *>.toTiming(): VideoNoteDiagnosticJsonTiming? {
+        val frames = number("frame_count")?.toInt() ?: return null
+        return VideoNoteDiagnosticJsonTiming(
+            frameCount = frames,
+            p50GapMs = number("p50_gap_ms"),
+            p95GapMs = number("p95_gap_ms"),
+            maxGapMs = number("max_gap_ms"),
+            coveredMs = number("covered_ms"),
+            timingSource = string("timing_source"),
+            expectedIntervalMs = number("expected_interval_ms"),
+            expectedFrames = number("expected_frames")?.toInt(),
+            estimatedDroppedFrames = number("estimated_dropped_frames")?.toInt(),
+            repeatedTimestamps = number("repeated_timestamps")?.toInt(),
+            reorderedTimestamps = number("reordered_timestamps")?.toInt(),
+            audioSampleCount = number("audio_sample_count")?.toInt(),
+            audioGapP50Ms = number("audio_p50_gap_ms"),
+            audioGapP95Ms = number("audio_p95_gap_ms"),
+            audioMaxGapMs = number("audio_max_gap_ms"),
+            audioRepeatedTimestamps = number("audio_repeated_timestamps")?.toInt(),
+            avStartOffsetMs = number("av_start_offset_ms"),
+            avEndOffsetMs = number("av_end_offset_ms"),
+            avDriftMs = number("av_drift_ms"),
+            avVerdict = string("av_verdict"),
+            exportFrameCount = number("export_frame_count")?.toInt()
         )
     }
 
@@ -145,7 +208,33 @@ internal data class VideoNoteDiagnosticJsonReport(
     val confidence: String?,
     val fallbackReason: String?,
     val fpsCause: String?,
-    val entries: List<String>
+    val entries: List<String>,
+    val rawTiming: VideoNoteDiagnosticJsonTiming? = null,
+    val outputTiming: VideoNoteDiagnosticJsonTiming? = null
+)
+
+internal data class VideoNoteDiagnosticJsonTiming(
+    val frameCount: Int,
+    val p50GapMs: Double? = null,
+    val p95GapMs: Double? = null,
+    val maxGapMs: Double? = null,
+    val coveredMs: Double? = null,
+    val timingSource: String? = null,
+    val expectedIntervalMs: Double? = null,
+    val expectedFrames: Int? = null,
+    val estimatedDroppedFrames: Int? = null,
+    val repeatedTimestamps: Int? = null,
+    val reorderedTimestamps: Int? = null,
+    val audioSampleCount: Int? = null,
+    val audioGapP50Ms: Double? = null,
+    val audioGapP95Ms: Double? = null,
+    val audioMaxGapMs: Double? = null,
+    val audioRepeatedTimestamps: Int? = null,
+    val avStartOffsetMs: Double? = null,
+    val avEndOffsetMs: Double? = null,
+    val avDriftMs: Double? = null,
+    val avVerdict: String? = null,
+    val exportFrameCount: Int? = null
 )
 
 internal data class VideoNoteDiagnosticJsonSection(val id: String, val text: String)
@@ -174,6 +263,32 @@ internal fun VideoNoteDiagnosticReport.toJsonReport(compact: Boolean): VideoNote
         confidence = diagnosis?.confidence?.name,
         fallbackReason = fallbackReason,
         fpsCause = fpsCause,
-        entries = if (compact) emptyList() else entries
+        entries = if (compact) emptyList() else entries,
+        rawTiming = rawTiming?.toJsonTiming(),
+        outputTiming = outputTiming?.toJsonTiming()
     )
 }
+
+internal fun VideoNoteStageTiming.toJsonTiming(): VideoNoteDiagnosticJsonTiming = VideoNoteDiagnosticJsonTiming(
+    frameCount = frameCount,
+    p50GapMs = p50GapMs,
+    p95GapMs = p95GapMs,
+    maxGapMs = maxGapMs,
+    coveredMs = coveredMs,
+    timingSource = timingSource?.name,
+    expectedIntervalMs = expectedIntervalMs,
+    expectedFrames = expectedFrames,
+    estimatedDroppedFrames = estimatedDroppedFrames,
+    repeatedTimestamps = repeatedTimestamps,
+    reorderedTimestamps = reorderedTimestamps,
+    audioSampleCount = audioSampleCount,
+    audioGapP50Ms = audioGapP50Ms,
+    audioGapP95Ms = audioGapP95Ms,
+    audioMaxGapMs = audioMaxGapMs,
+    audioRepeatedTimestamps = audioRepeatedTimestamps,
+    avStartOffsetMs = avStartOffsetMs,
+    avEndOffsetMs = avEndOffsetMs,
+    avDriftMs = avDriftMs,
+    avVerdict = avVerdict?.name,
+    exportFrameCount = exportFrameCount
+)

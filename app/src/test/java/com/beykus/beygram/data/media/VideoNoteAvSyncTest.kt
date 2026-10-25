@@ -37,4 +37,40 @@ class VideoNoteAvSyncTest {
     @Test fun brokenVideoRangeGivesNoAnswer() {
         assertNull(avSyncOf(5L, 1L, audio(0L, 1L)))
     }
+
+    @Test fun failedAudioInspectionLeavesAvSnapshotUnknown() {
+        val stage = videoNoteStageTiming(
+            frameCount = 30,
+            timing = analyzeVideoNoteFrameTiming((0 until 30).map { it * 33_333L }, declaredFps = 30),
+            audio = null,
+            sync = null
+        )
+        assertNull(stage.audioSampleCount)
+        assertNull(stage.avVerdict)
+        assertNull(stage.avStartOffsetMs)
+        assertNull(stage.avDriftMs)
+    }
+
+    @Test fun stageTimingCarriesAudioGapsAndDrift() {
+        val audio = VideoNoteAudioStats(
+            sampleCount = 5,
+            firstUs = 0L,
+            lastUs = 1_000_000L,
+            sampleRate = 48_000,
+            channels = 1,
+            bitrateBps = 128_000,
+            timing = analyzeVideoNoteFrameTiming(listOf(0L, 21_333L, 42_666L, 64_000L, 1_000_000L))
+        )
+        val sync = avSyncOf(0L, 1_000_000L, audio)!!
+        val stage = videoNoteStageTiming(
+            frameCount = 30,
+            timing = analyzeVideoNoteFrameTiming((0 until 30).map { it * 33_333L }, declaredFps = 30),
+            audio = audio,
+            sync = sync
+        )
+        assertEquals(5, stage.audioSampleCount)
+        assertEquals(21.33, stage.audioGapP50Ms!!, 0.01)
+        assertEquals(sync.driftMs, stage.avDriftMs!!, 0.001)
+        assertEquals(AvSyncVerdict.IN_SYNC, stage.avVerdict)
+    }
 }
