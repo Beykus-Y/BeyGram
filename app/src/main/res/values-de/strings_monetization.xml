@@ -128,6 +128,8 @@
     <string name="stars_tx_paid_media_sale">Bezahlte Medien verkauft</string>
     <string name="stars_tx_subscription_purchase">Abo gekauft</string>
     <string name="stars_tx_subscription_sale">Abo verkauft</string>
+    <string name="stars_tx_invoice_purchase">Rechnungszahlung</string>
+    <string name="stars_tx_invoice_sale">Rechnungsverkauf</string>
     <string name="stars_tx_withdrawal">Auszahlung</string>
     <string name="stars_tx_other">Andere Transaktion</string>
     <string name="stars_tx_refund">Rückerstattung</string>

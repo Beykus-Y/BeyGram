@@ -161,6 +161,8 @@ enum class StarTransactionKind {
     PaidMediaSale,
     SubscriptionPurchase,
     SubscriptionSale,
+    InvoicePurchase,
+    InvoiceSale,
     Withdrawal,
     Other
 }

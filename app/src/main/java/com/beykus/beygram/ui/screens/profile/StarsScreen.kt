@@ -411,6 +411,8 @@ internal fun starTransactionLabel(kind: StarTransactionKind): Int = when (kind) 
     StarTransactionKind.PaidMediaSale -> R.string.stars_tx_paid_media_sale
     StarTransactionKind.SubscriptionPurchase -> R.string.stars_tx_subscription_purchase
     StarTransactionKind.SubscriptionSale -> R.string.stars_tx_subscription_sale
+    StarTransactionKind.InvoicePurchase -> R.string.stars_tx_invoice_purchase
+    StarTransactionKind.InvoiceSale -> R.string.stars_tx_invoice_sale
     StarTransactionKind.Withdrawal -> R.string.stars_tx_withdrawal
     StarTransactionKind.Other -> R.string.stars_tx_other
 }

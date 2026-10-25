@@ -539,10 +539,10 @@ private fun TdApi.StarTransactionType.toKind(): StarTransactionKind = when (this
     is TdApi.StarTransactionTypeChannelPaidMediaPurchase -> StarTransactionKind.PaidMediaPurchase
     is TdApi.StarTransactionTypeBotPaidMediaSale,
     is TdApi.StarTransactionTypeChannelPaidMediaSale -> StarTransactionKind.PaidMediaSale
-    is TdApi.StarTransactionTypeBotInvoicePurchase,
+    is TdApi.StarTransactionTypeBotInvoicePurchase -> StarTransactionKind.InvoicePurchase
     is TdApi.StarTransactionTypeBotSubscriptionPurchase,
     is TdApi.StarTransactionTypeChannelSubscriptionPurchase -> StarTransactionKind.SubscriptionPurchase
-    is TdApi.StarTransactionTypeBotInvoiceSale,
+    is TdApi.StarTransactionTypeBotInvoiceSale -> StarTransactionKind.InvoiceSale
     is TdApi.StarTransactionTypeBotSubscriptionSale,
     is TdApi.StarTransactionTypeChannelSubscriptionSale -> StarTransactionKind.SubscriptionSale
     is TdApi.StarTransactionTypeFragmentWithdrawal,
