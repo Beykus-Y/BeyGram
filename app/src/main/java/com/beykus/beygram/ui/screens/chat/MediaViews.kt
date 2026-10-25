@@ -113,8 +113,10 @@ import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.GrowingPlaybackSource
+import com.beykus.beygram.playback.canPlayAudioProgressively
 import com.beykus.beygram.playback.growingAudioSource
-import com.beykus.beygram.playback.partialAudioPlaybackPath
+import com.beykus.beygram.playback.isDirectProgressiveAudio
+import com.beykus.beygram.playback.isMp4AudioMime
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackState
@@ -258,6 +260,51 @@ internal val pendingPlaybackRow = mutableStateOf<Any?>(null)
  */
 internal val LocalAutoDownloadFile = compositionLocalOf<((AutoDownloadRequest) -> Unit)?> { null }
 
+private data class AudioPlaybackSource(val path: String, val growing: GrowingPlaybackSource?)
+
+/**
+ * Chooses a completed path or a growing prefix. Direct audio formats are accepted immediately;
+ * MP4/M4A must be probed off the composition thread and only a positive result is retained.
+ */
+@Composable
+private fun rememberAudioPlaybackSource(
+    media: MessageMedia,
+    file: MediaFileState,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit
+): AudioPlaybackSource? {
+    if (media.kind != MediaKind.Audio && media.kind != MediaKind.Voice) return null
+    file.localPath?.let { return AudioPlaybackSource(it, null) }
+    val path = file.downloadPath ?: return null
+    if (file.size <= 0L || file.downloadedPrefixBytes <= 0L) return null
+
+    val build: (String) -> AudioPlaybackSource? = { selected ->
+        growingAudioSource(
+            state = file,
+            fileId = media.fileId,
+            mimeType = media.mimeType,
+            observeFile = observeFile,
+            onNeedMore = { downloadFile(media.fileId) },
+            assumeSupported = true
+        )?.let { AudioPlaybackSource(selected, it) }
+    }
+    if (isDirectProgressiveAudio(media.mimeType)) return build(path)
+    if (!isMp4AudioMime(media.mimeType)) return null
+
+    var probedPath by remember(media.fileId, path) { mutableStateOf<String?>(null) }
+    LaunchedEffect(path, file.size, file.downloadedPrefixBytes) {
+        if (probedPath != null) return@LaunchedEffect
+        val streamable = withContext(Dispatchers.IO) {
+            runCatching {
+                canPlayAudioProgressively(media.mimeType, path, file.downloadedPrefixBytes)
+            }.getOrDefault(false)
+        }
+        if (streamable) probedPath = path
+    }
+    val selected = probedPath ?: return null
+    return build(selected)
+}
+
 /** Track keys whose cover is still being awaited. Process-wide, so repeated taps share one observer per track. */
 private val artworkWaits: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
@@ -329,10 +376,9 @@ internal fun MediaPreview(
     }
     // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
     val audioTitle = media.kind.label(context)
-    val audioPath = partialAudioPlaybackPath(file, media.mimeType)
-    val partialGrowing: GrowingPlaybackSource? = if (file.localPath == null && audioPath != null) {
-        growingAudioSource(file, media.fileId, media.mimeType, observeFile) { downloadFile(media.fileId) }
-    } else null
+    val audioSource = rememberAudioPlaybackSource(media, file, observeFile, downloadFile)
+    val audioPath = audioSource?.path
+    val partialGrowing = audioSource?.growing
     // Голосовое ждёт загрузки в своём пузыре, поэтому здесь ожидание относится только к музыке.
     val row = remember(media.fileId) { Any() }
     val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
@@ -777,17 +823,14 @@ private fun MediaViewerPage(
             }
         )
     } else null
+    val audioSource = rememberAudioPlaybackSource(media, file, observeFile, downloadFile)
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
         // Keep the already playing progressive source when TDLib completes the same file path.
         // If TDLib reports a different final path, the normal completed-file source is used.
         val streamSource = progressive?.takeIf { path == null || it.path == path }
-        val audioPath = partialAudioPlaybackPath(file, media.mimeType)
-        val growingAudio = if (file.localPath == null && audioPath != null &&
-            (media.kind == MediaKind.Audio || media.kind == MediaKind.Voice)
-        ) {
-            growingAudioSource(file, media.fileId, media.mimeType, observeFile) { downloadFile(media.fileId) }
-        } else null
+        val audioPath = audioSource?.path
+        val growingAudio = audioSource?.growing
         when {
             spoilerHidden -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 16.sp,
                 modifier = Modifier.padding(16.dp).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onReveal))

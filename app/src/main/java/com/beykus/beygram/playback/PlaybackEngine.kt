@@ -183,6 +183,12 @@ internal fun canPlayAudioProgressively(mimeType: String, path: String?, availabl
     }
 }
 
+internal fun isDirectProgressiveAudio(mimeType: String): Boolean =
+    mimeType.substringBefore(';').trim().lowercase() in DIRECT_AUDIO_MIME
+
+internal fun isMp4AudioMime(mimeType: String): Boolean =
+    mimeType.substringBefore(';').trim().lowercase() in MP4_AUDIO_MIME
+
 /** The path to start from: completed file, or a readable partial prefix for a supported audio container. */
 internal fun partialAudioPlaybackPath(file: MediaFileState, mimeType: String): String? =
     file.localPath ?: file.downloadPath?.takeIf {
@@ -200,11 +206,12 @@ internal fun growingAudioSource(
     fileId: Int,
     mimeType: String,
     observeFile: (Int) -> StateFlow<MediaFileState>,
-    onNeedMore: () -> Unit
+    onNeedMore: () -> Unit,
+    assumeSupported: Boolean = false
 ): GrowingPlaybackSource? {
     val path = state.downloadPath ?: return null
     if (state.localPath != null || state.size <= 0L || state.downloadedPrefixBytes <= 0L) return null
-    if (!canPlayAudioProgressively(mimeType, path, state.downloadedPrefixBytes)) return null
+    if (!assumeSupported && !canPlayAudioProgressively(mimeType, path, state.downloadedPrefixBytes)) return null
     val normalized = mimeType.substringBefore(';').trim().lowercase()
     return GrowingPlaybackSource(
         totalSize = state.size,
@@ -301,6 +308,10 @@ object PlaybackEngine {
         appContext = context.applicationContext
         return object : ForwardingPlayer(created) {
             override fun play() {
+                if (deferredSeek != null) {
+                    deferredSeek = deferredSeek?.copy(resume = true)
+                    return
+                }
                 if (playbackState == Player.STATE_IDLE) prepare()
                 if (playbackState == Player.STATE_ENDED) {
                     // Секретный файл после конца не повторяется ни кнопкой уведомления, ни мини-плеером.
@@ -310,6 +321,12 @@ object PlaybackEngine {
                 // Повтор доигравшего файла снимает отметку конца сразу, чтобы возврат музыки не сработал до первого события плеера.
                 _state.update { it.copy(ended = false) }
                 super.play()
+            }
+
+            override fun pause() {
+                // System/lock-screen/headset pause must cancel a pending deferred resume as well.
+                deferredSeek = deferredSeek?.copy(resume = false)
+                super.pause()
             }
         }
     }

@@ -33,7 +33,6 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.GrowingPlaybackSource
-import com.beykus.beygram.playback.partialAudioPlaybackPath
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
@@ -62,7 +61,7 @@ internal fun VoiceBubble(
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
-    val path = partialAudioPlaybackPath(file, media.mimeType)
+    val path = file.localPath ?: file.downloadPath?.takeIf { growing != null }
     val label = media.kind.label(context)
     val key = media.playbackKey()
     val playbackState = PlaybackEngine.state.collectAsStateWithLifecycle()
