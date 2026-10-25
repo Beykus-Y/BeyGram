@@ -89,8 +89,12 @@ import kotlin.coroutines.coroutineContext
 internal data class PhotoEditorSession(
     val sourcePath: String,
     val temporary: Boolean,
-    val replaceItem: OutgoingMedia? = null
-)
+    val replaceItem: OutgoingMedia? = null,
+    val rotation: PhotoRotation = PhotoRotation.None,
+    val crop: NormalizedCrop = NormalizedCrop(),
+    val quality: PhotoExportQuality = PhotoExportQuality.High,
+    val keepOriginal: Boolean = false
+) : java.io.Serializable
 
 /** Visible progress for one video that is being re-encoded before it can be sent. */
 internal data class MediaProcessing(val path: String, val fileName: String, val progress: Float?)
@@ -106,13 +110,15 @@ internal class AttachmentState(
     private val scope: CoroutineScope,
     private val pendingState: MutableState<ArrayList<OutgoingMedia>>,
     private val errorState: MutableState<String?>,
+    private val editorState: MutableState<PhotoEditorSession?>,
     private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>
 ) {
     var menuOpen by mutableStateOf(false)
     var cameraOpen by mutableStateOf(false)
         private set
-    var editor by mutableStateOf<PhotoEditorSession?>(null)
-        private set
+    var editor: PhotoEditorSession?
+        get() = editorState.value
+        private set(value) { editorState.value = value }
     var editorSaving by mutableStateOf(false)
         private set
     var editorError by mutableStateOf<String?>(null)
@@ -210,6 +216,13 @@ internal class AttachmentState(
         editor = null
         editorError = null
         if (session.temporary) File(session.sourcePath).delete()
+    }
+
+    /** Keeps the current crop/rotation/quality in the saved editor session across recreation. */
+    fun updateEditorDraft(rotation: PhotoRotation, crop: NormalizedCrop, quality: PhotoExportQuality, keepOriginal: Boolean) {
+        val session = editor ?: return
+        if (session.rotation == rotation && session.crop == crop && session.quality == quality && session.keepOriginal == keepOriginal) return
+        editor = session.copy(rotation = rotation, crop = crop, quality = quality, keepOriginal = keepOriginal)
     }
 
     /** Sends the untouched camera take without creating an edited copy. */
@@ -504,8 +517,10 @@ internal fun rememberAttachmentState(
     val scope = rememberCoroutineScope()
     val pending = rememberSaveable(accountId, chatId) { mutableStateOf(arrayListOf<OutgoingMedia>()) }
     val error = rememberSaveable(accountId, chatId) { mutableStateOf<String?>(null) }
+    // The editor owns the only reference to an un-staged camera take; keep it across rotation.
+    val editor = rememberSaveable(accountId, chatId) { mutableStateOf<PhotoEditorSession?>(null) }
     val currentSend by androidx.compose.runtime.rememberUpdatedState(sendMedia)
-    val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error) { media, caption, options -> currentSend(media, caption, options) } }
+    val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error, editor) { media, caption, options -> currentSend(media, caption, options) } }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MediaLimits.MAX_ATTACHMENTS)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
     state.pickPhotos = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }

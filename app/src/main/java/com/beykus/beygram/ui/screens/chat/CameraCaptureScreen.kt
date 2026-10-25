@@ -130,7 +130,7 @@ internal fun CameraCaptureScreen(
         onClose()
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier.fillMaxSize().background(Color.Black).consumeOverlayPointerInput()) {
         if (cameraGranted) {
             val zoomIn = stringResource(R.string.camera_zoom_in)
             val zoomOut = stringResource(R.string.camera_zoom_out)

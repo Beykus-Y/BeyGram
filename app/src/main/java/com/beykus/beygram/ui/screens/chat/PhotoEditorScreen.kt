@@ -92,6 +92,11 @@ internal fun PhotoEditorScreen(
     saving: Boolean,
     error: String?,
     canSendOriginal: Boolean,
+    initialRotation: PhotoRotation,
+    initialCrop: NormalizedCrop,
+    initialQuality: PhotoExportQuality,
+    initialKeepOriginal: Boolean,
+    onDraftChange: (PhotoRotation, NormalizedCrop, PhotoExportQuality, Boolean) -> Unit,
     onCancel: () -> Unit,
     onSendOriginal: () -> Unit,
     onSave: (PhotoRotation, NormalizedCrop, PhotoExportQuality, Boolean) -> Unit
@@ -101,16 +106,19 @@ internal fun PhotoEditorScreen(
     val editor = remember { PhotoEditor(context) }
     var preview by remember(sourcePath) { mutableStateOf<Bitmap?>(null) }
     var loadFailed by remember(sourcePath) { mutableStateOf(false) }
-    var rotation by remember(sourcePath) { mutableStateOf(PhotoRotation.None) }
-    var crop by remember(sourcePath) { mutableStateOf(NormalizedCrop()) }
+    var rotation by remember(sourcePath) { mutableStateOf(initialRotation) }
+    var crop by remember(sourcePath) { mutableStateOf(initialCrop) }
     var aspect by remember(sourcePath) { mutableStateOf<Float?>(null) }
-    var quality by remember(sourcePath) { mutableStateOf(PhotoExportQuality.High) }
-    var keepOriginal by remember(sourcePath) { mutableStateOf(false) }
+    var quality by remember(sourcePath) { mutableStateOf(initialQuality) }
+    var keepOriginal by remember(sourcePath) { mutableStateOf(initialKeepOriginal) }
 
     LaunchedEffect(sourcePath) {
         val loaded = editor.loadPreview(File(sourcePath))
         preview = loaded?.bitmap
         loadFailed = loaded == null
+    }
+    LaunchedEffect(rotation, crop, quality, keepOriginal) {
+        onDraftChange(rotation, crop, quality, keepOriginal)
     }
     BackHandler { if (!saving) onCancel() }
 
@@ -119,7 +127,7 @@ internal fun PhotoEditorScreen(
     val shownWidth = shown?.width ?: 0
     val shownHeight = shown?.height ?: 0
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().background(palette.screen).consumeOverlayPointerInput().windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onCancel, enabled = !saving, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Rounded.Close, stringResource(R.string.photo_editor_close_description), tint = palette.textPrimary)

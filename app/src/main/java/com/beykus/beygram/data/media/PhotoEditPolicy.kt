@@ -18,7 +18,7 @@ internal data class NormalizedCrop(
     val top: Float = 0f,
     val right: Float = 1f,
     val bottom: Float = 1f
-) {
+) : java.io.Serializable {
     val width: Float get() = right - left
     val height: Float get() = bottom - top
     val isFull: Boolean get() = left <= 0f && top <= 0f && right >= 1f && bottom >= 1f

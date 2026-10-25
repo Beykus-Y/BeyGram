@@ -246,6 +246,8 @@ internal class CameraCaptureController(
             runCatching { activeRecording?.stop() }
         }
         camcorderTorchOff()
+        // The hardware torch is off while paused; do not keep the toggle lit on resume.
+        if (mode == CameraCaptureMode.Video) flashEnabled = false
         ready = false
     }
 
