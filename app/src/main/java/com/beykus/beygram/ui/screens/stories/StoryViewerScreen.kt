@@ -251,6 +251,7 @@ fun StoryViewerScreen(
     val duration = storyDurationMillis(detail)
     val closeLatest by rememberUpdatedState(onClose)
     val storyCount = stories.size
+    val latestStoryCount by rememberUpdatedState(storyCount)
     LaunchedEffect(current?.storyId, detail?.media?.fileId, canPlay, duration, progressRestart) {
         if (!canPlay) return@LaunchedEffect
         var elapsed = (progress * duration).coerceAtLeast(0f)
@@ -268,7 +269,7 @@ fun StoryViewerScreen(
             }
             if (next >= 1f) break
         }
-        if (index < storyCount - 1) index++ else closeLatest()
+        if (index < latestStoryCount - 1) index++ else closeLatest()
     }
 
     LaunchedEffect(notice) {
@@ -285,7 +286,7 @@ fun StoryViewerScreen(
         }
     }
     val goNext: () -> Unit = {
-        if (index < storyCount - 1) index++ else closeLatest()
+        if (index < latestStoryCount - 1) index++ else closeLatest()
     }
 
     var reactions by remember { mutableStateOf<List<ReactionOption>?>(null) }
@@ -364,7 +365,7 @@ fun StoryViewerScreen(
                 onEnded = {
                     val ended = current?.storyId
                     if (ended != null && stories.getOrNull(index)?.storyId == ended) {
-                        if (index < storyCount - 1) index++ else closeLatest()
+                        if (index < latestStoryCount - 1) index++ else closeLatest()
                     }
                 },
                 restartToken = progressRestart,
