@@ -842,7 +842,7 @@ internal class TdStories(
     }
 
     private fun TdApi.StoryContent.primaryFileSize(): Long? = when (this) {
-        is TdApi.StoryContentPhoto -> sizes.orEmpty()
+        is TdApi.StoryContentPhoto -> photo.sizes.orEmpty()
             .maxByOrNull { it.width.toLong() * it.height }
             ?.photo
             ?.let { it.size.takeIf { size -> size > 0L } ?: it.expectedSize }
