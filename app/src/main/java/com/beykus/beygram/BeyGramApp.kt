@@ -1294,9 +1294,14 @@ private fun BeyGramAppContent(
         val folderLists by repository.folderChats.collectAsStateWithLifecycle()
         val folderLoading by repository.folderLoadStates.collectAsStateWithLifecycle()
         val activeStories by repository.activeStories.collectAsStateWithLifecycle()
-        // Строка подсвечивается, только пока правая панель действительно нашла этот чат.
-        // Иначе при заглушке «Выберите чат» в списке оставался бы selected-чат.
-        val selectedChatResolved = chats.any { it.id == selectedChatId }
+        // Правая панель ищет чат через observeChat, а список — запасной вариант из основного
+        // списка. Подсветка должна использовать тот же источник: иначе чат из папки, которого
+        // нет в основном списке, открывается справа без выделения.
+        val observedChat by remember(repository, selectedChatId) {
+            repository.observeChat(selectedChatId)
+        }.collectAsStateWithLifecycle()
+        val selectedChatResolved = selectedChatId != 0L &&
+            (observedChat?.id == selectedChatId || chats.any { it.id == selectedChatId })
         LaunchedEffect(repository, authState) {
             if (authState == AuthState.Ready) repository.refreshActiveStories()
         }

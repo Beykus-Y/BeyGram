@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +49,9 @@ internal const val MainTabRailTag = "MainTabRail"
  * Рейка сама занимает ведущий системный отступ и рисует фон под строками состояния: содержимое
  * справа начинается уже после неё, поэтому начало экрана ему больше не нужно. Клавиатура (IME)
  * сюда не входит: она не должна сжимать или прокручивать навигацию.
+ *
+ * В коротком широком окне (split-screen, freeform) все вкладки не помещаются по высоте, поэтому
+ * рейка прокручивается: нижние разделы остаются достижимыми, как и в прежнем горизонтальном меню.
  */
 @Composable
 internal fun MainTabRail(
@@ -65,6 +70,7 @@ internal fun MainTabRail(
                     .only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)
             )
             .width(MainNavigationRailWidth)
+            .verticalScroll(rememberScrollState())
             .padding(vertical = 12.dp)
             // Один набор взаимоисключающих вкладок: TalkBack читает выбранный раздел.
             .selectableGroup()
