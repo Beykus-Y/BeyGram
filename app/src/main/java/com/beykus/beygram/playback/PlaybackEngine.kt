@@ -384,6 +384,10 @@ object PlaybackEngine {
         val growing = item.growing
         val deferStart = shouldDeferGrowingSeek(growing, requestedStart)
         val resumeMs = if (deferStart) 0L else requestedStart
+        if (deferStart) {
+            // playWhenReady may still be true from the previous item; pause before replacing the source.
+            target.pause()
+        }
         interruptedMusic = interruptedAfterStart(_state.value, waiting, item)
         val mediaItem = MediaItem.Builder()
             .setMediaId(item.key)
@@ -434,6 +438,7 @@ object PlaybackEngine {
             rebuildSeekableAt(item, position, _state.value.playing)
             return
         }
+        clearDeferredSeek()
         target.seekTo(position)
         _state.update { it.copy(positionMs = position) }
     }
