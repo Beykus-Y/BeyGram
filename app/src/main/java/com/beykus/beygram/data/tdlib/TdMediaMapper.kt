@@ -150,7 +150,7 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             )
         }
         // TDLib can shuffle option display order for anti-bias; votes still use the original 0-based ids.
-        val order = poll.optionOrder.orEmpty()
+        val order = poll.optionOrder ?: IntArray(0)
         val displayed = if (order.size == options.size && order.distinct().size == order.size &&
             order.all { it in options.indices }) order.map { options[it] } else options
         return MessageSpecialContent.Poll(
