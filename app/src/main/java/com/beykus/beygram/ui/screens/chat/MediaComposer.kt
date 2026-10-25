@@ -170,6 +170,7 @@ internal class AttachmentState(
     private val failedCapturePath: String? get() = captureRetry.value.failedPath
     var pickPhotos: () -> Unit = {}
     var pickDocuments: () -> Unit = {}
+    var pickAudio: () -> Unit = {}
 
     /** True while the panel replaces the plain composer (files are being imported or are ready to send). */
     val active: Boolean get() = pending.isNotEmpty() || importing
@@ -193,7 +194,8 @@ internal class AttachmentState(
                     pendingState.value = ArrayList(pending + prepared)
                     when {
                         !asDocument && prepared.kind == MediaKind.Video -> maybeCompressVideo(prepared)
-                        prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("audio/") -> maybeCompressAudio(prepared)
+                        !asDocument && prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("audio/") ->
+                            maybeCompressAudio(prepared)
                         !asDocument && prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("video/") ->
                             notice = context.getString(R.string.video_container_as_file)
                     }
@@ -637,8 +639,10 @@ internal fun rememberAttachmentState(
     val state = remember(accountId, chatId) { AttachmentState(context, importer, scope, pending, error, editor, captureRetry) { media, caption, options -> currentSend(media, caption, options) } }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MediaLimits.MAX_ATTACHMENTS)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
+    val audio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, false) }
     state.pickPhotos = { photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }
     state.pickDocuments = { documents.launch(arrayOf("*/*")) }
+    state.pickAudio = { audio.launch(arrayOf("audio/*")) }
     return state
 }
 
@@ -678,6 +682,7 @@ internal fun AttachmentPanel(state: AttachmentState, caption: String, captionLim
                             state.openCamera()
                         }
                         TypeChip(Icons.Rounded.Image, stringResource(R.string.composer_type_photo_video)) { state.menuOpen = false; state.pickPhotos() }
+                        TypeChip(Icons.Rounded.GraphicEq, stringResource(R.string.composer_type_audio)) { state.menuOpen = false; state.pickAudio() }
                         TypeChip(Icons.Rounded.Description, stringResource(R.string.composer_type_file)) { state.menuOpen = false; state.pickDocuments() }
                         TypeChip(
                             Icons.Rounded.Compress,

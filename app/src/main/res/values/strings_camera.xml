@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="composer_type_camera">Камера</string>
+    <string name="composer_type_audio">Аудио</string>
 
     <string name="camera_close_description">Закрыть камеру</string>
     <string name="camera_mode_photo">Фото</string>

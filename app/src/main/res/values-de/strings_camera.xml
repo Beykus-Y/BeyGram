@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="composer_type_camera">Kamera</string>
+    <string name="composer_type_audio">Audio</string>
 
     <string name="camera_close_description">Kamera schließen</string>
     <string name="camera_mode_photo">Foto</string>
