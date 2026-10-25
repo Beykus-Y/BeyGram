@@ -99,9 +99,16 @@ data class PlaybackState(
     /** Файл доиграл до конца. Кружок в ленте сворачивается, а новый запуск начинает файл сначала. */
     val ended: Boolean = false
 ) {
-    /** Доля проигранного от 0 до 1. Пока длина неизвестна, она равна 0. */
+    /** Доля проигранного от 0 до 1. Пока длина неизвестна, берём длину из сообщения, если она есть. */
     val fraction: Float
-        get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+        get() {
+            val total = when {
+                durationMs > 0L -> durationMs
+                item != null && item.durationSeconds > 0 -> item.durationSeconds * 1000L
+                else -> 0L
+            }
+            return if (total > 0L) (positionMs.toFloat() / total).coerceIn(0f, 1f) else 0f
+        }
 }
 
 /** Музыка, которую прервало голосовое или кружок. Продолжается с [positionMs], когда прерывающий файл доиграет. */
@@ -347,14 +354,20 @@ object PlaybackEngine {
      * прервало голосовое или кружок, она продолжается с того же места.
      */
     @OptIn(UnstableApi::class)
-    fun play(context: Context, item: PlaybackItem, startFraction: Float = 0f, onStarted: (() -> Unit)? = null) {
+    fun play(
+        context: Context,
+        item: PlaybackItem,
+        startFraction: Float = 0f,
+        onStarted: (() -> Unit)? = null,
+        startPositionMs: Long? = null
+    ) {
         val target = player(context)
         if (onStarted != null) startedCallback = item.key to onStarted
         syncPosition()
         // Отметка ждёт только свой файл: запуск другого файла её сбрасывает.
         startedCallback = startedCallback?.takeIf { it.first == item.key }
         val waiting = interruptedMusic
-        val resumeMs = resumePositionMs(waiting, item.key)
+        val resumeMs = startPositionMs ?: resumePositionMs(waiting, item.key)
         interruptedMusic = interruptedAfterStart(_state.value, waiting, item)
         val mediaItem = MediaItem.Builder()
             .setMediaId(item.key)
@@ -373,11 +386,19 @@ object PlaybackEngine {
         }
         target.prepare()
         // Длина из сообщения округлена до секунды, поэтому долю применяем, когда плеер узнает настоящую длину файла.
-        pendingStartFraction = startFraction.coerceIn(0f, 1f)
+        pendingStartFraction = if (startPositionMs == null) startFraction.coerceIn(0f, 1f) else 0f
         target.play()
         _state.value = PlaybackState(item = item, playing = true, positionMs = resumeMs, speed = _state.value.speed)
         startPlaybackService()
         startProgress()
+    }
+
+    /** Перемотка по абсолютной позиции; работает и когда контейнер ещё не сообщил длину (растущий Ogg). */
+    fun seekToPosition(positionMs: Long) {
+        val target = exo ?: return
+        val position = positionMs.coerceAtLeast(0L)
+        target.seekTo(position)
+        _state.update { it.copy(positionMs = position) }
     }
 
     /** Отметка для файла, который продолжают после паузы: вызывается, когда он начнёт играть, даже если пузырь уже ушёл с экрана. */
@@ -405,14 +426,13 @@ object PlaybackEngine {
         _state.update { it.copy(playing = false) }
     }
 
-    /** Перемотка по доле длины. Пока длина неизвестна, ничего не делает. */
-    fun seekTo(fraction: Float) {
+    /** Перемотка по доле длины. [fallbackDurationMs] используется, если контейнер ещё не сообщил длину. */
+    fun seekTo(fraction: Float, fallbackDurationMs: Long = 0L) {
         val target = exo ?: return
-        val duration = target.duration
-        if (duration == C.TIME_UNSET || duration <= 0L) return
-        val position = (fraction.coerceIn(0f, 1f) * duration).toLong()
-        target.seekTo(position)
-        _state.update { it.copy(positionMs = position) }
+        val duration = target.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: fallbackDurationMs
+        if (duration <= 0L) return
+        val position = (fraction.coerceIn(0f, 1f) * duration.toFloat()).toLong()
+        seekToPosition(position)
     }
 
     fun setSpeed(speed: Float) {
