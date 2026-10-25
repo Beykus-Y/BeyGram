@@ -15,6 +15,7 @@ import com.beykus.beygram.domain.model.ChatExportRequest
 import com.beykus.beygram.domain.model.ChatExportSummary
 import com.beykus.beygram.domain.model.ChatExportTarget
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.MessageEffect
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ChatNotificationPreferences
@@ -472,6 +473,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>> = unavailable()
     override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = unavailable()
     override fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?> = MutableStateFlow<CustomEmoji?>(null).asStateFlow()
+    override fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?> = MutableStateFlow<MessageEffect?>(null).asStateFlow()
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> = unavailable()
     override suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> = unavailable()
     override fun loadLatestMessages(chatId: Long) {}

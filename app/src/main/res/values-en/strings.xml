@@ -378,6 +378,15 @@
     <string name="thread_read_only">You cannot write in this discussion group</string>
     <string name="thread_reply_placeholder">Comment</string>
     <string name="thread_reply_not_loaded">The comment is not loaded</string>
+    <string name="settings_chat_animations_title">Chat animations</string>
+    <string name="chat_animations_title">Chat animations</string>
+    <string name="chat_animations_intro">Control animated emoji in message text and the effects senders choose for a new message.</string>
+    <string name="chat_animations_emoji_title">Animated emoji</string>
+    <string name="chat_animations_emoji_detail">Play TGS and WebP emoji inside message text.</string>
+    <string name="chat_animations_effects_title">Message effects</string>
+    <string name="chat_animations_effects_detail">Show the effect the sender chose for a new message.</string>
+    <string name="chat_animations_reduced_motion">The system asks for reduced motion. Emoji and effects are shown statically, but your choices stay saved.</string>
+    <string name="chat_animations_footnote">Effects play only for new messages, never block the text and never change scrolling.</string>
     <string name="secret_chat_create_action">Secret chat</string>
     <string name="secret_chat_create_hint">End-to-end encrypted, on this device only</string>
     <string name="secret_chat_pick_contact">Choose a contact for a secret chat</string>

@@ -78,7 +78,11 @@ import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
 import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
 import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
+import com.beykus.beygram.ui.accessibility.LocalSystemReducedMotion
+import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
+import com.beykus.beygram.ui.screens.chat.ChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.ChatScreen
+import com.beykus.beygram.ui.screens.chat.LocalChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
@@ -110,6 +114,7 @@ import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.AutoDownloadSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
+import com.beykus.beygram.ui.screens.settings.ChatAnimationsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.settings.AppLockSettingsScreen
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherSheet
@@ -137,6 +142,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.settings.ChatAnimationSettingsStore
 import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
@@ -662,6 +668,17 @@ private fun BeyGramAppContent(
     val chatOverrides = remember(context, selectedAccountId) {
         ChatOverridesStore(context.applicationContext, selectedAccountId)
     }
+    // Decorative chat animations are global and account-independent; the flow updates an open chat immediately.
+    val chatAnimationStore = remember(context) { ChatAnimationSettingsStore(context.applicationContext) }
+    val chatAnimationSettings by chatAnimationStore.state.collectAsStateWithLifecycle()
+    val chatAnimationPreferences = remember(chatAnimationSettings) {
+        ChatAnimationPreferences(
+            animatedEmoji = chatAnimationSettings.animatedEmoji,
+            messageEffects = chatAnimationSettings.messageEffects
+        )
+    }
+    // One observer for the whole app; every emoji/effect reads LocalSystemReducedMotion instead of polling the system.
+    val reducedMotion = rememberSystemReducedMotion()
     val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
     val archiveSettingsScope = rememberCoroutineScope()
     val onArchiveSettingsChange: (ArchiveSettings) -> Unit = { next ->
@@ -1255,6 +1272,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.ChatAnimations) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
@@ -1722,6 +1740,8 @@ private fun BeyGramAppContent(
 
     CompositionLocalProvider(
         LocalPlaybackAccountId provides selectedAccountId,
+        LocalChatAnimationPreferences provides chatAnimationPreferences,
+        LocalSystemReducedMotion provides reducedMotion,
         LocalAutoDownloadFile provides repository::autoDownloadFile
     ) {
     Column(Modifier.fillMaxSize()) {
@@ -1982,6 +2002,12 @@ private fun BeyGramAppContent(
                     onSave = { config -> appearanceDraft = config; onAppearanceChange(config) },
                     onBack = { appearanceDraft = null; routeName = appearanceReturnRouteName }
                 )
+                AppRoute.ChatAnimations -> ChatAnimationsScreen(
+                    settings = chatAnimationSettings,
+                    onAnimatedEmojiChange = chatAnimationStore::setAnimatedEmoji,
+                    onMessageEffectsChange = chatAnimationStore::setMessageEffects,
+                    onBack = { routeName = AppRoute.Settings.name }
+                )
                 AppRoute.EditProfile -> {
                     myProfile.info?.let { info ->
                         EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)
@@ -2041,6 +2067,7 @@ private fun BeyGramAppContent(
                         onPrivacy = { routeName = AppRoute.PrivacySettings.name },
                         onAccountSecurity = { routeName = AppRoute.AccountSecurity.name },
                         onSecondaryAccounts = { accountSwitcherVisible = true },
+                        onChatAnimations = { routeName = AppRoute.ChatAnimations.name },
                         onAppLock = { routeName = AppRoute.AppLock.name }
                     )
                 }
