@@ -85,6 +85,25 @@ class TrafficUsageTest {
     }
 
     @Test
+    fun finishHidesTransferButKeepsWatermarkForTerminalProgress() {
+        val usage = TrafficUsageAccumulator()
+        usage.begin(8, TrafficOrigin.Auto)
+        usage.progress(8, 40)
+        usage.finish(8)
+        assertFalse(usage.snapshot().hasActiveDownloads)
+        assertEquals(40L, usage.snapshot().autoBytes)
+
+        // TDLib may send the bytes transferred before the cancellation took effect after finish().
+        usage.progress(8, 60)
+        assertEquals(60L, usage.snapshot().autoBytes)
+        assertFalse(usage.snapshot().hasActiveDownloads)
+
+        usage.release(8)
+        assertFalse(usage.hasTransfer(8))
+        assertFalse(usage.snapshot().hasActiveDownloads)
+    }
+
+    @Test
     fun finishingOneTransferKeepsOtherTransfersActive() {
         val usage = TrafficUsageAccumulator()
         usage.begin(1, TrafficOrigin.Auto)

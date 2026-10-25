@@ -81,6 +81,23 @@ class MediaFileStoreTrafficTest {
     }
 
     @Test
+    fun finalUpdateAfterCancellationStillCountsItsBytes() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginAutoDownload(7)
+        store.update(MediaFileState(7, size = 100, downloadedBytes = 40, isDownloading = true))
+        store.cancel(7)
+        // TDLib reports the bytes it managed to transfer before the cancellation reached it.
+        store.update(MediaFileState(7, size = 100, downloadedBytes = 60, isDownloading = false))
+
+        val snapshot = traffic.snapshot.value
+        assertEquals(60L, snapshot.autoBytes)
+        assertEquals(0L, snapshot.manualBytes)
+        assertFalse(snapshot.hasActiveDownloads)
+    }
+
+    @Test
     fun backgroundPreloadWithoutARequestIsCountedAsAutomatic() {
         val traffic = TrafficUsageSession()
         val store = store(traffic)
@@ -90,6 +107,22 @@ class MediaFileStoreTrafficTest {
         val snapshot = traffic.snapshot.value
         assertEquals(30L, snapshot.autoBytes)
         assertEquals(TrafficOrigin.Auto, snapshot.activeOrigins[4])
+    }
+
+    @Test
+    fun backgroundDownloadDoesNotTakeOverAManualTransfer() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+
+        store.beginDownload(8)
+        store.update(MediaFileState(8, size = 100, downloadedBytes = 40, isDownloading = true))
+        assertFalse(store.beginAutoDownload(8))
+        store.update(MediaFileState(8, size = 100, downloadedBytes = 60, isDownloading = true))
+
+        val snapshot = traffic.snapshot.value
+        assertEquals(0L, snapshot.autoBytes)
+        assertEquals(60L, snapshot.manualBytes)
+        assertEquals(TrafficOrigin.Manual, snapshot.activeOrigins[8])
     }
 
     @Test

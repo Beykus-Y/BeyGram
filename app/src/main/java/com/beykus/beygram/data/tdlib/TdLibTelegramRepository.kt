@@ -2059,6 +2059,13 @@ class TdLibTelegramRepository private constructor(
         sendDownload(fileId)
     }
 
+    override fun downloadFileInBackground(fileId: Int) {
+        // Avatars and preview thumbnails bypass the media policy, but their bytes are automatic traffic.
+        cancelledAutoDownloads.remove(fileId)
+        if (!mediaFiles.beginAutoDownload(fileId)) return
+        sendDownload(fileId)
+    }
+
     override fun autoDownloadFile(request: AutoDownloadRequest) {
         val decision = decideAutoDownload(
             settings = autoDownloadSettingsStore.settings.value,

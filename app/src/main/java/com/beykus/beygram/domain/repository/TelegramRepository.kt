@@ -322,6 +322,11 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Explicit user download; always allowed and unaffected by auto-download limits. */
     fun downloadFile(fileId: Int)
+    /**
+     * Downloads a small UI asset such as an avatar or thumbnail. It does not apply the media policy,
+     * but it is counted as automatic traffic because the user did not press Download.
+     */
+    fun downloadFileInBackground(fileId: Int)
     /** Stops a download that was only needed by a closed screen; completed files stay available. */
     fun cancelFileDownload(fileId: Int)
 
