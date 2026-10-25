@@ -202,6 +202,7 @@ class TdLibTelegramRepository private constructor(
     private val mihomoProxyPrefs = context.applicationContext.getSharedPreferences(if (isLegacyAccount) "mihomo_tdlib_proxy" else "mihomo_tdlib_proxy_$accountId", Context.MODE_PRIVATE)
     private val loopbackCredentials = LoopbackProxyCredentials.get(context.applicationContext)
     private val tdRequests = TdRequests { client }
+    private val accountSecurity = TdAccountSecurity(tdRequests)
     private val secretChatDirectory = TdSecretChats(tdRequests)
     @Volatile private var secretChatSession = 0L
     private val payments = TdPayments(tdRequests)
@@ -913,6 +914,36 @@ class TdLibTelegramRepository private constructor(
         tdRequests(TdApi.TerminateAllOtherSessions())
         Unit
     }
+
+    override suspend fun cloudPasswordState() = accountSecurity.passwordState()
+    override suspend fun setCloudPassword(
+        currentPassword: String,
+        newPassword: String,
+        hint: String
+    ) = accountSecurity.setPassword(currentPassword, newPassword, hint)
+    override suspend fun setRecoveryEmail(currentPassword: String, email: String) =
+        accountSecurity.setRecoveryEmail(currentPassword, email)
+    override suspend fun confirmRecoveryEmail(code: String) = accountSecurity.confirmRecoveryEmail(code)
+    override suspend fun resendRecoveryEmailCode() = accountSecurity.resendRecoveryEmailCode()
+    override suspend fun cancelRecoveryEmailChange() = accountSecurity.cancelRecoveryEmailChange()
+    override suspend fun deleteTelegramAccount(password: String): Result<Unit> {
+        if (!isLegacyAccount) return accountSecurity.deleteAccount(password)
+        // DeleteAccount destroys the legacy authorization and closes the client rather
+        // than returning it to WaitPhoneNumber. Ask the existing close path to rebuild
+        // the client so the login screen sends requests to a live instance.
+        synchronized(legacyClientLock) { recreateLegacyClientOnClose = true }
+        val result = accountSecurity.deleteAccount(password)
+        val timedOut = result.exceptionOrNull()?.let {
+            it is TimeoutCancellationException || it.cause is TimeoutCancellationException
+        } == true
+        // A timeout is ambiguous: DeleteAccount may have succeeded and the close may
+        // still be on its way. Keep recreation armed so that close recovers the client.
+        if (result.isFailure && !timedOut) {
+            synchronized(legacyClientLock) { recreateLegacyClientOnClose = false }
+        }
+        return result
+    }
+
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = requestResult {
         !TdRequests { client }(TdApi.GetArchiveChatListSettings()).keepUnmutedChatsArchived
     }
