@@ -537,10 +537,18 @@ class TdLibTelegramRepository private constructor(
         stories.replyToStory(posterChatId, storyId, text)
     override suspend fun deleteStory(posterChatId: Long, storyId: Int) = stories.deleteStory(posterChatId, storyId)
     override suspend fun storyArchive(fromStoryId: Int) = stories.archive(fromStoryId)
-    override suspend fun storyPostPermission() = stories.postPermission()
+    override suspend fun storyPostPermission(chatId: Long) = stories.postPermission(chatId)
+    override suspend fun storyPostTargets() = stories.postTargets()
     override fun abandonStoryUpload(posterChatId: Long, storyId: Int) = stories.abandonUpload(posterChatId, storyId)
     override suspend fun storyCaptionLimit() = stories.captionLimit()
+    override suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String) =
+        stories.editCaption(posterChatId, storyId, caption)
+    override suspend fun setStoryPrivacy(storyId: Int, privacy: StoryPrivacy, selectedUserIds: List<Long>) =
+        stories.editPrivacy(storyId, privacy, selectedUserIds)
+    override suspend fun setStoryPostedToChatPage(posterChatId: Long, storyId: Int, posted: Boolean) =
+        stories.setPostedToChatPage(posterChatId, storyId, posted)
     override suspend fun publishStory(
+        targetChatId: Long,
         media: OutgoingMedia,
         caption: String,
         privacy: StoryPrivacy,
@@ -548,7 +556,7 @@ class TdLibTelegramRepository private constructor(
         activePeriodSeconds: Int,
         protectContent: Boolean,
         keepInProfile: Boolean
-    ) = stories.publishStory(media, caption, privacy, selectedUserIds, activePeriodSeconds, protectContent, keepInProfile)
+    ) = stories.publishStory(targetChatId, media, caption, privacy, selectedUserIds, activePeriodSeconds, protectContent, keepInProfile)
 
     /** TDLib is the cursor owner: each LoadChats call fetches the next server-backed page. */
     override suspend fun loadMoreFolderChats(folderId: Int): Result<Unit> = requestResult {

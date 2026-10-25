@@ -86,5 +86,19 @@
     <string name="stories_denied_boost">Zum Veröffentlichen ist ein Kanal-Boost erforderlich.</string>
     <string name="stories_denied_live">Beende zuerst den Live-Stream.</string>
     <string name="stories_denied_unknown">Telegram hat das Veröffentlichen der Story abgelehnt.</string>
+    <string name="stories_publish_as">Veröffentlichen als</string>
+    <string name="stories_channel_privacy_note">Die Privatsphäre einer Kanal- oder Gruppen-Story wird durch die Chat-Einstellungen bestimmt.</string>
+    <string name="stories_edit">Story bearbeiten</string>
+    <string name="stories_edit_saved">Story aktualisiert</string>
+    <string name="stories_edit_failed">Story konnte nicht aktualisiert werden</string>
+    <string name="stories_edit_privacy_read_only">Die Privatsphäre kann nur für deine eigene aktive Story geändert werden.</string>
+    <string name="stories_archive_viewer">Archivierte Story</string>
+    <string name="stories_archive_restore_unavailable">Eine archivierte Story kann nicht zu den aktiven Stories zurückkehren. Du kannst sie in deinem Profil behalten.</string>
+    <string name="stories_archive_restore_unsupported">Telegram erlaubt es nicht, eine archivierte Story zu den aktiven Stories zurückzubringen.</string>
+    <string name="stories_archive_keep_profile">Im Profil behalten</string>
+    <string name="stories_archive_remove_profile">Aus dem Profil entfernen</string>
+    <string name="stories_archive_views">Aufrufe: %1$d</string>
+    <string name="stories_archive_reactions">Reaktionen: %1$d</string>
+    <string name="stories_paid_reactions_note">Bezahlte Reaktionen werden nicht unterstützt; es wird nichts berechnet.</string>
     <string name="err_story_action_failed">Story-Aktion fehlgeschlagen</string>
 </resources>

@@ -86,5 +86,19 @@
     <string name="stories_denied_boost">Для публикации нужен буст канала.</string>
     <string name="stories_denied_live">Сначала завершите прямой эфир.</string>
     <string name="stories_denied_unknown">Telegram запретил публикацию истории.</string>
+    <string name="stories_publish_as">Публиковать от имени</string>
+    <string name="stories_channel_privacy_note">Приватность истории канала или группы задаётся настройками самого чата.</string>
+    <string name="stories_edit">Изменить историю</string>
+    <string name="stories_edit_saved">История обновлена</string>
+    <string name="stories_edit_failed">Не удалось изменить историю</string>
+    <string name="stories_edit_privacy_read_only">Приватность можно изменить только для своей активной истории.</string>
+    <string name="stories_archive_viewer">Архивная история</string>
+    <string name="stories_archive_restore_unavailable">Вернуть историю в активные нельзя. Её можно оставить в профиле.</string>
+    <string name="stories_archive_restore_unsupported">Telegram не позволяет вернуть архивную историю в активные.</string>
+    <string name="stories_archive_keep_profile">Оставить в профиле</string>
+    <string name="stories_archive_remove_profile">Убрать из профиля</string>
+    <string name="stories_archive_views">Просмотры: %1$d</string>
+    <string name="stories_archive_reactions">Реакции: %1$d</string>
+    <string name="stories_paid_reactions_note">Платные реакции не поддерживаются и не будут списаны.</string>
     <string name="err_story_action_failed">Не удалось выполнить действие с историей</string>
 </resources>

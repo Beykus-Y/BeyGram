@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -229,6 +230,10 @@ fun StoryViewerScreen(
     var replyStoryId by remember { mutableIntStateOf(0) }
     var showDelete by remember { mutableStateOf(false) }
     var deleteStoryId by remember { mutableIntStateOf(0) }
+    var showEdit by remember { mutableStateOf(false) }
+    var editSaving by remember { mutableStateOf(false) }
+    var editError by remember { mutableStateOf<String?>(null) }
+    var editCaptionLimit by remember { mutableIntStateOf(1_024) }
     var notice by remember { mutableStateOf<String?>(null) }
     val reducedMotion = rememberReducedMotion()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -240,7 +245,7 @@ fun StoryViewerScreen(
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    val dialogOpen = showReactions || showReply || showDelete
+    val dialogOpen = showReactions || showReply || showDelete || showEdit
     val mediaReady = when (media?.kind) {
         StoryMediaKind.Photo -> fullFile.localPath != null
         StoryMediaKind.Video -> fullFile.localPath != null && videoReady
@@ -276,6 +281,12 @@ fun StoryViewerScreen(
         if (notice != null) {
             delay(3_000)
             notice = null
+        }
+    }
+    LaunchedEffect(showEdit) {
+        if (showEdit) {
+            editError = null
+            editCaptionLimit = repository.storyCaptionLimit().getOrDefault(1_024).coerceAtLeast(1)
         }
     }
 
@@ -319,6 +330,8 @@ fun StoryViewerScreen(
         if (seconds <= 0L) "" else DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
             .format(Date(seconds * 1000L))
     }
+    val canEditPrivacy = entry?.isSelf == true && detail?.canSetPrivacySettings == true
+    val canEditStory = detail?.canBeEdited == true || canEditPrivacy
 
     if (stories.isEmpty()) {
         StoryEmptyView(
@@ -407,6 +420,11 @@ fun StoryViewerScreen(
                     if (timeText.isNotBlank()) {
                         Text(timeText, color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
                     }
+                    if (entry?.isSelf == true) {
+                        detail?.privacy?.let {
+                            Text(it.label(), color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp)
+                        }
+                    }
                 }
                 IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Rounded.Close, stringResource(R.string.stories_close), tint = Color.White)
@@ -457,6 +475,11 @@ fun StoryViewerScreen(
                         stringResource(R.string.stories_reaction),
                         tint = if (detail?.chosenReaction != null) Color(0xFF69C9FF) else Color.White
                     )
+                }
+                if (canEditStory) {
+                    IconButton(onClick = { showEdit = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.Edit, stringResource(R.string.stories_edit), tint = Color.White)
+                    }
                 }
                 if (detail?.canBeDeleted == true) {
                     IconButton(onClick = {
@@ -524,6 +547,54 @@ fun StoryViewerScreen(
                             replySending = false
                             notice = it.userMessage(context, R.string.stories_reply_failed)
                         }
+                }
+            }
+        )
+    }
+
+    if (showEdit) {
+        StoryEditDialog(
+            initialCaption = detail?.caption.orEmpty(),
+            captionLimit = editCaptionLimit,
+            initialPrivacy = detail?.privacy,
+            initialSelectedUserIds = detail?.privacyUserIds.orEmpty(),
+            canEditCaption = detail?.canBeEdited == true,
+            canEditPrivacy = canEditPrivacy,
+            saving = editSaving,
+            error = editError,
+            repository = repository,
+            onDismiss = { if (!editSaving) showEdit = false },
+            onSave = { caption, privacy, ids ->
+                detail?.let { story ->
+                    scope.launch {
+                        editSaving = true
+                        editError = null
+                        var failure: Throwable? = null
+                        if (story.canBeEdited && caption != story.caption) {
+                            repository.editStoryCaption(posterChatId, story.storyId, caption)
+                                .onFailure { failure = it }
+                        }
+                        if (failure == null && privacy != null && canEditPrivacy &&
+                            (privacy != story.privacy || ids.toSet() != story.privacyUserIds.toSet())
+                        ) {
+                            repository.setStoryPrivacy(story.storyId, privacy, ids)
+                                .onFailure { failure = it }
+                        }
+                        editSaving = false
+                        val failed = failure
+                        if (failed != null) {
+                            editError = failed.userMessage(context, R.string.stories_edit_failed)
+                        } else {
+                            detail = story.copy(
+                                caption = if (story.canBeEdited) caption else story.caption,
+                                privacy = privacy ?: story.privacy,
+                                privacyUserIds = if (privacy != null) ids else story.privacyUserIds
+                            )
+                            showEdit = false
+                            notice = context.getString(R.string.stories_edit_saved)
+                            retry++
+                        }
+                    }
                 }
             }
         )
@@ -743,6 +814,13 @@ private fun StoryReactionDialog(
                     }
                 }
             }
+            Text(
+                stringResource(R.string.stories_paid_reactions_note),
+                color = palette.textSecondary,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                modifier = Modifier.padding(top = 12.dp)
+            )
             TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End).padding(top = 6.dp)) {
                 Text(stringResource(R.string.common_close))
             }

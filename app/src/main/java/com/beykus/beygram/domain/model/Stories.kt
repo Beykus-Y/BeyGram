@@ -58,13 +58,31 @@ data class StoryDetail(
     val isBeingPosted: Boolean = false,
     val canBeDeleted: Boolean = false,
     val canBeReplied: Boolean = false,
+    val canBeEdited: Boolean = false,
+    val canSetPrivacySettings: Boolean = false,
+    val canToggleIsPostedToChatPage: Boolean = false,
+    val isPostedToChatPage: Boolean = false,
     val privacy: StoryPrivacy? = null,
+    val privacyUserIds: List<Long> = emptyList(),
     val chosenReaction: ReactionOption? = null,
     val viewCount: Int = 0,
     val reactionCount: Int = 0
 )
 
 enum class StoryPrivacy { Everyone, Contacts, CloseFriends, SelectedUsers }
+
+/** A chat on whose behalf the signed-in user may publish a story. Privacy is controlled by the chat for non-self targets. */
+data class StoryPostTarget(
+    val chatId: Long,
+    val title: String,
+    val isSelf: Boolean = false,
+    val photo: AvatarPhoto? = null,
+    val avatarColorArgb: Long = 0L
+)
+
+/** Self is always first; channels/groups follow alphabetically without changing Telegram's target set. */
+fun orderedStoryPostTargets(targets: Collection<StoryPostTarget>): List<StoryPostTarget> =
+    targets.sortedWith(compareByDescending<StoryPostTarget> { it.isSelf }.thenBy { it.title.lowercase() })
 
 /** One page of the signed-in user's expired stories; [nextFromStoryId] is zero when the end is reached. */
 data class StoryArchivePage(

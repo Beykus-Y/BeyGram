@@ -14,12 +14,14 @@ import com.beykus.beygram.domain.model.StoryPostDenial
 import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPostPermission
 import com.beykus.beygram.domain.model.StoryPostTicket
+import com.beykus.beygram.domain.model.StoryPostTarget
 import com.beykus.beygram.domain.model.StoryPreview
 import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.initialsOf
 import com.beykus.beygram.domain.model.matchesPendingStoryEvent
 import com.beykus.beygram.domain.model.orderedStoryBar
+import com.beykus.beygram.domain.model.orderedStoryPostTargets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -392,12 +394,68 @@ internal class TdStories(
         option?.value?.toInt()?.coerceIn(1, MAX_CAPTION_LENGTH) ?: DEFAULT_CAPTION_LENGTH
     }
 
-    suspend fun postPermission(): Result<StoryPostPermission> = storyRequest {
-        val chatId = ensureSelfChatId()
-        requests(TdApi.CanPostStory(chatId)).toPermission()
+    suspend fun postPermission(chatId: Long): Result<StoryPostPermission> = storyRequest {
+        val targetChatId = if (chatId > 0L) chatId else ensureSelfChatId()
+        requests(TdApi.CanPostStory(targetChatId)).toPermission()
+    }
+
+    suspend fun postTargets(): Result<List<StoryPostTarget>> = storyRequest {
+        val selfChatId = ensureSelfChatId()
+        val me = profiles.me.value.info
+        val selfTitle = me?.title?.takeIf { it.isNotBlank() }
+            ?: profiles.chat(selfChatId)?.title.orEmpty()
+        val targets = mutableListOf(
+            StoryPostTarget(
+                chatId = selfChatId,
+                title = selfTitle,
+                isSelf = true,
+                photo = me?.photo,
+                avatarColorArgb = (me?.id ?: selfChatId).stableColor()
+            )
+        )
+        val response = requests(TdApi.GetChatsToPostStories())
+        response.chatIds?.toList().orEmpty().forEach { chatId ->
+            if (chatId == selfChatId) return@forEach
+            val chat = profiles.chat(chatId)
+                ?: runCatching { requests(TdApi.GetChat(chatId)) }.getOrNull()?.also { profiles.putChat(it) }
+                ?: return@forEach
+            if (chat.type is TdApi.ChatTypeSecret || chat.title.isBlank()) return@forEach
+            targets += StoryPostTarget(
+                chatId = chatId,
+                title = chat.title,
+                photo = chat.photo?.let { profiles.photo(it) },
+                avatarColorArgb = chatId.stableColor()
+            )
+        }
+        targets.distinctBy { it.chatId }.let(::orderedStoryPostTargets)
+    }
+
+    suspend fun editCaption(posterChatId: Long, storyId: Int, caption: String): Result<Unit> = storyRequest {
+        requests(TdApi.EditStory(
+            posterChatId,
+            storyId,
+            null,
+            null,
+            TdApi.FormattedText(caption.trim(), emptyArray())
+        ))
+        Unit
+    }
+
+    suspend fun editPrivacy(storyId: Int, privacy: StoryPrivacy, selectedUserIds: List<Long>): Result<Unit> = storyRequest {
+        if (privacy == StoryPrivacy.SelectedUsers && selectedUserIds.none { it > 0L }) {
+            throw UserMessageException(UiText.Res(R.string.stories_selected_empty))
+        }
+        requests(TdApi.SetStoryPrivacySettings(storyId, privacy.toTdSettings(selectedUserIds)))
+        Unit
+    }
+
+    suspend fun setPostedToChatPage(posterChatId: Long, storyId: Int, posted: Boolean): Result<Unit> = storyRequest {
+        requests(TdApi.ToggleStoryIsPostedToChatPage(posterChatId, storyId, posted))
+        Unit
     }
 
     suspend fun publishStory(
+        targetChatId: Long,
         media: OutgoingMedia,
         caption: String,
         privacy: StoryPrivacy,
@@ -411,7 +469,8 @@ internal class TdStories(
         val ownerActive = AtomicBoolean(true)
         val operation = scope.async {
             publishStoryRequest(
-                media, caption, privacy, selectedUserIds, activePeriodSeconds, protectContent, keepInProfile, ownerActive
+                targetChatId, media, caption, privacy, selectedUserIds, activePeriodSeconds,
+                protectContent, keepInProfile, ownerActive
             )
         }
         return try {
@@ -423,6 +482,7 @@ internal class TdStories(
     }
 
     private suspend fun publishStoryRequest(
+        targetChatId: Long,
         media: OutgoingMedia,
         caption: String,
         privacy: StoryPrivacy,
@@ -451,7 +511,7 @@ internal class TdStories(
             if (privacy == StoryPrivacy.SelectedUsers && selectedUserIds.none { it > 0L }) {
                 throw UserMessageException(UiText.Res(R.string.stories_selected_empty))
             }
-            val chatId = ensureSelfChatId()
+            val chatId = targetChatId.takeIf { it > 0L } ?: ensureSelfChatId()
             val content = when (media.kind) {
                 MediaKind.Photo -> TdApi.InputStoryContentPhoto(TdApi.InputFileLocal(media.path), intArrayOf())
                 else -> TdApi.InputStoryContentVideo(
@@ -565,7 +625,12 @@ internal class TdStories(
         isBeingPosted = isBeingPosted,
         canBeDeleted = canBeDeleted,
         canBeReplied = canBeReplied,
+        canBeEdited = canBeEdited,
+        canSetPrivacySettings = canSetPrivacySettings,
+        canToggleIsPostedToChatPage = canToggleIsPostedToChatPage,
+        isPostedToChatPage = isPostedToChatPage,
         privacy = privacySettings.toStoryPrivacy(),
+        privacyUserIds = (privacySettings as? TdApi.StoryPrivacySettingsSelectedUsers)?.userIds?.toList().orEmpty(),
         chosenReaction = chosenReactionType?.let(::optionOf),
         viewCount = interactionInfo?.viewCount ?: 0,
         reactionCount = interactionInfo?.reactionCount ?: 0

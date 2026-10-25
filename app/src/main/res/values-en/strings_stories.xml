@@ -86,5 +86,19 @@
     <string name="stories_denied_boost">A channel boost is required to publish.</string>
     <string name="stories_denied_live">Finish the live stream first.</string>
     <string name="stories_denied_unknown">Telegram refused to publish the story.</string>
+    <string name="stories_publish_as">Publish as</string>
+    <string name="stories_channel_privacy_note">Privacy for a channel or group story is controlled by the chat settings.</string>
+    <string name="stories_edit">Edit story</string>
+    <string name="stories_edit_saved">Story updated</string>
+    <string name="stories_edit_failed">Could not update the story</string>
+    <string name="stories_edit_privacy_read_only">Privacy can only be changed for your own active story.</string>
+    <string name="stories_archive_viewer">Archived story</string>
+    <string name="stories_archive_restore_unavailable">An archived story cannot be returned to active stories. You can keep it in your profile.</string>
+    <string name="stories_archive_restore_unsupported">Telegram does not allow returning an archived story to active stories.</string>
+    <string name="stories_archive_keep_profile">Keep in profile</string>
+    <string name="stories_archive_remove_profile">Remove from profile</string>
+    <string name="stories_archive_views">Views: %1$d</string>
+    <string name="stories_archive_reactions">Reactions: %1$d</string>
+    <string name="stories_paid_reactions_note">Paid reactions are not supported and nothing will be charged.</string>
     <string name="err_story_action_failed">Could not complete the story action</string>
 </resources>

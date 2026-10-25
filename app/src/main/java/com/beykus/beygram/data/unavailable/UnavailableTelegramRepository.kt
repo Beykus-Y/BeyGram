@@ -26,6 +26,7 @@ import com.beykus.beygram.domain.model.StoryDetail
 import com.beykus.beygram.domain.model.StoryArchivePage
 import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPostPermission
+import com.beykus.beygram.domain.model.StoryPostTarget
 import com.beykus.beygram.domain.model.StoryPostTicket
 import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.DeleteMessageScope
@@ -116,10 +117,15 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit> = unavailable()
     override suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
     override suspend fun storyArchive(fromStoryId: Int): Result<StoryArchivePage> = Result.success(StoryArchivePage())
-    override suspend fun storyPostPermission(): Result<StoryPostPermission> = unavailable()
+    override suspend fun storyPostPermission(chatId: Long): Result<StoryPostPermission> = unavailable()
+    override suspend fun storyPostTargets(): Result<List<StoryPostTarget>> = Result.success(emptyList())
     override fun abandonStoryUpload(posterChatId: Long, storyId: Int) {}
     override suspend fun storyCaptionLimit(): Result<Int> = Result.success(1_024)
+    override suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String): Result<Unit> = unavailable()
+    override suspend fun setStoryPrivacy(storyId: Int, privacy: StoryPrivacy, selectedUserIds: List<Long>): Result<Unit> = unavailable()
+    override suspend fun setStoryPostedToChatPage(posterChatId: Long, storyId: Int, posted: Boolean): Result<Unit> = unavailable()
     override suspend fun publishStory(
+        targetChatId: Long,
         media: OutgoingMedia,
         caption: String,
         privacy: StoryPrivacy,

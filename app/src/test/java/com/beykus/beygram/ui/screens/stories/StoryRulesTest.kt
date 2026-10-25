@@ -7,9 +7,11 @@ import com.beykus.beygram.domain.model.StoryMedia
 import com.beykus.beygram.domain.model.StoryMediaKind
 import com.beykus.beygram.domain.model.StoryPostDenial
 import com.beykus.beygram.domain.model.StoryPostEvent
+import com.beykus.beygram.domain.model.StoryPostTarget
 import com.beykus.beygram.domain.model.StoryPreview
 import com.beykus.beygram.domain.model.matchesPendingStoryEvent
 import com.beykus.beygram.domain.model.orderedStoryBar
+import com.beykus.beygram.domain.model.orderedStoryPostTargets
 import com.beykus.beygram.domain.model.storyActivePeriodChoices
 import com.beykus.beygram.domain.model.storyCropRect
 import org.junit.Assert.assertEquals
@@ -103,6 +105,16 @@ class StoryRulesTest {
         assertTrue(matchesPendingStoryEvent(published, posterChatId = 7, storyId = 12))
         assertFalse(matchesPendingStoryEvent(published, posterChatId = 7, storyId = 13))
         assertFalse(matchesPendingStoryEvent(published, posterChatId = 8, storyId = 11))
+    }
+
+    @Test
+    fun storyPostTargetsPutSelfFirstThenSortChannels() {
+        val targets = listOf(
+            StoryPostTarget(chatId = 20, title = "Zeta"),
+            StoryPostTarget(chatId = 7, title = "Me", isSelf = true),
+            StoryPostTarget(chatId = 10, title = "Alpha")
+        )
+        assertEquals(listOf(7L, 10L, 20L), orderedStoryPostTargets(targets).map { it.chatId })
     }
 
     @Test

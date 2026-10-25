@@ -27,6 +27,7 @@ import com.beykus.beygram.domain.model.StoryDetail
 import com.beykus.beygram.domain.model.StoryArchivePage
 import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPostPermission
+import com.beykus.beygram.domain.model.StoryPostTarget
 import com.beykus.beygram.domain.model.StoryPostTicket
 import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ProfileState
@@ -85,11 +86,20 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit>
     /** Expired stories of the signed-in user, newest first. Pass the last page's nextFromStoryId for more. */
     suspend fun storyArchive(fromStoryId: Int = 0): Result<StoryArchivePage>
-    suspend fun storyPostPermission(): Result<StoryPostPermission>
+    suspend fun storyPostPermission(chatId: Long): Result<StoryPostPermission>
+    /** Chats where the signed-in user may post a story; self is always included first. */
+    suspend fun storyPostTargets(): Result<List<StoryPostTarget>>
     /** Lets a closed publisher hand a still-uploading story's file cleanup to the repository. */
     fun abandonStoryUpload(posterChatId: Long, storyId: Int)
     suspend fun storyCaptionLimit(): Result<Int>
+    /** Edit a caption of an own story; pass an empty string to clear it. */
+    suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String): Result<Unit>
+    /** Privacy can only be changed for the signed-in user's own story. */
+    suspend fun setStoryPrivacy(storyId: Int, privacy: StoryPrivacy, selectedUserIds: List<Long> = emptyList()): Result<Unit>
+    /** Toggle whether an expired story stays accessible in the profile. */
+    suspend fun setStoryPostedToChatPage(posterChatId: Long, storyId: Int, posted: Boolean): Result<Unit>
     suspend fun publishStory(
+        targetChatId: Long,
         media: OutgoingMedia,
         caption: String,
         privacy: StoryPrivacy,

@@ -89,6 +89,7 @@ import com.beykus.beygram.domain.model.StoryDetail
 import com.beykus.beygram.domain.model.StoryPostDenial
 import com.beykus.beygram.domain.model.StoryPostEvent
 import com.beykus.beygram.domain.model.StoryPostPermission
+import com.beykus.beygram.domain.model.StoryPostTarget
 import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.matchesPendingStoryEvent
 import com.beykus.beygram.domain.model.storyActivePeriodChoices
@@ -166,23 +167,33 @@ fun StoryPublisherScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var showRecipients by remember { mutableStateOf(false) }
     var showArchive by remember { mutableStateOf(false) }
+    var archiveViewerStories by remember { mutableStateOf<List<StoryDetail>?>(null) }
+    var archiveViewerStoryId by remember { mutableIntStateOf(0) }
     var permission by remember { mutableStateOf<StoryPostPermission?>(null) }
     var permissionLoading by remember { mutableStateOf(true) }
     var permissionError by remember { mutableStateOf<String?>(null) }
     var permissionAttempt by remember { mutableIntStateOf(0) }
+    var targets by remember { mutableStateOf<List<StoryPostTarget>>(emptyList()) }
+    var targetChatId by rememberSaveable { mutableLongStateOf(0L) }
 
     val premium = myProfile?.isPremium == true
     val periods = storyActivePeriodChoices(premium)
     val denied = (permission as? StoryPostPermission.Denied)?.reason
     val busy = publishing || pendingStoryId != 0
+    val selectedTarget = targets.firstOrNull { it.chatId == targetChatId }
+    val isSelfTarget = selectedTarget?.isSelf != false
 
     LaunchedEffect(repository) {
         captionLimit = repository.storyCaptionLimit().getOrDefault(1_024).coerceAtLeast(1)
+        targets = repository.storyPostTargets().getOrElse { emptyList() }
+        if (targets.isNotEmpty() && targets.none { it.chatId == targetChatId }) {
+            targetChatId = targets.firstOrNull { it.isSelf }?.chatId ?: targets.first().chatId
+        }
     }
-    LaunchedEffect(repository, permissionAttempt) {
+    LaunchedEffect(repository, permissionAttempt, targetChatId) {
         permissionLoading = true
         permissionError = null
-        repository.storyPostPermission()
+        repository.storyPostPermission(targetChatId)
             .onSuccess { permission = it }
             .onFailure {
                 permission = null
@@ -275,7 +286,7 @@ fun StoryPublisherScreen(
         val item = media
         when {
             item == null -> error = context.getString(R.string.stories_publish_need_media)
-            privacy == StoryPrivacy.SelectedUsers && selectedUsers.isEmpty() ->
+            isSelfTarget && privacy == StoryPrivacy.SelectedUsers && selectedUsers.isEmpty() ->
                 error = context.getString(R.string.stories_selected_empty)
             permission is StoryPostPermission.Denied -> Unit
             else -> {
@@ -283,10 +294,11 @@ fun StoryPublisherScreen(
                 error = null
                 scope.launch {
                     repository.publishStory(
+                        targetChatId = targetChatId,
                         media = item,
                         caption = caption,
-                        privacy = privacy,
-                        selectedUserIds = selectedUsers.toList(),
+                        privacy = if (isSelfTarget) privacy else StoryPrivacy.Everyone,
+                        selectedUserIds = if (isSelfTarget) selectedUsers.toList() else emptyList(),
                         activePeriodSeconds = activePeriod,
                         protectContent = protectContent,
                         keepInProfile = keepInProfile
@@ -336,6 +348,22 @@ fun StoryPublisherScreen(
             Modifier.weight(1f).verticalScroll(rememberScrollState())
                 .padding(start = 20.dp, end = 20.dp, bottom = 24.dp)
         ) {
+            if (targets.size > 1) {
+                StorySectionTitle(stringResource(R.string.stories_publish_as))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    targets.forEach { target ->
+                        StoryChoiceChip(
+                            label = if (target.isSelf) stringResource(R.string.stories_you) else target.title,
+                            selected = target.chatId == targetChatId,
+                            enabled = !busy,
+                            onClick = { targetChatId = target.chatId }
+                        )
+                    }
+                }
+            }
             val description = stringResource(
                 if (media == null) R.string.stories_choose_media_description else R.string.stories_change_media
             )
@@ -415,40 +443,50 @@ fun StoryPublisherScreen(
                 textAlign = TextAlign.End
             )
 
-            StorySectionTitle(stringResource(R.string.stories_privacy))
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    StoryPrivacy.Everyone to R.string.stories_privacy_everyone,
-                    StoryPrivacy.Contacts to R.string.stories_privacy_contacts,
-                    StoryPrivacy.CloseFriends to R.string.stories_privacy_close_friends,
-                    StoryPrivacy.SelectedUsers to R.string.stories_privacy_selected
-                ).forEach { (option, label) ->
-                    StoryChoiceChip(
-                        label = stringResource(label),
-                        selected = privacy == option,
-                        enabled = !busy,
-                        onClick = { privacy = option }
-                    )
+            if (isSelfTarget) {
+                StorySectionTitle(stringResource(R.string.stories_privacy))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        StoryPrivacy.Everyone to R.string.stories_privacy_everyone,
+                        StoryPrivacy.Contacts to R.string.stories_privacy_contacts,
+                        StoryPrivacy.CloseFriends to R.string.stories_privacy_close_friends,
+                        StoryPrivacy.SelectedUsers to R.string.stories_privacy_selected
+                    ).forEach { (option, label) ->
+                        StoryChoiceChip(
+                            label = stringResource(label),
+                            selected = privacy == option,
+                            enabled = !busy,
+                            onClick = { privacy = option }
+                        )
+                    }
                 }
-            }
-            if (privacy == StoryPrivacy.SelectedUsers) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    TextButton(
-                        onClick = { showRecipients = true },
-                        enabled = !busy
-                    ) { Text(stringResource(R.string.stories_choose_recipients)) }
-                    Text(
-                        stringResource(R.string.stories_selected_count, selectedUsers.size),
-                        color = if (selectedUsers.isEmpty()) palette.danger else palette.textSecondary,
-                        fontSize = 13.sp
-                    )
+                if (privacy == StoryPrivacy.SelectedUsers) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(
+                            onClick = { showRecipients = true },
+                            enabled = !busy
+                        ) { Text(stringResource(R.string.stories_choose_recipients)) }
+                        Text(
+                            stringResource(R.string.stories_selected_count, selectedUsers.size),
+                            color = if (selectedUsers.isEmpty()) palette.danger else palette.textSecondary,
+                            fontSize = 13.sp
+                        )
+                    }
+                    if (selectedUsers.isEmpty()) {
+                        Text(stringResource(R.string.stories_selected_empty), color = palette.danger, fontSize = 13.sp)
+                    }
                 }
-                if (selectedUsers.isEmpty()) {
-                    Text(stringResource(R.string.stories_selected_empty), color = palette.danger, fontSize = 13.sp)
-                }
+            } else {
+                StorySectionTitle(stringResource(R.string.stories_privacy))
+                Text(
+                    stringResource(R.string.stories_channel_privacy_note),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp
+                )
             }
 
             StorySectionTitle(stringResource(R.string.stories_lifetime))
@@ -540,7 +578,23 @@ fun StoryPublisherScreen(
         )
     }
     if (showArchive) {
-        StoryArchiveDialog(repository = repository, onDismiss = { showArchive = false })
+        StoryArchiveDialog(
+            repository = repository,
+            onDismiss = { showArchive = false },
+            onOpenStory = { list, story ->
+                showArchive = false
+                archiveViewerStories = list
+                archiveViewerStoryId = story.storyId
+            }
+        )
+    }
+    archiveViewerStories?.let { archived ->
+        StoryArchiveViewer(
+            initialStories = archived,
+            initialStoryId = archiveViewerStoryId,
+            repository = repository,
+            onClose = { archiveViewerStories = null }
+        )
     }
 }
 
@@ -614,7 +668,7 @@ private fun storyPostDenialText(reason: StoryPostDenial): Int = when (reason) {
 }
 
 @Composable
-private fun StoryRecipientsDialog(
+internal fun StoryRecipientsDialog(
     repository: TelegramRepository,
     selected: Set<Long>,
     onDismiss: () -> Unit,
@@ -720,7 +774,11 @@ private fun StoryRecipientsDialog(
 }
 
 @Composable
-private fun StoryArchiveDialog(repository: TelegramRepository, onDismiss: () -> Unit) {
+private fun StoryArchiveDialog(
+    repository: TelegramRepository,
+    onDismiss: () -> Unit,
+    onOpenStory: (List<StoryDetail>, StoryDetail) -> Unit
+) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -794,7 +852,12 @@ private fun StoryArchiveDialog(repository: TelegramRepository, onDismiss: () -> 
                 )
                 else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp).padding(top = 8.dp)) {
                     items(stories, key = { it.storyId }) { story ->
-                        StoryArchiveRow(story, repository, onDelete = { deleting = story })
+                        StoryArchiveRow(
+                            story,
+                            repository,
+                            onOpen = { onOpenStory(stories, story) },
+                            onDelete = { deleting = story }
+                        )
                         HorizontalDivider(color = palette.divider)
                     }
                     item(key = "archive_more") {
@@ -861,7 +924,12 @@ private fun StoryArchiveDialog(repository: TelegramRepository, onDismiss: () -> 
 }
 
 @Composable
-private fun StoryArchiveRow(story: StoryDetail, repository: TelegramRepository, onDelete: () -> Unit) {
+private fun StoryArchiveRow(
+    story: StoryDetail,
+    repository: TelegramRepository,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit
+) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val fileId = story.media?.thumbnailFileId ?: story.media?.fileId
@@ -873,7 +941,7 @@ private fun StoryArchiveRow(story: StoryDetail, repository: TelegramRepository, 
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(story.dateSeconds * 1000L))
     }
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(vertical = 6.dp),
+        Modifier.fillMaxWidth().heightIn(min = 58.dp).clickable(role = Role.Button, onClick = onOpen).padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(42.dp).clip(RoundedCornerShape(10.dp)).background(palette.surface2), contentAlignment = Alignment.Center) {
