@@ -60,6 +60,8 @@ import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.MessageLinkTarget
+import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
+import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
 import com.beykus.beygram.domain.model.PremiumInfo
 import com.beykus.beygram.domain.model.StarTransactionsPage
 import com.beykus.beygram.domain.model.StarsInfo
@@ -1226,6 +1228,10 @@ class TdLibTelegramRepository private constructor(
     override suspend fun setPreviousProfilePhoto(photoId: Long) = profiles.setPreviousPhoto(photoId)
 
     override suspend fun premiumInfo(): Result<PremiumInfo> = payments.premiumInfo()
+    override suspend fun checkPremiumGiftCode(code: String): Result<PremiumGiftCodeInfo> =
+        payments.checkPremiumGiftCode(code)
+    override suspend fun applyPremiumGiftCode(code: String): PremiumGiftCodeApplyOutcome =
+        payments.applyPremiumGiftCode(code)
     override suspend fun starsInfo(): Result<StarsInfo> = payments.starsInfo()
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = payments.starTransactions(offset)
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)

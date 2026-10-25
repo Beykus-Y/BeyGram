@@ -14,6 +14,8 @@ import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
+import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
 import com.beykus.beygram.domain.model.PremiumInfo
 import com.beykus.beygram.domain.model.StarTransactionsPage
 import com.beykus.beygram.domain.model.StarsInfo
@@ -79,6 +81,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Read-only Premium status, capabilities and plans. This build never starts a payment. */
     suspend fun premiumInfo(): Result<PremiumInfo>
+
+    /** Inspect a Premium gift code without applying it. The code is never stored or logged. */
+    suspend fun checkPremiumGiftCode(code: String): Result<PremiumGiftCodeInfo>
+
+    /** Apply one Premium gift code after explicit confirmation. Never retried by the repository. */
+    suspend fun applyPremiumGiftCode(code: String): PremiumGiftCodeApplyOutcome
 
     /** Stars balance, the first page of transactions and informational top-up options. */
     suspend fun starsInfo(): Result<StarsInfo>

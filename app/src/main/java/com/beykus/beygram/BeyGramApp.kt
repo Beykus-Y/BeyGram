@@ -1709,6 +1709,8 @@ private fun BeyGramAppContent(
                 }
                 AppRoute.Premium -> PremiumScreen(
                     load = repository::premiumInfo,
+                    checkGiftCode = repository::checkPremiumGiftCode,
+                    applyGiftCode = repository::applyPremiumGiftCode,
                     onBack = { routeName = monetizationReturnRouteName }
                 )
                 AppRoute.Stars -> StarsScreen(

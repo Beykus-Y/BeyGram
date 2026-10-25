@@ -8,8 +8,13 @@ import com.beykus.beygram.domain.model.GiftCollectionItem
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.PremiumFeatureKind
+import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
+import com.beykus.beygram.domain.model.PremiumGiftCodeError
+import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
 import com.beykus.beygram.domain.model.PremiumInfo
 import com.beykus.beygram.domain.model.PremiumPlan
+import com.beykus.beygram.domain.model.classifyPremiumGiftCodeError
+import com.beykus.beygram.domain.model.normalizePremiumGiftCode
 import com.beykus.beygram.domain.model.ReceivedGiftItem
 import com.beykus.beygram.domain.model.StarBalance
 import com.beykus.beygram.domain.model.StarTopUpOption
@@ -27,9 +32,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Read-only Premium/Stars/Gifts access plus one explicit gift purchase. TDLib owns
- * balances and prices; this class never invents payment data and never retries a
- * send on its own.
+ * Premium/Stars/Gifts access, one explicit gift purchase and Premium gift code activation.
+ * TDLib owns balances and prices; this class never invents payment data, logs codes or
+ * retries a mutation on its own.
  */
 internal class TdPayments(private val requests: TdRequests) {
     @Volatile private var cachedUserId = 0L
@@ -58,6 +63,59 @@ internal class TdPayments(private val requests: TdRequests) {
                 }
             }.sortedBy { it.monthCount }
         )
+    }
+
+    suspend fun checkPremiumGiftCode(code: String): Result<PremiumGiftCodeInfo> {
+        val normalized = normalizePremiumGiftCode(code)
+            ?: return Result.failure(UserMessageException(UiText.Res(R.string.err_premium_gift_code_invalid)))
+        return monetizationResult(errorText = { premiumGiftCodeFailureText(it) }) {
+            val info = requests(TdApi.CheckPremiumGiftCode(normalized))
+            val meId = try {
+                myUserId()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                0L
+            }
+            PremiumGiftCodeInfo(
+                creatorName = senderDisplayName(info.creatorId),
+                creationDateSeconds = info.creationDate,
+                isFromGiveaway = info.isFromGiveaway,
+                monthCount = info.monthCount,
+                dayCount = info.dayCount,
+                isUsed = info.useDate > 0,
+                useDateSeconds = info.useDate,
+                isForAnotherUser = info.userId != 0L && meId != 0L && info.userId != meId
+            )
+        }
+    }
+
+    /** Applies one code only after the UI confirmed its server-side details. */
+    suspend fun applyPremiumGiftCode(code: String): PremiumGiftCodeApplyOutcome {
+        val normalized = normalizePremiumGiftCode(code)
+            ?: return PremiumGiftCodeApplyOutcome.Blocked(UiText.Res(R.string.err_premium_gift_code_invalid))
+        return try {
+            requests(TdApi.ApplyPremiumGiftCode(normalized), timeoutMillis = PREMIUM_GIFT_CODE_APPLY_TIMEOUT_MS)
+            PremiumGiftCodeApplyOutcome.Activated
+        } catch (_: TimeoutCancellationException) {
+            PremiumGiftCodeApplyOutcome.Uncertain
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: TdRequestError) {
+            when (classifyPremiumGiftCodeError(error.message)) {
+                PremiumGiftCodeError.Invalid,
+                PremiumGiftCodeError.Used,
+                PremiumGiftCodeError.Expired,
+                PremiumGiftCodeError.OtherUser ->
+                    PremiumGiftCodeApplyOutcome.Blocked(premiumGiftCodeFailureText(error))
+                PremiumGiftCodeError.Other -> PremiumGiftCodeApplyOutcome.Failed(failureText(error))
+            }
+        } catch (error: UserMessageException) {
+            PremiumGiftCodeApplyOutcome.Blocked(error.text)
+        } catch (_: Exception) {
+            // The request may already have reached Telegram; never retry it blindly.
+            PremiumGiftCodeApplyOutcome.Uncertain
+        }
     }
 
     suspend fun starsInfo(): Result<StarsInfo> = monetizationResult {
@@ -329,19 +387,37 @@ internal class TdPayments(private val requests: TdRequests) {
         null
     }
 
-    private suspend fun <T> monetizationResult(block: suspend () -> T): Result<T> = try {
+    private suspend fun <T> monetizationResult(
+        errorText: (Exception) -> UiText = { failureText(it) },
+        block: suspend () -> T
+    ): Result<T> = try {
         Result.success(block())
     // withTimeout raises TimeoutCancellationException, which is also a CancellationException.
     // It must become a visible read error; only real caller cancellation may propagate.
     } catch (timeout: TimeoutCancellationException) {
-        Result.failure(UserMessageException(UiText.Res(R.string.err_monetization_timeout), timeout))
+        Result.failure(UserMessageException(errorText(timeout), timeout))
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: UserMessageException) {
         Result.failure(error)
     } catch (error: Exception) {
-        Result.failure(UserMessageException(failureText(error), error))
+        Result.failure(UserMessageException(errorText(error), error))
     }
+
+    private suspend fun senderDisplayName(sender: TdApi.MessageSender?): String? = when (sender) {
+        is TdApi.MessageSenderUser -> userName(sender.userId)
+        is TdApi.MessageSenderChat -> chatName(sender.chatId)
+        else -> null
+    }
+
+    private fun premiumGiftCodeFailureText(error: Exception): UiText =
+        when (classifyPremiumGiftCodeError(error.message)) {
+            PremiumGiftCodeError.Invalid -> UiText.Res(R.string.err_premium_gift_code_invalid)
+            PremiumGiftCodeError.Used -> UiText.Res(R.string.err_premium_gift_code_used)
+            PremiumGiftCodeError.Expired -> UiText.Res(R.string.err_premium_gift_code_expired)
+            PremiumGiftCodeError.OtherUser -> UiText.Res(R.string.err_premium_gift_code_other_user)
+            PremiumGiftCodeError.Other -> failureText(error)
+        }
 
     private fun failureText(error: Exception): UiText = when {
         error is UserMessageException -> error.text
@@ -478,3 +554,4 @@ private const val PAGE_SIZE = 30
 private const val FIRST_PAGE_SIZE = 30
 private const val RECEIVED_LIMIT = 30
 private const val GIFT_SEND_TIMEOUT_MS = 60_000L
+private const val PREMIUM_GIFT_CODE_APPLY_TIMEOUT_MS = 60_000L
