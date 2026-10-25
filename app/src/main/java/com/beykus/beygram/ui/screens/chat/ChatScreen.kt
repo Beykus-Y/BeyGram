@@ -144,7 +144,6 @@ fun ChatScreen(
     onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
-    val canPostHere = chat.canPost && topicCanPost
     val composerDraft by remember(conversation, chat.id, forumTopicId) {
         if (forumTopicId > 0L) conversation.observeForumTopicDraft(chat.id, forumTopicId) else conversation.observeMessageDraft(chat.id)
     }.collectAsStateWithLifecycle()
@@ -247,6 +246,9 @@ fun ChatScreen(
     val chatWallpaper = chatOverrideState[chat.id]?.wallpaper ?: globalWallpaper
     val secretChats by remember(conversation) { conversation.secretChats }.collectAsStateWithLifecycle()
     val secretChat = secretChats[chat.id]
+    val secretChatClosed = chat.isSecret && secretChat?.state == SecretChatState.Closed
+    // A closed secret chat cannot accept new messages even though TDLib may still report posting permission.
+    val canPostHere = SecretChatPosting.canPost(chat.canPost && topicCanPost, chat.isSecret, secretChat?.state)
     LaunchedEffect(chat.id, chat.isSecret, conversation) {
         if (chat.isSecret) conversation.refreshSecretChat(chat.id)
     }
@@ -1230,7 +1232,7 @@ fun ChatScreen(
      * the choice applies to this send only and is not kept for the next one.
      */
     fun sendCurrentDraft(options: MessageSendOptions) {
-        if (editId != null || inlineSending) return
+        if (secretChatClosed || editId != null || inlineSending) return
         pendingSticker?.let { sticker ->
             pendingSticker = null
             attachments.closePicker()
@@ -1677,7 +1679,9 @@ fun ChatScreen(
         // Мини-плеер стоит над полем ввода и остаётся на месте при поиске и при выборе сообщений. Без поля ввода он внизу экрана, поэтому отступает от системной навигации.
         NowPlayingBar(bottomInset = deleting || searching || selectionMode)
         // Chats the user cannot write to get no composer, only a plain notice, as in Telegram.
-        if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar()
+        if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar(
+            if (secretChatClosed) stringResource(R.string.secret_chat_closed_composer) else stringResource(R.string.chat_read_only)
+        )
         if (!deleting && !searching && !selectionMode && canPostHere) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
         if (!recordingActive && !editing && !attachments.active) BotInlineResultsPanel(
             chatId = chat.id,
@@ -2007,10 +2011,10 @@ fun ChatScreen(
 }
 
 @Composable
-private fun ReadOnlyChatBar() {
+private fun ReadOnlyChatBar(message: String) {
     val palette = beyGramPalette()
     Box(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
-        Text(stringResource(R.string.chat_read_only), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+        Text(message, color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
     }
 }
 

@@ -1696,6 +1696,9 @@ class TdLibTelegramRepository private constructor(
         cancelledAutoDownloads.clear()
         messageDrafts.dispose()
         notificationFeed.dispose()
+        // Local account removal disposes this repository without an auth-state callback: drop secret metadata here too.
+        secretChatSession++
+        secretChatDirectory.clear()
         com.beykus.beygram.data.media.VideoNoteLossDiagnostics.releaseRepository(this)
         chatListScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
         authScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()

@@ -14,10 +14,37 @@ data class SecretChatDetails(
     val state: SecretChatState,
     val isOutbound: Boolean,
     val ttlSeconds: Int,
-    val layer: Int
+    val layer: Int,
+    /** TDLib's SecretChat.keyHash, kept as bytes with value equality so StateFlow updates stay comparable. */
+    val keyHash: List<Byte> = emptyList()
 ) {
     val isReady: Boolean get() = state == SecretChatState.Ready
     val hasSelfDestruct: Boolean get() = ttlSeconds > 0
+    val keyFingerprint: String get() = SecretChatKey.fingerprint(keyHash)
+}
+
+/**
+ * A readable fingerprint of TDLib's key hash. The official four-emoji visualization is intentionally not implemented:
+ * without a verified mapping, deriving emoji from [keyHash] would show a convincing but possibly wrong comparison.
+ */
+object SecretChatKey {
+    private const val HEX = "0123456789ABCDEF"
+
+    fun fingerprint(keyHash: List<Byte>): String = keyHash.chunked(4).joinToString(" ") { group ->
+        buildString(group.size * 2) {
+            group.forEach { byte ->
+                val value = byte.toInt() and 0xFF
+                append(HEX[value ushr 4])
+                append(HEX[value and 0x0F])
+            }
+        }
+    }
+}
+
+/** A closed secret chat stays readable, but TDLib cannot deliver new messages in it. */
+object SecretChatPosting {
+    fun canPost(canPostInChat: Boolean, isSecretChat: Boolean, state: SecretChatState?): Boolean =
+        canPostInChat && !(isSecretChat && state == SecretChatState.Closed)
 }
 
 /**

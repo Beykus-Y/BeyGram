@@ -37,6 +37,9 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf<ChatMessage?>(null) }
+    var viewerItem by remember { mutableStateOf<MediaViewerItem?>(null) }
+    var viewerChatId by remember { mutableStateOf(0L) }
+    var openedViewOnceIds by remember(chatId, targetId) { mutableStateOf(emptySet<Long>()) }
     var rights by remember { mutableStateOf<MessageRights?>(null) }
     LaunchedEffect(selected?.id) {
         rights = null
@@ -88,7 +91,11 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                 context == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else -> LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(context!!.messages, key = { it.id }) { message ->
-                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = { selected = message }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
+                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = {
+                            selected = message
+                            viewerItem = message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce) }
+                            viewerChatId = message.chatId
+                        }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
                             onPollVote = { messageId, choices ->
                                 reactionScope.launch {
                                     conversation.votePoll(message.chatId, messageId, choices)
@@ -115,8 +122,21 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
             }
         }
     }
-    selected?.let { message -> message.media?.let { media -> MediaViewer(pages = listOf(MediaViewerItem(message.id, media, message.isViewOnce)), selectedId = message.id, onSelect = {},
-        observeFile = observeFile, downloadFile = downloadFile, autoDownloadFile = autoDownloadFile, onViewed = { id -> conversation.openMessageContent(message.chatId, id) }, onClose = { selected = null },
-        canExport = MediaViewerPolicy.rightsFor(message.id, rights)?.canSave == true && !message.isViewOnce,
-        confirmExport = { id -> conversation.messageCapabilities(message.chatId, id).getOrNull()?.canSave == true }) } }
+    // The viewer keeps its own opened page; deleting the live message must not dismiss it mid-view.
+    val activeItem = viewerItem
+    if (activeItem != null) {
+        val activeChatId = viewerChatId.takeIf { it > 0L } ?: chatId
+        val pages = MediaViewerPolicy.retainViewOncePage(listOf(activeItem), activeItem)
+        MediaViewer(pages = pages, selectedId = activeItem.messageId, onSelect = {},
+            observeFile = observeFile, downloadFile = downloadFile, autoDownloadFile = autoDownloadFile,
+            onViewed = { id ->
+                if (!activeItem.viewOnce || id !in openedViewOnceIds) {
+                    if (activeItem.viewOnce) openedViewOnceIds = openedViewOnceIds + id
+                    conversation.openMessageContent(activeChatId, id)
+                }
+            },
+            onClose = { viewerItem = null; viewerChatId = 0L; selected = null },
+            canExport = MediaViewerPolicy.rightsFor(activeItem.messageId, rights)?.canSave == true && !activeItem.viewOnce,
+            confirmExport = { id -> conversation.messageCapabilities(activeChatId, id).getOrNull()?.canSave == true })
+    }
 }

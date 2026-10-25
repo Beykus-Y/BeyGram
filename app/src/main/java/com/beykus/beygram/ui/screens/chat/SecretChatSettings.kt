@@ -1,5 +1,11 @@
 package com.beykus.beygram.ui.screens.chat
 
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.os.Build
+import android.os.PersistableBundle
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
@@ -25,12 +32,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.SecretChatDetails
+import com.beykus.beygram.domain.model.SecretChatKey
 import com.beykus.beygram.domain.model.SecretChatState
 import com.beykus.beygram.domain.model.SecretChatTtl
 import com.beykus.beygram.domain.model.formatTtlDuration
@@ -85,6 +94,7 @@ internal fun SecretChatSettingsSection(
     var error by remember(chatId) { mutableStateOf<String?>(null) }
     var customOpen by remember(chatId) { mutableStateOf(false) }
     var closeConfirm by remember(chatId) { mutableStateOf(false) }
+    var keyOpen by remember(chatId) { mutableStateOf(false) }
 
     fun setTtl(seconds: Int) {
         if (busy) return
@@ -120,6 +130,12 @@ internal fun SecretChatSettingsSection(
             fontSize = 12.sp,
             modifier = Modifier.padding(bottom = 6.dp)
         )
+        TextButton(
+            onClick = { keyOpen = true },
+            enabled = details != null
+        ) {
+            Text(stringResource(R.string.secret_chat_key_action), color = palette.accent)
+        }
         details?.let {
             Text(
                 stringResource(R.string.secret_chat_ttl_current, secretChatTtlLabel(it.ttlSeconds)),
@@ -195,6 +211,89 @@ internal fun SecretChatSettingsSection(
             TextButton(onClick = { closeConfirm = false }, enabled = !busy) {
                 Text(stringResource(R.string.common_cancel))
             }
+        }
+    )
+    if (keyOpen) details?.let { SecretChatKeyDialog(it, onDismiss = { keyOpen = false }) }
+}
+
+/** Shows TDLib's key hash as a fingerprint; no emoji are invented because TDLib does not expose the official mapping. */
+@Composable
+private fun SecretChatKeyDialog(details: SecretChatDetails, onDismiss: () -> Unit) {
+    val palette = beyGramPalette()
+    val context = LocalContext.current
+    val fingerprint = remember(details.keyHash) { SecretChatKey.fingerprint(details.keyHash) }
+    var copied by remember(details.keyHash) { mutableStateOf(false) }
+    fun copy() {
+        if (fingerprint.isBlank()) return
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        val clip = ClipData.newPlainText(context.getString(R.string.secret_chat_key_title), fingerprint)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            clip.description.extras = PersistableBundle().apply {
+                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
+        }
+        clipboard?.setPrimaryClip(clip)
+        copied = true
+        Toast.makeText(context, context.getString(R.string.secret_chat_key_copied), Toast.LENGTH_SHORT).show()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.secret_chat_key_title)) },
+        text = {
+            Column {
+                Text(
+                    stringResource(R.string.secret_chat_key_device_warning),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp
+                )
+                if (fingerprint.isBlank()) {
+                    Text(
+                        stringResource(R.string.secret_chat_key_unavailable),
+                        color = palette.warningText,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                } else {
+                    Text(
+                        stringResource(R.string.secret_chat_key_fingerprint_label),
+                        color = palette.accentInk,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                    SelectionContainer {
+                        Text(
+                            fingerprint,
+                            color = palette.textPrimary,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                    Text(
+                        stringResource(R.string.secret_chat_key_fingerprint_hint),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                    Text(
+                        stringResource(R.string.secret_chat_key_hash_only),
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (fingerprint.isNotBlank()) {
+                TextButton(onClick = { copy() }) {
+                    Text(stringResource(if (copied) R.string.secret_chat_key_copied else R.string.secret_chat_key_copy))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
         }
     )
 }

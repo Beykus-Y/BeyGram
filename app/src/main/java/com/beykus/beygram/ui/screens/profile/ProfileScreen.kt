@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.WorkspacePremium
@@ -87,7 +88,10 @@ fun ProfileScreen(
     onPremium: () -> Unit = {}, onStars: () -> Unit = {},
     onGifts: (profileId: Long, isSelf: Boolean, title: String) -> Unit = { _, _, _ -> },
     /** Repository-backed automatic download for shared media and profile galleries. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    /** Creates a device-specific E2E chat for a regular user; null hides the profile entry. */
+    startSecretChat: (suspend (Long) -> Result<Long>)? = null,
+    onSecretChatOpened: (Long) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -98,6 +102,9 @@ fun ProfileScreen(
     var preparing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var photoError by rememberSaveable { mutableStateOf<String?>(null) }
+    var secretChatConfirm by rememberSaveable(state.info?.id) { mutableStateOf(false) }
+    var secretChatBusy by remember { mutableStateOf(false) }
+    var secretChatError by rememberSaveable(state.info?.id) { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             preparing = true; photoError = null
@@ -161,6 +168,23 @@ fun ProfileScreen(
                             Icon(Icons.Rounded.CardGiftcard, null, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.size(8.dp))
                             Text(stringResource(R.string.profile_monetization_gifts_send), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    val canStartSecretChat = startSecretChat != null && info.kind == ProfileKind.Person && !info.isSelf &&
+                        SecretChatEligibility.canStart(
+                            userId = info.id,
+                            isSelf = info.isSelf,
+                            isBot = info.kind == ProfileKind.Bot || info.status is ProfilePresence.Bot,
+                            isDeleted = info.status is ProfilePresence.DeletedAccount
+                        )
+                    if (canStartSecretChat) {
+                        TextButton(
+                            onClick = { secretChatError = null; secretChatConfirm = true },
+                            enabled = !secretChatBusy
+                        ) {
+                            Icon(Icons.Rounded.Lock, null, modifier = Modifier.size(18.dp), tint = palette.accent)
+                            Spacer(Modifier.size(8.dp))
+                            Text(stringResource(R.string.secret_chat_start_from_profile), color = palette.accentInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -232,6 +256,53 @@ fun ProfileScreen(
                     } }) { Text(if (saving) stringResource(R.string.common_saving) else stringResource(R.string.profile_photo_set), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
             }
         }
+    }
+    state.info?.takeIf { secretChatConfirm }?.let { info ->
+        AlertDialog(
+            onDismissRequest = { if (!secretChatBusy) { secretChatConfirm = false; secretChatError = null } },
+            title = { Text(stringResource(R.string.secret_chat_start_title)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.secret_chat_start_message), color = palette.textSecondary, fontSize = 14.sp)
+                    secretChatError?.let {
+                        Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp).errorAnnouncement())
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !secretChatBusy,
+                    onClick = {
+                        val create = startSecretChat ?: return@TextButton
+                        if (secretChatBusy) return@TextButton
+                        scope.launch {
+                            secretChatBusy = true
+                            secretChatError = null
+                            try {
+                                create(info.id)
+                                    .onSuccess { chatId ->
+                                        secretChatConfirm = false
+                                        onSecretChatOpened(chatId)
+                                    }
+                                    .onFailure {
+                                        secretChatError = it.userMessage(context, R.string.secret_chat_create_failed)
+                                    }
+                            } finally {
+                                secretChatBusy = false
+                            }
+                        }
+                    }
+                ) {
+                    if (secretChatBusy) CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
+                    else Text(stringResource(R.string.secret_chat_start_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !secretChatBusy, onClick = { secretChatConfirm = false; secretChatError = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
     }
 }
 

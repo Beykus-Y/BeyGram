@@ -23,4 +23,14 @@ internal object MediaViewerPolicy {
      */
     fun rightsFor(messageId: Long, loaded: MessageRights?): MessageCapabilities? =
         loaded?.takeIf { it.messageId == messageId }?.capabilities
+
+    /**
+     * TDLib deletes a view-once message as soon as its content was opened. The viewer already holds that page, so keep
+     * it until the user closes the viewer; otherwise the deletion would dismiss the media mid-view.
+     */
+    fun retainViewOncePage(pages: List<MediaViewerItem>, retained: MediaViewerItem?): List<MediaViewerItem> {
+        if (retained == null || !retained.viewOnce) return pages
+        if (pages.any { it.messageId == retained.messageId }) return pages
+        return pages + retained
+    }
 }

@@ -79,4 +79,36 @@ class SecretChatTest {
         assertTrue(message.copy(selfDestruct = MessageSelfDestruct.Immediately).isViewOnce)
         assertFalse(message.copy(selfDestruct = MessageSelfDestruct.Timer(30)).isViewOnce)
     }
+
+    @Test
+    fun `key fingerprint groups bytes as uppercase hex`() {
+        assertEquals("", SecretChatKey.fingerprint(emptyList()))
+        assertEquals("00AB7FFF", SecretChatKey.fingerprint(listOf<Byte>(0x00, 0xAB.toByte(), 0x7F, 0xFF.toByte())))
+        assertEquals(
+            "00112233 44556677",
+            SecretChatKey.fingerprint(listOf(0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77).map(Int::toByte))
+        )
+    }
+
+    @Test
+    fun `fingerprint never uses localized digits`() {
+        val old = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("ar-EG"))
+            assertEquals("0A0B", SecretChatKey.fingerprint(listOf(0x0A, 0x0B)))
+        } finally {
+            java.util.Locale.setDefault(old)
+        }
+    }
+
+    @Test
+    fun `closed secret chat blocks posting while history stays readable`() {
+        assertTrue(SecretChatPosting.canPost(canPostInChat = true, isSecretChat = true, state = SecretChatState.Ready))
+        assertTrue(SecretChatPosting.canPost(canPostInChat = true, isSecretChat = true, state = SecretChatState.Pending))
+        assertTrue(SecretChatPosting.canPost(canPostInChat = true, isSecretChat = true, state = null))
+        assertFalse(SecretChatPosting.canPost(canPostInChat = true, isSecretChat = true, state = SecretChatState.Closed))
+        assertFalse(SecretChatPosting.canPost(canPostInChat = false, isSecretChat = false, state = null))
+        // A stale non-secret state must never block an ordinary chat.
+        assertTrue(SecretChatPosting.canPost(canPostInChat = true, isSecretChat = false, state = SecretChatState.Closed))
+    }
 }
