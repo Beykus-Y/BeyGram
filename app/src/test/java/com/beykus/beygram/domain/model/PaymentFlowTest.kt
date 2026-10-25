@@ -192,7 +192,7 @@ class PaymentFlowTest {
         assertFalse(plan().isSameOfferAs(plan(isCurrent = true)))
         assertFalse(plan().isSameOfferAs(plan(isUpgrade = true)))
 
-        assertTrue(option().isSameOfferAs(option(currency = "usd")))
+        assertTrue(option().isSameOfferAs(option(currency = "eur")))
         assertFalse(option().isSameOfferAs(option(stars = 501)))
         assertFalse(option().isSameOfferAs(option(amount = 1000)))
     }
