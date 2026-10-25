@@ -125,13 +125,29 @@ fun StoryViewerScreen(
     val stories = snapshot?.stories.orEmpty()
     val storyIds = stories.map { it.storyId }
     var index by remember(posterChatId) { mutableIntStateOf(-1) }
+    var visibleStoryId by remember(posterChatId) { mutableIntStateOf(0) }
     LaunchedEffect(storyIds, initialStoryId) {
         if (stories.isEmpty()) return@LaunchedEffect
-        index = if (index !in stories.indices) {
-            storyInitialIndex(stories, snapshot?.maxReadStoryId ?: 0, initialStoryId)
+        if (visibleStoryId > 0) {
+            val resolved = storyIndexAfterUpdate(stories, index, visibleStoryId)
+            if (resolved < 0) {
+                onClose()
+                return@LaunchedEffect
+            }
+            index = resolved
+            visibleStoryId = stories[resolved].storyId
         } else {
-            index.coerceIn(0, stories.lastIndex)
+            val target = if (index !in stories.indices) {
+                storyInitialIndex(stories, snapshot?.maxReadStoryId ?: 0, initialStoryId)
+            } else {
+                index.coerceIn(0, stories.lastIndex)
+            }
+            index = target
+            visibleStoryId = stories[target].storyId
         }
+    }
+    LaunchedEffect(index) {
+        if (index in stories.indices) visibleStoryId = stories[index].storyId
     }
     val current = stories.getOrNull(index)
     val context = LocalContext.current

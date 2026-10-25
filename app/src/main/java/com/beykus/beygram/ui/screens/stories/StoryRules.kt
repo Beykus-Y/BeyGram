@@ -53,6 +53,21 @@ fun storyInitialIndex(stories: List<StoryPreview>, maxReadStoryId: Int, initialS
     return if (firstUnread >= 0) firstUnread else 0
 }
 
+/**
+ * Resolves the visible story after a live-list update. The story ID wins over the old numeric
+ * index, so removing an earlier story does not silently switch to a different story. If the
+ * current story disappeared, the next story in its place is shown; -1 means there is no next.
+ */
+fun storyIndexAfterUpdate(stories: List<StoryPreview>, previousIndex: Int, visibleStoryId: Int): Int {
+    if (stories.isEmpty()) return -1
+    if (visibleStoryId > 0) {
+        val found = stories.indexOfFirst { it.storyId == visibleStoryId }
+        if (found >= 0) return found
+        return if (previousIndex > stories.lastIndex) -1 else previousIndex.coerceIn(0, stories.lastIndex)
+    }
+    return if (previousIndex in stories.indices) previousIndex else -1
+}
+
 /** Telegram keeps photos for five seconds; video length is its own, with a sane fallback when metadata is missing. */
 fun storyDurationMillis(story: StoryDetail?): Long {
     val media = story?.media ?: return PHOTO_STORY_DURATION_MS

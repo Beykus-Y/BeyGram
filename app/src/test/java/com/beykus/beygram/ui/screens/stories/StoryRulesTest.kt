@@ -55,6 +55,18 @@ class StoryRulesTest {
     }
 
     @Test
+    fun liveListUpdateKeepsTheVisibleStoryById() {
+        val before = listOf(preview(1), preview(2), preview(3))
+
+        assertEquals(1, storyIndexAfterUpdate(before, previousIndex = 1, visibleStoryId = 2))
+        assertEquals(0, storyIndexAfterUpdate(listOf(preview(2), preview(3)), previousIndex = 1, visibleStoryId = 2))
+        // The visible story was removed in the middle: show the next one, not the old numeric index.
+        assertEquals(1, storyIndexAfterUpdate(listOf(preview(1), preview(3)), previousIndex = 1, visibleStoryId = 2))
+        assertEquals(-1, storyIndexAfterUpdate(listOf(preview(1)), previousIndex = 1, visibleStoryId = 2))
+        assertEquals(-1, storyIndexAfterUpdate(emptyList(), previousIndex = 1, visibleStoryId = 2))
+    }
+
+    @Test
     fun storyDurationUsesVideoMetadataWithSafeFallbacks() {
         assertEquals(5_000L, storyDurationMillis(null))
         assertEquals(5_000L, storyDurationMillis(StoryDetail(1, 1, 0, media = photo(10))))
