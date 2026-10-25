@@ -108,7 +108,7 @@ internal fun botKeyboard(message: TdApi.Message?): BotKeyboard? = when (val mark
             else -> BotButtonKind.Unsupported
         }
         BotButton(it.text, kind, (it.type as? TdApi.KeyboardButtonTypeWebApp)?.url.orEmpty())
-    } }, markup.oneTime, markup.isPersistent, markup.inputFieldPlaceholder)
-    is TdApi.ReplyMarkupForceReply -> BotKeyboard(message.id, emptyList(), placeholder = markup.inputFieldPlaceholder, forceReply = true)
+    } }, markup.oneTime, markup.isPersistent, markup.inputFieldPlaceholder.orEmpty())
+    is TdApi.ReplyMarkupForceReply -> BotKeyboard(message.id, emptyList(), placeholder = markup.inputFieldPlaceholder.orEmpty(), forceReply = true)
     else -> null
 }
