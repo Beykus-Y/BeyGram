@@ -270,7 +270,7 @@ internal class TdPayments(private val requests: TdRequests) {
     }
 
     private suspend fun receivedItems(gifts: List<TdApi.ReceivedGift>): List<ReceivedGiftItem> = coroutineScope {
-        val keys = gifts.mapNotNull { gift -> gift.senderId?.let { sender -> senderKey(sender) } }.distinct()
+        val keys = gifts.mapNotNull { gift -> gift.senderId?.let { sender -> sender.senderKey() } }.distinct()
         val names = keys.map { key ->
             async {
                 key to when {
@@ -280,7 +280,7 @@ internal class TdPayments(private val requests: TdRequests) {
                 }
             }
         }.awaitAll().toMap()
-        gifts.map { gift -> gift.toReceivedGift(gift.senderId?.let { sender -> senderKey(sender) }?.let { key -> names[key] }) }
+        gifts.map { gift -> gift.toReceivedGift(gift.senderId?.let { sender -> sender.senderKey() }?.let { key -> names[key] }) }
     }
 
     private suspend fun userName(userId: Long): String? {
