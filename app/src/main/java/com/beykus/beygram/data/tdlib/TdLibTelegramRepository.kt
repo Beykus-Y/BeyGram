@@ -1408,8 +1408,11 @@ class TdLibTelegramRepository private constructor(
         source: BotWebAppSource,
         forumTopicId: Long,
         replyToMessageId: Long?,
-        theme: BotWebAppTheme
-    ): Result<BotWebAppLaunch> = botFeatures.openWebApp(chatId, botUserId, url, source, forumTopicId, replyToMessageId, theme)
+        theme: BotWebAppTheme,
+        buttonText: String
+    ): Result<BotWebAppLaunch> = botFeatures.openWebApp(chatId, botUserId, url, source, forumTopicId, replyToMessageId, theme, buttonText)
+    override suspend fun sendBotWebAppData(botUserId: Long, buttonText: String, data: String): Result<Unit> =
+        botFeatures.sendWebAppData(botUserId, buttonText, data)
     override fun closeBotWebApp(launchId: Long) {
         // TDLib launch ids are signed and may be negative; only zero means there is nothing to close.
         if (launchId == 0L) return

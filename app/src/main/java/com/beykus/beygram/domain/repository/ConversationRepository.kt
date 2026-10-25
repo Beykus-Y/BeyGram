@@ -37,8 +37,15 @@ interface ConversationRepository {
         source: BotWebAppSource,
         forumTopicId: Long = 0L,
         replyToMessageId: Long? = null,
-        theme: BotWebAppTheme
+        theme: BotWebAppTheme,
+        buttonText: String = ""
     ): Result<BotWebAppLaunch>
+
+    /**
+     * Sends data produced by a Mini App to its bot with SendWebAppData. [buttonText] is the text of the button that
+     * opened the Web App. The payload is validated for size and JSON before reaching TDLib; data is never logged.
+     */
+    suspend fun sendBotWebAppData(botUserId: Long, buttonText: String, data: String): Result<Unit>
     /** Informs TDLib that the Mini App screen is gone. Safe to call once per launch; never blocks disposal. */
     fun closeBotWebApp(launchId: Long)
     val messageLimits: StateFlow<MessageLimits>

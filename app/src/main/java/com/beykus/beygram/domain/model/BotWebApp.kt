@@ -1,5 +1,6 @@
 package com.beykus.beygram.domain.model
 
+import org.json.JSONTokener
 import java.net.URI
 
 /** ARGB colours passed to TDLib so the Mini App can match the active BeyGram theme without sharing app state. */
@@ -20,9 +21,59 @@ enum class BotWebAppSource { InlineKeyboard, KeyboardButton, InlineQueryButton }
 /**
  * A short-lived TDLib Web App launch. A non-zero [launchId] must be closed with CloseWebApp when the screen leaves;
  * keyboard and inline-result buttons return a URL without a launch id.
+ *
+ * [botUserId] and [buttonText] identify the button that opened the Web App, which TDLib needs for SendWebAppData.
  */
-data class BotWebAppLaunch(val launchId: Long, val url: String, val requireSameOrigin: Boolean) {
+data class BotWebAppLaunch(
+    val launchId: Long,
+    val url: String,
+    val requireSameOrigin: Boolean,
+    val botUserId: Long = 0L,
+    val buttonText: String = ""
+) {
     val host: String get() = normalizedWebAppUrl(url)?.let { runCatching { URI(it).host }.getOrNull() }.orEmpty()
+}
+
+/** Maximum data size accepted by Telegram's web_app_data_send / SendWebAppData flow. */
+const val BOT_WEB_APP_DATA_MAX_BYTES = 4096
+
+/** Why data from a Mini App cannot be forwarded to its bot; null means the payload is valid. */
+enum class BotWebAppDataError { Empty, TooLarge, InvalidJson }
+
+/**
+ * Validates Mini App data before it reaches TDLib. The size limit is in UTF-8 bytes, as in Telegram clients. Telegram
+ * allows arbitrary strings, so plain text is forwarded unchanged, while structured payloads (JSON objects, arrays and
+ * quoted strings) must be complete JSON and are rejected when malformed.
+ */
+fun validateBotWebAppData(data: String): BotWebAppDataError? {
+    if (data.isEmpty()) return BotWebAppDataError.Empty
+    // UTF-8 never uses fewer bytes than UTF-16 code units, so this avoids copying an obviously oversized payload.
+    if (data.length > BOT_WEB_APP_DATA_MAX_BYTES) return BotWebAppDataError.TooLarge
+    if (data.toByteArray(Charsets.UTF_8).size > BOT_WEB_APP_DATA_MAX_BYTES) return BotWebAppDataError.TooLarge
+    val text = data.trim()
+    val structured = text.startsWith('{') || text.startsWith('[') || text.startsWith('"')
+    return if (structured && !isCompleteJsonValue(text)) BotWebAppDataError.InvalidJson else null
+}
+
+private fun isCompleteJsonValue(value: String): Boolean {
+    val text = value.trim()
+    if (text.isEmpty()) return false
+    when (text.first()) {
+        't' -> return text == "true"
+        'f' -> return text == "false"
+        'n' -> return text == "null"
+        '{', '[', '"', '-' -> Unit
+        in '0'..'9' -> Unit
+        else -> return false
+    }
+    return try {
+        val tokener = JSONTokener(text)
+        tokener.nextValue()
+        // JSONTokener is lenient, so explicitly reject anything left after the first value.
+        tokener.nextClean() == '\u0000'
+    } catch (ignored: Exception) {
+        false
+    }
 }
 
 /**
@@ -58,4 +109,21 @@ fun isAllowedWebAppNavigation(launchUrl: String, targetUrl: String, requireSameO
     val launch = webAppOrigin(launchUrl) ?: return false
     val target = webAppOrigin(targetUrl) ?: return false
     return !requireSameOrigin || launch == target
+}
+
+/**
+ * Exact WebView origin rule (`https://host[:port]`) for the launch URL. The Mini App bridge is installed only for
+ * this origin, so a redirect cannot inherit the bridge even when unrestricted navigation is allowed.
+ */
+fun webAppOriginRule(raw: String): String? {
+    val (scheme, host, port) = webAppOrigin(raw) ?: return null
+    return buildString {
+        append(scheme)
+        append("://")
+        append(host)
+        if (port != 443) {
+            append(':')
+            append(port)
+        }
+    }
 }

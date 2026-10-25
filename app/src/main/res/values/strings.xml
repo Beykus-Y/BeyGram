@@ -600,6 +600,9 @@
     <string name="err_contact_not_found">Этот контакт больше не доступен в Telegram</string>
     <string name="err_webapp_insecure_url">Mini App вернул небезопасную ссылку</string>
     <string name="err_webapp_unavailable">Mini App недоступен в этом чате</string>
+    <string name="err_webapp_data_failed">Не удалось отправить данные боту</string>
+    <string name="err_webapp_data_invalid">Mini App передала некорректные данные</string>
+    <string name="err_webapp_data_too_large">Mini App передала слишком много данных (максимум 4096 байт)</string>
     <string name="err_name_empty">Введите имя</string>
     <string name="err_name_too_long">Имя и фамилия — не более %1$d символов</string>
     <string name="err_notif_background_denied">Android запретил фоновое подключение. Откройте приложение и проверьте настройки уведомлений.</string>
@@ -1218,6 +1221,8 @@
     <string name="chat_webapp_navigation_blocked">Переход за пределы Mini App заблокирован</string>
     <string name="chat_webapp_download_blocked">Скачивание файлов из Mini App заблокировано</string>
     <string name="chat_webapp_crashed">Mini App остановлен</string>
+    <string name="chat_webapp_data_sent">Данные отправлены боту</string>
+    <string name="chat_webapp_invoice_unsupported">Оплата через Mini App пока не поддерживается</string>
     <string name="chat_format">Форматирование</string>
     <string name="chat_format_bold">Жирный</string>
     <string name="chat_format_italic">Курсив</string>

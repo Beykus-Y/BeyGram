@@ -376,8 +376,10 @@ class UnavailableTelegramRepository : TelegramRepository {
         source: BotWebAppSource,
         forumTopicId: Long,
         replyToMessageId: Long?,
-        theme: BotWebAppTheme
+        theme: BotWebAppTheme,
+        buttonText: String
     ): Result<BotWebAppLaunch> = unavailable()
+    override suspend fun sendBotWebAppData(botUserId: Long, buttonText: String, data: String): Result<Unit> = unavailable()
     override fun closeBotWebApp(launchId: Long) = Unit
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
     override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long): Result<PinnedMessagePage> = unavailable()

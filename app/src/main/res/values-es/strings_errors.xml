@@ -181,4 +181,7 @@
     <string name="err_messages_too_many">Puedes procesar hasta %1$d mensajes a la vez</string>
     <string name="err_webapp_insecure_url">La Mini App devolvió una URL no segura</string>
     <string name="err_webapp_unavailable">La Mini App no está disponible en este chat</string>
+    <string name="err_webapp_data_failed">No se pudieron enviar los datos al bot</string>
+    <string name="err_webapp_data_invalid">La Mini App envió datos no válidos</string>
+    <string name="err_webapp_data_too_large">La Mini App envió demasiados datos (máximo 4096 bytes)</string>
 </resources>
