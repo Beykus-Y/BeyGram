@@ -73,6 +73,7 @@ import com.beykus.beygram.data.media.CameraCaptureMode
 import com.beykus.beygram.data.media.cameraRecordingProgress
 import com.beykus.beygram.data.media.cameraVideoLimitOptions
 import com.beykus.beygram.data.media.cameraVideoLimitSeconds
+import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import java.io.File
 
@@ -117,7 +118,7 @@ internal fun CameraCaptureScreen(
         audioGranted = granted
     }
     LaunchedEffect(Unit) {
-        if (!cameraGranted) cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        if (!cameraGranted) { AppLockManager.get(context).expectExternalActivity(); cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }
     }
     LaunchedEffect(cameraGranted, controller) {
         if (cameraGranted) controller.start()
@@ -152,14 +153,14 @@ internal fun CameraCaptureScreen(
                 audioGranted = audioGranted,
                 error = error,
                 onDismissError = { error = null },
-                onRequestAudio = { audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                onRequestAudio = { AppLockManager.get(context).expectExternalActivity(); audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
                 onClose = { controller.close(); onClose() }
             )
             if (controller.countdown > 0) CountdownOverlay(controller)
         } else {
             CameraPermissionPanel(
                 error = error,
-                onRequest = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
+                onRequest = { AppLockManager.get(context).expectExternalActivity(); cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
                 onClose = onClose
             )
         }

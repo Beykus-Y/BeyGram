@@ -39,7 +39,11 @@ enum class ChannelChartId {
     MessageReactions,
     MessageContent,
     Actions,
-    ViewsByWeekday
+    ViewsByWeekday,
+    GroupMembers,
+    GroupJoins,
+    MessagesByHour,
+    MessagesByWeekday
 }
 
 /** The drawing primitive requested by TDLib; unsupported graph types fall back to [Line]. */
