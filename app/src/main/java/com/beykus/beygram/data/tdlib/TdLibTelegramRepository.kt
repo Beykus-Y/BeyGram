@@ -1096,7 +1096,8 @@ class TdLibTelegramRepository private constructor(
         theme: BotWebAppTheme
     ): Result<BotWebAppLaunch> = botFeatures.openWebApp(chatId, botUserId, url, source, forumTopicId, replyToMessageId, theme)
     override fun closeBotWebApp(launchId: Long) {
-        if (launchId <= 0L) return
+        // TDLib launch ids are signed and may be negative; only zero means there is nothing to close.
+        if (launchId == 0L) return
         authScope.launch(Dispatchers.IO) { botFeatures.closeWebApp(launchId) }
     }
     private val conversationActions = TdConversationActions({ client }, messageHistory,

@@ -114,7 +114,8 @@ internal class TdBotFeatures(client: () -> Client) {
     }
 
     suspend fun closeWebApp(launchId: Long): Result<Unit> =
-        if (launchId <= 0L) Result.success(Unit)
+        // The launch id is an opaque signed query id; only zero is the "no launch" sentinel.
+        if (launchId == 0L) Result.success(Unit)
         else requestResult { request(TdApi.CloseWebApp(launchId)); Unit }
 
     private suspend fun inlineBot(username: String): Long {
