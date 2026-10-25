@@ -46,8 +46,8 @@ internal fun currentAutoDownloadNetwork(context: Context): AutoDownloadNetwork {
     val vpn = activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
     // For a VPN, only its own reported underlying networks are authoritative. Looking at every
     // connected network can pick an unrelated captive-portal Wi-Fi while traffic goes over cellular.
-    val underlying = if (vpn && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        activeCaps.underlyingNetworks.orEmpty()
+    val underlying = if (vpn) {
+        activeCaps.underlyingNetworksCompat()
             .mapNotNull { manager.getNetworkCapabilities(it) }
             .filter {
                 !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
@@ -68,6 +68,20 @@ internal fun currentAutoDownloadNetwork(context: Context): AutoDownloadNetwork {
         roaming = roaming,
         wifiMetered = wifiMetered
     )
+}
+
+/**
+ * Reads a VPN's underlying networks without depending on a compile-time SDK method that is missing
+ * on some platform stubs. If the platform cannot prove the route, the caller stays conservative.
+ */
+private fun NetworkCapabilities.underlyingNetworksCompat(): List<Network> {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return emptyList()
+    return runCatching {
+        val value = javaClass.getMethod("getUnderlyingNetworks").invoke(this)
+        (value as? Array<*>)?.filterIsInstance<Network>()
+            ?: (value as? List<*>)?.filterIsInstance<Network>()
+            ?: emptyList()
+    }.getOrDefault(emptyList())
 }
 
 /** Process-lifetime route observer used to stop automatic downloads when the connection changes. */
