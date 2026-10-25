@@ -1402,7 +1402,8 @@ fun ChatScreen(
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.chat_network_waiting), color = palette.warningText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
-        Box(Modifier.fillMaxWidth().weight(1f)) {
+        // Non-inline wrappers keep these large blocks out of ChatScreen's own bytecode (JVM 64 KB method limit).
+        ChatScreenBox(Modifier.fillMaxWidth().weight(1f)) {
         ChatWallpaperLayer(chatWallpaper)
         val metrics = LocalBubbleMetrics.current
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
@@ -1682,7 +1683,7 @@ fun ChatScreen(
         if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar(
             if (secretChatClosed) stringResource(R.string.secret_chat_closed_composer) else stringResource(R.string.chat_read_only)
         )
-        if (!deleting && !searching && !selectionMode && canPostHere) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
         if (!recordingActive && !editing && !attachments.active) BotInlineResultsPanel(
             chatId = chat.id,
             text = draft,
@@ -2008,6 +2009,20 @@ fun ChatScreen(
             onClose = { webAppSession = null }
         )
     }
+}
+
+/**
+ * Box/Column are inline, so their content is compiled into the caller. ChatScreen is close to the
+ * JVM method size limit; passing the content through these wrappers compiles it as a separate lambda.
+ */
+@Composable
+private fun ChatScreenBox(modifier: Modifier, content: @Composable BoxScope.() -> Unit) {
+    Box(modifier, content = content)
+}
+
+@Composable
+private fun ChatScreenColumn(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier, content = content)
 }
 
 @Composable
