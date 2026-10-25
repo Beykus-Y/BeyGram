@@ -35,11 +35,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,8 +72,14 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.text.DateFormat
 import java.util.Date
 
@@ -89,7 +95,6 @@ fun GiftsScreen(
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var info by remember { mutableStateOf<GiftsInfo?>(null) }
     var loading by remember { mutableStateOf(true) }
     var unsupported by remember { mutableStateOf(false) }
@@ -99,21 +104,66 @@ fun GiftsScreen(
     var selectedGift by remember { mutableStateOf<GiftCatalogItem?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeIsError by remember { mutableStateOf(false) }
-    // A submitted SendGift survives rotation only as this marker: the coroutine itself does not.
-    // While non-zero it blocks another purchase until the user acknowledges the warning.
-    // The process-level copy also survives navigating away and back without an Activity recreation.
-    var pendingGiftId by rememberSaveable { mutableStateOf(PendingGiftPurchase.giftId) }
-    val sending = step is GiftSendStep.Sending
+    // A send runs in the process-scoped store below, so rotation and navigation cannot
+    // cancel a purchase or lose its result. This marker only survives process death.
+    var pendingGiftId by rememberSaveable { mutableStateOf(0L) }
+    val retained by RetainedGiftSendStore.state.collectAsState()
+    val retainedRelevant = retained?.let { it.profileId == giftsProfileId && it.isSelf == isSelf } == true
+    val sending = step is GiftSendStep.Sending || retained?.inFlight == true
 
     BackHandler { if (!sending) onBack() }
     LaunchedEffect(Unit) {
-        if (PendingGiftPurchase.giftId != 0L) pendingGiftId = PendingGiftPurchase.giftId
-        val pending = pendingGiftId
-        if (pending != 0L) {
+        if (RetainedGiftSendStore.state.value == null && pendingGiftId != 0L) {
             notice = context.getString(R.string.gifts_send_uncertain)
             noticeIsError = true
-            step = GiftSendStep.Failed(pending, uncertain = true)
+            step = GiftSendStep.Failed(pendingGiftId, uncertain = true)
         }
+    }
+    LaunchedEffect(retained) {
+        val current = retained ?: return@LaunchedEffect
+        if (current.inFlight) {
+            notice = context.getString(R.string.gifts_sending)
+            noticeIsError = false
+            return@LaunchedEffect
+        }
+        val outcome = current.outcome ?: return@LaunchedEffect
+        if (retainedRelevant) {
+            when (outcome) {
+                GiftSendOutcome.Sent -> {
+                    pendingGiftId = 0L
+                    notice = context.getString(R.string.gifts_send_success)
+                    noticeIsError = false
+                    step = GiftSendStep.Sent(current.giftId)
+                    reload++
+                }
+                is GiftSendOutcome.Blocked -> {
+                    pendingGiftId = 0L
+                    notice = outcome.reason.resolve(context)
+                    noticeIsError = true
+                    step = GiftSendStep.Failed(current.giftId, uncertain = false)
+                }
+                is GiftSendOutcome.Failed -> {
+                    pendingGiftId = 0L
+                    notice = outcome.reason.resolve(context)
+                    noticeIsError = true
+                    step = GiftSendStep.Failed(current.giftId, uncertain = false)
+                }
+                GiftSendOutcome.Uncertain -> {
+                    pendingGiftId = current.giftId
+                    notice = context.getString(R.string.gifts_send_uncertain)
+                    noticeIsError = true
+                    step = GiftSendStep.Failed(current.giftId, uncertain = true)
+                    reload++
+                }
+            }
+        } else if (outcome == GiftSendOutcome.Uncertain) {
+            // The purchase was for another profile, but the balance may still have changed.
+            pendingGiftId = current.giftId
+            notice = context.getString(R.string.gifts_send_uncertain)
+            noticeIsError = true
+        }
+        selectedGift = null
+        RetainedGiftSendStore.acknowledge()
     }
     LaunchedEffect(reload) {
         loading = true
@@ -166,57 +216,16 @@ fun GiftsScreen(
             selectedGift = null
             return
         }
+        val started = RetainedGiftSendStore.start(giftsProfileId, isSelf, gift.id) { send(gift.id) }
+        if (!started) {
+            notice = context.getString(R.string.gifts_block_busy)
+            noticeIsError = true
+            step = step.next(GiftSendEvent.Dismiss)
+            selectedGift = null
+            return
+        }
         step = nextStep
         pendingGiftId = gift.id
-        PendingGiftPurchase.giftId = gift.id
-        scope.launch {
-            val outcome = try {
-                send(gift.id)
-            } catch (_: TimeoutCancellationException) {
-                GiftSendOutcome.Uncertain
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                // Never present an unexpected transport failure as a safe retry.
-                GiftSendOutcome.Uncertain
-            }
-            // From here the result is known; a rotation before that keeps the marker and warns.
-            when (outcome) {
-                GiftSendOutcome.Sent -> {
-                    pendingGiftId = 0L
-                    PendingGiftPurchase.giftId = 0L
-                    notice = context.getString(R.string.gifts_send_success)
-                    noticeIsError = false
-                    reload++
-                }
-                is GiftSendOutcome.Blocked -> {
-                    pendingGiftId = 0L
-                    PendingGiftPurchase.giftId = 0L
-                    notice = outcome.reason.resolve(context)
-                    noticeIsError = true
-                }
-                is GiftSendOutcome.Failed -> {
-                    pendingGiftId = 0L
-                    PendingGiftPurchase.giftId = 0L
-                    notice = outcome.reason.resolve(context)
-                    noticeIsError = true
-                }
-                GiftSendOutcome.Uncertain -> {
-                    // Keep the marker: the user must acknowledge the warning before another send.
-                    notice = context.getString(R.string.gifts_send_uncertain)
-                    noticeIsError = true
-                    reload++
-                }
-            }
-            step = step.next(
-                when (outcome) {
-                    GiftSendOutcome.Sent -> GiftSendEvent.Succeeded
-                    is GiftSendOutcome.Blocked, is GiftSendOutcome.Failed -> GiftSendEvent.Failed
-                    GiftSendOutcome.Uncertain -> GiftSendEvent.Uncertain
-                }
-            )
-            selectedGift = null
-        }
     }
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -269,7 +278,7 @@ fun GiftsScreen(
                                     TextButton(
                                         onClick = {
                                             pendingGiftId = 0L
-                                            PendingGiftPurchase.giftId = 0L
+                                            RetainedGiftSendStore.acknowledge()
                                             notice = null
                                             noticeIsError = false
                                             reload++
@@ -682,10 +691,45 @@ private fun giftBlockMessage(reason: GiftBlockReason): Int = when (reason) {
 }
 
 /**
- * Process-wide uncertainty marker for a SendGift whose result could not be observed.
- * It is never cleared by recreation or navigation, only by a definite outcome or an
- * explicit acknowledgement, so a second purchase cannot happen silently.
+ * Process-wide retention for a SendGift operation. It deliberately outlives the screen
+ * composition, so a rotation or navigation cannot cancel the request or lose its result.
+ * A result stays until the screen acknowledges it.
  */
-private object PendingGiftPurchase {
-    @Volatile var giftId: Long = 0L
+private data class RetainedGiftSend(
+    val profileId: Long,
+    val isSelf: Boolean,
+    val giftId: Long,
+    val inFlight: Boolean,
+    val outcome: GiftSendOutcome? = null
+)
+
+private object RetainedGiftSendStore {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val _state = MutableStateFlow<RetainedGiftSend?>(null)
+    val state: StateFlow<RetainedGiftSend?> = _state.asStateFlow()
+
+    /** Returns false when a previous operation or an unacknowledged result still exists. */
+    fun start(profileId: Long, isSelf: Boolean, giftId: Long, send: suspend () -> GiftSendOutcome): Boolean {
+        val current = _state.value
+        if (current != null) return false
+        _state.value = RetainedGiftSend(profileId, isSelf, giftId, inFlight = true)
+        scope.launch {
+            val outcome = try {
+                send()
+            } catch (_: TimeoutCancellationException) {
+                GiftSendOutcome.Uncertain
+            } catch (cancelled: CancellationException) {
+                // The process is going away; there is nothing left to publish.
+                return@launch
+            } catch (_: Exception) {
+                GiftSendOutcome.Uncertain
+            }
+            _state.value = RetainedGiftSend(profileId, isSelf, giftId, inFlight = false, outcome = outcome)
+        }
+        return true
+    }
+
+    fun acknowledge() {
+        _state.value = null
+    }
 }
