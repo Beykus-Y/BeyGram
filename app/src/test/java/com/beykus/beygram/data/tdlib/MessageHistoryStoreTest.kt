@@ -2,6 +2,8 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.MessageSendState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -234,6 +236,68 @@ class MessageHistoryStoreTest {
         history.finishLoad(1L, listOf(event), hasOlder = false)
         history.put(event)
         assertEquals("Создана тема", history.observe(1L).value.messages.single().serviceText)
+    }
+
+    @Test fun outsideWindowCommentsTakeUpdatesWithoutJoiningTheWindow() {
+        val store = MessageHistoryStore()
+        store.recordOutsideWindow(1L, listOf(message(5L, 5L)))
+        store.update(1L, 5L) { it.copy(isEdited = true) }
+        val history = store.observe(1L).value
+        assertEquals(emptyList<ChatMessage>(), history.messages)
+        assertTrue(history.outsideWindowMessages.single().isEdited)
+    }
+
+    @Test fun olderPageCannotRollBackAnOutsideWindowUpdate() {
+        val store = MessageHistoryStore()
+        store.recordOutsideWindow(1L, listOf(message(5L, 5L)))
+        store.update(1L, 5L) { it.copy(isEdited = true) }
+        store.recordOutsideWindow(1L, listOf(message(5L, 5L)))
+        assertEquals(1, store.observe(1L).value.outsideWindowMessages.size)
+        assertTrue(store.observe(1L).value.outsideWindowMessages.single().isEdited)
+    }
+
+    @Test fun outsideCopyUpdatedWhileAPageIsInFlightIsNotRolledBackByThePage() {
+        val store = MessageHistoryStore()
+        store.recordOutsideWindow(1L, listOf(message(5L, 5L)))
+        store.beginLoad(1L)
+        val requestVersion = store.version()
+        store.update(1L, 5L) { it.copy(isEdited = true) }
+        store.finishLoad(1L, listOf(message(5L, 5L)), hasOlder = false, requestVersion = requestVersion)
+        val history = store.observe(1L).value
+        assertEquals(listOf(5L), history.messages.map { it.id })
+        assertTrue(history.messages.single().isEdited)
+        assertTrue(history.outsideWindowMessages.single().isEdited)
+    }
+
+    @Test fun windowLoadsAndDeletionsLeaveOutsideWindowCommentsConsistent() {
+        val store = MessageHistoryStore()
+        store.recordOutsideWindow(1L, listOf(message(5L, 5L), message(6L, 6L)))
+        store.finishLoad(1L, listOf(message(9L, 9L)), hasOlder = false)
+        store.delete(1L, listOf(6L))
+        val history = store.observe(1L).value
+        assertEquals(listOf(9L), history.messages.map { it.id })
+        assertEquals(listOf(5L), history.outsideWindowMessages.map { it.id })
+    }
+
+    @Test fun liveCopyOfAnOutsideWindowCommentRefreshesItsKeptCopy() {
+        val store = MessageHistoryStore()
+        store.recordOutsideWindow(1L, listOf(message(5L, 5L)))
+        store.put(message(5L, 5L).copy(isEdited = true))
+        assertTrue(store.observe(1L).value.outsideWindowMessages.single().isEdited)
+    }
+
+    @Test fun deletedOutsideWindowCommentCannotBeRecordedAgain() {
+        val store = MessageHistoryStore()
+        store.delete(1L, listOf(5L))
+        store.recordOutsideWindow(1L, listOf(message(5L, 5L)))
+        assertTrue(store.observe(1L).value.outsideWindowMessages.isEmpty())
+    }
+
+    @Test fun outsideWindowCommentMediaStaysReferenced() {
+        val store = MessageHistoryStore()
+        val file = message(5L, 5L).copy(media = MessageMedia(MediaKind.Document, fileId = 77))
+        store.recordOutsideWindow(1L, listOf(file))
+        assertEquals(setOf(77), store.mediaFileIds())
     }
 
 }

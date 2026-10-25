@@ -99,7 +99,9 @@ internal fun SwipeChatRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
     read: ChatSwipeAction,
-    primary: ChatSwipeAction
+    primary: ChatSwipeAction,
+    /** The chat open in the other pane of the two-pane layout. */
+    highlighted: Boolean = false
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -187,7 +189,8 @@ internal fun SwipeChatRow(
         ) {
             ChatListItem(chat, observeFile, downloadFile,
                 onClick = { if (swipeOffset < 0f) close() else onClick() },
-                onLongClick = { if (swipeOffset < 0f) close() else onLongClick() })
+                onLongClick = { if (swipeOffset < 0f) close() else onLongClick() },
+                highlighted = highlighted)
         }
     }
 }

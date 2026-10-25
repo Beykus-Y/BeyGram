@@ -32,6 +32,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.GrowingPlaybackSource
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
@@ -54,11 +55,13 @@ internal fun VoiceBubble(
     transcriptionRequestError: String? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
-    onRateTranscription: ((Boolean) -> Unit)? = null
+    onRateTranscription: ((Boolean) -> Unit)? = null,
+    /** Live growing source for a partially downloaded voice note; null uses the completed file. */
+    growing: GrowingPlaybackSource? = null
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
-    val path = file.localPath
+    val path = file.localPath ?: file.downloadPath?.takeIf { growing != null }
     val label = media.kind.label(context)
     val key = media.playbackKey()
     val playbackState = PlaybackEngine.state.collectAsStateWithLifecycle()
@@ -70,8 +73,16 @@ internal fun VoiceBubble(
     // Отметку «прослушано» получает только пузырь, по которому нажали, и только когда плеер сообщил о старте.
     var played by remember(media.fileId) { mutableStateOf(false) }
     val playing = voice?.playing == true
-    val loading = (voice != null && voice.durationMs == 0L && !voice.failed) || (waitingForVoice && path == null)
-    val fraction = voice?.fraction ?: 0f
+    // An unknown duration is valid while a growing Ogg/Opus file is playing; only the pre-start
+    // buffering state should show a spinner.
+    val preparing = voice != null && !voice.failed && !voice.started && voice.durationMs == 0L
+    val loading = (waitingForVoice && path == null) || preparing
+    val fraction = when {
+        voice == null -> 0f
+        voice.durationMs > 0L -> voice.fraction
+        media.durationSeconds > 0 -> (voice.positionMs / (media.durationSeconds * 1000f)).coerceIn(0f, 1f)
+        else -> 0f
+    }
     val shownSeconds = if (voice != null && voice.positionMs > 0L) (voice.positionMs / 1000).toInt() else media.durationSeconds
     val bars = remember(media.fileId, media.waveform) { resampleWaveform(media.waveform, BAR_COUNT) }
     val currentOnPlayed by rememberUpdatedState(onPlayed)
@@ -81,18 +92,30 @@ internal fun VoiceBubble(
     fun startVoice(localPath: String) {
         val state = PlaybackEngine.state.value
         val starting = !(state.item?.key == key && state.playing)
-        PlaybackEngine.toggle(context, media.playbackItem(localPath, label, origin), onStarted = if (starting) markPlayed else null)
+        PlaybackEngine.toggle(context, media.playbackItem(localPath, label, origin, growing = growing), onStarted = if (starting) markPlayed else null)
     }
     // Перемотка по волне: в текущем файле двигает позицию, другой файл начинает с этой точки.
     fun seekVoice(localPath: String, target: Float) {
         val state = PlaybackEngine.state.value
         if (state.item?.key == key) {
-            PlaybackEngine.seekTo(target)
+            if (state.durationMs > 0L) PlaybackEngine.seekTo(target)
+            else if (media.durationSeconds > 0) {
+                PlaybackEngine.seekToPosition((target.coerceIn(0f, 1f) * media.durationSeconds * 1000f).toLong())
+            } else PlaybackEngine.seekTo(target)
             if (!state.playing) {
                 PlaybackEngine.resume(key, markPlayed)
             }
         } else {
-            PlaybackEngine.play(context, media.playbackItem(localPath, label, origin), target, markPlayed)
+            val startMs = if (media.durationSeconds > 0) {
+                (target.coerceIn(0f, 1f) * media.durationSeconds * 1000f).toLong()
+            } else null
+            PlaybackEngine.play(
+                context,
+                media.playbackItem(localPath, label, origin, growing = growing),
+                startFraction = 0f,
+                onStarted = markPlayed,
+                startPositionMs = startMs
+            )
         }
     }
     fun togglePlay() {

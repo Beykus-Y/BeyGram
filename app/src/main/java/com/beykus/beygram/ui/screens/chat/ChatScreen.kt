@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +52,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -90,8 +92,12 @@ import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
@@ -99,6 +105,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** More than one transition can be in flight, but an accidental tap storm must not create an unbounded overlay. */
@@ -126,7 +133,9 @@ fun ChatScreen(
     threadOpen: Boolean = false,
     messageAnimations: MessageAnimationConfig = MessageAnimationConfig(),
     accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
-    accountLabel: String = ""
+    accountLabel: String = "",
+    /** Repository-backed automatic download; absent means the local policy gates the plain download callback. */
+    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val canPostHere = chat.canPost && topicCanPost
@@ -188,6 +197,20 @@ fun ChatScreen(
     // A copy hides the original author; this survives recreation together with the pending forwardId.
     var forwardAsCopy by rememberSaveable(chat.id) { mutableStateOf(false) }
     var forwardCopyConfirmId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    // Multi-select is a separate mode from the single-message action bar. Albums are selected as one group.
+    var selectionMode by rememberSaveable(chat.id) { mutableStateOf(false) }
+    val selectionSaver = remember {
+        listSaver<Set<Long>, Long>(save = { it.toList() }, restore = { it.toSet() })
+    }
+    var selectionIds by rememberSaveable(chat.id, stateSaver = selectionSaver) { mutableStateOf(emptySet<Long>()) }
+    var selectionBusy by remember { mutableStateOf(false) }
+    var selectionError by remember { mutableStateOf<String?>(null) }
+    var selectionForwardOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var selectionDeleteOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var selectionDeleteRights by remember { mutableStateOf<BatchDeleteRights?>(null) }
+    var selectionDeleteEveryone by remember { mutableStateOf(false) }
+    var selectionDeleteBusy by remember { mutableStateOf(false) }
+    var selectionDeleteError by remember { mutableStateOf<String?>(null) }
     var contextChatId by rememberSaveable(chat.id) { mutableStateOf(0L) }
     var contextMessageId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var highlighted by remember { mutableStateOf<Long?>(null) }
@@ -392,6 +415,18 @@ fun ChatScreen(
         } else videoPermissions.launch(videoNotePermissions)
     }
     val messages = history.messages
+    val selectedMessages = remember(messages, selectionIds) { messages.filter { it.id in selectionIds } }
+    val selectionCanCopy = selectedMessages.any { it.text.isNotBlank() }
+    val selectionCanSave = selectedMessages.any { it.media != null }
+    // A deleted or reloaded-away message must not keep a phantom selection count. Wait for the first loaded page,
+    // otherwise a restored selection would be cleared before history arrives.
+    LaunchedEffect(selectionMode, messages) {
+        if (selectionMode && messages.isNotEmpty()) {
+            val loaded = messages.mapTo(hashSetOf()) { it.id }
+            val kept = selectionIds.filterTo(linkedSetOf()) { it in loaded }
+            if (kept != selectionIds) selectionIds = kept
+        }
+    }
     // Sender picker is built from the loaded history; no extra TDLib member request is needed in the search bar.
     val searchSenders = remember(messages) { chatSearchSenders(messages) }
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
@@ -510,12 +545,151 @@ fun ChatScreen(
     val editMessage = messages.firstOrNull { it.id == editId }
     // A swipe reply needs an idle composer on screen: no search, deletion, edit, recording or open action menu, and no
     // send in flight, because a finished send clears the reply target it used.
-    val swipeReplyAllowed = canPostHere && !searching && !deleting && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
+    val swipeReplyAllowed = canPostHere && !searching && !deleting && !selectionMode && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
         !sending && !attachments.sending && !recordingQueueSending && pendingVideoNotes.isEmpty()
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
     fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
+    fun enterSelection(message: ChatMessage? = null) {
+        closeActions()
+        selectionMode = true
+        selectionError = null
+        if (message != null) {
+            val group = selectionGroupIds(messages, message.id)
+            if (selectionIds.size + group.count { it !in selectionIds } > MAX_MESSAGE_BATCH_SIZE) {
+                selectionError = context.getString(R.string.message_selection_limit, MAX_MESSAGE_BATCH_SIZE)
+                return
+            }
+            selectionIds = selectionIds + group
+        }
+    }
+    fun exitSelection() {
+        selectionMode = false
+        selectionIds = emptySet()
+        selectionError = null
+        selectionForwardOpen = false
+        selectionDeleteOpen = false
+        selectionDeleteRights = null
+        selectionDeleteBusy = false
+        selectionDeleteError = null
+    }
+    fun toggleSelection(message: ChatMessage) {
+        val group = selectionGroupIds(messages, message.id)
+        val removing = group.all { it in selectionIds }
+        if (!removing && selectionIds.size + group.count { it !in selectionIds } > MAX_MESSAGE_BATCH_SIZE) {
+            selectionError = context.getString(R.string.message_selection_limit, MAX_MESSAGE_BATCH_SIZE)
+            return
+        }
+        selectionIds = if (removing) selectionIds - group else selectionIds + group
+        selectionError = null
+    }
+    fun copySelection() {
+        if (selectionBusy) return
+        val targets = selectedMessages.filter { it.text.isNotBlank() }
+        if (targets.isEmpty()) {
+            selectionError = context.getString(R.string.message_selection_copy_empty)
+            return
+        }
+        selectionBusy = true
+        selectionError = null
+        scope.launch {
+            try {
+                val results = coroutineScope {
+                    targets.map { message -> async { conversation.messageCapabilities(chat.id, message.id) } }.awaitAll()
+                }
+                val failure = results.firstNotNullOfOrNull { it.exceptionOrNull() }
+                if (failure != null) {
+                    selectionError = failure.userMessage(context, R.string.err_chat_actions_load_failed)
+                    return@launch
+                }
+                if (results.any { it.getOrNull()?.canCopy != true }) {
+                    selectionError = context.getString(R.string.err_messages_cannot_copy)
+                    return@launch
+                }
+                val text = selectedText(messages, targets.mapTo(hashSetOf()) { it.id })
+                clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), text))
+                Toast.makeText(context, context.getString(R.string.message_selection_copied, targets.size), Toast.LENGTH_SHORT).show()
+                exitSelection()
+            } finally {
+                selectionBusy = false
+            }
+        }
+    }
+    fun saveSelection() {
+        if (selectionBusy) return
+        val targets = selectedMessages.filter { it.media != null }
+        if (targets.isEmpty()) {
+            selectionError = context.getString(R.string.message_selection_save_none)
+            return
+        }
+        selectionBusy = true
+        selectionError = null
+        scope.launch {
+            var saved = 0
+            var skipped = 0
+            var failed = 0
+            try {
+                for (message in targets) {
+                    val media = message.media ?: continue
+                    val canSave = conversation.messageCapabilities(chat.id, message.id).getOrNull()?.canSave == true
+                    if (!canSave || media.isSecret) {
+                        skipped++
+                        continue
+                    }
+                    val state = observeFile(media.fileId)
+                    val path = state.value.localPath ?: run {
+                        onDownloadFile(media.fileId)
+                        withTimeoutOrNull(60_000) {
+                            state.first { it.localPath != null || it.error != null }.localPath
+                        }
+                    }
+                    if (path == null) failed++
+                    else if (withContext(Dispatchers.IO) { saveSelectedMediaToDevice(context, path, media) }.isSuccess) saved++
+                    else failed++
+                }
+            } finally {
+                selectionBusy = false
+            }
+            val message = when {
+                saved > 0 && skipped + failed == 0 -> context.getString(R.string.message_selection_saved, saved)
+                saved > 0 -> context.getString(R.string.message_selection_saved_partial, saved, skipped + failed)
+                skipped > 0 -> context.getString(R.string.message_selection_save_denied)
+                else -> context.getString(R.string.media_save_failed)
+            }
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            if (saved == 0) selectionError = message
+        }
+    }
+    fun requestSelectionDelete() {
+        if (selectionBusy || selectionIds.isEmpty()) return
+        val targets = selectedMessages
+        selectionBusy = true
+        selectionError = null
+        scope.launch {
+            try {
+                val results = coroutineScope {
+                    targets.map { message -> async { conversation.messageCapabilities(chat.id, message.id) } }.awaitAll()
+                }
+                val failure = results.firstNotNullOfOrNull { it.exceptionOrNull() }
+                if (failure != null) {
+                    selectionError = failure.userMessage(context, R.string.err_chat_actions_load_failed)
+                    return@launch
+                }
+                val rights = batchDeleteRights(results.mapNotNull { it.getOrNull() })
+                if (!rights.canDelete) {
+                    selectionError = context.getString(R.string.err_messages_cannot_delete)
+                    return@launch
+                }
+                selectionDeleteRights = rights
+                selectionDeleteEveryone = !rights.canDeleteForSelf
+                selectionDeleteError = null
+                selectionDeleteOpen = true
+            } finally {
+                selectionBusy = false
+            }
+        }
+    }
     // The picker remembers the last choice; a blank stored value follows the app language, then the device language.
     fun translationDefaultLanguage() = translationTargetLanguage(translationPreferences.targetLanguageCode,
         AppLocale.selected(context).ifBlank { java.util.Locale.getDefault().language })
@@ -646,8 +820,11 @@ fun ChatScreen(
         val kind = (currentMessages.firstOrNull { it.id == id } ?: mediaWindow.messages.firstOrNull { it.id == id })?.media?.kind
         viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
-    BackHandler(enabled = !threadOpen && (searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active)) {
+    BackHandler(enabled = !threadOpen && (searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || selectionMode)) {
         when {
+            selectionDeleteOpen -> { selectionDeleteOpen = false; selectionDeleteError = null }
+            selectionForwardOpen -> { selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
+            selectionMode -> exitSelection()
             searching -> closeSearch()
             deleting -> { deleting = false; deleteError = null }
             actionMessage != null -> closeActions()
@@ -655,7 +832,7 @@ fun ChatScreen(
             else -> attachments.discardAll()
         }
     }
-    BackHandler(enabled = !threadOpen && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching, onBack = onBack)
+    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching, onBack = onBack)
     BackHandler(enabled = !threadOpen && (videoNote.active || audioNote.active)) {
         videoNote.stopForRecovery()
         audioNote.stopForRecovery()
@@ -1012,7 +1189,18 @@ fun ChatScreen(
 
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        if (actionMessage != null) MessageActionsBar(
+        if (selectionMode) SelectionActionBar(
+            count = selectionIds.size,
+            busy = selectionBusy || forwardBusy,
+            error = selectionError,
+            canCopy = selectionCanCopy,
+            canSave = selectionCanSave,
+            onClose = ::exitSelection,
+            onForward = { forwardAsCopy = false; selectionForwardOpen = true; selectionError = null },
+            onDelete = ::requestSelectionDelete,
+            onCopy = ::copySelection,
+            onSave = ::saveSelection
+        ) else if (actionMessage != null) MessageActionsBar(
             capabilities = capabilities, error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
             canPin = canTogglePin(capabilities?.canPin == true), isPinned = actionMessage.isPinned,
             onClose = ::closeActions, onRetry = { capabilitiesAttempt++ },
@@ -1036,7 +1224,9 @@ fun ChatScreen(
                     closeActions()
                 }
             },
+            onForward = { forwardAsCopy = false; forwardId = actionMessage.id; closeActions() },
             onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() },
+            onSelect = { enterSelection(actionMessage) },
             onTranslate = if (actionMessage.mediaAlbumId == 0L && actionMessage.sendState == MessageSendState.Sent &&
                 TranslationPolicy.canTranslate(chat.isSecret, actionMessage.text.isNotBlank())) {
                 { translationPickerId = actionMessage.id; closeActions() }
@@ -1052,6 +1242,7 @@ fun ChatScreen(
             chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true },
             observeFile, onDownloadFile, forumTopicTitle,
             hasUnread = (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0,
+            onSelectMessages = { enterSelection() },
             onMarkUnread = {
                 scope.launch {
                     conversation.markChatUnread(chat.id)
@@ -1121,9 +1312,13 @@ fun ChatScreen(
                                 highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
                                 onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                 onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
+                                selectionMode = selectionMode,
+                                selected = listItem.messages.all { it.id in selectionIds },
+                                onToggleSelection = { listItem.messages.firstOrNull()?.let(::toggleSelection) },
                                 commentsBar = albumComments?.let { post ->
                                     { ChannelCommentsBar(listItem.messages.maxOfOrNull { it.replyCount } ?: 0) { onOpenComments(post) } }
-                                })
+                                },
+                                onAutoDownloadFile = onAutoDownloadFile)
                         }
                     }
                 } else {
@@ -1168,6 +1363,10 @@ fun ChatScreen(
                                 } else {
                                     { isGood -> rateTranscription(message, isGood) }
                                 },
+                                onAutoDownloadFile = onAutoDownloadFile,
+                                selectionMode = selectionMode,
+                                selected = message.id in selectionIds,
+                                onToggleSelection = { toggleSelection(message) },
                                 commentsBar = if (showsChannelComments(chat.isChannel, message.isChannelPost, linkedDiscussionChatId)) {
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
                                 } else null)
@@ -1234,6 +1433,36 @@ fun ChatScreen(
                 dismissButton = { TextButton(onClick = { forwardCopyConfirmId = null }) { Text(stringResource(R.string.common_cancel)) } }
             )
         }
+        val deleteRights = selectionDeleteRights
+        if (selectionDeleteOpen && deleteRights != null) SelectionDeleteDialog(
+            count = selectionIds.size,
+            rights = deleteRights,
+            everyone = selectionDeleteEveryone,
+            busy = selectionDeleteBusy,
+            error = selectionDeleteError,
+            onChoose = { selectionDeleteEveryone = it },
+            onDismiss = { if (!selectionDeleteBusy) { selectionDeleteOpen = false; selectionDeleteError = null } },
+            onConfirm = {
+                scope.launch {
+                    selectionDeleteBusy = true
+                    selectionDeleteError = null
+                    try {
+                        val ids = selectedMessages.map { it.id }.sorted()
+                        val deleteScope = if (selectionDeleteEveryone) DeleteMessageScope.ForEveryone else DeleteMessageScope.ForSelf
+                        val result = conversation.deleteMessages(chat.id, ids, deleteScope)
+                        if (result.isSuccess) {
+                            selectionDeleteOpen = false
+                            Toast.makeText(context, context.getString(R.string.message_selection_deleted, ids.size), Toast.LENGTH_SHORT).show()
+                            exitSelection()
+                        } else {
+                            selectionDeleteError = result.exceptionOrNull().userMessage(context, R.string.err_chat_delete_failed)
+                        }
+                    } finally {
+                        selectionDeleteBusy = false
+                    }
+                }
+            }
+        )
         val replyTarget = messages.firstOrNull { it.id == replyId }
         if (deleting && actionMessage != null) {
             val caps = capabilities
@@ -1247,7 +1476,7 @@ fun ChatScreen(
                 } })
         } else if (editMessage != null) {
             EditBanner(editMessage.text.ifBlank { editMessage.summary() }, editMessage.media != null, editText.codePointCount(0, editText.length), editLimit, editError, onClose = ::closeEdit)
-        } else if (!searching) {
+        } else if (!searching && !selectionMode) {
             AttachmentPanel(attachments, draft, limits.caption)
             if (replyId != null) Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
@@ -1278,12 +1507,12 @@ fun ChatScreen(
         val recordingLocked = if (recordingMode == ComposerRecordingMode.Voice) audioNote.locked else videoNote.locked
         val recordingCanceling = if (recordingMode == ComposerRecordingMode.Voice) audioNote.canceling else videoNote.canceling
         val showRecord = recordingActive || (!editing && !attachments.active && fieldText.isBlank())
-        if (!deleting && !searching && typingNames.isNotEmpty()) TypingRow(typingNames)
+        if (!deleting && !searching && !selectionMode && typingNames.isNotEmpty()) TypingRow(typingNames)
         // Мини-плеер стоит над полем ввода и остаётся на месте при поиске и при выборе сообщений. Без поля ввода он внизу экрана, поэтому отступает от системной навигации.
-        NowPlayingBar(bottomInset = deleting || searching)
+        NowPlayingBar(bottomInset = deleting || searching || selectionMode)
         // Chats the user cannot write to get no composer, only a plain notice, as in Telegram.
-        if (!deleting && !searching && !canPostHere) ReadOnlyChatBar()
-        if (!deleting && !searching && canPostHere) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar()
+        if (!deleting && !searching && !selectionMode && canPostHere) Column(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) AttachmentButton(attachments, enabled = !sending)
@@ -1432,24 +1661,70 @@ fun ChatScreen(
             onForward = { forwardAsCopy = false; forwardId = viewed.id; selectedMediaId = null },
             onEdit = { editId = viewed.id; editText = viewed.text; selectedMediaId = null },
             onDelete = { deleteEveryone = viewedRights?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
-        ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) })
-    forwardId?.let { id ->
-        ForwardChatDialog(chats, forwardBusy, forwardError, asCopy = forwardAsCopy,
-            onPick = { target -> scope.launch {
+        ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) },
+            autoDownloadFile = onAutoDownloadFile)
+    val forwardIds = when {
+        forwardId != null -> listOf(forwardId!!)
+        selectionForwardOpen -> forwardIdsForSelection(messages, selectionIds)
+        else -> emptyList()
+    }
+    if (forwardIds.isNotEmpty()) ForwardChatDialog(
+        chats, forwardBusy, forwardError, asCopy = forwardAsCopy,
+        loadTopics = { conversation.forumTopics(it) },
+        onPick = { target, topicId ->
+            scope.launch {
                 forwardBusy = true; forwardError = null
                 try {
-                    val result = conversation.forwardMessage(chat.id, id, target.id, asCopy = forwardAsCopy)
-                    if (result.isSuccess) {
-                        val copied = forwardAsCopy
-                        forwardId = null
-                        forwardAsCopy = false
-                        Toast.makeText(context, context.getString(if (copied) R.string.message_forwarded_without_author else R.string.chat_message_forwarded), Toast.LENGTH_SHORT).show()
-                    } else forwardError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                    val result = if (forwardIds.size == 1) {
+                        conversation.forwardMessage(
+                            chat.id, forwardIds.single(), target.id, asCopy = forwardAsCopy,
+                            messageThreadId = topicId.takeIf { it > 0L }
+                        ).map { ForwardedMessages(forwardedIds = forwardIds, failedIds = emptyList()) }
+                    } else {
+                        conversation.forwardMessages(
+                            chat.id, forwardIds, target.id, asCopy = forwardAsCopy,
+                            messageThreadId = topicId.takeIf { it > 0L }
+                        )
+                    }
+                    result.onSuccess { outcome ->
+                        if (!outcome.isComplete) {
+                            // Keep only the messages TDLib refused selected, so a retry cannot duplicate the sent ones.
+                            selectionIds = outcome.failedIds.toSet()
+                            forwardId = null
+                            selectionForwardOpen = false
+                            forwardAsCopy = false
+                            forwardError = null
+                            val partial = context.getString(
+                                R.string.message_selection_forwarded_partial,
+                                outcome.forwardedIds.size,
+                                outcome.failedIds.size
+                            )
+                            Toast.makeText(context, partial, Toast.LENGTH_LONG).show()
+                            selectionError = partial
+                        } else {
+                            val copied = forwardAsCopy
+                            val forwarded = outcome.forwardedIds
+                            forwardId = null
+                            selectionForwardOpen = false
+                            forwardAsCopy = false
+                            forwardError = null
+                            if (selectionMode) exitSelection()
+                            Toast.makeText(
+                                context,
+                                if (forwarded.size > 1) context.getString(R.string.message_selection_forwarded, forwarded.size)
+                                else context.getString(if (copied) R.string.message_forwarded_without_author else R.string.chat_message_forwarded),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }.onFailure {
+                        forwardError = it.userMessage(context, R.string.chat_forward_failed)
+                    }
                 } finally { forwardBusy = false }
-            } },
-            onClose = { forwardId = null; forwardError = null; forwardAsCopy = false })
-    }
-    contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }) }
+            }
+        },
+        onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
+    )
+    contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile) }
     if (pinConfirm && actionMessage != null) AlertDialog(
         onDismissRequest = { pinConfirm = false },
         title = { Text(stringResource(R.string.chat_pin_channel_title)) },
@@ -1501,7 +1776,7 @@ private fun ReadOnlyChatBar() {
 private fun ChatTopBar(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
-    hasUnread: Boolean = false, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
+    hasUnread: Boolean = false, onSelectMessages: () -> Unit = {}, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
     onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onStatistics: (() -> Unit)? = null,
     onExport: () -> Unit = {}
 ) {
@@ -1543,6 +1818,10 @@ private fun ChatTopBar(
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_export_title)) },
                         onClick = { menuOpen = false; onExport() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.message_action_select)) },
+                        onClick = { menuOpen = false; onSelectMessages() }
                     )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_settings_title)) },
@@ -1605,7 +1884,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
     onRateTranscription: ((Boolean) -> Unit)? = null,
-    commentsBar: (@Composable () -> Unit)? = null) {
+    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    commentsBar: (@Composable () -> Unit)? = null,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelection: () -> Unit = {}
+) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
     val shape = bubbleShape(message.isOutgoing, metrics)
@@ -1628,32 +1912,43 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
     val messageActionsLabel = stringResource(R.string.a11y_message_actions)
+    val selectionLabel = if (selectionMode) stringResource(if (selected) R.string.message_selection_deselect else R.string.message_selection_select) else null
+    val selectionState = if (selectionMode) stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected) else null
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
             onReply = { onReply?.invoke(message.id) }) { swipe ->
             // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
-            BubbleLayout(
-                swipe.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
-                    .then(if (message.media != null && !circle && !sticker)
-                         Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
-                    .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
-                    .then(if (highlighted && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-                    .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
-                    .combinedClickable(
-                        onClickLabel = if (message.media != null && !message.media.kind.playsInline()) openMediaLabel else null,
-                        onLongClickLabel = messageActionsLabel,
-                        onClick = { if (message.media != null && !message.media.kind.playsInline()) onOpen() },
-                        onLongClick = onActions
-                    ),
-                overlayMeta = overlayMeta,
-                body = {
+            Box(swipe) {
+                BubbleLayout(
+                    Modifier.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
+                        .then(if (message.media != null && !circle && !sticker)
+                             Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
+                        .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
+                        .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
+                        .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
+                        .semantics {
+                            if (selectionMode) {
+                                this.selected = selected
+                                if (selectionState != null) stateDescription = selectionState
+                            }
+                        }
+                        .combinedClickable(
+                            onClickLabel = if (selectionMode) selectionLabel else if (message.media != null && !message.media.kind.playsInline()) openMediaLabel else null,
+                            onLongClickLabel = if (selectionMode) selectionLabel else messageActionsLabel,
+                            onClick = { if (selectionMode) onToggleSelection() else if (message.media != null && !message.media.kind.playsInline()) onOpen() },
+                            onLongClick = if (selectionMode) onToggleSelection else onActions
+                        ),
+                    overlayMeta = overlayMeta,
+                    body = {
                     Column {
                         if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                                 .then(if (onSenderClick != null) Modifier.clickable { onSenderClick?.invoke() } else Modifier))
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
                         message.media?.let { media ->
-                            if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile, onPlayed, onActions,
+                            if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile,
+                                onPlayed = onPlayed,
+                                onLongPress = if (selectionMode) onToggleSelection else onActions,
                                 time = if (inCircle) message.time else "", statusIcon = if (inCircle) statusIcon else null,
                                 statusDescription = when {
                                     !message.isOutgoing -> null
@@ -1665,26 +1960,31 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 transcriptionRequestError = transcriptionRequestError,
                                 transcriptionRated = transcriptionRated,
                                 onTranscribe = onTranscribe,
-                                onRateTranscription = onRateTranscription)
-                            else MediaPreview(media, observeFile, onDownloadFile, onOpen, onActions, onPlayed, origin = playbackOrigin,
+                                onRateTranscription = onRateTranscription,
+                                autoDownloadFile = onAutoDownloadFile)
+                            else MediaPreview(media, observeFile, onDownloadFile,
+                                onOpen = if (selectionMode) onToggleSelection else onOpen,
+                                onLongPress = if (selectionMode) onToggleSelection else onActions,
+                                onPlayed = onPlayed, origin = playbackOrigin,
                                 transcriptionRequestPending = transcriptionRequestPending,
                                 transcriptionRequestError = transcriptionRequestError,
                                 transcriptionRated = transcriptionRated,
                                 onTranscribe = onTranscribe,
-                                onRateTranscription = onRateTranscription)
+                                onRateTranscription = onRateTranscription,
+                                autoDownloadFile = onAutoDownloadFile)
                         }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (hasText || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
                                 Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(metrics.replyRadius))
                                     .border(1.dp, palette.accent, RoundedCornerShape(metrics.replyRadius))
-                                    .clickable { onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                    .clickable { if (selectionMode) onToggleSelection() else onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                     Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                     Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                             if (hasText) FormattedMessageText(message)
-                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile) }
+                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile) }
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,
@@ -1704,6 +2004,18 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 footer = inlineContent,
                 bottomBar = { if (!circle && !sticker) commentsBar?.invoke() }
             )
+                // Media previews own tap gestures (play, open, video note). In selection mode a transparent overlay
+                // makes the whole bubble selectable and keeps playback/download controls out of the way.
+                if (selectionMode && message.media != null) Box(
+                    Modifier.matchParentSize().combinedClickable(
+                        onClickLabel = selectionLabel,
+                        onLongClickLabel = selectionLabel,
+                        onClick = onToggleSelection,
+                        onLongClick = onToggleSelection
+                    )
+                )
+                if (selectionMode) SelectionCheckBadge(selected, Modifier.align(Alignment.TopEnd).padding(6.dp))
+            }
         }
         // Кружок и стикер лежат без пузыря: полосе комментариев нужна своя подложка того же цвета.
         if (circle || sticker) commentsBar?.let { bar ->

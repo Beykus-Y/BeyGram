@@ -25,6 +25,13 @@
     <string name="settings_video_diagnostics_raw_final">RAW %1$s / MP4 %2$s FPS</string>
     <string name="settings_video_diagnostics_report">Video message report</string>
     <string name="settings_video_diagnostics_share">Share report</string>
+    <string name="settings_video_diagnostics_save">Save to file</string>
+    <string name="settings_video_diagnostics_compact">Compact</string>
+    <string name="settings_video_diagnostics_full">Full</string>
+    <string name="settings_video_diagnostics_txt">TXT</string>
+    <string name="settings_video_diagnostics_json">JSON</string>
+    <string name="diag_save_done">Report saved</string>
+    <string name="diag_save_failed">Could not save the report</string>
     <string name="settings_video_diagnostics_status_cancelled">Sending interrupted</string>
     <string name="settings_video_diagnostics_status_preview">Preview</string>
     <string name="settings_video_diagnostics_status_processing_failed">Processing failed</string>
