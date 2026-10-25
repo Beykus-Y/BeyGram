@@ -395,7 +395,7 @@ internal class TdStories(
     }
 
     suspend fun postPermission(chatId: Long): Result<StoryPostPermission> = storyRequest {
-        val targetChatId = if (chatId > 0L) chatId else ensureSelfChatId()
+        val targetChatId = if (chatId != 0L) chatId else ensureSelfChatId()
         requests(TdApi.CanPostStory(targetChatId)).toPermission()
     }
 
@@ -511,7 +511,7 @@ internal class TdStories(
             if (privacy == StoryPrivacy.SelectedUsers && selectedUserIds.none { it > 0L }) {
                 throw UserMessageException(UiText.Res(R.string.stories_selected_empty))
             }
-            val chatId = targetChatId.takeIf { it > 0L } ?: ensureSelfChatId()
+            val chatId = targetChatId.takeIf { it != 0L } ?: ensureSelfChatId()
             val content = when (media.kind) {
                 MediaKind.Photo -> TdApi.InputStoryContentPhoto(TdApi.InputFileLocal(media.path), intArrayOf())
                 else -> TdApi.InputStoryContentVideo(

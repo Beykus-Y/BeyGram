@@ -50,6 +50,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
@@ -86,6 +89,15 @@ internal fun StoryArchiveViewer(
     var playing by remember(story?.storyId) { mutableStateOf(true) }
     var videoEnded by remember(story?.storyId) { mutableStateOf(false) }
     var restartToken by remember(story?.storyId) { mutableIntStateOf(0) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var resumed by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, _ ->
+            resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showEdit by remember { mutableStateOf(false) }
@@ -146,7 +158,7 @@ internal fun StoryArchiveViewer(
                     if (path == null) StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
                     else StoryVideo(
                         path = path,
-                        playing = playing,
+                        playing = playing && resumed,
                         onFailure = { playing = false; error = context.getString(R.string.stories_media_unsupported) },
                         onEnded = { playing = false; videoEnded = true },
                         restartToken = restartToken
