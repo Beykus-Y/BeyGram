@@ -1453,7 +1453,7 @@ fun ChatScreen(
             } },
             onClose = { forwardId = null; forwardError = null; forwardAsCopy = false })
     }
-    contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }) }
+    contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile) }
     if (pinConfirm && actionMessage != null) AlertDialog(
         onDismissRequest = { pinConfirm = false },
         title = { Text(stringResource(R.string.chat_pin_channel_title)) },

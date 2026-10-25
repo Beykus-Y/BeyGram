@@ -249,6 +249,12 @@ private const val BLUR_PREVIEW_DIMENSION = 24
 /** Строка, которая ждёт загрузки после нажатия на музыку или голосовое. Ждёт только последнее нажатое, и начинает играть только её строка, даже если такой же файл стоит в другом сообщении. */
 internal val pendingPlaybackRow = mutableStateOf<Any?>(null)
 
+/**
+ * Repository-backed automatic download for shared UI. Provided once at the app root so every viewer
+ * fallback routes automatic requests through the account's repository and keeps them cancellable.
+ */
+internal val LocalAutoDownloadFile = compositionLocalOf<((AutoDownloadRequest) -> Unit)?> { null }
+
 /** Track keys whose cover is still being awaited. Process-wide, so repeated taps share one observer per track. */
 private val artworkWaits: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
@@ -276,12 +282,13 @@ internal fun MediaPreview(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
+    val localAutoDownload = LocalAutoDownloadFile.current
     val policySettings by remember(context, accountId) {
         AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
     }.collectAsStateWithLifecycle()
     val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
     LaunchedEffect(context) { AutoDownloadNetworkStatus.ensureStarted(context) }
-    val autoDownload: (AutoDownloadRequest) -> Unit = autoDownloadFile ?: remember(context, downloadFile, accountId) {
+    val autoDownload: (AutoDownloadRequest) -> Unit = autoDownloadFile ?: localAutoDownload ?: remember(context, downloadFile, accountId) {
         { request: AutoDownloadRequest ->
             AutoDownloadRuntime.request(context, request, downloadFile, accountId)
             Unit
@@ -565,7 +572,8 @@ internal fun MediaViewer(
     val shownFile by remember(shown.media.fileId) { observeFile(shown.media.fileId) }.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
-    val autoDownload: (AutoDownloadRequest) -> Unit = autoDownloadFile ?: remember(context, downloadFile, accountId) {
+    val localAutoDownload = LocalAutoDownloadFile.current
+    val autoDownload: (AutoDownloadRequest) -> Unit = autoDownloadFile ?: localAutoDownload ?: remember(context, downloadFile, accountId) {
         { request: AutoDownloadRequest ->
             AutoDownloadRuntime.request(context, request, downloadFile, accountId)
             Unit

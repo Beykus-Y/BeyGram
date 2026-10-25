@@ -74,6 +74,7 @@ import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
 import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.screens.chat.ChatScreen
+import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
@@ -1444,7 +1445,8 @@ private fun BeyGramAppContent(
                                 threadDraftReplyId = replyId
                             },
                             onBack = { routeName = AppRoute.Chat.name },
-                            onOpenProfile = { userId -> openUserProfile(userId, AppRoute.MessageThread) }
+                            onOpenProfile = { userId -> openUserProfile(userId, AppRoute.MessageThread) },
+                            autoDownloadFile = repository::autoDownloadFile
                         )
                     }
                 }
@@ -1488,7 +1490,8 @@ private fun BeyGramAppContent(
                 }
                 chatFocusMessageId = messageId
                 routeName = AppRoute.Chat.name
-            })
+            },
+            autoDownloadFile = repository::autoDownloadFile)
     }
 
     val chatMembersRoute: @Composable () -> Unit = {
@@ -1518,10 +1521,14 @@ private fun BeyGramAppContent(
             onOpenLinkedChannel = { channelId ->
                 selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
             },
-            lastSeenStyle = lastSeenStyle)
+            lastSeenStyle = lastSeenStyle,
+            autoDownloadFile = repository::autoDownloadFile)
     }
 
-    CompositionLocalProvider(LocalPlaybackAccountId provides selectedAccountId) {
+    CompositionLocalProvider(
+        LocalPlaybackAccountId provides selectedAccountId,
+        LocalAutoDownloadFile provides repository::autoDownloadFile
+    ) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
@@ -1678,7 +1685,8 @@ private fun BeyGramAppContent(
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
                         onOpenLinkedChannel = { channelId ->
                             selectedChatId = channelId; chatBackRouteName = AppRoute.Chats.name; routeName = AppRoute.Chat.name
-                        }, lastSeenStyle = lastSeenStyle)
+                        }, lastSeenStyle = lastSeenStyle,
+                        autoDownloadFile = repository::autoDownloadFile)
                 }
                 AppRoute.Appearance -> ThemeSettingsScreen(
                     saved = appearance,
