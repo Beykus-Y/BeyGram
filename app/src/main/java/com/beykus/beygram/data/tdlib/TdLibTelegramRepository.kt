@@ -541,6 +541,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun storyPostTargets() = stories.postTargets()
     override fun storySubmissionState(submissionId: String) = stories.submissionState(submissionId)
     override fun abandonStoryUpload(posterChatId: Long, storyId: Int) = stories.abandonUpload(posterChatId, storyId)
+    override fun abandonStorySubmission(submissionId: String) = stories.abandonSubmission(submissionId)
     override suspend fun storyCaptionLimit() = stories.captionLimit()
     override suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String) =
         stories.editCaption(posterChatId, storyId, caption)

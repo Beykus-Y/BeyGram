@@ -92,6 +92,8 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun storyPostTargets(): Result<List<StoryPostTarget>>
     /** Lets a closed publisher hand a still-uploading story's file cleanup to the repository. */
     fun abandonStoryUpload(posterChatId: Long, storyId: Int)
+    /** The publisher closed before PostStory returned a ticket. */
+    fun abandonStorySubmission(submissionId: String)
     suspend fun storyCaptionLimit(): Result<Int>
     /** Edit a caption of an own story; pass an empty string to clear it. */
     suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String): Result<Unit>

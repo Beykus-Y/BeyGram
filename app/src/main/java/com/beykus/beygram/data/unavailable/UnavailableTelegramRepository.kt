@@ -123,6 +123,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun storyPostTargets(): Result<List<StoryPostTarget>> = Result.success(emptyList())
     override fun storySubmissionState(submissionId: String): StateFlow<StorySubmissionState> = noStorySubmission
     override fun abandonStoryUpload(posterChatId: Long, storyId: Int) {}
+    override fun abandonStorySubmission(submissionId: String) {}
     override suspend fun storyCaptionLimit(): Result<Int> = Result.success(1_024)
     override suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String): Result<Unit> = unavailable()
     override suspend fun setStoryPrivacy(storyId: Int, privacy: StoryPrivacy, selectedUserIds: List<Long>): Result<Unit> = unavailable()

@@ -31,6 +31,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -45,7 +46,6 @@ import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToLong
 
 /**
@@ -73,7 +73,14 @@ internal class TdStories(
     private val unblockedChats = mutableSetOf<Long>()
     private val uploadJobs = mutableMapOf<Pair<Long, Int>, Job>()
     private val abandonedUploads = mutableSetOf<Pair<Long, Int>>()
+    private val abandonedSubmissions = mutableSetOf<String>()
     private val submissionStates = ConcurrentHashMap<String, MutableStateFlow<StorySubmissionState>>()
+    private val submissionRecoveryJobs = mutableMapOf<String, Job>()
+    private val persistedSubmissions = mutableMapOf<String, PersistedSubmission>()
+    private val submissionLedger = File(
+        uploadsRoot,
+        "story-submissions-${accountId.filter { it.isLetterOrDigit() }.ifBlank { "default" }}.tsv"
+    )
     private var selfId = 0L
     private var selfChatId = 0L
     private var generation = 0
@@ -86,6 +93,10 @@ internal class TdStories(
 
     private val _postEvents = MutableSharedFlow<StoryPostEvent>(replay = 16, extraBufferCapacity = 8)
     val postEvents: SharedFlow<StoryPostEvent> = _postEvents.asSharedFlow()
+
+    init {
+        loadSubmissionLedger()
+    }
 
     fun authorized() {
         val token = synchronized(lock) {
@@ -458,11 +469,215 @@ internal class TdStories(
     }
 
     /** State of one publish attempt, shared with a recreated publisher screen. */
-    fun submissionState(submissionId: String): StateFlow<StorySubmissionState> =
-        submissionStates.computeIfAbsent(submissionId) { MutableStateFlow(StorySubmissionState.Idle) }
+    fun submissionState(submissionId: String): StateFlow<StorySubmissionState> {
+        submissionStates[submissionId]?.let { return it }
+        val persisted = synchronized(lock) { persistedSubmissions[submissionId] }
+        val persistedTicket = persisted?.ticket
+        val initial = when {
+            persistedTicket != null -> StorySubmissionState.Pending(persistedTicket)
+            persisted != null -> StorySubmissionState.Submitting
+            else -> StorySubmissionState.Idle
+        }
+        val flow = submissionStates.computeIfAbsent(submissionId) { MutableStateFlow(initial) }
+        if (persisted != null &&
+            flow.value !is StorySubmissionState.Published &&
+            flow.value !is StorySubmissionState.Failed
+        ) {
+            startSubmissionRecovery(submissionId)
+        }
+        return flow
+    }
 
     private fun updateSubmission(submissionId: String, state: StorySubmissionState) {
         submissionStates.computeIfAbsent(submissionId) { MutableStateFlow(StorySubmissionState.Idle) }.value = state
+        when (state) {
+            is StorySubmissionState.Pending -> persistSubmission(
+                submissionId,
+                PersistedSubmission("pending", state.ticket.posterChatId, state.ticket, System.currentTimeMillis())
+            )
+            is StorySubmissionState.Published, is StorySubmissionState.Failed -> removePersistedSubmission(submissionId)
+            else -> Unit
+        }
+    }
+
+    private fun persistSubmitting(submissionId: String, targetChatId: Long) {
+        persistSubmission(
+            submissionId,
+            PersistedSubmission("submitting", targetChatId, null, System.currentTimeMillis())
+        )
+    }
+
+    private fun persistSubmission(submissionId: String, submission: PersistedSubmission) {
+        synchronized(lock) {
+            persistedSubmissions[submissionId] = submission
+            writeSubmissionLedgerLocked()
+        }
+    }
+
+    private fun removePersistedSubmission(submissionId: String) {
+        synchronized(lock) {
+            if (persistedSubmissions.remove(submissionId) != null) writeSubmissionLedgerLocked()
+        }
+    }
+
+    /** The user left the publisher before PostStory returned a ticket. */
+    fun abandonSubmission(submissionId: String) {
+        synchronized(lock) {
+            abandonedSubmissions += submissionId
+            if (persistedSubmissions.remove(submissionId) != null) writeSubmissionLedgerLocked()
+        }
+    }
+
+    private fun takeAbandonedSubmission(submissionId: String): Boolean =
+        synchronized(lock) { abandonedSubmissions.remove(submissionId) }
+
+    private fun loadSubmissionLedger() {
+        val loaded = runCatching {
+            if (!submissionLedger.isFile) return@runCatching
+            submissionLedger.readLines().forEach { line ->
+                val parts = line.split('\t')
+                if (parts.size < 7 || parts[0].isBlank()) return@forEach
+                val kind = parts[1]
+                val targetChatId = parts[2].toLongOrNull() ?: return@forEach
+                val createdAt = parts[6].toLongOrNull() ?: System.currentTimeMillis()
+                val ticket = if (kind == "pending") {
+                    val posterChatId = parts[3].toLongOrNull() ?: return@forEach
+                    val storyId = parts[4].toIntOrNull() ?: return@forEach
+                    val fileIds = parts[5].split(',').mapNotNull { it.toIntOrNull() }
+                    StoryPostTicket(posterChatId, storyId, true, fileIds)
+                } else {
+                    null
+                }
+                persistedSubmissions[parts[0]] = PersistedSubmission(kind, targetChatId, ticket, createdAt)
+            }
+        }
+        if (loaded.isFailure) synchronized(lock) { persistedSubmissions.clear() }
+    }
+
+    private fun writeSubmissionLedgerLocked() {
+        runCatching {
+            submissionLedger.parentFile?.mkdirs()
+            val text = persistedSubmissions.entries.joinToString("\n") { (id, submission) ->
+                val ticket = submission.ticket
+                listOf(
+                    id,
+                    submission.kind,
+                    submission.targetChatId,
+                    ticket?.posterChatId ?: 0L,
+                    ticket?.storyId ?: 0,
+                    (ticket?.fileIds ?: emptyList()).joinToString(","),
+                    submission.createdAt
+                ).joinToString("\t")
+            }
+            val temporary = File(submissionLedger.absolutePath + ".tmp")
+            temporary.writeText(text)
+            if (!temporary.renameTo(submissionLedger)) {
+                submissionLedger.writeText(text)
+                temporary.delete()
+            }
+        }
+    }
+
+    private fun startSubmissionRecovery(submissionId: String) {
+        synchronized(lock) {
+            if (submissionRecoveryJobs[submissionId]?.isActive == true) return
+            val job = scope.launch { recoverSubmission(submissionId) }
+            submissionRecoveryJobs[submissionId] = job
+            job.invokeOnCompletion {
+                synchronized(lock) {
+                    if (submissionRecoveryJobs[submissionId] === job) submissionRecoveryJobs.remove(submissionId)
+                }
+            }
+        }
+    }
+
+    /**
+     * After process death TDLib may still finish a persisted upload. Reconnect to the pending story
+     * instead of treating the saved submission id as idle and allowing a duplicate PostStory.
+     */
+    private suspend fun recoverSubmission(submissionId: String) {
+        val initial = synchronized(lock) { persistedSubmissions[submissionId] } ?: return
+        val resolvedTicket = initial.ticket ?: run {
+            val targetChatId = initial.targetChatId.takeIf { it != 0L } ?: ensureSelfChatId()
+            val deadline = initial.createdAt + SUBMISSION_LOOKUP_MS
+            var discovered: StoryPostTicket? = null
+            while (discovered == null && System.currentTimeMillis() < deadline) {
+                discovered = findBeingPostedStory(targetChatId)
+                if (discovered == null) delay(2_000)
+            }
+            val found = discovered
+            if (found == null) {
+                val completed = findRecentStory(targetChatId, initial.createdAt)
+                if (completed != null) {
+                    updateSubmission(submissionId, StorySubmissionState.Published(completed))
+                } else {
+                    updateSubmission(submissionId, StorySubmissionState.Failed())
+                }
+                return
+            }
+            updateSubmission(submissionId, StorySubmissionState.Pending(found))
+            found
+        }
+        val deadline = initial.createdAt + SUBMISSION_RECOVERY_MS
+        var misses = 0
+        while (System.currentTimeMillis() < deadline) {
+            val story = runCatching {
+                requests(TdApi.GetStory(resolvedTicket.posterChatId, resolvedTicket.storyId, false))
+            }.getOrNull()
+            if (story != null) {
+                misses = 0
+                if (!story.isBeingPosted) {
+                    updateSubmission(
+                        submissionId,
+                        StorySubmissionState.Published(
+                            resolvedTicket.copy(
+                                storyId = story.id,
+                                isPending = false,
+                                fileIds = story.content.uploadFileIds()
+                            )
+                        )
+                    )
+                    return
+                }
+            } else {
+                val active = runCatching {
+                    requests(TdApi.GetChatActiveStories(resolvedTicket.posterChatId))
+                }.getOrNull()
+                val stillListed = active?.stories?.any { it.storyId == resolvedTicket.storyId } == true
+                if (active != null && !stillListed) {
+                    misses++
+                    if (misses >= 3) {
+                        updateSubmission(submissionId, StorySubmissionState.Failed())
+                        return
+                    }
+                } else {
+                    misses = 0
+                }
+            }
+            delay(2_000)
+        }
+        updateSubmission(submissionId, StorySubmissionState.Failed())
+    }
+
+    private suspend fun findBeingPostedStory(chatId: Long): StoryPostTicket? {
+        val active = runCatching { requests(TdApi.GetChatActiveStories(chatId)) }.getOrNull() ?: return null
+        active.stories?.toList().orEmpty().take(20).forEach { info ->
+            val story = runCatching { requests(TdApi.GetStory(chatId, info.storyId, false)) }.getOrNull()
+            if (story?.isBeingPosted == true) {
+                return StoryPostTicket(chatId, story.id, true, story.content.uploadFileIds())
+            }
+        }
+        return null
+    }
+
+    private suspend fun findRecentStory(chatId: Long, createdAt: Long): StoryPostTicket? {
+        val active = runCatching { requests(TdApi.GetChatActiveStories(chatId)) }.getOrNull() ?: return null
+        val info = active.stories?.toList().orEmpty()
+            .filter { it.date.toLong() * 1_000L >= createdAt - RECENT_STORY_WINDOW_MS }
+            .maxByOrNull { it.storyId }
+            ?: return null
+        val story = runCatching { requests(TdApi.GetStory(chatId, info.storyId, false)) }.getOrNull()
+        return StoryPostTicket(chatId, info.storyId, false, story?.content?.uploadFileIds().orEmpty())
     }
 
     suspend fun publishStory(
@@ -478,20 +693,15 @@ internal class TdStories(
     ): Result<StoryPostTicket> {
         // Submission is process-owned: leaving the publisher must not orphan an already submitted
         // PostStory request. The repository also tracks/handles its terminal update.
+        persistSubmitting(submissionId, targetChatId)
         updateSubmission(submissionId, StorySubmissionState.Submitting)
-        val ownerActive = AtomicBoolean(true)
         val operation = scope.async {
             publishStoryRequest(
                 submissionId, targetChatId, media, caption, privacy, selectedUserIds, activePeriodSeconds,
-                protectContent, keepInProfile, ownerActive
+                protectContent, keepInProfile
             )
         }
-        return try {
-            operation.await()
-        } catch (cancelled: CancellationException) {
-            ownerActive.set(false)
-            throw cancelled
-        }
+        return operation.await()
     }
 
     private suspend fun publishStoryRequest(
@@ -503,8 +713,7 @@ internal class TdStories(
         selectedUserIds: List<Long>,
         activePeriodSeconds: Int,
         protectContent: Boolean,
-        keepInProfile: Boolean,
-        ownerActive: AtomicBoolean
+        keepInProfile: Boolean
     ): Result<StoryPostTicket> {
         val result = storyRequest(POST_TIMEOUT_MS) {
             if (media.kind != MediaKind.Photo && media.kind != MediaKind.Video) {
@@ -552,8 +761,14 @@ internal class TdStories(
             val ticket = StoryPostTicket(chatId, story.id, story.isBeingPosted, story.content.uploadFileIds())
             if (ticket.isPending) {
                 updateSubmission(submissionId, StorySubmissionState.Pending(ticket))
-                trackUpload(ticket, media, submissionId, initiallyAbandoned = !ownerActive.get())
+                trackUpload(
+                    ticket,
+                    media,
+                    submissionId,
+                    initiallyAbandoned = takeAbandonedSubmission(submissionId)
+                )
             } else {
+                takeAbandonedSubmission(submissionId)
                 markPublishedStoryUpload(media, ticket.fileIds)
                 updateSubmission(submissionId, StorySubmissionState.Published(ticket))
             }
@@ -566,8 +781,8 @@ internal class TdStories(
                     error = (result.exceptionOrNull() as? UserMessageException)?.text
                 )
             )
+            if (takeAbandonedSubmission(submissionId)) discardStoryUpload(media)
         }
-        if (result.isFailure && !ownerActive.get()) discardStoryUpload(media)
         return result
     }
 
@@ -794,9 +1009,19 @@ internal class TdStories(
         else -> UiText.Res(R.string.err_tdlib_action_failed)
     }
 
+    private data class PersistedSubmission(
+        val kind: String,
+        val targetChatId: Long,
+        val ticket: StoryPostTicket?,
+        val createdAt: Long
+    )
+
     private companion object {
         const val DEFAULT_TIMEOUT_MS = 30_000L
         const val POST_TIMEOUT_MS = 60_000L
+        const val SUBMISSION_LOOKUP_MS = 60_000L
+        const val SUBMISSION_RECOVERY_MS = 15 * 60_000L
+        const val RECENT_STORY_WINDOW_MS = 2 * 60_000L
         const val ARCHIVE_PAGE_SIZE = 100
         const val MAX_ACTIVE_STORY_PAGES = 5
         const val PREVIEW_MIN_SIDE = 320

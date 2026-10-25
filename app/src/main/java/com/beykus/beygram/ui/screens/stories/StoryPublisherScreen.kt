@@ -221,8 +221,13 @@ fun StoryPublisherScreen(
         // An accepted/still-running upload owns its staged file outside this screen. Never delete
         // it here; the repository's pending-upload observer marks it evictable on success.
         val ticketToAbandon = pendingTicket ?: (submissionState as? StorySubmissionState.Pending)?.ticket
-        if (!publishing && !submissionInFlight && ticketToAbandon == null) discard(media)
-        ticketToAbandon?.let { repository.abandonStoryUpload(it.posterChatId, it.storyId) }
+        when {
+            ticketToAbandon != null -> repository.abandonStoryUpload(ticketToAbandon.posterChatId, ticketToAbandon.storyId)
+            publishing || submissionInFlight -> {
+                if (submissionId.isNotBlank()) repository.abandonStorySubmission(submissionId)
+            }
+            else -> discard(media)
+        }
         media = null
         onBack()
     }
