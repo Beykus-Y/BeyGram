@@ -114,7 +114,13 @@ fun StoryViewerScreen(
     var snapshot by remember(posterChatId) { mutableStateOf<ChatStories?>(null) }
     var missing by remember(posterChatId) { mutableStateOf(false) }
     LaunchedEffect(posterChatId, bars) {
-        bars.firstOrNull { it.chatId == posterChatId }?.let { snapshot = it }
+        val entry = bars.firstOrNull { it.chatId == posterChatId }
+        if (entry != null) {
+            snapshot = entry
+        } else if (snapshot != null) {
+            // The sender left the active story list (all stories expired/deleted or blocked).
+            onClose()
+        }
     }
     LaunchedEffect(posterChatId) {
         repository.refreshActiveStories()
