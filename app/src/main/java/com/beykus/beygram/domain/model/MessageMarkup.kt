@@ -70,7 +70,7 @@ fun adjustTextEntities(before: String, after: String, entities: List<MessageText
     })
 }
 
-enum class BotButtonKind { Text, Callback, Url, Copy, User, Unsupported }
+enum class BotButtonKind { Text, Callback, Url, Copy, User, WebApp, Unsupported }
 data class BotButton(val text: String, val kind: BotButtonKind, val value: String = "", val data: List<Byte> = emptyList())
 data class BotKeyboard(val messageId: Long, val rows: List<List<BotButton>>, val oneTime: Boolean = false, val persistent: Boolean = false, val placeholder: String = "", val forceReply: Boolean = false)
 data class BotCallbackAnswer(val text: String, val showAlert: Boolean, val url: String)

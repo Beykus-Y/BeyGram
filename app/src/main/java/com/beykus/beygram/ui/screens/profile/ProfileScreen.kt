@@ -70,6 +70,7 @@ fun ProfileScreen(
     deleteMyProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Profile photo deletion unavailable")) },
     setPreviousProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Previous photo unavailable")) },
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
+    onManage: (() -> Unit)? = null,
     onStatistics: (() -> Unit)? = null,
     onSetBlocked: suspend (Boolean) -> Result<Unit> = { Result.failure(IllegalStateException()) },
     onReportSpam: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
@@ -110,7 +111,7 @@ fun ProfileScreen(
         onMembers = onMembers, onOpenUser = onOpenUser, onStatistics = onStatistics,
         sharedMessages = sharedMessages, confirmExport = confirmExport,
         messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
-        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, autoDownloadFile = autoDownloadFile
+        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage, autoDownloadFile = autoDownloadFile
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
             if (!isOwnProfile) ChatInfoMenu(
@@ -147,6 +148,9 @@ fun ProfileScreen(
                     }
                 }
                 ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null))
+                if (onManage != null && info.groupAdmin?.canManageAnything == true) {
+                    GroupManagementEntry(info.kind, onManage)
+                }
                 if (info.personalChatId > 0L) {
                     TextButton(onClick = { onOpenLinkedChannel(info.personalChatId) },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
