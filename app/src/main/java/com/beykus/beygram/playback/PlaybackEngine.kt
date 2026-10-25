@@ -61,7 +61,12 @@ data class GrowingPlaybackSource(
     val readablePrefix: () -> Long,
     val isComplete: () -> Boolean,
     val isDownloading: () -> Boolean,
-    val onNeedMore: () -> Unit
+    val onNeedMore: () -> Unit,
+    /**
+     * Ogg/Opus seekers read the last page when the length is known, which is unavailable before the
+     * download completes. Such sources advertise an unknown length until then.
+     */
+    val advertiseLength: Boolean = true
 )
 
 /** Файл для общего плеера. [key] отличает файлы друг от друга: повторный тап по тому же файлу ставит его на паузу. [origin] пустой, если файл запущен не из ленты чата. */
@@ -148,6 +153,8 @@ private val DIRECT_AUDIO_MIME = setOf(
     "audio/flac", "audio/x-flac", "audio/webm", "audio/3gpp", "audio/amr"
 )
 private val MP4_AUDIO_MIME = setOf("audio/mp4", "audio/m4a", "audio/x-m4a")
+/** Ogg/Opus seek tables live at the end; an advertised total length makes Media3 read that page first. */
+private val UNKNOWN_LENGTH_AUDIO_MIME = setOf("audio/ogg", "audio/opus")
 
 /**
  * Whether an audio file can be played before TDLib finishes it. Formats with leading metadata
@@ -182,12 +189,14 @@ internal fun growingAudioSource(
     val path = state.downloadPath ?: return null
     if (state.localPath != null || state.size <= 0L || state.downloadedPrefixBytes <= 0L) return null
     if (!canPlayAudioProgressively(mimeType, path, state.downloadedPrefixBytes)) return null
+    val normalized = mimeType.substringBefore(';').trim().lowercase()
     return GrowingPlaybackSource(
         totalSize = state.size,
         readablePrefix = { observeFile(fileId).value.downloadedPrefixBytes },
         isComplete = { observeFile(fileId).value.localPath != null },
         isDownloading = { observeFile(fileId).value.isDownloading },
-        onNeedMore = onNeedMore
+        onNeedMore = onNeedMore,
+        advertiseLength = normalized !in UNKNOWN_LENGTH_AUDIO_MIME
     )
 }
 
@@ -594,6 +603,7 @@ private class GrowingFileDataSource(
         file = opened
         position = dataSpec.position
         uri = dataSpec.uri
+        if (!source.isComplete() && !source.advertiseLength) return C.LENGTH_UNSET.toLong()
         val length = if (source.isComplete()) opened.length() else source.totalSize
         val remaining = (length - position).coerceAtLeast(0L)
         return if (dataSpec.length == C.LENGTH_UNSET.toLong()) remaining

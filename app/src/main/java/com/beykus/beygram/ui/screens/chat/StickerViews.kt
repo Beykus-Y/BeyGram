@@ -74,7 +74,9 @@ internal fun StickerPreview(
             val thumbnailRequest = AutoDownloadRequest(
                 fileId = thumbnailId,
                 kind = MediaKind.Photo,
-                sizeBytes = thumbnail.size
+                sizeBytes = thumbnail.size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat
             )
             if (autoDownload != null) autoDownload(thumbnailRequest) else downloadFile(thumbnailId)
         }
@@ -82,7 +84,9 @@ internal fun StickerPreview(
             val stickerRequest = AutoDownloadRequest(
                 fileId = media.fileId,
                 kind = MediaKind.Sticker,
-                sizeBytes = file.size
+                sizeBytes = file.size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat
             )
             if (autoDownload != null) autoDownload(stickerRequest) else downloadFile(media.fileId)
         }

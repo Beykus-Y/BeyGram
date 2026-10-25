@@ -55,12 +55,20 @@ class GrowingAudioPlaybackTest {
         assertEquals(20L, source.readablePrefix())
         assertTrue(source.isDownloading())
         assertFalse(source.isComplete())
+        assertFalse(source.advertiseLength)
         state.value = state.value.copy(downloadedPrefixBytes = 60)
         assertEquals(60L, source.readablePrefix())
         source.onNeedMore()
         assertEquals(1, requested)
         state.value = state.value.copy(localPath = "/done")
         assertTrue(source.isComplete())
+    }
+
+    @Test fun nonOggGrowthStillAdvertisesLengthForSeeking() {
+        val state = MediaFileState(6, size = 100, downloadPath = "/partial", downloadedPrefixBytes = 20, isDownloading = true)
+        val source = growingAudioSource(state, 6, "audio/mpeg", { MutableStateFlow(state) }) {}
+        assertNotNull(source)
+        assertTrue(source!!.advertiseLength)
     }
 
     @Test fun growingSourceRejectsCompleteOrUnknownFiles() {
