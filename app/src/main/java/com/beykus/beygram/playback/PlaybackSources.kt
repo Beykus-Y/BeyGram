@@ -48,7 +48,7 @@ internal class PlaybackSourceHandle(
         // `partialAudioPlaybackPath` returns the completed file or a readable progressive prefix.
         val path = partialAudioPlaybackPath(state, current.mimeType) ?: return null
         val growing = if (state.localPath == null) {
-            growingAudioSource(state, fileId, current.mimeType, source.observeFile) { request() }
+            growingAudioSource(state, fileId, current.mimeType, source.observeFile, onNeedMore = { request() })
         } else {
             null
         }
