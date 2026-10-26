@@ -354,10 +354,10 @@ fun StoryViewerScreen(
         // Mark the request before awaiting it: TDLib may process OpenStory after the coroutine is
         // cancelled, so leaving must still send the matching CloseStory.
         dispatchedStoryId = storyId
+        // A timeout can hide a request that TDLib already processed, so keep the dispatched marker
+        // until leaving the story even when the local result is a failure.
         if (repository.openStory(posterChatId, storyId).isSuccess) {
             openedStoryId = storyId
-        } else if (dispatchedStoryId == storyId) {
-            dispatchedStoryId = 0
         }
     }
     // CloseStory is sent only for a story whose open was dispatched or completed. A connection blip
