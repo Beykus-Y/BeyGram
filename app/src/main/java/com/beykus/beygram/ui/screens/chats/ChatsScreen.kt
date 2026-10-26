@@ -46,9 +46,11 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
@@ -95,6 +97,7 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.TelegramChatFolders
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramFolderLoadState
 import com.beykus.beygram.domain.model.TelegramFolderTab
 import com.beykus.beygram.domain.model.orderedTelegramFolderTabs
@@ -110,10 +113,12 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.russianPlural
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.Dialog
@@ -139,6 +144,10 @@ fun ChatsScreen(
     folderSnapshot: TelegramChatFolders,
     folderChats: Map<Int, List<ChatPreview>>,
     folderLoadStates: Map<Int, TelegramFolderLoadState>,
+    /** Состояние сессии Telegram у активного аккаунта, а не доступность интернета или прокси. */
+    connectionState: TelegramConnectionState,
+    /** Активный аккаунт: при переключении строка статуса не должна остаться от предыдущего. */
+    accountId: String,
     onFolderLoadMore: (Int) -> Unit,
     onPinFolderChat: suspend (Int, Long, Boolean) -> Result<Unit>,
     onLoadFolder: suspend (Int) -> Result<com.beykus.beygram.domain.model.TelegramFolderDraft>,
@@ -209,6 +218,8 @@ fun ChatsScreen(
     val headerPadding = if (compactHeader) 14.dp else 20.dp
     val titleSize = if (compactHeader) 24.sp else 30.sp
     val titleLineHeight = if (compactHeader) 27.sp else 33.sp
+    // Статус сессии Telegram общий для телефона и двухпанельного списка: он не зависит от раскладки.
+    val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
     var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
     val readAction = ChatSwipeAction(
@@ -356,6 +367,9 @@ fun ChatsScreen(
                         Modifier.clearAndSetSemantics {})
                 }
             }
+            // Заголовок «Сообщения» остаётся названием раздела; реальное состояние TDLib
+            // показывается строкой во всю ширину шапки и исчезает сразу после восстановления связи.
+            ChatsConnectionLine(connectionStatus)
 
             Spacer(Modifier.height(14.dp))
             SearchField(query = query, onChange = { state.query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
@@ -533,6 +547,46 @@ fun ChatsScreen(
             delete = { onDeleteChat(selected.id) }
         )
     }
+}
+
+/**
+ * Строка состояния сессии Telegram под заголовком списка. Говорит только то, что сообщил TDLib:
+ * ожидание сети, подключение или получение обновлений. Экран не крутит спиннер и ничего не опрашивает.
+ */
+@Composable
+private fun ChatsConnectionLine(status: ChatsConnectionStatus) {
+    if (status == ChatsConnectionStatus.None) return
+    val palette = beyGramPalette()
+    val label = stringResource(status.labelResource())
+    val spokenLabel = stringResource(R.string.chats_connection_a11y, label)
+    // Ожидание сети — предупреждение, остальные состояния нейтральны и не выглядят как ошибка.
+    val color = if (status == ChatsConnectionStatus.WaitingForNetwork) palette.warningText else palette.textSecondary
+    val icon = when (status) {
+        ChatsConnectionStatus.WaitingForNetwork -> Icons.Rounded.WifiOff
+        ChatsConnectionStatus.Connecting -> Icons.Rounded.Schedule
+        else -> Icons.Rounded.Refresh
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 5.dp).semantics(mergeDescendants = true) {
+            // Статус меняется без действия пользователя: сообщаем его, не уводя фокус с экрана.
+            liveRegion = LiveRegionMode.Polite
+            contentDescription = spokenLabel
+        },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = color, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Текст строки для состояния TDLib; [ChatsConnectionStatus.None] сюда не попадает. */
+private fun ChatsConnectionStatus.labelResource(): Int = when (this) {
+    ChatsConnectionStatus.WaitingForNetwork -> R.string.chats_connection_waiting_network
+    ChatsConnectionStatus.Connecting -> R.string.chats_connection_connecting
+    ChatsConnectionStatus.Updating -> R.string.chats_connection_updating
+    ChatsConnectionStatus.None -> error("The plain title has no connection label")
 }
 
 @Composable

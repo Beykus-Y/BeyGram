@@ -8,6 +8,10 @@
     <string name="recorder_light_failed">Impossible d’activer le flash de l’appareil photo</string>
     <string name="recorder_light_off_failed">Impossible de désactiver le flash de l’appareil photo. Réessayez</string>
     <string name="chats_title">Discussions</string>
+    <string name="chats_connection_a11y">Connexion à Telegram : %1$s</string>
+    <string name="chats_connection_connecting">Connexion…</string>
+    <string name="chats_connection_updating">Mise à jour…</string>
+    <string name="chats_connection_waiting_network">En attente du réseau</string>
     <string name="chats_detail_empty_title">Sélectionnez une discussion</string>
     <string name="chats_detail_empty_hint">Ouvrez une conversation depuis la liste ; elle apparaîtra ici.</string>
     <string name="settings_title">Paramètres</string>

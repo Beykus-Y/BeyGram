@@ -8,6 +8,10 @@
     <string name="recorder_light_failed">No se pudo activar el flash de la cámara</string>
     <string name="recorder_light_off_failed">No se pudo desactivar el flash de la cámara. Inténtalo de nuevo</string>
     <string name="chats_title">Chats</string>
+    <string name="chats_connection_a11y">Conexión de Telegram: %1$s</string>
+    <string name="chats_connection_connecting">Conectando…</string>
+    <string name="chats_connection_updating">Actualizando…</string>
+    <string name="chats_connection_waiting_network">Esperando la red</string>
     <string name="settings_title">Ajustes</string>
     <string name="settings_group_interface">Interfaz</string>
     <string name="settings_group_devices_privacy">Dispositivos y privacidad</string>
