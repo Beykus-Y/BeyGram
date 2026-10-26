@@ -44,6 +44,15 @@ internal class TdStickerCatalog(
         content
     }
 
+    /** Adds or removes a set and keeps the cached copy's installed flag in sync with TDLib. */
+    suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit> = requestResult {
+        request(TdApi.ChangeStickerSet(setId, installed, false))
+        synchronized(cacheLock) {
+            setCache[setId]?.let { setCache[setId] = it.copy(isInstalled = installed) }
+        }
+        Unit
+    }
+
     suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = requestResult {
         val page = request(TdApi.SearchStickers(TdApi.StickerTypeRegular(), "", query, emptyArray<String>(), offset, STICKER_PAGE_SIZE))
         val found = page.stickers.orEmpty()

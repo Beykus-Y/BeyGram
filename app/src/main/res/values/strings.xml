@@ -401,6 +401,16 @@
     <string name="sticker_picker_tab_recent">Недавние</string>
     <string name="sticker_picker_tab_sets">Наборы</string>
     <string name="sticker_picker_title">Стикеры</string>
+    <string name="sticker_set_add">Добавить набор</string>
+    <string name="sticker_set_add_failed">Не удалось добавить набор стикеров</string>
+    <string name="sticker_set_empty">В этом наборе нет доступных стикеров</string>
+    <string name="sticker_set_installed">Набор установлен</string>
+    <string name="sticker_set_load_failed">Не удалось открыть набор стикеров</string>
+    <string name="sticker_set_not_installed">Набор не установлен</string>
+    <string name="sticker_set_remove">Удалить набор</string>
+    <string name="sticker_set_remove_failed">Не удалось удалить набор стикеров</string>
+    <string name="sticker_set_title">Набор стикеров</string>
+    <string name="sticker_set_unavailable">Этот стикер не входит в набор стикеров</string>
     <string name="connection_state_connected">подключено</string>
     <string name="connection_state_connecting">подключаемся</string>
     <string name="connection_state_unknown">неизвестно</string>

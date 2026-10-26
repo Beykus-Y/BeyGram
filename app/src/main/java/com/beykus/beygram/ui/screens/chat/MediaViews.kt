@@ -327,7 +327,12 @@ internal fun MediaPreview(
     /** A per-message view-once attachment: conceal it until the viewer is opened, even outside secret chats. */
     viewOnce: Boolean = false,
     /** Repository-backed automatic download; when absent the same local policy gates [downloadFile]. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    /**
+     * Opens the sticker's set. Without it a sticker tap does nothing: a sticker must never fall back to the generic
+     * media viewer, which has no sticker actions of its own.
+     */
+    onStickerOpen: (() -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -441,7 +446,12 @@ internal fun MediaPreview(
         return
     }
     if (media.kind == MediaKind.Sticker) {
-        StickerPreview(media, file, thumb, downloadFile, onOpen, onLongPress, autoDownloadFile = autoDownload)
+        StickerPreview(
+            media, file, thumb, downloadFile,
+            onOpen = onStickerOpen ?: {},
+            onLongPress = onLongPress,
+            autoDownloadFile = autoDownload
+        )
         return
     }
     if (isVisual) {

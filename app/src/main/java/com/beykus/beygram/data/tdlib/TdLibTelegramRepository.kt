@@ -2266,6 +2266,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun recentStickers(): Result<List<StickerItem>> = stickerCatalog.recentStickers()
     override suspend fun installedStickerSets(): Result<List<StickerSetSummary>> = stickerCatalog.installedStickerSets()
     override suspend fun stickerSet(setId: Long): Result<StickerSetContent> = stickerCatalog.stickerSet(setId)
+    override suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit> =
+        stickerCatalog.changeStickerSet(setId, installed)
     override suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = stickerCatalog.searchStickers(query, offset)
     override suspend fun savedAnimations(): Result<List<AnimationItem>> = stickerCatalog.savedAnimations()
     override suspend fun recentAnimations(offset: String): Result<AnimationPage> = stickerCatalog.recentAnimations(offset)

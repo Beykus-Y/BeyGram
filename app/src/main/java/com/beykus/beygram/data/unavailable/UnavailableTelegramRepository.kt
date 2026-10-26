@@ -447,6 +447,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun recentStickers(): Result<List<StickerItem>> = unavailable()
     override suspend fun installedStickerSets(): Result<List<StickerSetSummary>> = unavailable()
     override suspend fun stickerSet(setId: Long): Result<StickerSetContent> = unavailable()
+    override suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit> = unavailable()
     override suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = unavailable()
     override suspend fun savedAnimations(): Result<List<AnimationItem>> = unavailable()
     override suspend fun recentAnimations(offset: String): Result<AnimationPage> = unavailable()

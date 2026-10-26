@@ -194,6 +194,9 @@ fun ChatScreen(
     var capabilitiesError by remember { mutableStateOf<String?>(null) }
     var capabilitiesAttempt by remember { mutableIntStateOf(0) }
     var selectedMediaId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    // Sticker messages open their set instead of the generic media viewer. Zero means "not in a set" and gets a
+    // friendly placeholder from StickerSetSheet rather than a failed TDLib request.
+    var openStickerSetId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var viewerRights by remember { mutableStateOf<MessageRights?>(null) }
     var viewerPosition by remember { mutableStateOf<MediaPosition?>(null) }
     var forwardId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
@@ -929,7 +932,8 @@ fun ChatScreen(
             else -> attachments.discardAll()
         }
     }
-    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && attachments.picker == AttachmentPicker.None && !searching, onBack = onBack)
+    BackHandler(enabled = openStickerSetId != null) { openStickerSetId = null }
+    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && attachments.picker == AttachmentPicker.None && !searching && openStickerSetId == null, onBack = onBack)
     BackHandler(enabled = !threadOpen && (videoNote.active || audioNote.active)) {
         videoNote.stopForRecovery()
         audioNote.stopForRecovery()
@@ -1526,6 +1530,7 @@ fun ChatScreen(
                                 selectionMode = selectionMode,
                                 selected = message.id in selectionIds,
                                 onToggleSelection = { toggleSelection(message) },
+                                onStickerOpen = { stickerMedia -> openStickerSetId = stickerMedia.stickerSetId },
                                 commentsBar = if (showsChannelComments(chat.isChannel, message.isChannelPost, linkedDiscussionChatId)) {
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
                                 } else null)
@@ -1880,6 +1885,14 @@ fun ChatScreen(
             onDelete = { deleteEveryone = viewedRights?.canDeleteForSelf == false; actionsId = viewed.id; deleting = true; selectedMediaId = null }
         ) }, onShowInChat = { id -> selectedMediaId = null; jumpToMessage(id, R.string.err_chat_history_load_failed) },
             autoDownloadFile = onAutoDownloadFile)
+    StickerSetOverlay(
+        setId = openStickerSetId,
+        conversation = conversation,
+        observeFile = observeFile,
+        downloadFile = onDownloadFile,
+        attachments = attachments,
+        onDismiss = { openStickerSetId = null }
+    )
     val forwardIds = when {
         forwardId != null -> listOf(forwardId!!)
         selectionForwardOpen -> forwardIdsForSelection(messages, selectionIds)
@@ -2182,7 +2195,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onStopLiveLocation: ((ChatMessage) -> Unit)? = null,
     onWriteContact: ((Long) -> Unit)? = null,
     onLoadPollVoters: (suspend (messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>)? = null,
-    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null
+    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null,
+    /** Opens the set of a sticker message; when absent a sticker tap does not fall through to the media viewer. */
+    onStickerOpen: ((MessageMedia) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -2195,7 +2210,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val showText = hasText && special !is MessageSpecialContent.Contact
     val circle = message.media?.kind == MediaKind.VideoNote
     // Стикер лежит без пузыря: ни цвета, ни ширины фото.
-    val sticker = message.media?.kind == MediaKind.Sticker
+    val stickerMedia = message.media?.takeIf { it.kind == MediaKind.Sticker }
+    val sticker = stickerMedia != null
     // Время и статус кружка находятся под кругом, вне обрезки видео.
     val inCircle = circle && message.sendState != MessageSendState.Failed
     // Пока сообщение отправляется или не ушло, его id временный и потом меняется: место для общего плеера не ставим.
@@ -2210,6 +2226,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
+    val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
     val messageActionsLabel = stringResource(R.string.a11y_message_actions)
     val selectionLabel = if (selectionMode) stringResource(if (selected) R.string.message_selection_deselect else R.string.message_selection_select) else null
     val selectionState = if (selectionMode) stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected) else null
@@ -2232,9 +2249,20 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             }
                         }
                         .combinedClickable(
-                            onClickLabel = if (selectionMode) selectionLabel else if (message.media != null && !message.media.kind.playsInline()) openMediaLabel else null,
+                            onClickLabel = when {
+                                selectionMode -> selectionLabel
+                                sticker -> openStickerSetLabel
+                                message.media != null && !message.media.kind.playsInline() -> openMediaLabel
+                                else -> null
+                            },
                             onLongClickLabel = if (selectionMode) selectionLabel else messageActionsLabel,
-                            onClick = { if (selectionMode) onToggleSelection() else if (message.media != null && !message.media.kind.playsInline()) onOpen() },
+                            onClick = {
+                                when {
+                                    selectionMode -> onToggleSelection()
+                                    sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
+                                    message.media != null && !message.media.kind.playsInline() -> onOpen()
+                                }
+                            },
                             onLongClick = if (selectionMode) onToggleSelection else onActions
                         ),
                     overlayMeta = overlayMeta,
@@ -2271,7 +2299,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 onTranscribe = onTranscribe,
                                 onRateTranscription = onRateTranscription,
                                 viewOnce = message.isViewOnce,
-                                autoDownloadFile = onAutoDownloadFile)
+                                autoDownloadFile = onAutoDownloadFile,
+                                onStickerOpen = onStickerOpen?.let { callback ->
+                                    stickerMedia?.let { stickerMedia ->
+                                        { if (selectionMode) onToggleSelection() else callback(stickerMedia) }
+                                    }
+                                })
                         }
                         message.expiredMediaKind?.let { kind ->
                             Row(
