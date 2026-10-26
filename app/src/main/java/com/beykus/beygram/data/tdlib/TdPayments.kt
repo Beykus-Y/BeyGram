@@ -32,6 +32,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -49,29 +50,46 @@ internal class TdPayments(private val requests: TdRequests) {
     // Preparing a checkout is read-only, but one browser hand-off at a time prevents double taps.
     private val checkoutPreparationInFlight = AtomicBoolean(false)
 
-    suspend fun premiumInfo(): Result<PremiumInfo> = monetizationResult {
-        val state = requests(TdApi.GetPremiumState())
-        val features = requests(TdApi.GetPremiumFeatures(null))
-        val me = requests(TdApi.GetMe())
-        cachedUserId = me.id
-        PremiumInfo(
-            isPremium = me.isPremium,
-            statusText = state.state?.text.orEmpty(),
-            features = features.features.orEmpty().map { it.toPremiumFeatureKind() }.distinct(),
-            plans = state.paymentOptions.orEmpty().mapNotNull { option ->
-                option.paymentOption?.let { payment ->
-                    PremiumPlan(
-                        monthCount = payment.monthCount.coerceAtLeast(1),
-                        amountMinor = payment.amount,
-                        currency = payment.currency.orEmpty(),
-                        discountPercent = payment.discountPercentage,
-                        isCurrent = option.isCurrent,
-                        isUpgrade = option.isUpgrade,
-                        hasExternalPaymentLink = payment.paymentLink != null
-                    )
-                }
-            }.sortedWith(compareBy({ it.monthCount }, { it.amountMinor }, { it.currency }))
-        )
+    suspend fun premiumInfo(): Result<PremiumInfo> = premiumInfoResult {
+        coroutineScope {
+            // Independent reads run in parallel so one slow response cannot consume the whole budget.
+            val state = async { requests(TdApi.GetPremiumState()) }
+            val features = async { requests(TdApi.GetPremiumFeatures(null)) }
+            val me = async { requests(TdApi.GetMe()) }
+            val premiumState = state.await()
+            val premiumFeatures = features.await()
+            val currentUser = me.await()
+            cachedUserId = currentUser.id
+            PremiumInfo(
+                isPremium = currentUser.isPremium,
+                statusText = premiumState.state?.text.orEmpty(),
+                features = premiumFeatures.features.orEmpty().map { it.toPremiumFeatureKind() }.distinct(),
+                plans = premiumState.paymentOptions.orEmpty().mapNotNull { option ->
+                    option.paymentOption?.let { payment ->
+                        PremiumPlan(
+                            monthCount = payment.monthCount.coerceAtLeast(1),
+                            amountMinor = payment.amount,
+                            currency = payment.currency.orEmpty(),
+                            discountPercent = payment.discountPercentage,
+                            isCurrent = option.isCurrent,
+                            isUpgrade = option.isUpgrade,
+                            hasExternalPaymentLink = payment.paymentLink != null
+                        )
+                    }
+                }.sortedWith(compareBy({ it.monthCount }, { it.amountMinor }, { it.currency }))
+            )
+        }
+    }
+
+    /**
+     * Bounds every Premium screen read as a whole: status, features and plans arrive together or
+     * the screen gets a retryable timeout instead of an indefinitely spinning empty page.
+     */
+    internal suspend fun <T> premiumInfoResult(
+        timeoutMillis: Long = PREMIUM_INFO_TIMEOUT_MS,
+        block: suspend () -> T
+    ): Result<T> = monetizationResult {
+        withTimeout(timeoutMillis) { block() }
     }
 
     suspend fun checkPremiumGiftCode(code: String): Result<PremiumGiftCodeInfo> {
@@ -730,6 +748,7 @@ private fun TdApi.StarTransactionType.toKind(): StarTransactionKind = when (this
 private const val PAGE_SIZE = 30
 private const val FIRST_PAGE_SIZE = 30
 private const val RECEIVED_LIMIT = 30
+private const val PREMIUM_INFO_TIMEOUT_MS = 20_000L
 private const val GIFT_SEND_TIMEOUT_MS = 60_000L
 private const val PREMIUM_GIFT_CODE_APPLY_TIMEOUT_MS = 60_000L
 private const val PREMIUM_CLICK_TIMEOUT_MS = 3_000L

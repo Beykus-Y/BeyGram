@@ -49,6 +49,15 @@
     <string name="premium_purchase_unavailable_title">Внешняя оплата недоступна</string>
     <string name="premium_purchase_unavailable_body">Telegram не предложил для этого тарифа безопасную внешнюю страницу оплаты. Данные карты в приложении не запрашиваются.</string>
     <string name="premium_load_error">Не удалось загрузить данные Premium</string>
+    <string name="premium_load_error_body">Проверьте соединение с Telegram и повторите попытку.</string>
+    <string name="premium_loading_title">Загружаем Telegram Premium…</string>
+    <string name="premium_loading_body">Запрашиваем статус, тарифы и цены в Telegram. Обычно это занимает несколько секунд.</string>
+    <string name="premium_loading_progress">Загрузка данных Premium</string>
+    <string name="premium_refresh_failed_title">Не удалось обновить данные</string>
+    <string name="premium_stale_title">Данные Premium устарели</string>
+    <string name="premium_refresh_failed_body">Показаны последние подтверждённые данные. Покупка временно недоступна — повторите загрузку.</string>
+    <string name="premium_stale_body">Данные о статусе и тарифах устарели и скрыты. Обновите экран, чтобы снова видеть актуальные условия.</string>
+    <string name="premium_data_stale">Данные Premium устарели. Обновляем их перед продолжением.</string>
 
     <string name="premium_gift_code_title">Активировать подарок</string>
     <string name="premium_gift_code_hint">Введите код из подарка Telegram Premium или ссылку t.me/giftcode/… Код проверяется на сервере и не сохраняется в приложении.</string>

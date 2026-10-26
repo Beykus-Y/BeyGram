@@ -1996,6 +1996,8 @@ private fun BeyGramAppContent(
                         autoDownloadFile = repository::autoDownloadFile)
                 }
                 AppRoute.Premium -> PremiumScreen(
+                    accountId = selectedAccountId,
+                    connectionState = connectionState,
                     load = repository::premiumInfo,
                     checkGiftCode = repository::checkPremiumGiftCode,
                     applyGiftCode = repository::applyPremiumGiftCode,
