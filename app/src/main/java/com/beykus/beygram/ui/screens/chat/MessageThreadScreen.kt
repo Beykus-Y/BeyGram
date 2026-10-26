@@ -410,6 +410,7 @@ internal fun MessageThreadScreen(
                         onAddPollOption = { chatId, messageId, text ->
                             conversation.addPollOption(chatId, messageId, text)
                         },
+                        paidContent = rememberPaidContentActions(conversation),
                         onOpenMessageEntity = onOpenMessageEntity
                     )
                 }
@@ -466,6 +467,7 @@ internal fun MessageThreadScreen(
                                     conversation.addPollOption(channelChatId, messageId, text)
                                 },
                                 onRetry = {},
+                                paidContent = rememberPaidContentActions(conversation),
                                 onOpenMessageEntity = onOpenMessageEntity
                             )
                         }
@@ -635,7 +637,8 @@ private fun ThreadCommentRow(
     onAddPollOption: suspend (chatId: Long, messageId: Long, text: String) -> Result<Unit>,
     onStickerOpen: (Long) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    paidContent: PaidContentActions? = null
 ) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp), verticalAlignment = Alignment.Top) {
@@ -679,6 +682,7 @@ private fun ThreadCommentRow(
                     onLoadPollVoters(message.chatId, messageId, optionIndex, offset)
                 },
                 onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) },
+                paidContent = paidContent,
                 onOpenMessageEntity = onOpenMessageEntity
             )
         }

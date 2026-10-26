@@ -224,4 +224,37 @@
         <item quantity="one">%1$d regalo</item>
         <item quantity="other">%1$d regalos</item>
     </plurals>
+
+    <!-- #377 subtask A: paid media and invoices in chats -->
+    <string name="service_payment_successful">Pago de %1$s por %2$s</string>
+    <string name="service_payment_completed">Pago de %1$s completado</string>
+    <string name="paid_media_unlock">Desbloquear por %1$s Stars</string>
+    <string name="paid_media_purchased">Comprado</string>
+    <string name="paid_content_pay">Pagar %1$s</string>
+    <string name="paid_content_paid">Pagado</string>
+    <string name="paid_content_test">Prueba</string>
+    <string name="paid_content_invoice">Factura</string>
+    <string name="paid_content_preview_media">Contenido de pago</string>
+    <string name="paid_content_preview_invoice">Factura: %1$s</string>
+    <string name="paid_content_checking">Comprobando el pago…</string>
+    <string name="paid_content_paying">Pagando…</string>
+    <string name="paid_content_confirm_title">Confirmar el pago</string>
+    <string name="paid_content_confirm_body">¿Pagar %1$s? Tu saldo: %2$s Stars.</string>
+    <string name="paid_content_insufficient_stars">No tienes suficientes Stars para pagar. Recarga tu saldo e inténtalo de nuevo.</string>
+    <string name="paid_content_balance_unknown">No se conoce tu saldo de Stars. Actualiza e inténtalo de nuevo.</string>
+    <string name="paid_content_price_changed">El precio ha cambiado. Revísalo e inténtalo de nuevo.</string>
+    <string name="paid_content_not_available">El pago no está disponible en esta aplicación.</string>
+    <string name="paid_content_subscription_unsupported">Las suscripciones con Stars no son compatibles.</string>
+    <string name="paid_content_busy">Espera a que termine el pago actual.</string>
+    <string name="paid_content_uncertain">No se pudo confirmar el pago. Revisa el chat o tu historial de Stars antes de volver a pagar.</string>
+    <string name="paid_content_paid_notice">Pago completado.</string>
+    <string name="paid_content_not_completed">El pago no se completó.</string>
+    <string name="paid_content_open_failed">No se pudo abrir la página de pago.</string>
+    <string name="paid_content_external_title">Elige un método de pago</string>
+    <string name="paid_content_external_body">La página de pago se abre fuera de BeyGram. Los datos de la tarjeta se introducen solo allí.</string>
+    <string name="paid_content_open_page">Abrir la página de pago</string>
+    <plurals name="paid_media_count">
+        <item quantity="one">%1$d elemento</item>
+        <item quantity="other">%1$d elementos</item>
+    </plurals>
 </resources>

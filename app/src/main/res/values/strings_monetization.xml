@@ -237,4 +237,39 @@
     <string name="err_gift_insufficient_stars">Недостаточно Stars для этого подарка</string>
     <string name="err_gift_send_busy">Отправка уже выполняется</string>
     <string name="err_gift_sold_out">Подарок распродан</string>
+
+    <!-- #377 subtask A: paid media and invoices in chats -->
+    <string name="service_payment_successful">Оплата %1$s за «%2$s»</string>
+    <string name="service_payment_completed">Оплата %1$s выполнена</string>
+    <string name="paid_media_unlock">Открыть за %1$s Stars</string>
+    <string name="paid_media_purchased">Куплено</string>
+    <string name="paid_content_pay">Оплатить %1$s</string>
+    <string name="paid_content_paid">Оплачено</string>
+    <string name="paid_content_test">Тест</string>
+    <string name="paid_content_invoice">Счёт</string>
+    <string name="paid_content_preview_media">Платное медиа</string>
+    <string name="paid_content_preview_invoice">Счёт: %1$s</string>
+    <string name="paid_content_checking">Проверяем оплату…</string>
+    <string name="paid_content_paying">Оплата…</string>
+    <string name="paid_content_confirm_title">Подтвердите оплату</string>
+    <string name="paid_content_confirm_body">Списать %1$s? Баланс: %2$s Stars.</string>
+    <string name="paid_content_insufficient_stars">Недостаточно Stars для оплаты. Пополните баланс и попробуйте снова.</string>
+    <string name="paid_content_balance_unknown">Баланс Stars неизвестен. Обновите экран и попробуйте снова.</string>
+    <string name="paid_content_price_changed">Цена изменилась. Проверьте её и попробуйте снова.</string>
+    <string name="paid_content_not_available">Оплата недоступна в этом приложении.</string>
+    <string name="paid_content_subscription_unsupported">Подписки в Stars пока не поддерживаются.</string>
+    <string name="paid_content_busy">Дождитесь завершения текущей оплаты.</string>
+    <string name="paid_content_uncertain">Не удалось подтвердить оплату. Проверьте чат или историю Stars и не оплачивайте повторно.</string>
+    <string name="paid_content_paid_notice">Оплата прошла.</string>
+    <string name="paid_content_not_completed">Оплата не выполнена.</string>
+    <string name="paid_content_open_failed">Не удалось открыть страницу оплаты.</string>
+    <string name="paid_content_external_title">Выберите способ оплаты</string>
+    <string name="paid_content_external_body">Оплата откроется на странице платёжного провайдера. Данные карты вводятся только там.</string>
+    <string name="paid_content_open_page">Открыть страницу оплаты</string>
+    <plurals name="paid_media_count">
+        <item quantity="one">%1$d файл</item>
+        <item quantity="few">%1$d файла</item>
+        <item quantity="many">%1$d файлов</item>
+        <item quantity="other">%1$d файла</item>
+    </plurals>
 </resources>

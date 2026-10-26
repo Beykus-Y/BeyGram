@@ -911,6 +911,10 @@ internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(t
         ?: UiText.Res(R.string.chat_preview_location)
     is MessageSpecialContent.Contact -> UiText.Raw(content.contact.displayName.take(180))
     is MessageSpecialContent.Dice -> UiText.Res(R.string.chat_preview_dice, listOf(content.dice.emoji))
+    is MessageSpecialContent.PaidMedia -> UiText.Res(R.string.paid_content_preview_media)
+    is MessageSpecialContent.Invoice -> content.invoice.title.takeIf { it.isNotBlank() }
+        ?.let { UiText.Res(R.string.paid_content_preview_invoice, listOf(it.take(80))) }
+        ?: UiText.Res(R.string.paid_content_invoice)
     is MessageSpecialContent.Unsupported -> UiText.Res(R.string.message_title)
     null -> UiText.Res(when (media?.kind) {
         MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title

@@ -296,4 +296,12 @@ interface ConversationRepository {
     fun startChatActivity(chatId: Long, activity: ChatActivity)
     /** Ends [activity] if it is the one being shown. */
     fun endChatActivity(chatId: Long, activity: ChatActivity)
+    /** Reads what paying for a paid media or invoice message would cost. Reading never spends anything. */
+    suspend fun paidContentPlan(chatId: Long, messageId: Long): PaidContentPlan = PaidContentPlan.Unavailable
+    /**
+     * Pays a paid message with Telegram Stars for exactly [confirmedStarCount], the price the user confirmed.
+     * Never retried automatically: a timeout or an unknown failure is reported as Uncertain.
+     */
+    suspend fun payPaidContentWithStars(chatId: Long, messageId: Long, confirmedStarCount: Long): PaidContentPaymentOutcome =
+        PaidContentPaymentOutcome.NotPayable
 }

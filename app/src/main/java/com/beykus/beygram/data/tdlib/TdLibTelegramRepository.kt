@@ -110,6 +110,8 @@ import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
+import com.beykus.beygram.domain.model.PaidContentPaymentOutcome
+import com.beykus.beygram.domain.model.PaidContentPlan
 import com.beykus.beygram.domain.model.PremiumInfo
 import com.beykus.beygram.domain.model.PremiumPlan
 import com.beykus.beygram.domain.model.StarTopUpOption
@@ -1639,6 +1641,10 @@ class TdLibTelegramRepository private constructor(
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)
     override suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome =
         payments.sendGift(profileId, isSelf, giftId)
+    override suspend fun paidContentPlan(chatId: Long, messageId: Long): PaidContentPlan =
+        payments.paidContentPlan(chatId, messageId)
+    override suspend fun payPaidContentWithStars(chatId: Long, messageId: Long, confirmedStarCount: Long): PaidContentPaymentOutcome =
+        payments.payPaidContentWithStars(chatId, messageId, confirmedStarCount)
 
     override suspend fun loadGroupManagement(chatId: Long): Result<GroupManagementInfo> =
         groupResult { groupAdministration.info(chatId) }
@@ -3311,6 +3317,10 @@ class TdLibTelegramRepository private constructor(
             is TdApi.MessageSticker   -> UiText.Res(R.string.chat_preview_sticker, listOf(c.sticker.emoji))
             is TdApi.MessageVoiceNote -> UiText.Res(R.string.chat_preview_voice)
             is TdApi.MessageVideoNote -> UiText.Res(R.string.chat_preview_video_note)
+            is TdApi.MessagePaidMedia -> UiText.Res(R.string.paid_content_preview_media)
+            is TdApi.MessageInvoice   -> c.productInfo?.title?.takeIf { it.isNotBlank() }
+                ?.let { UiText.Res(R.string.paid_content_preview_invoice, listOf(it.take(80))) }
+                ?: UiText.Res(R.string.paid_content_invoice)
             else                      -> UiText.Res(R.string.message_title)
         }
 
