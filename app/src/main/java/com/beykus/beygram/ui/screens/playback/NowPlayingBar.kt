@@ -51,6 +51,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,6 +103,12 @@ internal val ViewerNowPlayingColors = NowPlayingColors(
 )
 
 /**
+ * Opens the equalizer from the full player. The app root provides this once the Equalizer route exists; the
+ * optional [NowPlayingBar] parameter stays available as an explicit override for previews/tests.
+ */
+val LocalOpenEqualizer = compositionLocalOf<(() -> Unit)?> { null }
+
+/**
  * Мини-плеер 2.0: одна компактная полоса над нижним меню или composer. Слева artwork, отдельные Title/Artist,
  * затем Next (только если он реально доступен), Play/Pause и Close/Stop. Тап по основной части открывает полный
  * плеер, а кнопка Play — нет. Позиция читается отдельным листом и не перерисовывает всю полосу.
@@ -111,6 +118,8 @@ internal val ViewerNowPlayingColors = NowPlayingColors(
  */
 @Composable
 fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? = null) {
+    val providedOpenEqualizer = LocalOpenEqualizer.current
+    val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
     val mini = rememberMiniPlayerUi()
     var lastMini by remember { mutableStateOf(mini) }
     SideEffect { if (mini != null) lastMini = mini }
@@ -144,7 +153,7 @@ fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? =
 
     if (fullPlayerOpen) {
         if (mini?.isMusic == true) {
-            MusicPlayerSheet(onDismiss = { fullPlayerOpen = false }, onOpenEqualizer = onOpenEqualizer)
+            MusicPlayerSheet(onDismiss = { fullPlayerOpen = false }, onOpenEqualizer = openEqualizer)
         } else {
             VoiceNowPlayingSheet(onDismiss = { fullPlayerOpen = false })
         }
