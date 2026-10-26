@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -94,6 +95,7 @@ import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -239,6 +241,8 @@ fun ChatScreen(
     var sendOptionsOpen by remember(chat.id) { mutableStateOf(false) }
     // A sticker long-pressed in the picker waits for the explicit send-options choice (silent/scheduled).
     var pendingSticker by remember(chat.id) { mutableStateOf<OutgoingMedia?>(null) }
+    // The unified sticker/GIF panel replaces the attachment strip above the composer, not the attach menu.
+    var stickerPanelOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
     var scheduledMessagesOpen by remember(chat.id) { mutableStateOf(false) }
     var chatSettingsOpen by remember(chat.id) { mutableStateOf(false) }
     val chatOverrideState by chatOverrides.state.collectAsStateWithLifecycle()
@@ -479,6 +483,42 @@ fun ChatScreen(
         val recording = videoNote.active
         if (recording) conversation.startChatActivity(chatId, ChatActivity.RecordingVideoNote)
         onDispose { if (recording) conversation.endChatActivity(chatId, ChatActivity.RecordingVideoNote) }
+    }
+    // Any other composer mode takes over the strip; an open sticker panel must not cover it or leak a stale draft state.
+    LaunchedEffect(
+        stickerPanelOpen,
+        attachments.menuOpen,
+        attachments.picker,
+        attachments.active,
+        canPostHere,
+        threadOpen,
+        actionsId,
+        deleting,
+        selectedMediaId,
+        forwardId,
+        contextChatId,
+        scheduledMessagesOpen,
+        chatSettingsOpen,
+        exportOpen,
+        translationPickerId,
+        sendOptionsOpen,
+        sending,
+        inlineSending,
+        editId,
+        searching,
+        selectionMode,
+        videoNote.active,
+        audioNote.active
+    ) {
+        if (!canPostHere || threadOpen || actionsId != null || deleting || selectedMediaId != null ||
+            forwardId != null || contextChatId != 0L || scheduledMessagesOpen || chatSettingsOpen ||
+            exportOpen || translationPickerId != null ||
+            sendOptionsOpen || sending || inlineSending ||
+            attachments.menuOpen || attachments.picker != AttachmentPicker.None || attachments.active ||
+            editId != null || searching || selectionMode || videoNote.active || audioNote.active
+        ) {
+            stickerPanelOpen = false
+        }
     }
     val videoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (!granted.values.all { it }) error = context.getString(R.string.chat_video_note_permission_denied)
@@ -916,7 +956,7 @@ fun ChatScreen(
         val kind = (currentMessages.firstOrNull { it.id == id } ?: mediaWindow.messages.firstOrNull { it.id == id })?.media?.kind
         viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
-    BackHandler(enabled = !threadOpen && (searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || attachments.picker != AttachmentPicker.None || selectionMode)) {
+    BackHandler(enabled = !threadOpen && (stickerPanelOpen || searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || attachments.picker != AttachmentPicker.None || selectionMode)) {
         when {
             selectionDeleteOpen -> { selectionDeleteOpen = false; selectionDeleteError = null }
             selectionForwardOpen -> { selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
@@ -925,11 +965,12 @@ fun ChatScreen(
             deleting -> { deleting = false; deleteError = null }
             actionMessage != null -> closeActions()
             editMessage != null -> closeEdit()
+            stickerPanelOpen -> stickerPanelOpen = false
             attachments.picker != AttachmentPicker.None -> attachments.closePicker()
             else -> attachments.discardAll()
         }
     }
-    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && attachments.picker == AttachmentPicker.None && !searching, onBack = onBack)
+    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && attachments.picker == AttachmentPicker.None && !searching && !stickerPanelOpen, onBack = onBack)
     BackHandler(enabled = !threadOpen && (videoNote.active || audioNote.active)) {
         videoNote.stopForRecovery()
         audioNote.stopForRecovery()
@@ -1637,15 +1678,25 @@ fun ChatScreen(
         } else if (editMessage != null) {
             EditBanner(editMessage.text.ifBlank { editMessage.summary() }, editMessage.media != null, editText.codePointCount(0, editText.length), editLimit, editError, onClose = ::closeEdit)
         } else if (!searching && !selectionMode) {
-            AttachmentPanel(
-                state = attachments,
-                caption = draft,
+            ChatComposerPanel(
+                stickerPanelOpen = stickerPanelOpen,
+                attachments = attachments,
+                draft = draft,
                 captionLimit = limits.caption,
                 conversation = conversation,
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
-                onStickerOptions = { sticker -> pendingSticker = sticker; sendOptionsOpen = true },
-                allowViewOnce = allowViewOnce
+                allowViewOnce = allowViewOnce,
+                chatId = chat.id,
+                replyId = replyId,
+                forumTopicId = forumTopicId,
+                scope = scope,
+                onReplyConsumed = ::clearReply,
+                onStickerOptions = { sticker ->
+                    pendingSticker = sticker
+                    sendOptionsOpen = true
+                },
+                onCloseStickerPanel = { stickerPanelOpen = false }
             )
             if (replyId != null) Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
@@ -1711,16 +1762,29 @@ fun ChatScreen(
                         BotCommandButton(enabled = !sending && !inlineSending && !attachments.active) { botCommandMenuOpen = true }
                     }
                     AttachmentButton(attachments, enabled = !sending && !inlineSending)
+                    StickerPanelEntryButton(
+                        open = stickerPanelOpen,
+                        enabled = !busy && !attachments.active,
+                        onClick = {
+                            if (stickerPanelOpen) {
+                                stickerPanelOpen = false
+                            } else if (!busy && !attachments.active) {
+                                attachments.menuOpen = false
+                                attachments.closePicker()
+                                stickerPanelOpen = true
+                            }
+                        }
+                    )
                 } else Spacer(Modifier.width(8.dp))
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
             else if (videoNote.active) VideoNoteRecordingDock(videoNote, Modifier.weight(1f), onCancel = videoNote::discardLocked)
             else FormattingTextField(displayedFieldText, displayedFieldEntities,
-                onChange = { if (!hidingComposerForLaunch) { if (editing) editText = it else typedDraft(it) } },
+                onChange = { if (!hidingComposerForLaunch) { if (stickerPanelOpen) stickerPanelOpen = false; if (editing) editText = it else typedDraft(it) } },
                 onEntitiesChange = { if (!hidingComposerForLaunch) { if (editing) editEntities = it else updateDraft { state -> state.copy(entities = it) } } },
                 placeholder = if (hidingComposerForLaunch) "" else if (attachments.active && attachments.extra == null) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
                 locked = busy || hidingComposerForLaunch, isError = false,
-                modifier = Modifier.weight(1f).onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
+                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused && stickerPanelOpen) stickerPanelOpen = false }.onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
                 focusRequest = replyFocusRequest)
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
@@ -2023,6 +2087,59 @@ private fun ChatScreenBox(modifier: Modifier, content: @Composable BoxScope.() -
 @Composable
 private fun ChatScreenColumn(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier, content = content)
+}
+
+/** Keeps the attachment strip and the unified sticker panel out of ChatScreen's own bytecode-heavy composer lambda. */
+@Composable
+private fun ChatComposerPanel(
+    stickerPanelOpen: Boolean,
+    attachments: AttachmentState,
+    draft: String,
+    captionLimit: Int,
+    conversation: ConversationRepository,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    onDownloadFile: (Int) -> Unit,
+    allowViewOnce: Boolean,
+    chatId: Long,
+    replyId: Long?,
+    forumTopicId: Long,
+    scope: CoroutineScope,
+    onReplyConsumed: () -> Unit,
+    onStickerOptions: (OutgoingMedia) -> Unit,
+    onCloseStickerPanel: () -> Unit
+) {
+    if (stickerPanelOpen) {
+        StickerPanelHost(
+            conversation = conversation,
+            chatId = chatId,
+            replyId = replyId,
+            forumTopicId = forumTopicId,
+            observeFile = observeFile,
+            downloadFile = onDownloadFile,
+            scope = scope,
+            onReplyConsumed = onReplyConsumed,
+            onAnimationAttach = { animation ->
+                attachments.addAnimation(animation.toOutgoingMedia())
+                onCloseStickerPanel()
+            },
+            onStickerOptions = { sticker ->
+                onStickerOptions(sticker.toOutgoingMedia())
+                onCloseStickerPanel()
+            },
+            onClose = onCloseStickerPanel
+        )
+    } else {
+        AttachmentPanel(
+            state = attachments,
+            caption = draft,
+            captionLimit = captionLimit,
+            conversation = conversation,
+            observeFile = observeFile,
+            onDownloadFile = onDownloadFile,
+            onStickerOptions = onStickerOptions,
+            allowViewOnce = allowViewOnce
+        )
+    }
 }
 
 @Composable

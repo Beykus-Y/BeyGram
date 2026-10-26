@@ -124,6 +124,10 @@ interface ConversationRepository {
     suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     /** The account's recent sticker list; the first page is bounded by TDLib. */
     suspend fun recentStickers(): Result<List<StickerItem>>
+    /** Stickers explicitly marked as favorites by this account. */
+    suspend fun favoriteStickers(): Result<List<StickerItem>>
+    /** Adds or removes [sticker] from the account's favorite stickers; the picker updates only after TDLib confirms. */
+    suspend fun setStickerFavorite(sticker: StickerItem, favorite: Boolean): Result<Unit>
     /** Installed regular sticker sets; opening one fetches that set only when the user asks for it. */
     suspend fun installedStickerSets(): Result<List<StickerSetSummary>>
     suspend fun stickerSet(setId: Long): Result<StickerSetContent>
