@@ -127,8 +127,14 @@ fun StoryViewerScreen(
 
     val stories = snapshot?.stories.orEmpty()
     val storyIds = stories.map { it.storyId }
-    var index by remember(posterChatId) { mutableIntStateOf(-1) }
-    var visibleStory by remember(posterChatId) { mutableStateOf<StoryPreview?>(null) }
+    var index by remember(posterChatId) {
+        mutableIntStateOf(
+            snapshot?.let { storyInitialIndex(it.stories, it.maxReadStoryId, initialStoryId) } ?: -1
+        )
+    }
+    var visibleStory by remember(posterChatId) {
+        mutableStateOf<StoryPreview?>(snapshot?.stories?.getOrNull(index))
+    }
 
     var closing by remember(posterChatId) { mutableStateOf(false) }
     val latestStoryCount by rememberUpdatedState(stories.size)
@@ -539,10 +545,10 @@ fun StoryViewerScreen(
     val editingCanEditPrivacy = entry?.isSelf == true && editingStory?.canSetPrivacySettings == true
 
     if (current == null) {
-        val phase = if (entry != null) {
-            StoryViewerEmptyPhase.Unavailable
-        } else {
-            storyViewerEmptyPhase(connection, initialTimedOut)
+        val phase = when {
+            entry != null && stories.isNotEmpty() -> StoryViewerEmptyPhase.Loading
+            entry != null -> StoryViewerEmptyPhase.Unavailable
+            else -> storyViewerEmptyPhase(connection, initialTimedOut)
         }
         StoryEmptyView(
             phase = phase,
