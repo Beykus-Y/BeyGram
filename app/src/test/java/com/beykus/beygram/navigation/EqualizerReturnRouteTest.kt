@@ -16,6 +16,46 @@ class EqualizerReturnRouteTest {
         returnRouteName = returnTo
     )
 
+    private fun entryReturn(
+        route: String = "Equalizer",
+        previous: String = "Chat",
+        current: String = "Settings"
+    ) = equalizerEntryReturnRouteName(
+        routeName = route,
+        previousRouteName = previous,
+        equalizerRouteName = "Equalizer",
+        startRouteName = "Start",
+        currentReturnRouteName = current
+    )
+
+    @Test
+    fun enteringFromSettingsReplacesAnOldChatReturnDestination() {
+        assertEquals("Settings", entryReturn(previous = "Settings", current = "Chat"))
+    }
+
+    @Test
+    fun enteringFromPlayerKeepsTheChatOrProfileDestination() {
+        assertEquals("Chat", entryReturn(previous = "Chat", current = "Settings"))
+        assertEquals("MyProfile", entryReturn(previous = "MyProfile", current = "Settings"))
+    }
+
+    @Test
+    fun settingsEntryThenBothBackPathsStayInSettings() {
+        val returnTo = entryReturn(previous = "Settings", current = "Chat")
+        assertEquals("Settings", destination(returnTo = returnTo))
+    }
+
+    @Test
+    fun routeNotEnteringEqualizerKeepsTheStoredDestination() {
+        assertEquals("Chat", entryReturn(route = "Settings", previous = "Chat", current = "Chat"))
+    }
+
+    @Test
+    fun restoredOrStartEntryKeepsTheStoredDestination() {
+        assertEquals("Chat", entryReturn(previous = "Equalizer", current = "Chat"))
+        assertEquals("Chat", entryReturn(previous = "Start", current = "Chat"))
+    }
+
     @Test
     fun leavingEqualizerFromChatRestoresChat() {
         assertEquals("Chat", destination(returnTo = "Chat"))

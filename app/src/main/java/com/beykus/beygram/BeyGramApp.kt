@@ -63,6 +63,7 @@ import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
 import com.beykus.beygram.navigation.appRouteFromStored
 import com.beykus.beygram.navigation.equalizerBackRouteName
+import com.beykus.beygram.navigation.equalizerEntryReturnRouteName
 import com.beykus.beygram.navigation.accountRouteCanRender
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
@@ -1394,7 +1395,16 @@ private fun BeyGramAppContent(
             returnRouteName = equalizerReturnRouteName
         )
     )
-    LaunchedEffect(route) {
+    LaunchedEffect(route, previousRouteName) {
+        // Every Equalizer entry (player, Settings, profile) records its caller here. The Settings shortcut used to
+        // bypass LocalOpenEqualizer; this common transition keeps the return destination correct for all entries.
+        equalizerReturnRouteName = equalizerEntryReturnRouteName(
+            routeName = route.name,
+            previousRouteName = previousRouteName,
+            equalizerRouteName = AppRoute.Equalizer.name,
+            startRouteName = AppRoute.Start.name,
+            currentReturnRouteName = equalizerReturnRouteName
+        )
         if (routeName != route.name) routeName = route.name
         previousRouteName = route.name
     }
@@ -1973,10 +1983,7 @@ private fun BeyGramAppContent(
         LocalSystemReducedMotion provides reducedMotion,
         LocalAutoDownloadFile provides repository::autoDownloadFile,
         LocalBackgroundMediaDownload provides repository::downloadFileInBackground,
-        LocalOpenEqualizer provides {
-            equalizerReturnRouteName = route.name
-            routeName = AppRoute.Equalizer.name
-        }
+        LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name }
     ) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
