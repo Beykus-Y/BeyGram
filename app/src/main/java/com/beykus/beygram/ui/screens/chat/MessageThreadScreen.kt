@@ -591,8 +591,8 @@ internal fun MessageThreadScreen(
         val viewedMedia = viewed.media
         if (viewedMedia != null) {
             val viewerPages = MediaViewerPolicy.retainViewOncePage(
-                pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce) } },
-                retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce)
+                pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, viewed.chatId) } },
+                retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId)
             )
             MediaViewer(
                 pages = viewerPages,

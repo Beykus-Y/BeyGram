@@ -64,11 +64,14 @@ import com.beykus.beygram.domain.model.validTextEntities
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
+import com.beykus.beygram.playback.PlaybackQueueSource
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.playback.TrackArtwork
+import com.beykus.beygram.ui.screens.playback.rememberMusicCardPlayback
 import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
@@ -134,10 +137,11 @@ internal fun SharedMediaSection(
         val kind = chatSharedKinds[page]
         SharedMediaPageContent(kind, chatId, tabs.getValue(kind), onMore = { loadMore(kind) }, observeFile = observeFile, downloadFile = downloadFile,
             confirmExport = confirmExport, onContentOpened = onContentOpened,
-            onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = openMessage)
+            onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = openMessage, autoDownloadFile = autoDownloadFile)
     }
 
     SharedMediaViewer(media = tabs.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
+        chatId = chatId,
         observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened, autoDownloadFile = autoDownloadFile)
@@ -172,6 +176,7 @@ internal fun SharedMediaViewer(
     confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
     forwardMessage: suspend (Long, Long) -> Result<Unit> = { _, _ -> Result.failure(IllegalStateException()) }, chats: List<ChatPreview> = emptyList(),
     onContentOpened: (Long) -> Unit = {},
+    chatId: Long = 0L,
     /** Repository-backed automatic download; keeps viewer preview/full requests cancellable by policy. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
@@ -184,7 +189,7 @@ internal fun SharedMediaViewer(
     var forwardError by remember(media) { mutableStateOf<String?>(null) }
     val selected = viewing
     val pages = media.messages.mapNotNull { message ->
-        message.media?.takeUnless { it.isSecret }?.let { MediaViewerItem(message.id, it) }
+        message.media?.takeUnless { it.isSecret }?.let { MediaViewerItem(message.id, it, chatId = chatId.takeIf { id -> id > 0L }) }
     }
     // Права на сообщение нужны кнопкам просмотрщика: сохранение и пересылка показываются, только если Telegram их разрешает.
     LaunchedEffect(selected) {
@@ -246,14 +251,15 @@ private fun SharedMediaTabBar(titles: List<String>, counts: List<String?>, selec
 private fun SharedMediaPageContent(
     kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
-    onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     // Первую страницу грузим, как только вкладку показали; неудачную попытку повторяем при следующем показе.
     LaunchedEffect(kind) { if (!tab.loaded) onMore() }
     when {
         tab.messages.isEmpty() -> SharedMediaStatus(kind, tab, onRetry = onMore)
         kind == SharedMediaKind.Media -> SharedMediaGrid(tab, onMore, observeFile, downloadFile, onOpenMedia, onOpenMessage)
-        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
+        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage, autoDownloadFile)
     }
 }
 
@@ -312,7 +318,8 @@ private fun SharedMediaGrid(
 private fun SharedMediaList(
     kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
-    onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val listState = rememberLazyListState()
     val shown = remember(kind, tab.messages) { tab.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null } }
@@ -321,7 +328,7 @@ private fun SharedMediaList(
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
         items(shown, key = { it.id }) { message ->
             if (kind == SharedMediaKind.Music) {
-                message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage) }
+                message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage, autoDownloadFile) }
             } else {
                 SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
             }
@@ -395,10 +402,11 @@ private fun SharedVoiceRow(
                 SharedRowAction.Download -> downloadFile(media.fileId)
                 is SharedRowAction.Open -> {
                     val state = PlaybackEngine.state.value
+                    val origin = PlaybackOrigin(chatId, message.id, accountId)
                     // Голосовое отмечаем прослушанным, когда плеер сообщит о старте, как в пузыре чата. Пауза не отмечает.
-                    val pausing = state.item?.key == media.playbackKey() && state.playing
+                    val pausing = state.item?.key == media.playbackKey(accountId, origin) && state.playing
                     val onStarted = if (pausing) null else ({ onContentOpened(message.id) })
-                    PlaybackEngine.toggle(context, media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id, accountId)), onStarted)
+                    PlaybackEngine.toggle(context, media.playbackItem(action.path, label, origin, accountId = accountId), onStarted)
                 }
             }
         },
@@ -408,44 +416,95 @@ private fun SharedVoiceRow(
 
 /**
  * Трек вкладки «Музыка». Нажатие ставит в общий плеер всю вкладку по порядку показа, поэтому следующий трек играет сам.
- * Треки, которых ещё нет на устройстве, в очередь не попадают: их скачивают отдельным нажатием.
+ * В очередь попадают и ещё не скачанные треки: общий плеер лениво разрешает их путь и предзагружает только 1–2 следующих.
  */
 @Composable
 internal fun SharedMusicRow(
     chatId: Long, tracks: List<ChatMessage>, message: ChatMessage, media: MessageMedia,
-    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
+    val palette = beyGramPalette()
+    val automaticDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val label = stringResource(R.string.media_kind_audio)
     val you = stringResource(R.string.search_you)
     val meta = listOf(if (message.isOutgoing) you else message.senderName, formatSearchDate(message.dateSeconds)).filter { it.isNotBlank() }.joinToString(" · ")
     val title = media.title.ifBlank { media.fileName.ifBlank { label } }
-    val details = listOf(media.performer, if (media.durationSeconds > 0) duration(media.durationSeconds) else "", meta).filter { it.isNotBlank() }.joinToString(" · ")
+    val origin = remember(chatId, message.id, accountId) { PlaybackOrigin(chatId, message.id, accountId) }
+    val playbackKey = remember(media.fileId, accountId, origin) { media.playbackKey(accountId, origin) }
+    val card = rememberMusicCardPlayback(playbackKey)
+    val statusLabel = when {
+        card.failed -> stringResource(R.string.music_card_failed)
+        card.ended -> stringResource(R.string.music_card_ended)
+        card.playing -> stringResource(R.string.music_card_playing)
+        card.buffering -> stringResource(R.string.music_card_buffering)
+        card.isCurrent -> stringResource(R.string.music_card_paused)
+        else -> ""
+    }
+    val details = listOf(
+        media.performer,
+        if (media.durationSeconds > 0) duration(media.durationSeconds) else "",
+        meta,
+        statusLabel
+    ).filter { it.isNotBlank() }.joinToString(" · ")
     SharedRow(
         Icons.Rounded.MusicNote, title, details,
         onClick = {
             when (val action = sharedRowAction(media, file.localPath)) {
                 SharedRowAction.ShowInChat -> onOpenMessage(message.id)
-                SharedRowAction.Download -> downloadFile(media.fileId)
-                is SharedRowAction.Open -> {
+                else -> {
                     // Текущий трек берём с путём из нажатия: его файл мог только что скачаться, а состояние ещё не дошло.
-                    val current = media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id, accountId))
-                    val queue = tracks.map { track -> if (track.id == message.id) current else musicTrack(track, chatId, observeFile, label, accountId) }.filterNotNull()
-                    PlaybackEngine.playQueue(context, queue, queue.indexOfFirst { it.origin?.messageId == message.id })
+                    val path = (action as? SharedRowAction.Open)?.path.orEmpty()
+                    val current = media.playbackItem(
+                        path, label, origin,
+                        accountId = accountId,
+                        sizeBytes = file.size
+                    )
+                    val queue = tracks.mapNotNull { track ->
+                        if (track.id == message.id) current
+                        else musicTrack(track, chatId, observeFile, label, accountId)
+                    }
+                    val index = queue.indexOfFirst { it.origin?.messageId == message.id }
+                    if (index >= 0) {
+                        PlaybackEngine.playQueue(
+                            context,
+                            queue,
+                            index,
+                            PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload)
+                        )
+                    }
                 }
             }
         },
-        onShowInChat = { onOpenMessage(message.id) }
+        onShowInChat = { onOpenMessage(message.id) },
+        leading = {
+            TrackArtwork(
+                artworkPath = null,
+                audioPath = file.localPath,
+                modifier = Modifier.size(44.dp),
+                background = palette.accentSoft,
+                tint = palette.accentInk,
+                symbolSize = 20.dp,
+                cornerRadius = 10.dp,
+                border = palette.divider.copy(alpha = 0.55f)
+            )
+        }
     )
 }
 
-/** Трек очереди, если файл уже скачан. Путь берём из состояния файла, которое TDLib обновляет сам. */
+/** Трек очереди: скачанный файл или ещё не скачанный TDLib-файл, который плеер загрузит по требованию. */
 private fun musicTrack(message: ChatMessage, chatId: Long, observeFile: (Int) -> StateFlow<MediaFileState>, label: String, accountId: String): PlaybackItem? {
-    val media = message.media?.takeUnless { it.isSecret } ?: return null
-    val path = observeFile(media.fileId).value.localPath ?: return null
-    return media.playbackItem(path, label, PlaybackOrigin(chatId, message.id, accountId))
+    val media = message.media?.takeUnless { it.isSecret || it.isSecretChat } ?: return null
+    if (media.kind != MediaKind.Audio) return null
+    val file = observeFile(media.fileId).value
+    return media.playbackItem(
+        file.localPath.orEmpty(), label, PlaybackOrigin(chatId, message.id, accountId),
+        accountId = accountId,
+        sizeBytes = file.size
+    )
 }
 
 /** Ссылка открывается с той же проверкой адреса, что и в тексте сообщения. */
@@ -473,10 +532,22 @@ private fun SharedLinkRow(message: ChatMessage, meta: String, onOpenMessage: (Lo
 }
 
 @Composable
-private fun SharedRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, onShowInChat: () -> Unit, onTitleClick: (() -> Unit)? = null) {
+private fun SharedRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    onShowInChat: () -> Unit,
+    onTitleClick: (() -> Unit)? = null,
+    leading: (@Composable () -> Unit)? = null
+) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(11.dp))
+        if (leading != null) {
+            Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { leading() }
+        } else {
+            Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(11.dp))
+        }
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
             // Заголовок со спойлером раскрывается нажатием на сам заголовок, остальная строка по-прежнему ведёт в чат.
             val titleModifier = if (onTitleClick != null) Modifier.clickable(role = Role.Button, onClick = onTitleClick) else Modifier

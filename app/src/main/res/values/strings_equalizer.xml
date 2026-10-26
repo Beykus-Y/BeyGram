@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_group_sound_playback">Звук и воспроизведение</string>
+    <string name="settings_equalizer_title">Эквалайзер</string>
+    <string name="equalizer_title">Эквалайзер</string>
+    <string name="equalizer_intro">Обработка применяется только к музыке в BeyGram. Голосовые сообщения, видеокружки и секретные вложения не затрагиваются.</string>
+    <string name="equalizer_enabled_title">Включить эквалайзер</string>
+    <string name="equalizer_enabled_detail">Обработка применяется к музыке в BeyGram.</string>
+    <string name="equalizer_neutral_detail">Ровная кривая: звук остаётся без обработки.</string>
+    <string name="equalizer_disabled_detail">Звук воспроизводится без обработки.</string>
+    <string name="equalizer_status_unavailable_detail">Системный аудиоэффект недоступен, музыка играет без обработки.</string>
+    <string name="equalizer_status_unsupported_title">Эквалайзер недоступен</string>
+    <string name="equalizer_status_unsupported_detail">Устройство или прошивка не предоставляют системный аудиоэффект. Музыка продолжит играть без обработки.</string>
+    <string name="equalizer_status_failed_title">Не удалось включить эквалайзер</string>
+    <string name="equalizer_status_failed_detail">Системный эффект не ответил. Музыка продолжит играть без обработки.</string>
+    <string name="equalizer_status_waiting_title">Запустите музыку</string>
+    <string name="equalizer_status_waiting_detail">Эквалайзер подключится к текущей музыкальной сессии и покажет поддерживаемые полосы.</string>
+    <string name="equalizer_status_attached">Подключено к текущей музыке.</string>
+    <string name="equalizer_status_bands">Полос: %1$d</string>
+    <string name="equalizer_status_idle">Музыка не играет. Настройки применятся при запуске.</string>
+    <string name="equalizer_presets_title">Пресеты</string>
+    <string name="equalizer_preset_flat">Ровный</string>
+    <string name="equalizer_preset_bass">Бас</string>
+    <string name="equalizer_preset_vocal">Вокал</string>
+    <string name="equalizer_preset_pop">Поп</string>
+    <string name="equalizer_preset_rock">Рок</string>
+    <string name="equalizer_preset_electronic">Электроника</string>
+    <string name="equalizer_preset_classical">Классика</string>
+    <string name="equalizer_preset_jazz">Джаз</string>
+    <string name="equalizer_preset_custom">Свой</string>
+    <string name="equalizer_curve_description">Кривая эквалайзера. Полос: %1$d. Управляйте полосами ниже.</string>
+    <string name="equalizer_bands_title">Полосы</string>
+    <string name="equalizer_band_description">Полоса %1$s, %2$s</string>
+    <string name="equalizer_level_db">%1$s дБ</string>
+    <string name="equalizer_frequency_hz">%1$d Гц</string>
+    <string name="equalizer_frequency_khz">%1$s кГц</string>
+    <string name="equalizer_range_note">Диапазон: %1$s…%2$s дБ.</string>
+    <string name="equalizer_gain_limit_note">Максимум усиления ограничен %1$s дБ для защиты от перегрузки.</string>
+    <string name="equalizer_reset">Сбросить</string>
+    <string name="equalizer_save_custom">Сохранить свой пресет</string>
+    <string name="equalizer_custom_hint">Настройте полосы или сохраните текущий пресет как «Свой».</string>
+    <string name="equalizer_done">Готово</string>
+</resources>

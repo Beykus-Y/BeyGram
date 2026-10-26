@@ -23,18 +23,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.inlineVoiceSpeed
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.components.beyGramPalette
 
-/** Inline voice/circular-video speed choice; changes the same player as the expanded media controls. */
+/** Inline voice/circular-video speed choice; it always edits the voice preference and never musicSpeed. */
 @Composable
 internal fun PlaybackSpeedMenu(modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     val playback by PlaybackEngine.state.collectAsStateWithLifecycle()
+    val selectedSpeed = playback.inlineVoiceSpeed()
     var expanded by remember { mutableStateOf(false) }
     Box(modifier) {
         Text(
-            stringResource(R.string.player_speed_option, speedLabel(playback.speed)),
+            stringResource(R.string.player_speed_option, speedLabel(selectedSpeed)),
             color = palette.accentInk,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
@@ -47,12 +49,12 @@ internal fun PlaybackSpeedMenu(modifier: Modifier = Modifier) {
                     text = {
                         Text(
                             stringResource(R.string.player_speed_option, speedLabel(speed)),
-                            color = if (playback.speed == speed) palette.accent else palette.textPrimary,
-                            fontWeight = if (playback.speed == speed) FontWeight.Bold else FontWeight.Normal
+                            color = if (selectedSpeed == speed) palette.accent else palette.textPrimary,
+                            fontWeight = if (selectedSpeed == speed) FontWeight.Bold else FontWeight.Normal
                         )
                     },
                     onClick = {
-                        PlaybackEngine.setSpeed(speed)
+                        PlaybackEngine.setVoiceSpeed(speed)
                         expanded = false
                     }
                 )

@@ -89,6 +89,14 @@ class GrowingAudioPlaybackTest {
         assertFalse(shouldDeferGrowingSeek(mp3, 5_000L))
     }
 
+    @Test fun queueRebuildAtNonZeroPositionKeepsGrowingOggDeferred() {
+        val partial = MediaFileState(8, size = 100, downloadPath = "/partial", downloadedPrefixBytes = 20, isDownloading = true)
+        val ogg = growingAudioSource(partial, 8, "audio/ogg", { MutableStateFlow(partial) }, onNeedMore = {})
+        assertNotNull(ogg)
+        // Play Next/reorder/remove rebuilds the timeline with positionMs; an unindexed Ogg must not pretend it seeked.
+        assertTrue(shouldDeferGrowingSeek(ogg, 42_000L))
+    }
+
     private fun tempMp4(bytes: ByteArray): File = File.createTempFile("audio-probe", ".m4a").apply {
         writeBytes(bytes)
         deleteOnExit()

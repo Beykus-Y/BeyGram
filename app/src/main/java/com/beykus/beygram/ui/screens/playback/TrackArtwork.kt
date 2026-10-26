@@ -4,8 +4,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.RandomAccessFile
 import android.util.LruCache
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -19,17 +23,22 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val MAX_COVER_SIZE = 512
 private const val MAX_EMBEDDED_BYTES = 8 * 1024 * 1024
+private const val ARTWORK_FADE_MS = 220
 
 /** Small LRU avoids repeatedly decoding artwork for rows and the shared player. */
 private object ArtworkCache {
@@ -148,32 +157,71 @@ internal fun TrackArtwork(
     modifier: Modifier,
     background: Color,
     tint: Color,
-    symbolSize: Dp = 22.dp
+    symbolSize: Dp = 22.dp,
+    cornerRadius: Dp = 9.dp,
+    border: Color? = null
 ) {
-    val cover by produceState<Bitmap?>(initialValue = null, key1 = artworkPath, key2 = audioPath) {
+    val displayKey = "${artworkPath.orEmpty()}|${audioPath.orEmpty()}"
+    val image by produceState<ArtworkImage>(initialValue = ArtworkImage("", null), key1 = artworkPath, key2 = audioPath) {
         value = withContext(Dispatchers.IO) {
             // mtime/size ensures a just-downloaded TDLib thumbnail invalidates a miss.
             val artFile = artworkPath?.let(::File)?.takeIf { it.isFile }
             val audioFile = audioPath?.let(::File)?.takeIf { it.isFile }
             val key = artworkCacheKey(artFile, audioFile)
-            if (key != null && ArtworkCache.contains(key)) ArtworkCache.get(key)
+            val bitmap = if (key != null && ArtworkCache.contains(key)) ArtworkCache.get(key)
             else {
-                val image = runCatching {
+                val decoded = runCatching {
                     artFile?.absolutePath?.let(::decodeCoverFile)
                         ?: audioFile?.absolutePath?.let(::embeddedCover)
                 }.getOrNull()
-                if (key != null) ArtworkCache.put(key, image)
-                image
+                if (key != null) ArtworkCache.put(key, decoded)
+                decoded
+            }
+            ArtworkImage(displayKey, bitmap)
+        }
+    }
+    val reduced = systemReducedMotion()
+    val shape = RoundedCornerShape(cornerRadius)
+    val gradientEnd = lerp(background, tint, 0.14f)
+    // A bitmap from another track is never shown: while a new cover decodes, the placeholder is visible.
+    val visible = image.bitmap.takeIf { image.source == displayKey }
+    Box(
+        modifier
+            .clip(shape)
+            .background(Brush.linearGradient(listOf(background, gradientEnd)))
+            .then(if (border != null) Modifier.border(1.dp, border, shape) else Modifier),
+        contentAlignment = Alignment.Center
+    ) {
+        Crossfade(
+            targetState = visible,
+            animationSpec = tween(durationMillis = if (reduced) 0 else ARTWORK_FADE_MS),
+            label = "trackArtwork"
+        ) { bitmap ->
+            if (bitmap != null) {
+                Image(
+                    bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Canvas(Modifier.fillMaxSize()) {
+                    val radius = size.minDimension * 0.42f
+                    drawCircle(
+                        color = tint.copy(alpha = 0.07f),
+                        radius = radius,
+                        center = Offset(size.width * 0.72f, size.height * 0.28f)
+                    )
+                    drawCircle(
+                        color = tint.copy(alpha = 0.05f),
+                        radius = radius * 0.8f,
+                        center = Offset(size.width * 0.28f, size.height * 0.78f)
+                    )
+                }
+                Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = tint, modifier = Modifier.size(symbolSize))
             }
         }
     }
-    Box(modifier.clip(RoundedCornerShape(9.dp)).background(background), contentAlignment = Alignment.Center) {
-        val bitmap = cover
-        if (bitmap != null) {
-            Image(bitmap.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize())
-        } else {
-            Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = tint, modifier = Modifier.size(symbolSize))
-        }
-    }
 }
+
+private data class ArtworkImage(val source: String, val bitmap: Bitmap?)
