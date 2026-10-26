@@ -109,7 +109,6 @@ import kotlinx.coroutines.launch
 
 private val PANEL_MIN_HEIGHT = 220.dp
 private val PANEL_MAX_HEIGHT = 420.dp
-private val COMPOSER_RESERVE_HEIGHT = 80.dp
 private val MIN_PANEL_WITH_KEYBOARD = 96.dp
 private const val SEARCH_DEBOUNCE_MS = 350L
 
@@ -168,6 +167,7 @@ internal fun StickerPanelHost(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     scope: CoroutineScope,
+    composerReserve: androidx.compose.ui.unit.Dp,
     onReplyConsumed: () -> Unit,
     onAnimationAttach: (AnimationItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
@@ -185,6 +185,7 @@ internal fun StickerPanelHost(
             sending = sending,
             error = error,
             scope = scope,
+            composerReserve = composerReserve,
             onSendSticker = { item ->
                 if (!sending) {
                     sending = true
@@ -249,6 +250,7 @@ private fun StickerPanel(
     sending: Boolean,
     error: String?,
     scope: CoroutineScope,
+    composerReserve: androidx.compose.ui.unit.Dp,
     onSendSticker: (StickerItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
     onSendAnimation: (AnimationItem) -> Unit,
@@ -315,7 +317,7 @@ private fun StickerPanel(
     val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
     // The panel sits outside the composer's imePadding(), so reserve the IME and the input row explicitly.
     val imeHeight = with(density) { WindowInsets.ime.getBottom(density).toDp() }
-    val availableHeight = (windowHeight - imeHeight - COMPOSER_RESERVE_HEIGHT).coerceAtLeast(MIN_PANEL_WITH_KEYBOARD)
+    val availableHeight = (windowHeight - imeHeight - composerReserve).coerceAtLeast(MIN_PANEL_WITH_KEYBOARD)
     val panelHeight = (windowHeight * 0.62f)
         .coerceIn(PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT)
         .coerceAtMost(availableHeight)

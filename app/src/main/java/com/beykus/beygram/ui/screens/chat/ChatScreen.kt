@@ -2119,6 +2119,7 @@ private fun ChatComposerPanel(
             observeFile = observeFile,
             downloadFile = onDownloadFile,
             scope = scope,
+            composerReserve = if (replyId != null) 144.dp else 80.dp,
             onReplyConsumed = onReplyConsumed,
             onAnimationAttach = { animation ->
                 attachments.addAnimation(animation.toOutgoingMedia())
