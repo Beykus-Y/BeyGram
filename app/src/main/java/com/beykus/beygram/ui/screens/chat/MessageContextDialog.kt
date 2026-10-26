@@ -137,6 +137,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                                 conversation.addPollOption(message.chatId, messageId, text)
                                     .onSuccess { refreshPollSnapshot() }
                             },
+                            paidContent = rememberPaidContentActions(conversation),
                             onOpenMessageEntity = onOpenMessageEntity)
                     }
                 }

@@ -258,4 +258,37 @@
     <string name="err_paid_reaction_uncertain">Telegram n’a pas confirmé la réaction. Les Stars ont peut-être été débitées : vérifiez votre solde et vos réactions avant de réessayer</string>
     <string name="err_paid_reaction_balance_low">Stars insuffisantes pour cette réaction</string>
     <string name="err_paid_reaction_unavailable">Les réactions en Stars ne sont pas disponibles pour ce message</string>
+
+    <!-- #377 subtask A: paid media and invoices in chats -->
+    <string name="service_payment_successful">Paiement de %1$s pour %2$s</string>
+    <string name="service_payment_completed">Paiement de %1$s effectué</string>
+    <string name="paid_media_unlock">Débloquer pour %1$s Stars</string>
+    <string name="paid_media_purchased">Acheté</string>
+    <string name="paid_content_pay">Payer %1$s</string>
+    <string name="paid_content_paid">Payé</string>
+    <string name="paid_content_test">Test</string>
+    <string name="paid_content_invoice">Facture</string>
+    <string name="paid_content_preview_media">Média payant</string>
+    <string name="paid_content_preview_invoice">Facture : %1$s</string>
+    <string name="paid_content_checking">Vérification du paiement…</string>
+    <string name="paid_content_paying">Paiement en cours…</string>
+    <string name="paid_content_confirm_title">Confirmer le paiement</string>
+    <string name="paid_content_confirm_body">Payer %1$s ? Votre solde : %2$s Stars.</string>
+    <string name="paid_content_insufficient_stars">Stars insuffisantes pour payer. Rechargez votre solde et réessayez.</string>
+    <string name="paid_content_balance_unknown">Votre solde de Stars est inconnu. Actualisez et réessayez.</string>
+    <string name="paid_content_price_changed">Le prix a changé. Vérifiez-le et réessayez.</string>
+    <string name="paid_content_not_available">Le paiement n’est pas disponible dans cette application.</string>
+    <string name="paid_content_subscription_unsupported">Les abonnements en Stars ne sont pas pris en charge.</string>
+    <string name="paid_content_busy">Attendez la fin du paiement en cours.</string>
+    <string name="paid_content_uncertain">Le paiement n’a pas pu être confirmé. Vérifiez la conversation ou l’historique des Stars avant de payer à nouveau.</string>
+    <string name="paid_content_paid_notice">Paiement effectué.</string>
+    <string name="paid_content_not_completed">Le paiement n’a pas été effectué.</string>
+    <string name="paid_content_open_failed">Impossible d’ouvrir la page de paiement.</string>
+    <string name="paid_content_external_title">Choisir un moyen de paiement</string>
+    <string name="paid_content_external_body">La page de paiement s’ouvre en dehors de BeyGram. Les données de carte ne sont saisies que sur cette page.</string>
+    <string name="paid_content_open_page">Ouvrir la page de paiement</string>
+    <plurals name="paid_media_count">
+        <item quantity="one">%1$d élément</item>
+        <item quantity="other">%1$d éléments</item>
+    </plurals>
 </resources>

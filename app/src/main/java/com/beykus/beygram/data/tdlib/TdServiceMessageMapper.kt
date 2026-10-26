@@ -7,6 +7,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.domain.model.CallStatus
 import com.beykus.beygram.domain.model.formatStarAmount
+import com.beykus.beygram.domain.model.formatPriceMinorUnits
 import org.drinkless.tdlib.TdApi
 import java.math.BigDecimal
 
@@ -144,6 +145,15 @@ internal class TdServiceMessageMapper(private val baseContext: Context) {
                 formatStarAmount(content.paidMessageStarCount)
             )
             else context.getString(R.string.service_paid_message_free)
+        is TdApi.MessagePaymentSuccessful -> {
+            val amount = formatPriceMinorUnits(content.totalAmount, content.currency.orEmpty())
+            val invoiceName = content.invoiceName.orEmpty()
+            if (invoiceName.isBlank()) context.getString(R.string.service_payment_completed, amount) else context.getString(R.string.service_payment_successful, amount, invoiceName)
+        }
+        is TdApi.MessagePaymentSuccessfulBot -> context.getString(
+            R.string.service_payment_completed,
+            formatPriceMinorUnits(content.totalAmount, content.currency.orEmpty())
+        )
         else -> null
     }
 

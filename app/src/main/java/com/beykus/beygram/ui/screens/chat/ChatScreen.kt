@@ -1629,6 +1629,7 @@ fun ChatScreen(
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
                                 } else null,
                                 showSenderHeader = senderHeaderByKey[listItem.key] == true,
+                                paidContent = rememberPaidContentActions(conversation),
                                 onOpenMessageEntity = onOpenMessageEntity)
                         }
                         }
@@ -2396,7 +2397,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onStickerOpen: ((MessageMedia) -> Unit)? = null,
     animateSpecial: Boolean = false,
     diceAnimationId: Long = 0L,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    paidContent: PaidContentActions? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -2531,7 +2533,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     downloadFile = onDownloadFile,
                                     autoDownloadFile = onAutoDownloadFile,
                                     animateDice = animateSpecial,
-                                    diceAnimationId = diceAnimationId
+                                    diceAnimationId = diceAnimationId,
+                                    paidContent = paidContent
                                 )
                             }
                             if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)

@@ -16,8 +16,15 @@ import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeError
 import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
 import com.beykus.beygram.domain.model.PremiumInfo
+import com.beykus.beygram.domain.model.PaidContentFormKind
+import com.beykus.beygram.domain.model.PaidContentPayGate
+import com.beykus.beygram.domain.model.PaidContentPaymentOutcome
+import com.beykus.beygram.domain.model.PaidContentPlan
 import com.beykus.beygram.domain.model.PremiumPlan
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
+import com.beykus.beygram.domain.model.paidContentErrorOutcome
+import com.beykus.beygram.domain.model.paidContentPayGate
+import com.beykus.beygram.domain.model.paidContentPlanFor
 import com.beykus.beygram.domain.model.StarsTopUpOutcome
 import com.beykus.beygram.domain.model.classifyPremiumGiftCodeError
 import com.beykus.beygram.domain.model.giftTextLimit
@@ -43,10 +50,11 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Premium/Stars/Gifts access, one explicit gift purchase, Premium gift code activation and
- * external checkout preparation. TDLib owns balances and prices; this class never invents
- * payment data, logs codes or URLs, collects card details, calls SendPaymentForm, or retries
- * a mutation on its own.
+ * Premium/Stars/Gifts access, one explicit gift purchase, Premium gift code activation,
+ * external checkout preparation and one confirmed Stars payment for a paid message. TDLib owns
+ * balances and prices; this class never invents payment data, logs codes or URLs, collects card
+ * details, or retries a mutation on its own. SendPaymentForm is called only for a Telegram Stars
+ * form whose price was read again and matches the price the user confirmed.
  */
 internal class TdPayments(private val requests: TdRequests) {
     @Volatile private var cachedUserId = 0L
@@ -481,6 +489,68 @@ internal class TdPayments(private val requests: TdRequests) {
         }
     }
 
+    /**
+     * Reads what paying for a paid media or invoice message would cost. Nothing is spent here: a Stars price
+     * needs a confirmation that shows the balance, and a real-money form is offered only as validated pages.
+     */
+    suspend fun paidContentPlan(chatId: Long, messageId: Long): PaidContentPlan = try {
+        val form = requests(TdApi.GetPaymentForm(TdApi.InputInvoiceMessage(chatId, messageId), null))
+        val kind = form.toPaidContentFormKind()
+        val balance = if (kind is PaidContentFormKind.Stars) readBalanceOrNull() else null
+        paidContentPlanFor(kind, balance)
+    } catch (_: TimeoutCancellationException) {
+        PaidContentPlan.Failed(UiText.Res(R.string.err_monetization_timeout))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        if (isPaymentUnavailableError(error)) PaidContentPlan.Unavailable else PaidContentPlan.Failed(failureText(error))
+    }
+
+    /**
+     * Pays one paid message with Telegram Stars, and only for the price the user confirmed. The form is read
+     * again first; a changed price, a real-money form or a subscription is refused before SendPaymentForm runs.
+     * A timeout or an unknown failure after the request is sent is Uncertain, and it is never retried.
+     */
+    suspend fun payPaidContentWithStars(chatId: Long, messageId: Long, confirmedStarCount: Long): PaidContentPaymentOutcome {
+        if (!sendInFlight.compareAndSet(false, true)) return PaidContentPaymentOutcome.Busy
+        try {
+            val inputInvoice = TdApi.InputInvoiceMessage(chatId, messageId)
+            val form = try {
+                requests(TdApi.GetPaymentForm(inputInvoice, null))
+            } catch (_: TimeoutCancellationException) {
+                return PaidContentPaymentOutcome.Failed(UiText.Res(R.string.err_monetization_timeout))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                return PaidContentPaymentOutcome.Failed(failureText(error))
+            }
+            when (paidContentPayGate(form.toPaidContentFormKind(), confirmedStarCount)) {
+                PaidContentPayGate.Send -> Unit
+                PaidContentPayGate.PriceChanged -> return PaidContentPaymentOutcome.PriceChanged
+                PaidContentPayGate.NotStars -> return PaidContentPaymentOutcome.NotPayable
+            }
+            return try {
+                val result = requests(
+                    TdApi.SendPaymentForm(inputInvoice, form.id, "", "", null, 0L),
+                    timeoutMillis = PAID_CONTENT_PAYMENT_TIMEOUT_MS
+                )
+                if (result.success) PaidContentPaymentOutcome.Paid else PaidContentPaymentOutcome.Failed(UiText.Res(R.string.paid_content_not_completed))
+            } catch (_: TimeoutCancellationException) {
+                // The request may still complete on Telegram's side, so the result stays open.
+                PaidContentPaymentOutcome.Uncertain
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: TdRequestError) {
+                paidContentErrorOutcome(error.code, error.message) ?: PaidContentPaymentOutcome.Failed(failureText(error))
+            } catch (_: Exception) {
+                // A network failure can happen after Telegram accepted the payment; a retry could charge twice.
+                PaidContentPaymentOutcome.Uncertain
+            }
+        } finally {
+            sendInFlight.set(false)
+        }
+    }
+
     private suspend fun starTransactionsPage(offset: String, limit: Int): StarTransactionsPage {
         val page = requests(
             TdApi.GetStarTransactions(TdApi.MessageSenderUser(myUserId()), "", null, offset, limit)
@@ -510,6 +580,31 @@ internal class TdPayments(private val requests: TdRequests) {
     private suspend fun currentBalanceOrNull(): StarBalance? =
         requests(TdApi.GetStarTransactions(TdApi.MessageSenderUser(myUserId()), "", null, "", 1))
             .starAmount?.toBalance()
+
+    private suspend fun readBalanceOrNull(): StarBalance? = try {
+        currentBalanceOrNull()
+    } catch (_: TimeoutCancellationException) {
+        null
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
+    }
+
+    /** Only the Stars form can be paid here; real-money forms keep their validated external pages. */
+    private fun TdApi.PaymentForm.toPaidContentFormKind(): PaidContentFormKind = when (val paymentType = type) {
+        is TdApi.PaymentFormTypeStars -> PaidContentFormKind.Stars(paymentType.starCount)
+        is TdApi.PaymentFormTypeRegular -> PaidContentFormKind.External(
+            paymentType.additionalPaymentOptions.orEmpty()
+                .mapNotNull { option ->
+                    val url = validateExternalPaymentUrl(option.url) ?: return@mapNotNull null
+                    ExternalPaymentMethod(title = sanitizePaymentMethodTitle(option.title), url = url)
+                }
+                .distinctBy { it.url.value }
+        )
+        is TdApi.PaymentFormTypeStarSubscription -> PaidContentFormKind.Subscription
+        else -> PaidContentFormKind.Unknown
+    }
 
     private suspend fun availableGift(giftId: Long): TdApi.Gift? =
         requests(TdApi.GetAvailableGifts()).gifts.orEmpty()
@@ -802,3 +897,4 @@ private const val PREMIUM_INFO_TIMEOUT_MS = 20_000L
 private const val GIFT_SEND_TIMEOUT_MS = 60_000L
 private const val PREMIUM_GIFT_CODE_APPLY_TIMEOUT_MS = 60_000L
 private const val PREMIUM_CLICK_TIMEOUT_MS = 3_000L
+private const val PAID_CONTENT_PAYMENT_TIMEOUT_MS = 60_000L
