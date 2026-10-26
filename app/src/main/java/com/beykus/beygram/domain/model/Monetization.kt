@@ -554,11 +554,50 @@ data class GiftsInfo(
     val balance: StarBalance?,
     val catalog: List<GiftCatalogItem>,
     val received: List<ReceivedGiftItem>,
+    /** Cursor for the next received-gifts page; empty when the list is complete. */
+    val receivedNextOffset: String,
     val collections: List<GiftCollectionItem>,
     val isPremium: Boolean,
     val receivedUnavailable: Boolean,
-    val collectionsUnavailable: Boolean
+    val collectionsUnavailable: Boolean,
+    /** Longest gift message TDLib reports; the send dialog validates against it before any purchase. */
+    val textMaxLength: Int
 )
+
+data class ReceivedGiftsPage(
+    val gifts: List<ReceivedGiftItem>,
+    val nextOffset: String
+)
+
+/** Used only when TDLib does not report the gift message limit. */
+const val GIFT_TEXT_MAX_LENGTH_DEFAULT = 128
+
+/** TDLib reports the limit as an integer option; a missing or implausible value keeps the default. */
+fun giftTextLimit(serverValue: Long?): Int =
+    serverValue?.takeIf { it in 1L..GIFT_TEXT_MAX_LENGTH_CEILING }?.toInt() ?: GIFT_TEXT_MAX_LENGTH_DEFAULT
+
+enum class GiftTextValidation { Valid, TooLong }
+
+/**
+ * Checks the gift message as typed. The length is counted in UTF-16 units, the same measure
+ * the send dialog's counter shows, so what the user sees is what gets validated.
+ */
+fun validateGiftText(raw: String, maxLength: Int): GiftTextValidation =
+    if (raw.length > maxLength) GiftTextValidation.TooLong else GiftTextValidation.Valid
+
+/**
+ * Appends a received-gifts page. New gifts can shift the pages, so one gift may arrive twice;
+ * each received gift id must appear only once, keeping the first copy.
+ */
+fun mergeReceivedGifts(current: List<ReceivedGiftItem>, next: List<ReceivedGiftItem>): List<ReceivedGiftItem> =
+    (current + next).distinctBy { it.id }
+
+/**
+ * A cursor that comes back unchanged means the list is complete; requesting it again would
+ * return the same page forever.
+ */
+fun nextReceivedGiftsOffset(requestedOffset: String, returnedOffset: String): String =
+    if (returnedOffset.isBlank() || returnedOffset == requestedOffset) "" else returnedOffset
 
 /** Result of one explicit gift purchase. Never retried automatically by the UI. */
 sealed interface GiftSendOutcome {
@@ -717,6 +756,7 @@ fun formatStarAmount(starCount: Long, nanostarCount: Int = 0): String =
         .toPlainString()
 
 private const val PREMIUM_GIFT_CODE_MAX_LENGTH = 128
+private const val GIFT_TEXT_MAX_LENGTH_CEILING = 4096L
 private const val PAYMENT_URL_MAX_LENGTH = 4096
 private const val PAYMENT_HOST_MAX_LENGTH = 253
 private const val PAYMENT_HOST_LABEL_MAX_LENGTH = 63

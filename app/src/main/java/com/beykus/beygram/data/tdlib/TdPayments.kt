@@ -4,9 +4,11 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ExternalPaymentMethod
+import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftCatalogItem
 import com.beykus.beygram.domain.model.GiftCollectionItem
 import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftTextValidation
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumFeatureKind
@@ -15,8 +17,10 @@ import com.beykus.beygram.domain.model.PremiumGiftCodeError
 import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
 import com.beykus.beygram.domain.model.PremiumInfo
 import com.beykus.beygram.domain.model.PremiumPlan
+import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.StarsTopUpOutcome
 import com.beykus.beygram.domain.model.classifyPremiumGiftCodeError
+import com.beykus.beygram.domain.model.giftTextLimit
 import com.beykus.beygram.domain.model.normalizePremiumGiftCode
 import com.beykus.beygram.domain.model.sanitizePaymentMethodTitle
 import com.beykus.beygram.domain.model.validateExternalPaymentUrl
@@ -27,6 +31,7 @@ import com.beykus.beygram.domain.model.StarTransactionItem
 import com.beykus.beygram.domain.model.StarTransactionKind
 import com.beykus.beygram.domain.model.StarTransactionsPage
 import com.beykus.beygram.domain.model.StarsInfo
+import com.beykus.beygram.domain.model.validateGiftText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
@@ -327,19 +332,15 @@ internal class TdPayments(private val requests: TdRequests) {
             null
         }
         var received: List<ReceivedGiftItem> = emptyList()
+        var receivedNextOffset = ""
         var receivedUnavailable = false
         var collections: List<GiftCollectionItem> = emptyList()
         var collectionsUnavailable = false
         if (isSelf) {
             try {
-                val page = requests(
-                    TdApi.GetReceivedGifts(
-                        "", owner, 0,
-                        false, false, false, false, false, false, false, false, false,
-                        "", RECEIVED_LIMIT
-                    )
-                )
-                received = receivedItems(page.gifts.orEmpty().toList())
+                val page = receivedGiftsPage(me.id, offset = "")
+                received = page.gifts
+                receivedNextOffset = page.nextOffset
             } catch (_: TimeoutCancellationException) {
                 receivedUnavailable = true
             } catch (cancelled: CancellationException) {
@@ -368,18 +369,36 @@ internal class TdPayments(private val requests: TdRequests) {
             balance = balance,
             catalog = catalog,
             received = received,
+            receivedNextOffset = receivedNextOffset,
             collections = collections,
             isPremium = me.isPremium,
             receivedUnavailable = receivedUnavailable,
-            collectionsUnavailable = collectionsUnavailable
+            collectionsUnavailable = collectionsUnavailable,
+            textMaxLength = readGiftTextLimit()
         )
+    }
+
+    /** Next page of the signed-in user's received gifts; the screen owns the cursor and the merge. */
+    suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = monetizationResult {
+        receivedGiftsPage(myUserId(), offset)
     }
 
     /**
      * Sends exactly one gift. Only one request can be in flight; a timeout is
      * reported as [GiftSendOutcome.Uncertain] so the screen never retries blindly.
+     * The message is checked against TDLib's limit before anything can be charged.
      */
-    suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome {
+    suspend fun sendGift(
+        profileId: Long,
+        isSelf: Boolean,
+        giftId: Long,
+        text: String,
+        isPrivate: Boolean
+    ): GiftSendOutcome {
+        // Checked before the in-flight flag, so a rejected message never blocks a valid purchase.
+        if (validateGiftText(text, readGiftTextLimit()) == GiftTextValidation.TooLong) {
+            return GiftSendOutcome.Blocked(UiText.Res(R.string.gifts_text_too_long))
+        }
         if (!sendInFlight.compareAndSet(false, true)) {
             return GiftSendOutcome.Blocked(UiText.Res(R.string.err_gift_send_busy))
         }
@@ -433,7 +452,7 @@ internal class TdPayments(private val requests: TdRequests) {
             }
             return try {
                 requests(
-                    TdApi.SendGift(giftId, owner, TdApi.FormattedText("", emptyArray()), false, false),
+                    TdApi.SendGift(giftId, owner, TdApi.FormattedText(text.trim(), emptyArray()), isPrivate, false),
                     timeoutMillis = GIFT_SEND_TIMEOUT_MS
                 )
                 GiftSendOutcome.Sent
@@ -522,6 +541,31 @@ internal class TdPayments(private val requests: TdRequests) {
             }
         }.awaitAll().toMap()
         gifts.map { gift -> gift.toReceivedGift(gift.senderId?.let { sender -> sender.senderKey() }?.let { key -> names[key] }) }
+    }
+
+    private suspend fun receivedGiftsPage(ownerId: Long, offset: String): ReceivedGiftsPage {
+        val page = requests(
+            TdApi.GetReceivedGifts(
+                "", TdApi.MessageSenderUser(ownerId), 0,
+                false, false, false, false, false, false, false, false, false,
+                offset, RECEIVED_LIMIT
+            )
+        )
+        return ReceivedGiftsPage(
+            gifts = receivedItems(page.gifts.orEmpty().toList()).distinctBy { it.id },
+            nextOffset = page.nextOffset.orEmpty()
+        )
+    }
+
+    /** TDLib owns the gift message limit; when the option cannot be read, the default applies. */
+    private suspend fun readGiftTextLimit(): Int = try {
+        giftTextLimit((requests(TdApi.GetOption(GIFT_TEXT_LENGTH_OPTION)) as? TdApi.OptionValueInteger)?.value)
+    } catch (_: TimeoutCancellationException) {
+        GIFT_TEXT_MAX_LENGTH_DEFAULT
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        GIFT_TEXT_MAX_LENGTH_DEFAULT
     }
 
     private suspend fun userName(userId: Long): String? {
@@ -748,6 +792,7 @@ private fun TdApi.StarTransactionType.toKind(): StarTransactionKind = when (this
 private const val PAGE_SIZE = 30
 private const val FIRST_PAGE_SIZE = 30
 private const val RECEIVED_LIMIT = 30
+private const val GIFT_TEXT_LENGTH_OPTION = "gift_text_length_max"
 private const val PREMIUM_INFO_TIMEOUT_MS = 20_000L
 private const val GIFT_SEND_TIMEOUT_MS = 60_000L
 private const val PREMIUM_GIFT_CODE_APPLY_TIMEOUT_MS = 60_000L

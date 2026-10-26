@@ -224,4 +224,12 @@
         <item quantity="one">%1$d regalo</item>
         <item quantity="other">%1$d regalos</item>
     </plurals>
+    <!-- #377 subtask B: gift message, hidden sender name and received-gift paging -->
+    <string name="gifts_send_text_label">Mensaje del regalo</string>
+    <string name="gifts_send_text_counter">%1$d/%2$d</string>
+    <string name="gifts_text_too_long">El mensaje del regalo es demasiado largo</string>
+    <string name="gifts_hide_name">Ocultar mi nombre</string>
+    <string name="gifts_hide_name_hint">El destinatario no verá quién envió el regalo</string>
+    <string name="gifts_received_more">Mostrar más</string>
+    <string name="gifts_received_more_error">No se pudieron cargar más regalos</string>
 </resources>

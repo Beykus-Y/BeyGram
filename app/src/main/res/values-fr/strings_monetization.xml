@@ -235,4 +235,12 @@
     <string name="stars_topup_subscription">Les abonnements en Stars ne sont pas pris en charge dans cette version.</string>
     <string name="stars_topup_busy">Attendez la fin de l’opération en cours.</string>
     <string name="stars_topup_open_failed">Impossible d’ouvrir la page de paiement. Vérifiez qu’un navigateur ou l’application Telegram est disponible.</string>
+    <!-- #377 subtask B: gift message, hidden sender name and received-gift paging -->
+    <string name="gifts_send_text_label">Message accompagnant le cadeau</string>
+    <string name="gifts_send_text_counter">%1$d/%2$d</string>
+    <string name="gifts_text_too_long">Le message accompagnant le cadeau est trop long</string>
+    <string name="gifts_hide_name">Masquer mon nom</string>
+    <string name="gifts_hide_name_hint">Le destinataire ne verra pas qui a envoyé le cadeau</string>
+    <string name="gifts_received_more">Afficher plus</string>
+    <string name="gifts_received_more_error">Impossible de charger d’autres cadeaux</string>
 </resources>

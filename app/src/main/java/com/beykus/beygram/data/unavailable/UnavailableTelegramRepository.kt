@@ -85,6 +85,7 @@ import com.beykus.beygram.domain.model.TelegramNotifications
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
@@ -204,8 +205,14 @@ class UnavailableTelegramRepository : TelegramRepository {
         StarsTopUpOutcome.Failed(UiText.Res(R.string.err_monetization_unavailable))
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = monetizationUnavailable()
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = monetizationUnavailable()
-    override suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome =
-        GiftSendOutcome.Blocked(UiText.Res(R.string.err_monetization_unavailable))
+    override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = monetizationUnavailable()
+    override suspend fun sendGift(
+        profileId: Long,
+        isSelf: Boolean,
+        giftId: Long,
+        text: String,
+        isPrivate: Boolean
+    ): GiftSendOutcome = GiftSendOutcome.Blocked(UiText.Res(R.string.err_monetization_unavailable))
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = unavailable()
     override suspend fun setChatPinned(chatId: Long, pinned: Boolean): Result<Unit> = unavailable()
     override suspend fun setChatMuted(chatId: Long, muted: Boolean): Result<Unit> = unavailable()

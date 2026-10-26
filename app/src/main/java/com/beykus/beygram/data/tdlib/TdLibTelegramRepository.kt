@@ -106,6 +106,7 @@ import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
@@ -1637,8 +1638,14 @@ class TdLibTelegramRepository private constructor(
         payments.starsTopUpPayment(option)
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = payments.starTransactions(offset)
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)
-    override suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome =
-        payments.sendGift(profileId, isSelf, giftId)
+    override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = payments.receivedGifts(offset)
+    override suspend fun sendGift(
+        profileId: Long,
+        isSelf: Boolean,
+        giftId: Long,
+        text: String,
+        isPrivate: Boolean
+    ): GiftSendOutcome = payments.sendGift(profileId, isSelf, giftId, text, isPrivate)
 
     override suspend fun loadGroupManagement(chatId: Long): Result<GroupManagementInfo> =
         groupResult { groupAdministration.info(chatId) }
@@ -2497,7 +2504,7 @@ class TdLibTelegramRepository private constructor(
                 val transform: (ChatMessage) -> ChatMessage = { message ->
                     val rendered = (update.newContent as? TdApi.MessageCall)?.let {
                         serviceMessages.callText(it, message.isOutgoing)
-                    } ?: service
+                    } ?: serviceMessages.text(update.newContent, message.isOutgoing)
                     message.withUpdatedContent(update.newContent, attachment, special,
                         contentText(update.newContent, attachment != null),
                         messageFormattedText(update.newContent)?.domainEntities().orEmpty(), rendered,

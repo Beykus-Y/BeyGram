@@ -237,4 +237,12 @@
     <string name="err_gift_insufficient_stars">Недостаточно Stars для этого подарка</string>
     <string name="err_gift_send_busy">Отправка уже выполняется</string>
     <string name="err_gift_sold_out">Подарок распродан</string>
+    <!-- #377 subtask B: gift message, hidden sender name and received-gift paging -->
+    <string name="gifts_send_text_label">Сообщение к подарку</string>
+    <string name="gifts_send_text_counter">%1$d/%2$d</string>
+    <string name="gifts_text_too_long">Сообщение к подарку слишком длинное</string>
+    <string name="gifts_hide_name">Скрыть моё имя</string>
+    <string name="gifts_hide_name_hint">Получатель не увидит, кто отправил подарок</string>
+    <string name="gifts_received_more">Показать ещё</string>
+    <string name="gifts_received_more_error">Не удалось загрузить остальные подарки</string>
 </resources>
