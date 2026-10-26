@@ -176,11 +176,11 @@ private object DecodedImageCache {
     }
 }
 
-@Composable
 /**
  * Decode still artwork normally. Telegram GIFs are often MP4 animations: their thumbnails can be
  * missing, stale or non-image files. Only animation/video callers opt in to a bounded frame fallback.
  */
+@Composable
 internal fun LocalMediaImage(
     path: String,
     modifier: Modifier = Modifier,
@@ -271,7 +271,11 @@ internal fun MinithumbnailImage(data: ByteArray, modifier: Modifier = Modifier) 
 private fun BlurredMediaPreview(media: MessageMedia, thumbnailPath: String?, modifier: Modifier) {
     val minithumbnail = media.minithumbnail
     when {
-        thumbnailPath != null -> LocalMediaImage(thumbnailPath, modifier, maxDimension = BLUR_PREVIEW_DIMENSION)
+        thumbnailPath != null -> LocalMediaImage(
+            thumbnailPath, modifier, maxDimension = BLUR_PREVIEW_DIMENSION,
+            allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
+            fallbackMinithumbnail = minithumbnail
+        )
         minithumbnail != null -> MinithumbnailImage(minithumbnail, modifier)
     }
 }
@@ -964,7 +968,11 @@ private fun MediaViewerPage(
             path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()
             ) {
-                LocalMediaImage(thumb.localPath!!, Modifier.weight(1f).fillMaxWidth(), fit = true)
+                LocalMediaImage(
+                    thumb.localPath!!, Modifier.weight(1f).fillMaxWidth(), fit = true,
+                    allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
+                    fallbackMinithumbnail = media.minithumbnail
+                )
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)),
                     color = Color.LightGray, modifier = Modifier.padding(8.dp))
                 if (file.isDownloading) LinearProgressIndicator(Modifier.fillMaxWidth())
