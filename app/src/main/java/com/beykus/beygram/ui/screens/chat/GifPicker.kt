@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -22,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Face
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -78,7 +81,8 @@ internal fun GifPickerPanel(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onPick: (AnimationItem) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onOpenStickers: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -177,6 +181,13 @@ internal fun GifPickerPanel(
     Column(Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 340.dp)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 12.dp, end = 4.dp, top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.gif_picker_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (onOpenStickers != null) {
+                TextButton(onClick = onOpenStickers, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Rounded.Face, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.composer_type_stickers), color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
             IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Rounded.Close, stringResource(R.string.gif_picker_close), tint = palette.textSecondary)
             }
