@@ -74,4 +74,39 @@ class AccountSecurityTest {
         assertFalse(matchesDeletionConfirmation("delet", "DELETE"))
         assertFalse(matchesDeletionConfirmation("", "DELETE"))
     }
+
+    @Test
+    fun `phone input keeps one leading plus and digits only`() {
+        assertEquals("+79991234567", normalizePhoneNumberInput(" +7 (999) 123-45-67 "))
+        assertEquals("79991234567", normalizePhoneNumberInput("7-999-123-45-67"))
+        assertEquals("7999", normalizePhoneNumberInput("7+999"))
+        assertEquals("+7", normalizePhoneNumberInput("++7"))
+    }
+
+    @Test
+    fun `phone input is capped at twenty characters including the plus`() {
+        val capped = normalizePhoneNumberInput("+" + "1".repeat(40))
+        assertEquals(20, capped.length)
+        assertEquals('+', capped.first())
+    }
+
+    @Test
+    fun `plausible phone numbers have seven to fifteen digits`() {
+        assertTrue(isPlausiblePhoneNumber("1234567"))
+        assertTrue(isPlausiblePhoneNumber("+79991234567"))
+        assertTrue(isPlausiblePhoneNumber("+123456789012345"))
+        assertFalse(isPlausiblePhoneNumber(""))
+        assertFalse(isPlausiblePhoneNumber("+"))
+        assertFalse(isPlausiblePhoneNumber("+123456"))
+        assertFalse(isPlausiblePhoneNumber("+1234567890123456"))
+    }
+
+    @Test
+    fun `code input keeps digits for numeric routes and text for word routes`() {
+        assertEquals("12345", filterPhoneCodeInput("12-34 5a", PhoneCodeDelivery.Sms))
+        assertEquals("blue sky", filterPhoneCodeInput("blue sky!", PhoneCodeDelivery.SmsPhrase))
+        assertEquals("word", filterPhoneCodeInput("word", PhoneCodeDelivery.SmsWord))
+        assertTrue(PhoneCodeDelivery.SmsWord.isTextCode)
+        assertFalse(PhoneCodeDelivery.TelegramApp.isTextCode)
+    }
 }

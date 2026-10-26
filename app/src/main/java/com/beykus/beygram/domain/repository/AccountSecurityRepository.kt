@@ -1,14 +1,15 @@
 package com.beykus.beygram.domain.repository
 
 import com.beykus.beygram.domain.model.CloudPasswordState
+import com.beykus.beygram.domain.model.PhoneChangeCode
 
 /**
  * Account-wide security operations stored on Telegram's servers.
  *
- * Phone-number changes are intentionally absent. TDLib documents
- * {@code phoneNumberCodeTypeChange} as available to official Android and iOS applications only,
- * so BeyGram's third-party API credentials cannot safely complete that flow. The UI explains this
- * limitation instead of sending a code to a number that Telegram will refuse to attach.
+ * Phone-number changes use Telegram's two-step code flow. TDLib documents
+ * {@code phoneNumberCodeTypeChange} as intended for official Android and iOS applications, so
+ * Telegram may refuse the first request for BeyGram's credentials. That refusal arrives as a
+ * failure with a plain explanation; the flow is never retried through another method.
  */
 interface AccountSecurityRepository {
     /** Reads TDLib's cloud-password state, including the masked hint and recovery-email flags. */
@@ -35,6 +36,21 @@ interface AccountSecurityRepository {
 
     /** Abandons an unconfirmed recovery-email change. */
     suspend fun cancelRecoveryEmailChange(): Result<CloudPasswordState>
+
+    /**
+     * Asks Telegram to send a code to [phoneNumber], the new number, for changing the account's
+     * phone. Returns the delivery details the dialog explains. Telegram may refuse the request.
+     */
+    suspend fun sendPhoneChangeCode(phoneNumber: String): Result<PhoneChangeCode>
+
+    /** Asks Telegram to deliver the pending phone-change code again, by another route when one exists. */
+    suspend fun resendPhoneChangeCode(): Result<PhoneChangeCode>
+
+    /**
+     * Confirms the phone-change code. Success means Telegram has already switched the account to the
+     * new number; the displayed number then follows from the regular profile updates.
+     */
+    suspend fun checkPhoneChangeCode(code: String): Result<Unit>
 
     /**
      * Irreversibly deletes the selected Telegram account on the server. [password] is the cloud
