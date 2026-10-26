@@ -235,4 +235,60 @@
     <string name="err_gift_insufficient_stars">Not enough Stars for this gift</string>
     <string name="err_gift_send_busy">A gift send is already in progress</string>
     <string name="err_gift_sold_out">This gift is sold out</string>
+    <!-- #377 subtask B: gift message, hidden sender name and received-gift paging -->
+    <string name="gifts_send_text_label">Gift message</string>
+    <string name="gifts_send_text_counter">%1$d/%2$d</string>
+    <string name="gifts_text_too_long">The gift message is too long</string>
+    <string name="gifts_hide_name">Private gift</string>
+    <string name="gifts_hide_name_hint">Only the recipient will see your name and message</string>
+    <string name="gifts_received_more">Show more</string>
+    <string name="gifts_received_more_error">Could not load more gifts</string>
+    <!-- #377 subtask C: paid Stars reactions -->
+    <string name="paid_reaction_dialog_title">Stars reaction</string>
+    <string name="paid_reaction_balance">Balance: %1$s Stars</string>
+    <string name="paid_reaction_balance_loading">Loading your Stars balance…</string>
+    <string name="paid_reaction_dialog_body">Send a reaction for %1$s Stars?</string>
+    <string name="paid_reaction_public">Your name will be shown next to this reaction.</string>
+    <string name="paid_reaction_not_enough">Not enough Stars for this amount</string>
+    <string name="paid_reaction_sending">Sending reaction…</string>
+    <string name="paid_reaction_pick_description">Stars reaction, choose an amount</string>
+    <string name="err_paid_reaction_failed">Couldn\'t send the Stars reaction</string>
+    <string name="err_paid_reaction_amount">Choose an amount of Stars above zero</string>
+    <string name="err_paid_reaction_busy">A Stars reaction is already being sent</string>
+    <string name="err_paid_reaction_uncertain">Telegram didn\'t confirm the reaction. Stars may have been spent: check your balance and reactions before trying again</string>
+    <string name="err_paid_reaction_balance_low">Not enough Stars for this reaction</string>
+    <string name="err_paid_reaction_unavailable">Stars reactions aren\'t available for this message</string>
+
+    <!-- #377 subtask A: paid media and invoices in chats -->
+    <string name="service_payment_successful">Payment of %1$s for %2$s</string>
+    <string name="service_payment_completed">Payment of %1$s completed</string>
+    <string name="paid_media_unlock">Unlock for %1$s Stars</string>
+    <string name="paid_media_purchased">Purchased</string>
+    <string name="paid_content_pay">Pay %1$s</string>
+    <string name="paid_content_paid">Paid</string>
+    <string name="paid_content_test">Test</string>
+    <string name="paid_content_invoice">Invoice</string>
+    <string name="paid_content_preview_media">Paid media</string>
+    <string name="paid_content_preview_invoice">Invoice: %1$s</string>
+    <string name="paid_content_checking">Checking payment…</string>
+    <string name="paid_content_paying">Paying…</string>
+    <string name="paid_content_confirm_title">Confirm payment</string>
+    <string name="paid_content_confirm_body">Pay %1$s? Your balance: %2$s Stars.</string>
+    <string name="paid_content_insufficient_stars">Not enough Stars to pay. Top up your balance and try again.</string>
+    <string name="paid_content_balance_unknown">Your Stars balance is unknown. Refresh and try again.</string>
+    <string name="paid_content_price_changed">The price has changed. Check it and try again.</string>
+    <string name="paid_content_not_available">Payment is not available in this app.</string>
+    <string name="paid_content_subscription_unsupported">Star subscriptions are not supported.</string>
+    <string name="paid_content_busy">Wait for the current payment to finish.</string>
+    <string name="paid_content_uncertain">The payment could not be confirmed. Check the chat or your Stars history before paying again.</string>
+    <string name="paid_content_paid_notice">Payment completed.</string>
+    <string name="paid_content_not_completed">The payment was not completed.</string>
+    <string name="paid_content_open_failed">Could not open the payment page.</string>
+    <string name="paid_content_external_title">Choose a payment method</string>
+    <string name="paid_content_external_body">The payment page opens outside BeyGram. Card details are entered only there.</string>
+    <string name="paid_content_open_page">Open payment page</string>
+    <plurals name="paid_media_count">
+        <item quantity="one">%1$d item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
 </resources>

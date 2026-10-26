@@ -306,6 +306,7 @@ fun ChatScreen(
     var pendingWebApp by remember(chat.id) { mutableStateOf<PendingBotWebApp?>(null) }
     var webAppOpening by remember(chat.id) { mutableStateOf(false) }
     var reactionOptions by remember(conversation, chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    val paidReactions = rememberPaidReactions(conversation)
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
@@ -429,6 +430,10 @@ fun ChatScreen(
         else conversation.startChatActivity(chat.id, ChatActivity.Typing)
     }
     fun setReaction(messageId: Long, reaction: ReactionOption, addToRecent: Boolean) {
+        if (reaction.isPaid) {
+            paidReactions.open(chat.id, messageId)
+            return
+        }
         scope.launch {
             conversation.toggleReaction(chat.id, messageId, reaction, addToRecent).onFailure { error = it.userMessage(context, R.string.chat_reaction_failed) }
         }
@@ -1642,6 +1647,7 @@ fun ChatScreen(
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
                                 } else null,
                                 showSenderHeader = senderHeaderByKey[listItem.key] == true,
+                                paidContent = rememberPaidContentActions(conversation),
                                 onOpenMessageEntity = onOpenMessageEntity)
                         }
                         }
@@ -2417,7 +2423,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onStickerOpen: ((MessageMedia) -> Unit)? = null,
     animateSpecial: Boolean = false,
     diceAnimationId: Long = 0L,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    paidContent: PaidContentActions? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -2552,7 +2559,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     downloadFile = onDownloadFile,
                                     autoDownloadFile = onAutoDownloadFile,
                                     animateDice = animateSpecial,
-                                    diceAnimationId = diceAnimationId
+                                    diceAnimationId = diceAnimationId,
+                                    paidContent = paidContent
                                 )
                             }
                             if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)

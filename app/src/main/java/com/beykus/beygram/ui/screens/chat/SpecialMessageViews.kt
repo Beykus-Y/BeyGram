@@ -124,7 +124,8 @@ internal fun SpecialMessageContentView(
     downloadFile: ((Int) -> Unit)? = null,
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     animateDice: Boolean = false,
-    diceAnimationId: Long = 0L
+    diceAnimationId: Long = 0L,
+    paidContent: PaidContentActions? = null
 ) {
     when (special) {
         is MessageSpecialContent.Poll -> PollCard(special.poll, message, modifier, onPollVote, onPollStop, onLoadPollVoters, onAddPollOption)
@@ -140,6 +141,21 @@ internal fun SpecialMessageContentView(
             observeFile = observeFile,
             downloadFile = downloadFile,
             autoDownloadFile = autoDownloadFile,
+            modifier = modifier
+        )
+        is MessageSpecialContent.PaidMedia -> PaidMediaCard(
+            paid = special.media,
+            message = message,
+            actions = paidContent,
+            observeFile = observeFile,
+            downloadFile = downloadFile,
+            autoDownloadFile = autoDownloadFile,
+            modifier = modifier
+        )
+        is MessageSpecialContent.Invoice -> InvoiceCard(
+            invoice = special.invoice,
+            message = message,
+            actions = paidContent,
             modifier = modifier
         )
         is MessageSpecialContent.Unsupported -> UnsupportedMessageCard(modifier)

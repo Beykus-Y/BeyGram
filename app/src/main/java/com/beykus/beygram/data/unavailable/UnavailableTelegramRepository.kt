@@ -85,6 +85,7 @@ import com.beykus.beygram.domain.model.TelegramNotifications
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
@@ -94,6 +95,7 @@ import com.beykus.beygram.domain.model.PremiumPlan
 import com.beykus.beygram.domain.model.StarTopUpOption
 import com.beykus.beygram.domain.model.StarsTopUpOutcome
 import com.beykus.beygram.domain.model.StarTransactionsPage
+import com.beykus.beygram.domain.model.StarBalance
 import com.beykus.beygram.domain.model.StarsInfo
 import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.repository.TelegramRepository
@@ -204,8 +206,14 @@ class UnavailableTelegramRepository : TelegramRepository {
         StarsTopUpOutcome.Failed(UiText.Res(R.string.err_monetization_unavailable))
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = monetizationUnavailable()
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = monetizationUnavailable()
-    override suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome =
-        GiftSendOutcome.Blocked(UiText.Res(R.string.err_monetization_unavailable))
+    override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = monetizationUnavailable()
+    override suspend fun sendGift(
+        profileId: Long,
+        isSelf: Boolean,
+        giftId: Long,
+        text: String,
+        isPrivate: Boolean
+    ): GiftSendOutcome = GiftSendOutcome.Blocked(UiText.Res(R.string.err_monetization_unavailable))
     override suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit> = unavailable()
     override suspend fun setChatPinned(chatId: Long, pinned: Boolean): Result<Unit> = unavailable()
     override suspend fun setChatMuted(chatId: Long, muted: Boolean): Result<Unit> = unavailable()
@@ -495,6 +503,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean): Result<String> = unavailable()
     override suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>> = unavailable()
     override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = unavailable()
+    override suspend fun addPaidReaction(chatId: Long, messageId: Long, starCount: Long, isAnonymous: Boolean): Result<Unit> = unavailable()
+    override suspend fun starBalance(): Result<StarBalance> = monetizationUnavailable()
     override fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?> = MutableStateFlow<CustomEmoji?>(null).asStateFlow()
     override fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?> = MutableStateFlow<MessageEffect?>(null).asStateFlow()
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> = unavailable()

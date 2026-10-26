@@ -33,9 +33,10 @@ internal class TdConversationActions(
         when (name) {
             "message_text_length_max" -> _limits.update { it.copy(text = limit) }
             "message_caption_length_max" -> _limits.update { it.copy(caption = limit) }
+            "paid_reaction_star_count_max" -> _limits.update { it.copy(paidReactionStarMax = limit) }
         }
     }
-    fun initialize() { scope.launch { listOf("message_text_length_max", "message_caption_length_max").forEach { name -> runCatching { option(name, request(TdApi.GetOption(name))) } } } }
+    fun initialize() { scope.launch { listOf("message_text_length_max", "message_caption_length_max", "paid_reaction_star_count_max").forEach { name -> runCatching { option(name, request(TdApi.GetOption(name))) } } } }
 
     suspend fun capabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = conversationResult {
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))
@@ -648,7 +649,8 @@ internal class TdConversationActions(
     /**
      * Reactions the user can add to the message, in the picker's order: TDLib's top, recent and popular reactions, then the chat's
      * own list, or every active emoji when the chat allows all of them. Premium-only ones are left out for users without Premium,
-     * and so are custom emoji, which only Premium users can add. Paid reactions are display-only, so the picker never offers them.
+     * and so are custom emoji, which only Premium users can add. A Stars reaction is listed only where TDLib lists one for the message;
+     * choosing it opens the Stars confirmation rather than adding it.
      */
     suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>> = conversationResult<List<ReactionOption>> {
         val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_ROW_SIZE))
@@ -660,8 +662,7 @@ internal class TdConversationActions(
      * Removes [reaction] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
      * chosen reaction in the server's order makes room, and it comes back if the new reaction can't be added.
      * [addToRecent] is set only for a reaction picked from the extended menu. Returns the message's reactions after the change.
-     * A paid reaction is rejected before any request: spending Stars requires the separate confirmation flow that this tap path
-     * does not have.
+     * A paid reaction is rejected before any request: Stars are spent only by [TdPaidReactions], after the user confirmed the amount.
      */
     suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
         if (reaction.isPaid) throw UserMessageException(UiText.Res(R.string.chat_reaction_paid_confirmation_required))
@@ -911,6 +912,10 @@ internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(t
         ?: UiText.Res(R.string.chat_preview_location)
     is MessageSpecialContent.Contact -> UiText.Raw(content.contact.displayName.take(180))
     is MessageSpecialContent.Dice -> UiText.Res(R.string.chat_preview_dice, listOf(content.dice.emoji))
+    is MessageSpecialContent.PaidMedia -> UiText.Res(R.string.paid_content_preview_media)
+    is MessageSpecialContent.Invoice -> content.invoice.title.takeIf { it.isNotBlank() }
+        ?.let { UiText.Res(R.string.paid_content_preview_invoice, listOf(it.take(80))) }
+        ?: UiText.Res(R.string.paid_content_invoice)
     is MessageSpecialContent.Unsupported -> UiText.Res(R.string.message_title)
     null -> UiText.Res(when (media?.kind) {
         MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title

@@ -16,6 +16,7 @@ import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
@@ -181,8 +182,21 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Gift catalog and, for the own profile, received gifts and collections. */
     suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo>
 
-    /** Sends one gift after explicit confirmation. The repository never retries it. */
-    suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome
+    /** Next page of the signed-in user's received gifts, from [GiftsInfo.receivedNextOffset]. */
+    suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> =
+        Result.failure(UnsupportedOperationException())
+
+    /**
+     * Sends one gift after explicit confirmation. [text] is plain and checked against the
+     * server limit; [isPrivate] shows the sender's name and the text only to the recipient. The repository never retries it.
+     */
+    suspend fun sendGift(
+        profileId: Long,
+        isSelf: Boolean,
+        giftId: Long,
+        text: String,
+        isPrivate: Boolean
+    ): GiftSendOutcome
 
     /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
     suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>

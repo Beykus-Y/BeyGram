@@ -106,10 +106,13 @@ import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
+import com.beykus.beygram.domain.model.PaidContentPaymentOutcome
+import com.beykus.beygram.domain.model.PaidContentPlan
 import com.beykus.beygram.domain.model.PremiumInfo
 import com.beykus.beygram.domain.model.PremiumPlan
 import com.beykus.beygram.domain.model.StarTopUpOption
@@ -222,6 +225,7 @@ class TdLibTelegramRepository private constructor(
     private val secretChatDirectory = TdSecretChats(tdRequests)
     @Volatile private var secretChatSession = 0L
     private val payments = TdPayments(tdRequests)
+    private val paidReactions = TdPaidReactions { tdRequests(it) }
     private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
     private val messageDrafts = TdChatDrafts(appContext, accountId) { client }
 
@@ -1544,6 +1548,9 @@ class TdLibTelegramRepository private constructor(
     override suspend fun availableReactions(chatId: Long, messageId: Long) = conversationActions.availableReactions(chatId, messageId)
     override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean) =
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
+    override suspend fun addPaidReaction(chatId: Long, messageId: Long, starCount: Long, isAnonymous: Boolean) =
+        paidReactions.send(chatId, messageId, starCount, isAnonymous)
+    override suspend fun starBalance() = payments.starBalance()
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override fun observeMessageEffect(effectId: Long) = messageEffects.observe(effectId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
@@ -1640,8 +1647,18 @@ class TdLibTelegramRepository private constructor(
         payments.starsTopUpPayment(option)
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = payments.starTransactions(offset)
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)
-    override suspend fun sendGift(profileId: Long, isSelf: Boolean, giftId: Long): GiftSendOutcome =
-        payments.sendGift(profileId, isSelf, giftId)
+    override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = payments.receivedGifts(offset)
+    override suspend fun sendGift(
+        profileId: Long,
+        isSelf: Boolean,
+        giftId: Long,
+        text: String,
+        isPrivate: Boolean
+    ): GiftSendOutcome = payments.sendGift(profileId, isSelf, giftId, text, isPrivate)
+    override suspend fun paidContentPlan(chatId: Long, messageId: Long): PaidContentPlan =
+        payments.paidContentPlan(chatId, messageId)
+    override suspend fun payPaidContentWithStars(chatId: Long, messageId: Long, confirmedStarCount: Long): PaidContentPaymentOutcome =
+        payments.payPaidContentWithStars(chatId, messageId, confirmedStarCount)
 
     override suspend fun loadGroupManagement(chatId: Long): Result<GroupManagementInfo> =
         groupResult { groupAdministration.info(chatId) }
@@ -2500,7 +2517,7 @@ class TdLibTelegramRepository private constructor(
                 val transform: (ChatMessage) -> ChatMessage = { message ->
                     val rendered = (update.newContent as? TdApi.MessageCall)?.let {
                         serviceMessages.callText(it, message.isOutgoing)
-                    } ?: service
+                    } ?: serviceMessages.text(update.newContent, message.isOutgoing)
                     message.withUpdatedContent(update.newContent, attachment, special,
                         contentText(update.newContent, attachment != null),
                         messageFormattedText(update.newContent)?.domainEntities().orEmpty(), rendered,
@@ -3314,6 +3331,10 @@ class TdLibTelegramRepository private constructor(
             is TdApi.MessageSticker   -> UiText.Res(R.string.chat_preview_sticker, listOf(c.sticker.emoji))
             is TdApi.MessageVoiceNote -> UiText.Res(R.string.chat_preview_voice)
             is TdApi.MessageVideoNote -> UiText.Res(R.string.chat_preview_video_note)
+            is TdApi.MessagePaidMedia -> UiText.Res(R.string.paid_content_preview_media)
+            is TdApi.MessageInvoice   -> c.productInfo?.title?.takeIf { it.isNotBlank() }
+                ?.let { UiText.Res(R.string.paid_content_preview_invoice, listOf(it.take(80))) }
+                ?: UiText.Res(R.string.paid_content_invoice)
             else                      -> UiText.Res(R.string.message_title)
         }
 
