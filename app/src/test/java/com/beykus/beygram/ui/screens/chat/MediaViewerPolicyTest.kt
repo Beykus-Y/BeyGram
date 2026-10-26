@@ -69,8 +69,25 @@ class MediaViewerPolicyTest {
         val retained = MediaViewerItem(messageId = 20, media = plain, viewOnce = true)
         val other = MediaViewerItem(messageId = 21, media = plain)
 
-        assertEquals(listOf(other, retained), MediaViewerPolicy.retainViewOncePage(listOf(other), retained))
+        assertEquals(listOf(retained, other), MediaViewerPolicy.retainViewOncePage(listOf(other), retained))
         assertEquals(listOf(retained), MediaViewerPolicy.retainViewOncePage(emptyList(), retained))
+    }
+
+    @Test fun deletedViewOncePageKeepsItsPlace() {
+        val retained = MediaViewerItem(messageId = 20, media = plain, viewOnce = true)
+        val older = MediaViewerItem(messageId = 19, media = plain)
+        val newer = MediaViewerItem(messageId = 23, media = plain)
+        val newest = MediaViewerItem(messageId = 30, media = plain)
+
+        assertEquals(
+            listOf(older, retained, newer, newest),
+            MediaViewerPolicy.retainViewOncePage(listOf(older, newer, newest), retained)
+        )
+        assertEquals(
+            listOf(newest, newer, retained, older),
+            MediaViewerPolicy.retainViewOncePage(listOf(newest, newer, older), retained)
+        )
+        assertEquals(listOf(older, retained), MediaViewerPolicy.retainViewOncePage(listOf(older), retained))
     }
 
     @Test fun retainedViewOncePageIsNotDuplicated() {

@@ -1992,13 +1992,13 @@
     <string name="secret_chat_start_confirm">Начать</string>
     <string name="secret_chat_key_action">Проверить ключ шифрования</string>
     <string name="secret_chat_key_title">Ключ шифрования</string>
-    <string name="secret_chat_key_fingerprint_label">Отпечаток ключа</string>
-    <string name="secret_chat_key_fingerprint_hint">Сравните отпечаток с собеседником лично или по другому доверенному каналу. Если отпечатки различаются, чат мог быть перехвачен.</string>
+    <string name="secret_chat_key_fingerprint_label">Код ключа</string>
+    <string name="secret_chat_key_fingerprint_hint">Сравните картинку, эмодзи и код с тем, что видит собеседник, лично или по другому надёжному каналу. Официальные приложения Telegram показывают их так же. Если хоть что-то отличается, чат мог быть перехвачен.</string>
     <string name="secret_chat_key_device_warning">Ключ относится только к этому устройству и этому сеансу. На другом устройстве отпечаток будет другим.</string>
     <string name="secret_chat_key_unavailable">Отпечаток пока недоступен. Откройте настройки чата после установки соединения.</string>
     <string name="secret_chat_key_copy">Копировать</string>
     <string name="secret_chat_key_copied">Отпечаток скопирован</string>
-    <string name="secret_chat_key_hash_only">В этой версии показывается только отпечаток ключа; проверка по эмодзи недоступна.</string>
+    <string name="secret_chat_key_image_description">Изображение ключа шифрования</string>
     <string name="secret_chat_closed_composer">Этот секретный чат закрыт. Новые сообщения отправить нельзя.</string>
     <string name="composer_view_once">Одноразовое</string>
     <string name="composer_view_once_hint">Получатель сможет открыть это фото или видео один раз</string>

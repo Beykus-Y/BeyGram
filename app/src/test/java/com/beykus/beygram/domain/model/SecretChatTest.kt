@@ -90,6 +90,40 @@ class SecretChatTest {
         )
     }
 
+    // Reference values computed with Telegram for Android's IdenticonActivity and IdenticonDrawable.
+    private val fullKeyHash = List(36) { ((it * 37 + 11) and 0xFF).toByte() }
+
+    @Test
+    fun `key emoji follow the official secret chat mapping`() {
+        assertEquals(333, SecretChatKeyEmoji.table.size)
+        assertEquals("\uD83D\uDE09", SecretChatKeyEmoji.table.first())
+        assertEquals("\uD83D\uDD37", SecretChatKeyEmoji.table.last())
+        assertEquals(
+            listOf("\uD83D\uDC55", "\uD83D\uDCB0", "\uD83C\uDFAF", "7\u20E3", "\uD83D\uDC4D"),
+            SecretChatKey.emoji(fullKeyHash)
+        )
+        assertEquals(emptyList<String>(), SecretChatKey.emoji(fullKeyHash.take(16)))
+    }
+
+    @Test
+    fun `key picture reads two low bits per pixel`() {
+        val pixels = SecretChatKey.identicon(fullKeyHash)
+        assertEquals(12, SecretChatKey.identiconSide(fullKeyHash))
+        assertEquals(144, pixels.size)
+        assertEquals(listOf(3, 2, 0, 0, 0, 0, 3, 0, 1, 1, 1, 1, 2, 2, 3, 1), pixels.take(16))
+        assertEquals(listOf(2, 2, 1, 0), pixels.takeLast(4))
+        assertEquals(8, SecretChatKey.identiconSide(fullKeyHash.take(16)))
+        assertEquals(0, SecretChatKey.identiconSide(fullKeyHash.take(3)))
+        assertEquals(emptyList<Int>(), SecretChatKey.identicon(fullKeyHash.take(3)))
+    }
+
+    @Test
+    fun `key code shows the first 32 bytes like official clients`() {
+        val code = SecretChatKey.fingerprint(fullKeyHash)
+        assertEquals(8, code.split(" ").size)
+        assertEquals("0B30557A", code.substringBefore(" "))
+    }
+
     @Test
     fun `fingerprint never uses localized digits`() {
         val old = java.util.Locale.getDefault()

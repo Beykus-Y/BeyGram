@@ -6,15 +6,19 @@ import android.content.ClipboardManager
 import android.os.Build
 import android.os.PersistableBundle
 import android.widget.Toast
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
@@ -29,14 +33,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.SecretChatDetails
 import com.beykus.beygram.domain.model.SecretChatKey
@@ -216,12 +228,16 @@ internal fun SecretChatSettingsSection(
     if (keyOpen) details?.let { SecretChatKeyDialog(it, onDismiss = { keyOpen = false }) }
 }
 
-/** Shows TDLib's key hash as a fingerprint; no emoji are invented because TDLib does not expose the official mapping. */
+/**
+ * Shows the key the way official Telegram clients do: the 12x12 picture, five emoji and the hex code. The dialog has its
+ * own window, so it sets FLAG_SECURE itself instead of relying on the chat screen.
+ */
 @Composable
 private fun SecretChatKeyDialog(details: SecretChatDetails, onDismiss: () -> Unit) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val fingerprint = remember(details.keyHash) { SecretChatKey.fingerprint(details.keyHash) }
+    val emoji = remember(details.keyHash) { SecretChatKey.emoji(details.keyHash) }
     var copied by remember(details.keyHash) { mutableStateOf(false) }
     fun copy() {
         if (fingerprint.isBlank()) return
@@ -238,28 +254,35 @@ private fun SecretChatKeyDialog(details: SecretChatDetails, onDismiss: () -> Uni
     }
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
         title = { Text(stringResource(R.string.secret_chat_key_title)) },
         text = {
-            Column {
-                Text(
-                    stringResource(R.string.secret_chat_key_device_warning),
-                    color = palette.textSecondary,
-                    fontSize = 13.sp
-                )
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (fingerprint.isBlank()) {
                     Text(
                         stringResource(R.string.secret_chat_key_unavailable),
                         color = palette.warningText,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(top = 10.dp)
+                        fontSize = 13.sp
                     )
                 } else {
+                    SecretChatKeyImage(
+                        details.keyHash,
+                        Modifier.align(Alignment.CenterHorizontally).size(144.dp)
+                    )
+                    if (emoji.isNotEmpty()) {
+                        Text(
+                            emoji.joinToString("  "),
+                            fontSize = 28.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(top = 14.dp)
+                        )
+                    }
                     Text(
                         stringResource(R.string.secret_chat_key_fingerprint_label),
                         color = palette.accentInk,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 12.dp)
+                        modifier = Modifier.padding(top = 14.dp)
                     )
                     SelectionContainer {
                         Text(
@@ -276,13 +299,13 @@ private fun SecretChatKeyDialog(details: SecretChatDetails, onDismiss: () -> Uni
                         fontSize = 13.sp,
                         modifier = Modifier.padding(top = 10.dp)
                     )
-                    Text(
-                        stringResource(R.string.secret_chat_key_hash_only),
-                        color = palette.textSecondary,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
                 }
+                Text(
+                    stringResource(R.string.secret_chat_key_device_warning),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
         },
         confirmButton = {
@@ -296,6 +319,27 @@ private fun SecretChatKeyDialog(details: SecretChatDetails, onDismiss: () -> Uni
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
         }
     )
+}
+
+/** The key picture with Telegram's fixed colors, so it matches the contact's screen in any app theme. */
+@Composable
+private fun SecretChatKeyImage(keyHash: List<Byte>, modifier: Modifier = Modifier) {
+    val side = remember(keyHash) { SecretChatKey.identiconSide(keyHash) }
+    val pixels = remember(keyHash) { SecretChatKey.identicon(keyHash) }
+    val colors = remember { SecretChatKey.identiconColors.map { Color(it) } }
+    val description = stringResource(R.string.secret_chat_key_image_description)
+    if (side == 0) return
+    Canvas(modifier.semantics { contentDescription = description }) {
+        val cell = size.minDimension / side
+        val offset = Offset((size.width - cell * side) / 2f, (size.height - cell * side) / 2f)
+        pixels.forEachIndexed { index, color ->
+            drawRect(
+                color = colors[color],
+                topLeft = offset + Offset(index % side * cell, index / side * cell),
+                size = Size(cell, cell)
+            )
+        }
+    }
 }
 
 @Composable
