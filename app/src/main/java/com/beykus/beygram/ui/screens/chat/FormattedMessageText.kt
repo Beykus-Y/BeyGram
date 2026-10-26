@@ -23,7 +23,6 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.input.pointer.changedToCancel
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -324,8 +323,7 @@ private fun Modifier.messageEntityTapHandler(
                 val event = awaitPointerEvent()
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                 if (change.changedToUp()) { up = change; break }
-                if (change.changedToCancel()) break
-                val delta = change.positionChange()
+                val delta = change.position - change.previousPosition
                 if (delta.x * delta.x + delta.y * delta.y > viewConfiguration.touchSlop * viewConfiguration.touchSlop) { moved = true; break }
                 if (change.uptimeMillis - down.uptimeMillis > viewConfiguration.longPressTimeoutMillis) break
             }
