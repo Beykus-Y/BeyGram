@@ -57,7 +57,6 @@ import com.beykus.beygram.domain.model.MessageDiceState
 import com.beykus.beygram.domain.model.MessageIdReplacement
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.playback.LocalPlaybackAccountId
-import com.beykus.beygram.ui.accessibility.systemMotionEnabled
 import com.beykus.beygram.ui.components.beyGramPalette
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
