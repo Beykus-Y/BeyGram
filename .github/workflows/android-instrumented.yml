@@ -25,6 +25,9 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     continue-on-error: true
+    env:
+      # The arm64 runner image does not export ANDROID_HOME (the step failed with "unbound variable" under set -u).
+      ANDROID_HOME: /usr/local/lib/android/sdk
     steps:
       - name: Check out
         uses: actions/checkout@v4
