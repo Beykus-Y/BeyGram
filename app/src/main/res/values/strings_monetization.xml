@@ -245,4 +245,19 @@
     <string name="gifts_hide_name_hint">Получатель не увидит, кто отправил подарок</string>
     <string name="gifts_received_more">Показать ещё</string>
     <string name="gifts_received_more_error">Не удалось загрузить остальные подарки</string>
+    <!-- #377 subtask C: paid Stars reactions -->
+    <string name="paid_reaction_dialog_title">Платная реакция</string>
+    <string name="paid_reaction_balance">Баланс: %1$s Stars</string>
+    <string name="paid_reaction_balance_loading">Загружаем баланс Stars…</string>
+    <string name="paid_reaction_dialog_body">Отправить реакцию за %1$s Stars?</string>
+    <string name="paid_reaction_public">Ваше имя будет видно рядом с реакцией.</string>
+    <string name="paid_reaction_not_enough">Недостаточно Stars для этой суммы</string>
+    <string name="paid_reaction_sending">Отправляем реакцию…</string>
+    <string name="paid_reaction_pick_description">Платная реакция, выбрать количество Stars</string>
+    <string name="err_paid_reaction_failed">Не удалось отправить платную реакцию</string>
+    <string name="err_paid_reaction_amount">Укажите количество Stars больше нуля</string>
+    <string name="err_paid_reaction_busy">Реакция уже отправляется</string>
+    <string name="err_paid_reaction_uncertain">Telegram не подтвердил реакцию. Stars могли списаться: проверьте баланс и реакции, прежде чем повторять</string>
+    <string name="err_paid_reaction_balance_low">Недостаточно Stars для этой реакции</string>
+    <string name="err_paid_reaction_unavailable">Платная реакция недоступна для этого сообщения</string>
 </resources>

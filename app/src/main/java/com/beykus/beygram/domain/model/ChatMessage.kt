@@ -98,7 +98,7 @@ data class MessageReaction(
 
 /**
  * A reaction: a standard [emoji], the custom emoji with [customEmojiId], which has no emoji text, or the paid [isPaid]
- * Stars reaction. A paid option is display-only: adding it always needs an explicit Stars confirmation.
+ * Stars reaction. A paid option is never added by a plain tap: it opens the Stars confirmation, which asks for the amount.
  */
 data class ReactionOption(val emoji: String, val customEmojiId: Long = 0L, val isPaid: Boolean = false)
 
@@ -194,6 +194,11 @@ data class GlobalMessagePage(
     /** Cached or lazily resolved chat details, keyed by TDLib chatId. */
     val chats: Map<Long, ChatPreview> = emptyMap()
 )
-data class MessageLimits(val text: Int = 4096, val caption: Int = 1024)
+data class MessageLimits(
+    val text: Int = 4096,
+    val caption: Int = 1024,
+    /** TDLib's largest Stars amount for one paid reaction; null until the option has been read. */
+    val paidReactionStarMax: Int? = null
+)
 
 data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)

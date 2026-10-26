@@ -56,8 +56,8 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Reaction chips under a bubble. The user's own reaction is filled with the accent colour; a tap passes its option to [onToggle].
- * A custom emoji is drawn as its sticker, with a visible emoji placeholder until the sticker can be drawn. A paid reaction is
- * display-only: it shows a star and its Stars count, and it is never clickable, because adding Stars needs a separate confirmation.
+ * A custom emoji is drawn as its sticker, with a visible emoji placeholder until the sticker can be drawn. A paid reaction shows a
+ * star and its Stars count, and a tap passes it to [onToggle] too: the caller opens the Stars confirmation instead of adding it.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -83,12 +83,11 @@ private fun ReactionChip(
         reaction.customEmojiId == 0L -> stringResource(R.string.chat_reaction_description, reaction.emoji, reaction.count)
         else -> stringResource(R.string.chat_reaction_custom_description, reaction.count)
     }
-    // The pill keeps its compact look, while the invisible touch area meets the 48 dp minimum. Paid Stars chips have no action.
-    val action = if (reaction.isPaid) Modifier else Modifier.clickable { onToggle(reaction.option) }
+    // The pill keeps its compact look, while the invisible touch area meets the 48 dp minimum.
     Box(
         Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .semantics { contentDescription = description; selected = reaction.isChosen }
-            .then(action),
+            .clickable { onToggle(reaction.option) },
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -133,20 +132,20 @@ private fun ReactionGlyph(
 }
 
 private const val CUSTOM_EMOJI_FALLBACK = "🙂"
-private val PaidReactionTint = Color(0xFFFFB300)
+internal val PaidReactionTint = Color(0xFFFFB300)
 
 /**
  * Reactions offered for the selected message, shown under the message actions. The user's own reaction is outlined:
- * a tap on it removes it, and a tap on any other reaction adds it. Paid Stars reactions are never offered here, so a
- * normal tap cannot spend Stars. The reactions fill two rows and scroll sideways.
+ * a tap on it removes it, and a tap on any other reaction adds it. A Stars reaction, when TDLib offers one for the message, is
+ * passed to [onPick] like the others; the caller asks for the amount before any Stars are spent. The reactions fill two rows
+ * and scroll sideways.
  */
 @Composable
 internal fun MessageReactionPicker(
     options: List<ReactionOption>, chosen: Set<ReactionOption>, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onPick: (ReactionOption) -> Unit
 ) {
-    val offered = remember(options) { options.filterNot { it.isPaid } }
-    if (offered.isEmpty()) return
+    if (options.isEmpty()) return
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         // Two 48dp touch rows, 2dp apart, inside 4dp of padding.
@@ -156,10 +155,13 @@ internal fun MessageReactionPicker(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            items(offered, key = { option -> if (option.customEmojiId != 0L) "#${option.customEmojiId}" else option.emoji }) { option ->
+            items(options, key = { option -> if (option.isPaid) "paid" else if (option.customEmojiId != 0L) "#${option.customEmojiId}" else option.emoji }) { option ->
                 val isChosen = option in chosen
-                val description = if (option.customEmojiId != 0L) stringResource(if (isChosen) R.string.chat_reaction_custom_remove_description else R.string.chat_reaction_custom_pick_description)
-                    else stringResource(if (isChosen) R.string.chat_reaction_remove_description else R.string.chat_reaction_pick_description, option.emoji)
+                val description = when {
+                    option.isPaid -> stringResource(R.string.paid_reaction_pick_description)
+                    option.customEmojiId != 0L -> stringResource(if (isChosen) R.string.chat_reaction_custom_remove_description else R.string.chat_reaction_custom_pick_description)
+                    else -> stringResource(if (isChosen) R.string.chat_reaction_remove_description else R.string.chat_reaction_pick_description, option.emoji)
+                }
                 Box(Modifier.size(48.dp).clip(CircleShape)
                     .background(if (isChosen) palette.accentSoft else Color.Transparent)
                     .semantics { contentDescription = description; selected = isChosen }

@@ -223,6 +223,7 @@ class TdLibTelegramRepository private constructor(
     private val secretChatDirectory = TdSecretChats(tdRequests)
     @Volatile private var secretChatSession = 0L
     private val payments = TdPayments(tdRequests)
+    private val paidReactions = TdPaidReactions { tdRequests(it) }
     private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
     private val messageDrafts = TdChatDrafts(appContext, accountId) { client }
 
@@ -1542,6 +1543,9 @@ class TdLibTelegramRepository private constructor(
     override suspend fun availableReactions(chatId: Long, messageId: Long) = conversationActions.availableReactions(chatId, messageId)
     override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean) =
         conversationActions.toggleReaction(chatId, messageId, reaction, addToRecent)
+    override suspend fun addPaidReaction(chatId: Long, messageId: Long, starCount: Long, isAnonymous: Boolean) =
+        paidReactions.send(chatId, messageId, starCount, isAnonymous)
+    override suspend fun starBalance() = payments.starBalance()
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override fun observeMessageEffect(effectId: Long) = messageEffects.observe(effectId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
