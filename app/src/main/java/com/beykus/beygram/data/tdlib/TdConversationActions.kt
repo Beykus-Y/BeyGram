@@ -675,7 +675,7 @@ internal class TdConversationActions(
     /**
      * Reactions the user can add to the message, in the picker's order: TDLib's top, recent and popular reactions, then the chat's
      * own list, or every active emoji when the chat allows all of them. Premium-only ones are left out for users without Premium,
-     * and so are custom emoji, which only Premium users can add.
+     * and so are custom emoji, which only Premium users can add. Paid reactions are display-only, so the picker never offers them.
      */
     suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>> = conversationResult<List<ReactionOption>> {
         val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_ROW_SIZE))
@@ -687,8 +687,11 @@ internal class TdConversationActions(
      * Removes [reaction] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
      * chosen reaction in the server's order makes room, and it comes back if the new reaction can't be added.
      * [addToRecent] is set only for a reaction picked from the extended menu. Returns the message's reactions after the change.
+     * A paid reaction is rejected before any request: spending Stars requires the separate confirmation flow that this tap path
+     * does not have.
      */
     suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
+        if (reaction.isPaid) throw UserMessageException(UiText.Res(R.string.chat_reaction_paid_confirmation_required))
         reactionLocks.withLock(chatId to messageId) {
             val chosen = request(TdApi.GetMessage(chatId, messageId)).interactionInfo?.reactions?.reactions.orEmpty()
                 .filter { it.isChosen && it.type !is TdApi.ReactionTypePaid }

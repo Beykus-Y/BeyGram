@@ -508,4 +508,6 @@
     <string name="app_lock_biometric_failed">Biometrics not recognized. Enter the PIN.</string>
     <string name="app_lock_biometric_unavailable_now">Biometrics are unavailable now. Enter the PIN.</string>
     <string name="app_lock_biometric_locked">Biometrics are temporarily locked. Enter the PIN.</string>
+    <string name="chat_reaction_paid_description">Stars reaction, %1$d Stars</string>
+    <string name="chat_reaction_paid_confirmation_required">Paid reactions can only be sent after confirmation</string>
 </resources>

@@ -125,7 +125,7 @@ internal fun MessageThreadScreen(
     var sending by remember { mutableStateOf(false) }
     var sendError by remember { mutableStateOf<String?>(null) }
     var reactionTarget by remember { mutableStateOf<Pair<Long, ChatMessage>?>(null) }
-    var reactionOptions by remember { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    var reactionOptions by remember(conversation) { mutableStateOf<List<ReactionOption>>(emptyList()) }
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
     var selectedMediaChatId by remember { mutableStateOf(0L) }
     // A view-once message is deleted as soon as it is opened; keep its page for this viewer session.
@@ -207,7 +207,7 @@ internal fun MessageThreadScreen(
             replyTarget = messages.firstOrNull { it.id == replyTargetId }
         }
     }
-    LaunchedEffect(reactionTarget) {
+    LaunchedEffect(conversation, reactionTarget) {
         val target = reactionTarget ?: return@LaunchedEffect
         reactionOptions = conversation.availableReactions(target.first, target.second.id).getOrDefault(emptyList())
     }
@@ -470,7 +470,7 @@ internal fun MessageThreadScreen(
         reactionTarget?.let { (chatId, message) ->
             MessageReactionPicker(
                 options = reactionOptions,
-                chosen = message.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option },
+                chosen = message.reactions.filter { it.isChosen && !it.isPaid }.mapTo(hashSetOf()) { it.option },
                 observeCustomEmoji = conversation::observeCustomEmoji,
                 observeFile = observeFile,
                 downloadFile = downloadFile,

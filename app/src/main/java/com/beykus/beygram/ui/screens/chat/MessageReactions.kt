@@ -22,10 +22,14 @@ import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,7 +56,8 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Reaction chips under a bubble. The user's own reaction is filled with the accent colour; a tap passes its option to [onToggle].
- * A custom emoji is drawn as its sticker, with the sticker's emoji text until the sticker can be drawn.
+ * A custom emoji is drawn as its sticker, with a visible emoji placeholder until the sticker can be drawn. A paid reaction is
+ * display-only: it shows a star and its Stars count, and it is never clickable, because adding Stars needs a separate confirmation.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -62,7 +67,7 @@ internal fun MessageReactionChips(
 ) {
     if (reactions.isEmpty()) return
     FlowRow(modifier.widthIn(max = 292.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        reactions.forEach { ReactionChip(it, observeCustomEmoji, observeFile, downloadFile, onToggle) }
+        reactions.forEach { reaction -> key(reaction.option) { ReactionChip(reaction, observeCustomEmoji, observeFile, downloadFile, onToggle) } }
     }
 }
 
@@ -73,13 +78,17 @@ private fun ReactionChip(
 ) {
     val palette = beyGramPalette()
     val shape = RoundedCornerShape(50)
-    val description = if (reaction.customEmojiId == 0L) stringResource(R.string.chat_reaction_description, reaction.emoji, reaction.count)
-        else stringResource(R.string.chat_reaction_custom_description, reaction.count)
-    // The pill keeps its compact look, while the invisible touch area meets the 48 dp minimum.
+    val description = when {
+        reaction.isPaid -> stringResource(R.string.chat_reaction_paid_description, reaction.count)
+        reaction.customEmojiId == 0L -> stringResource(R.string.chat_reaction_description, reaction.emoji, reaction.count)
+        else -> stringResource(R.string.chat_reaction_custom_description, reaction.count)
+    }
+    // The pill keeps its compact look, while the invisible touch area meets the 48 dp minimum. Paid Stars chips have no action.
+    val action = if (reaction.isPaid) Modifier else Modifier.clickable { onToggle(reaction.option) }
     Box(
         Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .semantics { contentDescription = description; selected = reaction.isChosen }
-            .clickable { onToggle(reaction.option) },
+            .then(action),
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -97,32 +106,47 @@ private fun ReactionChip(
     }
 }
 
-/** A reaction as it is drawn: its emoji text, or a custom emoji's sticker, which keeps its space while the sticker is still unknown. */
+/** A reaction as it is drawn: its emoji text, a custom emoji's sticker, or the paid Stars star. */
 @Composable
 private fun ReactionGlyph(
     option: ReactionOption, size: Dp, fontSize: TextUnit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit
 ) {
+    if (option.isPaid) {
+        Icon(Icons.Rounded.Star, contentDescription = null, tint = PaidReactionTint, modifier = Modifier.size(size))
+        return
+    }
     if (option.customEmojiId == 0L) {
-        Text(emojiPresentation(option.emoji), fontSize = fontSize)
+        Text(emojiPresentation(option.emoji.ifBlank { CUSTOM_EMOJI_FALLBACK }), fontSize = fontSize)
         return
     }
     val custom by remember(option.customEmojiId) { observeCustomEmoji(option.customEmojiId) }.collectAsStateWithLifecycle()
     val emoji = custom
-    if (emoji == null) Spacer(Modifier.size(size))
-    else CustomEmojiImage(emoji, size, observeFile, downloadFile) { Text(emojiPresentation(emoji.emoji), fontSize = fontSize) }
+    // A chip must never collapse to an empty box while TDLib looks the sticker up, or after it reports that the id is gone.
+    if (emoji == null) {
+        Text(emojiPresentation(CUSTOM_EMOJI_FALLBACK), fontSize = fontSize)
+        return
+    }
+    CustomEmojiImage(emoji, size, observeFile, downloadFile) {
+        Text(emojiPresentation(emoji.emoji.ifBlank { CUSTOM_EMOJI_FALLBACK }), fontSize = fontSize)
+    }
 }
+
+private const val CUSTOM_EMOJI_FALLBACK = "🙂"
+private val PaidReactionTint = Color(0xFFFFB300)
 
 /**
  * Reactions offered for the selected message, shown under the message actions. The user's own reaction is outlined:
- * a tap on it removes it, and a tap on any other reaction adds it. The reactions fill two rows and scroll sideways.
+ * a tap on it removes it, and a tap on any other reaction adds it. Paid Stars reactions are never offered here, so a
+ * normal tap cannot spend Stars. The reactions fill two rows and scroll sideways.
  */
 @Composable
 internal fun MessageReactionPicker(
     options: List<ReactionOption>, chosen: Set<ReactionOption>, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onPick: (ReactionOption) -> Unit
 ) {
-    if (options.isEmpty()) return
+    val offered = remember(options) { options.filterNot { it.isPaid } }
+    if (offered.isEmpty()) return
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         // Two 48dp touch rows, 2dp apart, inside 4dp of padding.
@@ -132,7 +156,7 @@ internal fun MessageReactionPicker(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            items(options, key = { option -> if (option.customEmojiId != 0L) "#${option.customEmojiId}" else option.emoji }) { option ->
+            items(offered, key = { option -> if (option.customEmojiId != 0L) "#${option.customEmojiId}" else option.emoji }) { option ->
                 val isChosen = option in chosen
                 val description = if (option.customEmojiId != 0L) stringResource(if (isChosen) R.string.chat_reaction_custom_remove_description else R.string.chat_reaction_custom_pick_description)
                     else stringResource(if (isChosen) R.string.chat_reaction_remove_description else R.string.chat_reaction_pick_description, option.emoji)
