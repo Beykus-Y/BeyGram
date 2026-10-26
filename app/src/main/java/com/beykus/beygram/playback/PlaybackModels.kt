@@ -492,9 +492,15 @@ internal fun shouldHandleEnded(endedKey: String?, currentKey: String?, endedToke
  * can resume after a call, but a permanent loss makes ExoPlayer report playWhenReady=false: clear the intent so music
  * never starts by itself after the user regains the device.
  */
-internal fun intentAfterPlayWhenReadyChange(previousIntent: Boolean, playWhenReady: Boolean, reason: Int): Boolean =
-    when (reason) {
-        // Transient loss keeps playWhenReady=true while ExoPlayer suppresses output. Permanent loss pauses the player.
-        Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS -> if (playWhenReady) previousIntent else false
+internal fun intentAfterPlayWhenReadyChange(
+    previousIntent: Boolean,
+    playWhenReady: Boolean,
+    reason: Int,
+    pendingDeferredResume: Boolean = false
+): Boolean =
+    when {
+        // The player internally pauses while waiting for a completed growing file; that must not erase intent.
+        pendingDeferredResume -> true
+        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS -> if (playWhenReady) previousIntent else false
         else -> playWhenReady
     }

@@ -451,6 +451,7 @@ object PlaybackEngine {
         if (defer) {
             target.pause()
             deferredSeek = DeferredGrowingSeek(item.key, requestedStart, resume = true)
+            _state.update { it.copy(playing = false, intentPlaying = true, isBuffering = true).withTimelineNavigation(target) }
             startDeferredSeekWatcher()
             return
         }
@@ -497,6 +498,7 @@ object PlaybackEngine {
         if (defer) {
             target.pause()
             deferredSeek = DeferredGrowingSeek(resolved.key, requestedStart, resume = true)
+            _state.update { it.copy(playing = false, intentPlaying = true, isBuffering = true).withTimelineNavigation(target) }
             startDeferredSeekWatcher()
             return
         }
@@ -636,7 +638,14 @@ object PlaybackEngine {
             val resume = _state.value.intentPlaying
             target.pause()
             deferredSeek = DeferredGrowingSeek(item.key, position, resume = resume)
-            _state.update { it.copy(positionMs = position, playing = false, isBuffering = resume) }
+            _state.update {
+                it.copy(
+                    positionMs = position,
+                    playing = false,
+                    intentPlaying = resume,
+                    isBuffering = resume
+                ).withTimelineNavigation(target)
+            }
             startDeferredSeekWatcher()
             return
         }
@@ -1161,8 +1170,17 @@ object PlaybackEngine {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            val pendingDeferredResume = deferredSeek?.resume == true &&
+                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST
             _state.update {
-                it.copy(intentPlaying = intentAfterPlayWhenReadyChange(it.intentPlaying, playWhenReady, reason))
+                it.copy(
+                    intentPlaying = intentAfterPlayWhenReadyChange(
+                        it.intentPlaying,
+                        playWhenReady,
+                        reason,
+                        pendingDeferredResume
+                    )
+                )
             }
         }
 

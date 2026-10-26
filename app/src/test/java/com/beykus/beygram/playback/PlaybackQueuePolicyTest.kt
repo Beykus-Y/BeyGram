@@ -223,6 +223,25 @@ class PlaybackQueuePolicyTest {
     }
 
     @Test
+    fun pendingDeferredGrowingSeekKeepsPlaybackIntent() {
+        assertTrue(
+            intentAfterPlayWhenReadyChange(
+                previousIntent = false,
+                playWhenReady = false,
+                reason = Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,
+                pendingDeferredResume = true
+            )
+        )
+        assertFalse(
+            intentAfterPlayWhenReadyChange(
+                previousIntent = false,
+                playWhenReady = false,
+                reason = Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST
+            )
+        )
+    }
+
+    @Test
     fun focusLossKeepsIntentOnlyWhileItIsTransient() {
         assertFalse(
             intentAfterPlayWhenReadyChange(
