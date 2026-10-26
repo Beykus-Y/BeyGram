@@ -62,6 +62,7 @@ import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
 import com.beykus.beygram.navigation.appRouteFromStored
+import com.beykus.beygram.navigation.equalizerBackRouteName
 import com.beykus.beygram.navigation.accountRouteCanRender
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.MainTabPreferences
@@ -346,6 +347,10 @@ private fun BeyGramAppContent(
 
     // ---- Локальный UI-state --------------------------------------------------
     var routeName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
+    // Equalizer always exits to Settings in its own back handler; remember where it was opened, so both that handler
+    // and the toolbar return to the chat/profile/settings that actually opened it.
+    var equalizerReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
+    var previousRouteName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     // One shared account switcher is rendered above every route.
     var accountSwitcherVisible by rememberSaveable { mutableStateOf(false) }
     var accountSwitcherAddMode by rememberSaveable { mutableStateOf(false) }
@@ -1383,7 +1388,23 @@ private fun BeyGramAppContent(
     // Это гарантирует, что переход происходит ПОСЛЕ того, как TDLib подтвердил
     // успешную смену состояния, а не при нажатии кнопки.
     // Resolve legacy saved routes before auth redirection; the removed ThemeEditor route maps to Appearance.
-    val route = appRouteFromStored(routeName)
+    val storedRoute = appRouteFromStored(routeName)
+    // Equalizer's own back handler still writes Settings. Intercept that transition in the route derivation so the
+    // user returns to the screen that opened the equalizer without waiting for a Settings frame. Settings remains the
+    // destination when the equalizer was opened from Settings.
+    val route = appRouteFromStored(
+        equalizerBackRouteName(
+            storedRouteName = storedRoute.name,
+            previousRouteName = previousRouteName,
+            equalizerRouteName = AppRoute.Equalizer.name,
+            settingsRouteName = AppRoute.Settings.name,
+            returnRouteName = equalizerReturnRouteName
+        )
+    )
+    LaunchedEffect(route) {
+        if (routeName != route.name) routeName = route.name
+        previousRouteName = route.name
+    }
     LaunchedEffect(authState, route) {
         val currentRoute = route
         when (authState) {
@@ -1960,7 +1981,10 @@ private fun BeyGramAppContent(
         LocalSystemReducedMotion provides reducedMotion,
         LocalAutoDownloadFile provides repository::autoDownloadFile,
         LocalBackgroundMediaDownload provides repository::downloadFileInBackground,
-        LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name }
+        LocalOpenEqualizer provides {
+            equalizerReturnRouteName = route.name
+            routeName = AppRoute.Equalizer.name
+        }
     ) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
