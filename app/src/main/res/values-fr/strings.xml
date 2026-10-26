@@ -638,7 +638,10 @@
     <string name="queue_title">File d’attente</string>
     <string name="queue_count">Pistes : %1$d</string>
     <string name="queue_loading_count">Chargement : %1$d</string>
-    <string name="queue_shuffled">Lecture aléatoire activée : l’ordre est aléatoire</string>
+    <string name="queue_shuffled">Lecture aléatoire activée : l’ordre d’origine est affiché</string>
+    <string name="queue_playback_order_hint">Ordre de lecture · N° indique la position d’origine</string>
+    <string name="queue_source_position">N° %1$d</string>
+    <string name="queue_source_position_a11y">Position d’origine : %1$d</string>
     <string name="queue_now_playing">Lecture en cours</string>
     <string name="queue_next">À suivre</string>
     <string name="queue_empty">Aucune autre piste dans la file</string>

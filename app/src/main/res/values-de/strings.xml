@@ -612,7 +612,10 @@
     <string name="queue_title">Warteschlange</string>
     <string name="queue_count">Titel: %1$d</string>
     <string name="queue_loading_count">Wird geladen: %1$d</string>
-    <string name="queue_shuffled">Zufällige Wiedergabe aktiv: Die Reihenfolge ist zufällig</string>
+    <string name="queue_shuffled">Zufällige Wiedergabe aktiv: Quellreihenfolge wird angezeigt</string>
+    <string name="queue_playback_order_hint">Wiedergabereihenfolge · Nr. ist die Position in der Quelle</string>
+    <string name="queue_source_position">Nr. %1$d</string>
+    <string name="queue_source_position_a11y">Position in der Quelle: %1$d</string>
     <string name="queue_now_playing">Wird abgespielt</string>
     <string name="queue_next">Als Nächstes</string>
     <string name="queue_empty">Keine weiteren Titel in der Warteschlange</string>

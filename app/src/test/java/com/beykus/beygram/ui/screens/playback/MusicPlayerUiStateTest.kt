@@ -163,6 +163,54 @@ class MusicPlayerUiStateTest {
     }
 
     @Test
+    fun shuffledNextFollowsTheActualMedia3Timeline() {
+        val first = track("a", path = "/a.mp3")
+        val second = track("b", path = "/b.mp3")
+        val third = track("c", path = "/c.mp3")
+        val fourth = track("d", path = "/d.mp3")
+        // Media3 plays A, D, B, C while the source list stays A, B, C, D. The owner-reported case: current D, next B.
+        val ui = playback(fourth, listOf(first, second, third, fourth), 3, playing = true, shuffle = true)
+            .musicQueueUi(playbackOrder = listOf(0, 3, 1, 2))!!
+
+        assertTrue(ui.playbackOrderApplied)
+        assertEquals(listOf(first, second, third, fourth), ui.rows.map { it.item })
+        assertEquals(fourth, ui.current!!.item)
+        assertEquals(listOf(second, third), ui.upcoming.map { it.item })
+        // The source positions remain available for the "No. N" marker even though the list is in playback order.
+        assertEquals(listOf(2, 3), ui.upcoming.map { it.index + 1 })
+    }
+
+    @Test
+    fun shuffledRepeatAllWrapsThePlaybackOrder() {
+        val first = track("a", path = "/a.mp3")
+        val second = track("b", path = "/b.mp3")
+        val third = track("c", path = "/c.mp3")
+        val fourth = track("d", path = "/d.mp3")
+        val ui = playback(
+            fourth,
+            listOf(first, second, third, fourth),
+            3,
+            shuffle = true,
+            repeat = PlaybackRepeatMode.All
+        ).musicQueueUi(playbackOrder = listOf(0, 3, 1, 2))!!
+
+        assertEquals(listOf(second, third, first), ui.upcoming.map { it.item })
+    }
+
+    @Test
+    fun invalidPlaybackOrderFallsBackToTheSourceTail() {
+        val first = track("a", path = "/a.mp3")
+        val second = track("b", path = "/b.mp3")
+        val third = track("c", path = "/c.mp3")
+        val fourth = track("d", path = "/d.mp3")
+        val ui = playback(fourth, listOf(first, second, third, fourth), 3, shuffle = true)
+            .musicQueueUi(playbackOrder = listOf(0, 0, 1, 2))!!
+
+        assertFalse(ui.playbackOrderApplied)
+        assertTrue(ui.upcoming.isEmpty())
+    }
+
+    @Test
     fun singleTrackHasAQueuePanelWithoutUpcomingItems() {
         val only = track("a")
         val ui = playback(only).musicQueueUi()!!

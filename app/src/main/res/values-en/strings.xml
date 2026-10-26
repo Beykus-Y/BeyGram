@@ -612,7 +612,10 @@
     <string name="queue_title">Queue</string>
     <string name="queue_count">Tracks: %1$d</string>
     <string name="queue_loading_count">Loading: %1$d</string>
-    <string name="queue_shuffled">Shuffle is on: playback order is random</string>
+    <string name="queue_shuffled">Shuffle is on: source order is shown</string>
+    <string name="queue_playback_order_hint">Playback order · No. is the source position</string>
+    <string name="queue_source_position">No. %1$d</string>
+    <string name="queue_source_position_a11y">Source position: %1$d</string>
     <string name="queue_now_playing">Now playing</string>
     <string name="queue_next">Next</string>
     <string name="queue_empty">No more tracks in the queue</string>
