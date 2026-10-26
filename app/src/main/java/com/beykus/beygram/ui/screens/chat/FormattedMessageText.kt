@@ -288,6 +288,7 @@ private fun MessageEntityLink.accessibilityLabel(): String = when (this) {
     is MessageEntityLink.Email -> address
     is MessageEntityLink.Phone -> number
     is MessageEntityLink.TelegramPhone -> phone
+    is MessageEntityLink.TelegramProxy -> url
 }
 
 /**
@@ -323,8 +324,13 @@ private fun Modifier.messageEntityTapHandler(
                 val event = awaitPointerEvent()
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                 if (change.changedToUp()) { up = change; break }
-                val delta = change.position - change.previousPosition
-                if (delta.x * delta.x + delta.y * delta.y > viewConfiguration.touchSlop * viewConfiguration.touchSlop) { moved = true; break }
+                // Cumulative displacement, not one event delta: a slow scroll can move far in many small steps.
+                val displacement = change.position - down.position
+                if (displacement.x * displacement.x + displacement.y * displacement.y >
+                    viewConfiguration.touchSlop * viewConfiguration.touchSlop
+                ) { moved = true; break }
+                // Another gesture (the scrolling list) owns the movement now; a link must not fire on release.
+                if (change.isConsumed) { moved = true; break }
                 if (change.uptimeMillis - down.uptimeMillis > viewConfiguration.longPressTimeoutMillis) break
             }
             if (!moved && up != null && !up.isConsumed &&
@@ -368,6 +374,10 @@ private fun openMessageEntity(context: Context, link: MessageEntityLink, handler
         is MessageEntityLink.TelegramPhone -> {
             if (handler != null) handler(link)
             else openWithSystemHandler(context, "https://t.me/+${link.phone.removePrefix("+")}")
+        }
+        is MessageEntityLink.TelegramProxy -> {
+            if (handler != null) handler(link)
+            else openWithSystemHandler(context, link.url)
         }
     }
 }

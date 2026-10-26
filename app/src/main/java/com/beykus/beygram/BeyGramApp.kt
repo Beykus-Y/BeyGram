@@ -919,6 +919,14 @@ private fun BeyGramAppContent(
                                         ?: UiText.Res(R.string.err_app_open_chat_failed)
                                 }
                         }
+                        is MessageEntityLink.TelegramProxy -> {
+                            inAppInviteToken -= 1
+                            deepLinkProxy = DeepLinkProxyPrompt(
+                                token = inAppInviteToken,
+                                accountId = sourceAccountId,
+                                draft = target.draft
+                            )
+                        }
                         // External URLs, email and phone are owned by the formatter's system-handler path.
                         is MessageEntityLink.ExternalUrl,
                         is MessageEntityLink.Email,
@@ -1576,6 +1584,24 @@ private fun BeyGramAppContent(
                         selectedForumTopicId > 0L && selectedForumTopicId == trustedForumTopicId
                 )
             ) selectedForumTopicId else 0L
+            // A link can lead to a forum group, whose first screen is the topic list rather than ChatScreen. Every
+            // Back path in this route consumes the same saved origin so it does not fall through to the chat list.
+            fun restoreLinkReturnChat(): Boolean {
+                if (linkReturnChatId == 0L || linkReturnChatId == selectedChatId) return false
+                selectedChatId = linkReturnChatId
+                selectedTopicChatId = linkReturnTopicChatId
+                selectedForumTopicId = linkReturnTopicId
+                trustedForumTopicId = linkReturnTopicId
+                chatFocusMessageId = 0L
+                chatBackRouteName = linkReturnChatBackRouteName ?: AppRoute.Chats.name
+                routeName = linkReturnRouteName ?: AppRoute.Chat.name
+                linkReturnChatId = 0L
+                linkReturnTopicChatId = 0L
+                linkReturnTopicId = 0L
+                linkReturnChatBackRouteName = null
+                linkReturnRouteName = null
+                return true
+            }
             var topicsReload by remember(repository, selectedChatId) { mutableIntStateOf(0) }
             var topicsLoading by remember(repository, selectedChatId) { mutableStateOf(true) }
             var topicsLoadError by remember(repository, selectedChatId) { mutableStateOf(false) }
@@ -1642,7 +1668,7 @@ private fun BeyGramAppContent(
             }
             when {
                 topicsResult == null -> ForumTopicsLoadingScreen(
-                    chatTitle = chat.title, onBack = { routeName = chatBackRouteName }
+                    chatTitle = chat.title, onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName }
                 )
                 topicsResult?.isFailure == true && activeTopicId == 0L -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1662,7 +1688,7 @@ private fun BeyGramAppContent(
                     loadError = topicsLoadError,
                     onRetryLoad = { topicsReload++ },
                     actionError = forumActionError,
-                    onBack = { routeName = chatBackRouteName },
+                    onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName },
                     onTopic = { topic -> selectedTopicChatId = selectedChatId; selectedForumTopicId = topic.id },
                     onCreate = { name ->
                         if (!forumBusy) {
@@ -1704,27 +1730,16 @@ private fun BeyGramAppContent(
                         onDownloadFile = repository::downloadFile,
                         onAutoDownloadFile = repository::autoDownloadFile,
                         onBack = {
-                            if (linkReturnChatId != 0L && linkReturnChatId != selectedChatId) {
-                                selectedChatId = linkReturnChatId
-                                selectedTopicChatId = linkReturnTopicChatId
-                                selectedForumTopicId = linkReturnTopicId
-                                trustedForumTopicId = linkReturnTopicId
-                                chatFocusMessageId = 0L
-                                chatBackRouteName = linkReturnChatBackRouteName ?: AppRoute.Chats.name
-                                routeName = linkReturnRouteName ?: AppRoute.Chat.name
-                                linkReturnChatId = 0L
-                                linkReturnTopicChatId = 0L
-                                linkReturnTopicId = 0L
-                                linkReturnChatBackRouteName = null
-                                linkReturnRouteName = null
-                            } else if (chatBackRouteName == AppRoute.GlobalSearch.name) {
-                                chatFocusMessageId = 0L
-                                selectedForumTopicId = 0L
-                                routeName = AppRoute.GlobalSearch.name
-                            } else if (activeTopicId > 0L) {
-                                selectedForumTopicId = 0L
-                                topicsReload++
-                            } else routeName = chatBackRouteName
+                            if (!restoreLinkReturnChat()) {
+                                if (chatBackRouteName == AppRoute.GlobalSearch.name) {
+                                    chatFocusMessageId = 0L
+                                    selectedForumTopicId = 0L
+                                    routeName = AppRoute.GlobalSearch.name
+                                } else if (activeTopicId > 0L) {
+                                    selectedForumTopicId = 0L
+                                    topicsReload++
+                                } else routeName = chatBackRouteName
+                            }
                         },
                         onChatInfo = { routeName = AppRoute.ChatInfo.name },
                         onStatistics = if (chat.isChannel && (chat.isChannelAdmin || chat.canPost)) {

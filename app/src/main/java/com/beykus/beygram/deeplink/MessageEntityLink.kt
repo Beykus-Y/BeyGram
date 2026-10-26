@@ -1,6 +1,7 @@
 package com.beykus.beygram.deeplink
 
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.TextStyleKind
 import com.beykus.beygram.domain.model.normalizedPublicUsername
 import com.beykus.beygram.domain.model.validTextEntities
@@ -23,6 +24,8 @@ sealed interface MessageEntityLink {
     data class Phone(val number: String) : MessageEntityLink
     /** t.me/+79991234567 and tg://resolve?phone= lookup a Telegram user, not the system dialer. */
     data class TelegramPhone(val phone: String) : MessageEntityLink
+    /** tg://proxy or tg://socks; the raw URL remains a safe external fallback when no in-app prompt is available. */
+    data class TelegramProxy(val url: String, val draft: TelegramProxyDraft) : MessageEntityLink
 }
 
 private val COPYABLE_KINDS = setOf(
@@ -122,6 +125,7 @@ private fun telegramLink(raw: String): MessageEntityLink? {
         is TelegramDeepLinkRoute.Message -> MessageEntityLink.TelegramMessage(route.url)
         is TelegramDeepLinkRoute.Invite -> MessageEntityLink.TelegramInvite(route.url)
         is TelegramDeepLinkRoute.Phone -> MessageEntityLink.TelegramPhone(route.phone)
-        TelegramDeepLinkRoute.Ignore, is TelegramDeepLinkRoute.Proxy -> null
+        is TelegramDeepLinkRoute.Proxy -> MessageEntityLink.TelegramProxy(normalized, route.draft)
+        TelegramDeepLinkRoute.Ignore -> null
     }
 }

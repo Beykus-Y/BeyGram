@@ -1,6 +1,8 @@
 package com.beykus.beygram.deeplink
 
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TelegramProxyDraft
+import com.beykus.beygram.domain.model.TelegramProxyKind
 import com.beykus.beygram.domain.model.TextStyleKind
 import com.beykus.beygram.domain.model.normalizedPublicUsername
 import org.junit.Assert.assertEquals
@@ -69,6 +71,16 @@ class MessageEntityLinkTest {
         assertEquals(
             MessageEntityLink.User(77L),
             linkOf("user", "user", TextStyleKind.Url, "tg://user?id=77")
+        )
+    }
+
+    @Test fun `telegram proxy links keep the confirmation flow`() {
+        val raw = "tg://proxy?server=proxy.example&port=443&secret=dd0123456789abcdef"
+        val link = linkOf("proxy", "proxy", TextStyleKind.Url, raw) as MessageEntityLink.TelegramProxy
+        assertEquals(raw, link.url)
+        assertEquals(
+            TelegramProxyDraft(TelegramProxyKind.MTPROTO, "proxy.example", 443, secret = "dd0123456789abcdef"),
+            link.draft
         )
     }
 
