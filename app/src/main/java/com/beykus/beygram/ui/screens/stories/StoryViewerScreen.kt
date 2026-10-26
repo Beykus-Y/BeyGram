@@ -418,9 +418,11 @@ fun StoryViewerScreen(
     LaunchedEffect(current?.storyId) {
         advancePendingStoryId = 0
     }
-    LaunchedEffect(current?.storyId, currentIndex, advancePendingStoryId, stories) {
+    LaunchedEffect(current?.storyId, currentIndex, advancePendingStoryId, stories, storyActive) {
         val storyId = current?.storyId ?: return@LaunchedEffect
-        if (advancePendingStoryId != storyId || currentIndex < 0) return@LaunchedEffect
+        // A queued completion waits for the same eligibility as the normal timer: no pause, hold,
+        // dialog or background state may be bypassed when the list recovers.
+        if (advancePendingStoryId != storyId || currentIndex < 0 || !storyActive) return@LaunchedEffect
         advancePendingStoryId = 0
         if (currentIndex < stories.lastIndex) {
             index = currentIndex + 1
