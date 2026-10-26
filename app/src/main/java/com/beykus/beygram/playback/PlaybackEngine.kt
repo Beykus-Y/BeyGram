@@ -3,9 +3,8 @@ package com.beykus.beygram.playback
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.SystemClock
 import android.view.TextureView
-import androidx.compose.runtime.compositionLocalOf
+import androidx.core.content.FileProvider
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -14,18 +13,15 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.beykus.beygram.data.media.AutoDownloadDecision
+import com.beykus.beygram.data.media.AutoDownloadRuntime
 import com.beykus.beygram.data.media.Mp4StreamingProbe
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
-import com.beykus.beygram.domain.model.MessageMedia
 import java.io.File
-import java.io.IOException
-import java.io.RandomAccessFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,125 +35,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-/** Account identity for media opened anywhere in the shared BeyGram UI. */
-val LocalPlaybackAccountId = compositionLocalOf { "legacy" }
-
-/** Место файла в чате: по нему мини-плеер открывает сообщение, из которого файл запущен. */
-data class PlaybackOrigin(
-    val chatId: Long,
-    val messageId: Long,
-    /** Source identity must accompany any bare Telegram numeric ID. */
-    val accountId: String = "legacy"
-)
-
-/**
- * A file that TDLib is still downloading. Reads are bounded by [readablePrefix]; the player waits
- * for the next chunk (or fails after a timeout) instead of treating the current EOF as the end.
- * The lambdas read live state, so completion is observed without replacing the player.
- */
-data class GrowingPlaybackSource(
-    val totalSize: Long,
-    val readablePrefix: () -> Long,
-    val isComplete: () -> Boolean,
-    /** Final local path once TDLib completes; may differ from the growing path. */
-    val completedPath: () -> String?,
-    val isDownloading: () -> Boolean,
-    val onNeedMore: () -> Unit,
-    /**
-     * Ogg/Opus seekers read the last page when the length is known, which is unavailable before the
-     * download completes. Such sources advertise an unknown length until then.
-     */
-    val advertiseLength: Boolean = true
-)
-
-/** Файл для общего плеера. [key] отличает файлы друг от друга: повторный тап по тому же файлу ставит его на паузу. [origin] пустой, если файл запущен не из ленты чата. */
-data class PlaybackItem(
-    val key: String,
-    val kind: MediaKind,
-    val path: String,
-    val title: String,
-    val durationSeconds: Int,
-    val origin: PlaybackOrigin? = null,
-    /** Local TDLib album cover path; no remote lookup or third-party service. */
-    val artworkPath: String? = null,
-    val performer: String = "",
-    /** Секретное вложение: играет только пока открыт его чат и не повторяется после конца. */
-    val secret: Boolean = false,
-    /** Set only while the local TDLib file is still growing; null uses the completed file. */
-    val growing: GrowingPlaybackSource? = null
-)
-
-/** Состояние общего плеера для интерфейса. Без [item] плеер пуст, и мини-плеер не показывается. */
-data class PlaybackState(
-    val item: PlaybackItem? = null,
-    val playing: Boolean = false,
-    val positionMs: Long = 0L,
-    val durationMs: Long = 0L,
-    val speed: Float = 1f,
-    val failed: Boolean = false,
-    /** Плеер хотя бы раз сообщил, что файл реально играет. Отметка «прослушано» ставится по этому флагу, потому что [playing] выставляется уже при нажатии. */
-    val started: Boolean = false,
-    /** Файл доиграл до конца. Кружок в ленте сворачивается, а новый запуск начинает файл сначала. */
-    val ended: Boolean = false
-) {
-    /** Доля проигранного от 0 до 1. Пока длина неизвестна, берём длину из сообщения, если она есть. */
-    val fraction: Float
-        get() {
-            val total = when {
-                durationMs > 0L -> durationMs
-                item != null && item.durationSeconds > 0 -> item.durationSeconds * 1000L
-                else -> 0L
-            }
-            return if (total > 0L) (positionMs.toFloat() / total).coerceIn(0f, 1f) else 0f
-        }
-}
-
-/** Музыка, которую прервало голосовое или кружок. Продолжается с [positionMs], когда прерывающий файл доиграет. */
-internal data class InterruptedMusic(val item: PlaybackItem, val positionMs: Long)
-
-/** A seek requested on an unseekable growing Ogg/Opus source; applied after completion. */
-private data class DeferredGrowingSeek(val key: String, val positionMs: Long, val resume: Boolean)
-
-/**
- * Что ждёт музыку после запуска [next]. Играющая музыка ждёт, пока голосовое или кружок доиграет. Новая музыка заменяет
- * ждущую, а голосовое или кружок поверх другого голосового или кружка ждущую не трогают.
- */
-internal fun interruptedAfterStart(current: PlaybackState, waiting: InterruptedMusic?, next: PlaybackItem): InterruptedMusic? {
-    val playingMusic = current.item?.takeIf { it.kind == MediaKind.Audio && current.playing }
-    return when {
-        next.kind == MediaKind.Audio -> null
-        playingMusic != null -> InterruptedMusic(playingMusic, current.positionMs)
-        else -> waiting
-    }
-}
-
-/**
- * Файл очереди, который идёт сразу за местом [index], если на этом месте играет [currentKey]. Место ищем по номеру, а не по ключу:
- * один файл может стоять в очереди дважды. Последний файл и место, где играет другой файл, дают null.
- */
-internal fun nextInQueue(queue: List<PlaybackItem>, index: Int, currentKey: String): PlaybackItem? {
-    if (queue.getOrNull(index)?.key != currentKey) return null
-    return queue.getOrNull(index + 1)
-}
-
-/** Очередь музыки: файлы по порядку и место играющего файла в них. Пустая очередь не имеет места. */
-internal data class PlaybackQueue(val items: List<PlaybackItem> = emptyList(), val index: Int = -1)
-
-/**
- * Очередь после повторного выбора файла, который уже играет. Голосовое и кружок очередь не трогают. Музыка: переданная очередь
- * заменяет прежнюю. Без неё прежняя остаётся, только если файл выбран из того же места: очередь другого чата не должна играть дальше.
- */
-internal fun queueAfterReselect(previous: PlaybackQueue, next: PlaybackItem, given: PlaybackQueue?, currentOrigin: PlaybackOrigin?): PlaybackQueue {
-    if (next.kind != MediaKind.Audio) return previous
-    return given ?: previous.takeIf { currentOrigin == next.origin } ?: PlaybackQueue()
-}
-
-/** Позиция, с которой продолжается файл [key]: прерванная музыка возвращается к своему месту, остальные файлы идут с начала. */
-internal fun resumePositionMs(waiting: InterruptedMusic?, key: String): Long = waiting?.takeIf { it.item.key == key }?.positionMs ?: 0L
-
-/** Key файла в общем плеере: один на весь файл, поэтому повторный запуск не начинает его сначала. */
-internal fun MessageMedia.playbackKey(): String = "$kind:$fileId"
 
 /** Containers that can be parsed from the beginning; MP4/M4A additionally needs a fast-start index. */
 private val DIRECT_AUDIO_MIME = setOf(
@@ -224,28 +101,16 @@ internal fun growingAudioSource(
     )
 }
 
-/** Файл из сообщения как элемент общего плеера. [origin] указывает сообщение, в котором лежит файл. */
-fun MessageMedia.playbackItem(path: String, fallbackTitle: String, origin: PlaybackOrigin? = null, artworkPath: String? = null, growing: GrowingPlaybackSource? = null): PlaybackItem = PlaybackItem(
-    key = playbackKey(),
-    kind = kind,
-    path = path,
-    // У музыки в плеере показываем теги: «Исполнитель — Название», а не имя файла.
-    title = if (kind == MediaKind.Audio && (title.isNotBlank() || performer.isNotBlank())) listOf(performer, title.ifBlank { fileName }).filter { it.isNotBlank() }.joinToString(" — ") else fileName.ifBlank { fallbackTitle },
-    durationSeconds = durationSeconds,
-    origin = origin,
-    artworkPath = if (kind == MediaKind.Audio) artworkPath else null,
-    performer = if (kind == MediaKind.Audio) performer else "",
-    secret = isSecret,
-    growing = growing
-)
-
-/** Скорость без лишнего нуля: «1» и «2», но «0.5» и «1.5». */
-internal fun speedLabel(speed: Float): String = if (speed % 1f == 0f) speed.toInt().toString() else speed.toString()
+/** A seek requested on an unseekable growing Ogg/Opus source; applied after completion. */
+private data class DeferredGrowingSeek(val key: String, val positionMs: Long, val resume: Boolean)
 
 /**
  * Общий плеер приложения. Музыка, голосовые и кружки играют через один ExoPlayer, поэтому звук не обрывается
  * при переходе между экранами. Плеер живёт в процессе, а [PlaybackService] держит его на переднем плане,
  * пока он играет: уведомление, экран блокировки и гарнитура работают через систему.
+ *
+ * The ExoPlayer playlist and [PlaybackState.queue] are kept in lockstep: the queue is the single public source
+ * of truth and Media3/MediaSession sees the same items, modes and commands.
  */
 object PlaybackEngine {
     private const val PROGRESS_INTERVAL_MS = 250L
@@ -253,17 +118,17 @@ object PlaybackEngine {
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
-    /** A cover thumbnail may finish downloading after playback has already started. */
-    fun updateArtwork(key: String, path: String) {
-        _state.update { playback ->
-            val item = playback.item
-            if (item == null || item.key != key || item.artworkPath == path) playback
-            else playback.copy(item = item.copy(artworkPath = path))
-        }
-    }
+    /** The current ExoPlayer audio session; the equalizer attaches to exactly this session. */
+    private val _audioSessionId = MutableStateFlow<Int?>(null)
+    val audioSessionId: StateFlow<Int?> = _audioSessionId.asStateFlow()
+
+    /** Snapshot for callers that need to attach an audio effect immediately. */
+    fun currentAudioSessionId(): Int? = _audioSessionId.value
+
     private val _showInChat = MutableSharedFlow<PlaybackOrigin>(extraBufferCapacity = 1)
     /** Запросы открыть чат с сообщением текущего файла. Их разбирает корневой экран приложения. */
     val showInChat: SharedFlow<PlaybackOrigin> = _showInChat.asSharedFlow()
+
     private var exo: ExoPlayer? = null
     private var controls: Player? = null
     private var appContext: Context? = null
@@ -275,24 +140,60 @@ object PlaybackEngine {
     private var videoView: TextureView? = null
     /** Музыка, которая ждёт, пока голосовое или кружок доиграет. Очищается при остановке и при новом запуске музыки. */
     private var interruptedMusic: InterruptedMusic? = null
-    /** Очередь музыки в порядке показа. Когда файл очереди доиграл, следующий начинает играть сам. Сбрасывается при запуске файла вне очереди и при остановке. */
-    private var queue: List<PlaybackItem> = emptyList()
-    /** Место играющего файла в [queue]. По номеру место находится однозначно, даже если один файл в очереди стоит дважды. */
-    private var queueIndex = -1
+    /** Lazily resolves not-yet-downloaded queue items for the current account. */
+    private var queueSource: PlaybackQueueSource? = null
     /** Отметка «прослушано», которую плеер вызовет, когда файл начнёт играть. Работает, даже если пузырь уже ушёл с экрана. */
     private var startedCallback: Pair<String, () -> Unit>? = null
     /** Приложение на переднем плане. Отметку репозиторий принимает только отсюда, поэтому файл, начавший играть в фоне, ждёт возврата. */
     private var foreground = false
+    /** Changing this token invalidates an asynchronously delivered ENDED from the previous source. */
+    private var transitionToken = 0L
+    private var activeAccountId: String? = null
+    private val prefetchedKeys = mutableSetOf<String>()
 
     /**
-     * Общий плеер для системного управления: уведомление, экран блокировки и гарнитура. «Играть» после конца файла начинает
-     * его сначала, а после ошибки загружает заново, как кнопка в приложении.
+     * A cover thumbnail may finish downloading after playback has already started. The key carries account/origin,
+     * so another account's file with the same numeric id is never updated.
      */
+    fun updateArtwork(key: String, path: String) {
+        val snapshot = _state.value
+        val item = snapshot.item
+        val queue = snapshot.queue
+        val updatedQueue = queue.map { if (it.key == key) it.copy(artworkPath = path) else it }
+        val updatedItem = item?.takeIf { it.key == key }?.copy(artworkPath = path)
+        if (updatedItem == item && updatedQueue == queue) return
+        _state.update { it.copy(item = updatedItem ?: it.item, queue = updatedQueue) }
+
+        val current = updatedItem ?: updatedQueue.firstOrNull { it.key == key } ?: return
+        if (current.systemPrivate) return
+        PlaybackSources.update(current.systemMediaId, current)
+        val target = exo ?: return
+        val index = (0 until target.mediaItemCount).firstOrNull {
+            target.getMediaItemAt(it).mediaId == current.systemMediaId
+        } ?: return
+        val position = target.currentPosition
+        val wasPlaying = target.isPlaying
+        target.replaceMediaItem(index, mediaItemFor(current))
+        if (index == target.currentMediaItemIndex) {
+            // Replacing metadata must not move the playhead; Media3 may re-open the current source.
+            target.seekTo(position)
+            if (wasPlaying) target.play()
+        }
+    }
+
+    /** The process-wide player used by the MediaSession (notification, lockscreen, Bluetooth). */
     fun player(context: Context): Player = controls ?: createPlayer(context).also { controls = it }
 
+    private fun rawPlayer(context: Context): ExoPlayer {
+        player(context)
+        return exo!!
+    }
+
     /** Единственный ExoPlayer процесса. Создаётся на главном потоке при первом обращении. */
+    @OptIn(UnstableApi::class)
     private fun createPlayer(context: Context): Player {
         val created = ExoPlayer.Builder(context.applicationContext)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(PlaybackDataSourceFactory(context.applicationContext)))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
                 /* handleAudioFocus = */ true
@@ -301,32 +202,45 @@ object PlaybackEngine {
             .build()
             .also {
                 it.addListener(listener)
-                // The user can choose speed on a bubble before the player is created.
-                it.setPlaybackSpeed(_state.value.speed)
+                it.repeatMode = _state.value.repeatMode.toPlayerRepeatMode()
+                it.shuffleModeEnabled = _state.value.shuffleEnabled
+                it.setPlaybackSpeed(_state.value.musicSpeed)
             }
         exo = created
         appContext = context.applicationContext
+        _audioSessionId.value = null
         return object : ForwardingPlayer(created) {
             override fun play() {
                 if (deferredSeek != null) {
                     deferredSeek = deferredSeek?.copy(resume = true)
+                    _state.update { it.copy(intentPlaying = true) }
                     return
                 }
                 if (playbackState == Player.STATE_IDLE) prepare()
                 if (playbackState == Player.STATE_ENDED) {
                     // Секретный файл после конца не повторяется ни кнопкой уведомления, ни мини-плеером.
-                    if (_state.value.item?.secret == true) return
+                    if (_state.value.item?.systemPrivate == true) return
                     seekToDefaultPosition()
                 }
                 // Повтор доигравшего файла снимает отметку конца сразу, чтобы возврат музыки не сработал до первого события плеера.
-                _state.update { it.copy(ended = false) }
+                _state.update { it.copy(ended = false, failed = false, intentPlaying = true) }
+                if (_state.value.item?.systemPrivate != true) startPlaybackService()
                 super.play()
+                prefetchNext()
             }
 
             override fun pause() {
                 // System/lock-screen/headset pause must cancel a pending deferred resume as well.
                 deferredSeek = deferredSeek?.copy(resume = false)
+                _state.update { it.copy(intentPlaying = false, playing = false) }
+                progress?.cancel()
+                progress = null
                 super.pause()
+            }
+
+            override fun stop() {
+                // MediaSession "stop" closes the session completely instead of leaving a phantom notification.
+                PlaybackEngine.stop()
             }
         }
     }
@@ -335,42 +249,93 @@ object PlaybackEngine {
      * Тот же файл ставит на паузу или продолжает, другой файл начинает играть сначала. [onStarted] вызывается один раз, когда
      * файл начнёт играть, даже если пузырь, который его запустил, уже ушёл с экрана. Если это случилось в фоне, вызов ждёт [setForeground].
      */
-    fun toggle(context: Context, item: PlaybackItem, onStarted: (() -> Unit)? = null) = startItem(context, item, emptyList(), -1, onStarted)
+    fun toggle(context: Context, item: PlaybackItem, onStarted: (() -> Unit)? = null) =
+        startItem(context, item, emptyList(), -1, source = null, onStarted = onStarted)
 
     /** Запускает [index]-й файл очереди [items]. Когда он доиграет, следующий файл очереди начинает играть сам. Тап по играющему файлу ставит его на паузу. */
     fun playQueue(context: Context, items: List<PlaybackItem>, index: Int, onStarted: (() -> Unit)? = null) {
         val item = items.getOrNull(index) ?: return
-        startItem(context, item, items, index, onStarted)
+        startItem(context, item, items, index, source = null, onStarted = onStarted)
+    }
+
+    /**
+     * Queue variant with a lazy TDLib source. Tracks that are not downloaded yet stay in the queue and are resolved
+     * on demand; only the current item and 1–2 following items may request a download.
+     */
+    fun playQueue(context: Context, items: List<PlaybackItem>, index: Int, source: PlaybackQueueSource?, onStarted: (() -> Unit)? = null) {
+        val item = items.getOrNull(index) ?: return
+        startItem(context, item, items, index, source = source, onStarted = onStarted)
     }
 
     /** Общая часть [toggle] и [playQueue]: тот же файл ставит на паузу или продолжает, другой запускает с очередью [items]. */
-    private fun startItem(context: Context, item: PlaybackItem, items: List<PlaybackItem>, index: Int, onStarted: (() -> Unit)?) {
+    private fun startItem(
+        context: Context,
+        item: PlaybackItem,
+        items: List<PlaybackItem>,
+        index: Int,
+        source: PlaybackQueueSource?,
+        onStarted: (() -> Unit)?
+    ) {
         if (onStarted != null) startedCallback = item.key to onStarted
-        if (exo != null && _state.value.item?.key == item.key) {
-            // Файл, который играет без очереди, например из ленты чата, берёт очередь вкладки: после паузы и продолжения она пойдёт дальше.
-            // Тот же музыкальный файл из другого сообщения или чата сбрасывает очередь прошлого места, иначе следующий трек пошёл бы из чужого чата.
-            val given = if (items.isNotEmpty()) PlaybackQueue(items, index) else null
-            val next = queueAfterReselect(PlaybackQueue(queue, queueIndex), item, given, currentOrigin = _state.value.item?.origin)
-            queue = next.items
-            queueIndex = next.index
-            // «Показать в чате» ведёт к сообщению, с которого файл запустили последним.
-            _state.update { current ->
-                val previous = current.item
-                current.copy(item = item.copy(
-                    artworkPath = item.artworkPath ?: previous?.artworkPath,
-                    performer = item.performer.ifBlank { previous?.performer.orEmpty() }
-                ))
+        val currentState = _state.value
+        if (exo != null && currentState.item?.key == item.key) {
+            // A file that plays without a queue (for example from the chat feed) adopts the queue of the music tab,
+            // so after pause/resume it continues there. The same file from another account/message has another key
+            // and deliberately starts a new context instead.
+            val given = if (items.isNotEmpty() && index in items.indices) queueForPlayback(items, index) else null
+            val nextQueue = queueAfterReselect(
+                PlaybackQueue(currentState.queue, currentState.queueIndex),
+                item,
+                given,
+                currentOrigin = currentState.item?.origin
+            )
+            if (source != null) queueSource = source
+            val merged = mergePlaybackItem(item, currentState.item)
+            PlaybackSources.update(merged.systemMediaId, merged)
+            val nextItems = nextQueue.items.map { if (it.key == merged.key) merged else it }
+            val nextIndex = nextQueue.index.takeIf { it in nextItems.indices } ?: nextItems.indexOfFirst { it.key == merged.key }
+            val shouldPlay = currentState.playing || currentState.intentPlaying
+            _state.update { it.copy(item = merged, queue = nextItems, queueIndex = nextIndex) }
+            if (timelineChanged(currentState, nextItems, nextIndex)) {
+                rebuildTimeline(nextItems, nextIndex, currentState.positionMs, shouldPlay)
             }
+            // Second tap on the same file keeps the documented pause/resume semantics.
             togglePlayPause()
-        } else {
-            // Голосовое или кружок поверх музыки очередь не сбрасывают: музыка продолжится и дальше пойдёт по очереди.
-            if (item.kind == MediaKind.Audio) {
-                queue = items
-                queueIndex = index
-            }
-            play(context, item)
+            return
         }
+
+        if (item.kind == MediaKind.Audio && !item.systemPrivate) {
+            val given = if (items.isNotEmpty() && index in items.indices) queueForPlayback(items, index) else PlaybackQueue()
+            queueSource = source
+            if (given.items.isNotEmpty()) {
+                interruptedMusic = interruptedAfterStart(currentState, interruptedMusic, item, source)
+                startQueue(context, given, source, startPositionMs = null, startFraction = 0f)
+            } else {
+                interruptedMusic = interruptedAfterStart(currentState, interruptedMusic, item, source)
+                startSingle(context, item, startPositionMs = null, startFraction = 0f)
+            }
+            return
+        }
+
+        // Голосовое или кружок поверх музыки очередь не сбрасывают: музыка продолжится и дальше пойдёт по очереди.
+        interruptedMusic = interruptedAfterStart(currentState, interruptedMusic, item, queueSource)
+        queueSource = null
+        startSingle(context, item, startPositionMs = null, startFraction = 0f)
     }
+
+    private fun mergePlaybackItem(item: PlaybackItem, previous: PlaybackItem?): PlaybackItem = item.copy(
+        path = item.path.ifBlank { previous?.path.orEmpty() },
+        growing = item.growing ?: previous?.growing.takeIf { item.path.isBlank() },
+        artworkPath = item.artworkPath ?: previous?.artworkPath,
+        performer = item.performer.ifBlank { previous?.performer.orEmpty() },
+        trackTitle = item.trackTitle.ifBlank { previous?.trackTitle.orEmpty() },
+        album = item.album.ifBlank { previous?.album.orEmpty() },
+        mimeType = item.mimeType.ifBlank { previous?.mimeType.orEmpty() },
+        sizeBytes = item.sizeBytes.takeIf { it > 0L } ?: previous?.sizeBytes ?: 0L
+    )
+
+    private fun timelineChanged(current: PlaybackState, queue: List<PlaybackItem>, index: Int): Boolean =
+        current.queue.map { it.key } != queue.map { it.key } || current.queueIndex != index
 
     /** Приложение ушло в фон или вернулось на передний план. Отметка, которую файл начал в фоне, уходит на возврате. */
     fun setForeground(active: Boolean) {
@@ -379,10 +344,22 @@ object PlaybackEngine {
     }
 
     /**
-     * Запускает файл с начала или с доли [startFraction]. Скорость сохраняется между файлами. Если запустили музыку, которую
-     * прервало голосовое или кружок, она продолжается с того же места.
+     * The app's selected Telegram account changed. Music from the previous account must never keep playing under
+     * another account's UI or leak its queue/artwork into the new session.
      */
-    @OptIn(UnstableApi::class)
+    fun setActiveAccount(accountId: String) {
+        if (accountId.isBlank()) return
+        val previous = activeAccountId
+        activeAccountId = accountId
+        if (previous == null || previous == accountId) return
+        val item = _state.value.item ?: return
+        if (item.accountId != accountId) stop()
+    }
+
+    /**
+     * Запускает файл с начала или с доли [startFraction]. Скорость сохраняется между файлами. Если запустили музыку, которую
+     * прервало голосовое или кружок, она продолжается с того же места и из того же queue index.
+     */
     fun play(
         context: Context,
         item: PlaybackItem,
@@ -390,69 +367,248 @@ object PlaybackEngine {
         onStarted: (() -> Unit)? = null,
         startPositionMs: Long? = null
     ) {
-        val target = player(context)
         if (onStarted != null) startedCallback = item.key to onStarted
+        val current = _state.value
+        val waiting = interruptedMusic
+        val restore = waiting?.takeIf { it.item.key == item.key }
+        val resumeMs = startPositionMs ?: resumePositionMs(waiting, item.key)
+        val interruptedSource = if (item.isMusic) restore?.source ?: queueSource else queueSource
+        interruptedMusic = interruptedAfterStart(current, waiting, item, interruptedSource)
+        if (item.isMusic && restore != null && restore.queueIndex in restore.queue.indices) {
+            queueSource = restore.source
+            _state.update { it.copy(shuffleEnabled = restore.shuffleEnabled, repeatMode = restore.repeatMode) }
+            startQueue(
+                context,
+                PlaybackQueue(restore.queue, restore.queueIndex),
+                restore.source,
+                startPositionMs = resumeMs,
+                startFraction = startFraction
+            )
+        } else {
+            queueSource = if (item.isMusic) restore?.source else null
+            startSingle(context, item, startPositionMs = resumeMs, startFraction = startFraction)
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun startQueue(
+        context: Context,
+        queue: PlaybackQueue,
+        source: PlaybackQueueSource?,
+        startPositionMs: Long?,
+        startFraction: Float
+    ) {
+        val selected = queue.items.getOrNull(queue.index) ?: return
+        val target = rawPlayer(context)
+        transitionToken++
         syncPosition()
         clearDeferredSeek()
-        // Отметка ждёт только свой файл: запуск другого файла её сбрасывает.
-        startedCallback = startedCallback?.takeIf { it.first == item.key }
-        val waiting = interruptedMusic
-        val requestedStart = startPositionMs ?: resumePositionMs(waiting, item.key)
-        val growing = item.growing
-        val deferStart = shouldDeferGrowingSeek(growing, requestedStart)
-        val resumeMs = if (deferStart) 0L else requestedStart
-        if (deferStart) {
-            // playWhenReady may still be true from the previous item; pause before replacing the source.
-            target.pause()
-        }
-        interruptedMusic = interruptedAfterStart(_state.value, waiting, item)
-        val mediaItem = MediaItem.Builder()
-            .setMediaId(item.key)
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).build())
-        if (growing == null) {
-            target.setMediaItem(mediaItem.setUri(Uri.fromFile(File(item.path))).build(), resumeMs)
-        } else {
-            val factory = object : DataSource.Factory {
-                override fun createDataSource(): DataSource = GrowingFileDataSource(item.path, growing)
-            }
-            val source = ProgressiveMediaSource.Factory(factory).createMediaSource(
-                mediaItem.setUri("beygram-growing://${item.key}").build()
-            )
-            exo?.setMediaSource(source, resumeMs)
-        }
+        pendingStartFraction = 0f
+        startedCallback = startedCallback?.takeIf { it.first == selected.key }
+        queueSource = source
+        prefetchedKeys.clear()
+
+        PlaybackSources.clear()
+        queue.items.forEach { registerSource(it, source) }
+        val item = resolvedItem(selected)
+        val resolvedQueue = queue.items.map { if (it.key == item.key) item else it }
+        val requestedStart = (startPositionMs ?: 0L).coerceAtLeast(0L)
+        val defer = shouldDeferGrowingSeek(item.growing, requestedStart)
+        val mediaItems = resolvedQueue.map(::mediaItemFor)
+        target.setMediaItems(mediaItems, queue.index, if (defer) 0L else requestedStart)
+        applyPlayerModes(target, music = true)
+        applySpeed(target, item)
         target.prepare()
-        // Длина из сообщения округлена до секунды, поэтому долю применяем, когда плеер узнает настоящую длину файла.
-        pendingStartFraction = if (startPositionMs == null && !deferStart) startFraction.coerceIn(0f, 1f) else 0f
-        if (deferStart) {
-            // Ogg/Opus cannot seek before completion; wait for a seekable full file instead of
-            // letting ProgressiveMediaPeriod silently reset the seek to zero.
+        updateAudioSessionId()
+
+        val speed = effectiveSpeed(item)
+        val playing = false
+        _state.value = stateFor(
+            item = item,
+            queue = resolvedQueue,
+            index = queue.index,
+            positionMs = requestedStart,
+            playing = playing,
+            intentPlaying = true,
+            speed = speed
+        )
+        updateAudioSessionId()
+        if (defer) {
+            target.pause()
             deferredSeek = DeferredGrowingSeek(item.key, requestedStart, resume = true)
-            _state.value = PlaybackState(item = item, playing = false, positionMs = requestedStart, speed = _state.value.speed)
             startDeferredSeekWatcher()
             return
         }
+        pendingStartFraction = if (startPositionMs == null) startFraction.coerceIn(0f, 1f) else 0f
         target.play()
-        _state.value = PlaybackState(item = item, playing = true, positionMs = resumeMs, speed = _state.value.speed)
-        startPlaybackService()
+        if (!item.systemPrivate) startPlaybackService()
         startProgress()
+        prefetchNext()
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun startSingle(context: Context, item: PlaybackItem, startPositionMs: Long?, startFraction: Float) {
+        val target = rawPlayer(context)
+        transitionToken++
+        syncPosition()
+        clearDeferredSeek()
+        pendingStartFraction = 0f
+        startedCallback = startedCallback?.takeIf { it.first == item.key }
+        prefetchedKeys.clear()
+
+        PlaybackSources.clear()
+        registerSource(item, queueSource)
+        val resolved = resolvedItem(item)
+        val requestedStart = (startPositionMs ?: 0L).coerceAtLeast(0L)
+        val defer = shouldDeferGrowingSeek(resolved.growing, requestedStart)
+        target.setMediaItems(listOf(mediaItemFor(resolved)), 0, if (defer) 0L else requestedStart)
+        applyPlayerModes(target, music = resolved.isMusic && !resolved.systemPrivate)
+        applySpeed(target, resolved)
+        target.prepare()
+        updateAudioSessionId()
+
+        _state.value = stateFor(
+            item = resolved,
+            queue = emptyList(),
+            index = -1,
+            positionMs = requestedStart,
+            playing = false,
+            intentPlaying = true,
+            speed = effectiveSpeed(resolved)
+        )
+        updateAudioSessionId()
+        if (resolved.systemPrivate) stopPlaybackService()
+        if (defer) {
+            target.pause()
+            deferredSeek = DeferredGrowingSeek(resolved.key, requestedStart, resume = true)
+            startDeferredSeekWatcher()
+            return
+        }
+        pendingStartFraction = if (startPositionMs == null) startFraction.coerceIn(0f, 1f) else 0f
+        target.play()
+        if (resolved.systemPrivate) stopPlaybackService() else startPlaybackService()
+        startProgress()
+    }
+
+    private fun stateFor(
+        item: PlaybackItem,
+        queue: List<PlaybackItem>,
+        index: Int,
+        positionMs: Long,
+        playing: Boolean,
+        intentPlaying: Boolean,
+        speed: Float
+    ): PlaybackState {
+        val current = _state.value
+        val target = exo
+        return PlaybackState(
+            item = item,
+            playing = playing,
+            intentPlaying = intentPlaying,
+            positionMs = positionMs,
+            durationMs = durationNow(),
+            speed = speed,
+            failed = false,
+            started = false,
+            ended = false,
+            queue = queue,
+            queueIndex = index,
+            shuffleEnabled = current.shuffleEnabled,
+            repeatMode = current.repeatMode,
+            isBuffering = target?.playbackState == Player.STATE_BUFFERING,
+            bufferedFraction = target?.bufferedPercentage?.coerceIn(0, 100)?.toFloat()?.div(100f) ?: 0f,
+            musicSpeed = current.musicSpeed,
+            voiceSpeed = current.voiceSpeed
+        )
+    }
+
+    private fun registerSource(item: PlaybackItem, source: PlaybackQueueSource?) {
+        PlaybackSources.register(item.systemMediaId, PlaybackSourceHandle(item, source))
+    }
+
+    private fun resolvedItem(item: PlaybackItem): PlaybackItem {
+        val handle = PlaybackSources.handle(item.systemMediaId) ?: return item
+        val resolved = handle.resolve() ?: return handle.item
+        val updated = handle.item.copy(path = resolved.path, growing = resolved.growing)
+        handle.item = updated
+        return updated
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun mediaItemFor(item: PlaybackItem): MediaItem {
+        val metadata = item.systemMetadata()
+        val mediaId = item.systemMediaId
+        val needsSource = item.fileId != null || item.path.isBlank() || item.growing != null
+        val uri = if (needsSource) PlaybackSources.uri(mediaId) else Uri.fromFile(File(item.path))
+        val mime = item.mimeType.ifBlank {
+            when (item.kind) {
+                MediaKind.Audio -> "audio/mpeg"
+                MediaKind.Voice -> "audio/ogg"
+                MediaKind.VideoNote -> "video/mp4"
+                else -> ""
+            }
+        }
+        return MediaItem.Builder()
+            .setMediaId(mediaId)
+            .setUri(uri)
+            .apply { if (mime.isNotBlank()) setMimeType(mime) }
+            .setMediaMetadata(
+                MediaMetadata.Builder().apply {
+                    if (metadata.title.isNotBlank()) setTitle(metadata.title)
+                    if (metadata.artist.isNotBlank()) setArtist(metadata.artist)
+                    if (metadata.album.isNotBlank()) setAlbumTitle(metadata.album)
+                    val art = metadata.artworkPath?.let { artworkUri(it) }
+                    if (art != null) setArtworkUri(art)
+                    if (metadata.durationMs > 0L) setDurationMs(metadata.durationMs)
+                }.build()
+            )
+            .build()
+    }
+
+    private fun artworkUri(path: String): Uri? {
+        val context = appContext ?: return null
+        val file = File(path)
+        if (!file.isFile) return null
+        return runCatching {
+            FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+        }.getOrElse { Uri.fromFile(file) }
+    }
+
+    private fun PlaybackRepeatMode.toPlayerRepeatMode(): Int = when (this) {
+        PlaybackRepeatMode.Off -> Player.REPEAT_MODE_OFF
+        PlaybackRepeatMode.One -> Player.REPEAT_MODE_ONE
+        PlaybackRepeatMode.All -> Player.REPEAT_MODE_ALL
+    }
+
+    private fun applyPlayerModes(target: ExoPlayer, music: Boolean) {
+        val state = _state.value
+        target.repeatMode = if (music) state.repeatMode.toPlayerRepeatMode() else Player.REPEAT_MODE_OFF
+        target.shuffleModeEnabled = music && state.shuffleEnabled
+    }
+
+    private fun effectiveSpeed(item: PlaybackItem): Float =
+        playbackSpeedFor(item.kind, _state.value.musicSpeed, _state.value.voiceSpeed)
+
+    private fun applySpeed(target: ExoPlayer, item: PlaybackItem) {
+        target.setPlaybackSpeed(effectiveSpeed(item))
     }
 
     /** Перемотка по абсолютной позиции; для растущего Ogg запрос откладывается до полной загрузки. */
     fun seekToPosition(positionMs: Long) {
         val target = exo ?: return
         val position = positionMs.coerceAtLeast(0L)
-        val item = _state.value.item
-        val growing = item?.growing
-        if (item != null && shouldDeferGrowingSeek(growing, position)) {
-            val resume = _state.value.playing
+        val item = _state.value.item ?: return
+        val growing = item.growing
+        if (shouldDeferGrowingSeek(growing, position)) {
+            val resume = _state.value.intentPlaying
             target.pause()
-            deferredSeek = DeferredGrowingSeek(item.key, position, resume)
-            _state.update { it.copy(positionMs = position, playing = false) }
+            deferredSeek = DeferredGrowingSeek(item.key, position, resume = resume)
+            _state.update { it.copy(positionMs = position, playing = false, isBuffering = resume) }
             startDeferredSeekWatcher()
             return
         }
-        if (item != null && growing != null && !growing.advertiseLength && growing.isComplete() && growing.completedPath() != null) {
-            rebuildSeekableAt(item, position, _state.value.playing)
+        if (growing != null && !growing.advertiseLength && growing.isComplete() && growing.completedPath() != null) {
+            rebuildCurrentAt(item, position, _state.value.intentPlaying)
             return
         }
         clearDeferredSeek()
@@ -460,31 +616,101 @@ object PlaybackEngine {
         _state.update { it.copy(positionMs = position) }
     }
 
-    /** Rebuilds the player on the completed file, preserving the requested position and play state. */
-    private fun rebuildSeekableAt(item: PlaybackItem, positionMs: Long, resume: Boolean) {
-        val path = item.growing?.completedPath() ?: return
+    /** Перемотка по доле длины. [fallbackDurationMs] используется, если контейнер ещё не сообщил длину. */
+    fun seekTo(fraction: Float, fallbackDurationMs: Long = 0L) {
         val target = exo ?: return
+        val duration = target.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: fallbackDurationMs
+        if (duration <= 0L) return
+        val position = (fraction.coerceIn(0f, 1f) * duration.toFloat()).toLong()
+        seekToPosition(position)
+    }
+
+    /** Rebuilds the current source on the completed file, preserving queue/index and the requested position. */
+    private fun rebuildCurrentAt(item: PlaybackItem, positionMs: Long, resume: Boolean) {
+        val path = item.growing?.completedPath() ?: return
         val completed = item.copy(path = path, growing = null)
-        pendingStartFraction = 0f
-        target.setMediaItem(
-            MediaItem.Builder()
-                .setMediaId(completed.key)
-                .setUri(Uri.fromFile(File(path)))
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(completed.title).build())
-                .build(),
-            positionMs
-        )
+        val state = _state.value
+        if (state.queue.isNotEmpty()) {
+            val queue = state.queue.map { if (it.key == completed.key) completed else it }
+            val index = queue.indexOfFirst { it.key == completed.key }
+            if (index >= 0) {
+                rebuildTimeline(queue, index, positionMs, resume)
+                return
+            }
+        }
+        val target = rawPlayer(appContext ?: return)
+        PlaybackSources.clear()
+        registerSource(completed, queueSource)
+        target.setMediaItems(listOf(mediaItemFor(completed)), 0, positionMs)
+        applyPlayerModes(target, music = completed.isMusic)
+        applySpeed(target, completed)
         target.prepare()
         if (resume) {
             target.play()
-            startPlaybackService()
+            if (completed.systemPrivate) stopPlaybackService() else startPlaybackService()
             startProgress()
         } else {
             target.pause()
             progress?.cancel()
             progress = null
         }
-        _state.update { it.copy(item = completed, positionMs = positionMs, playing = resume) }
+        _state.update {
+            it.copy(
+                item = completed,
+                positionMs = positionMs,
+                playing = false,
+                intentPlaying = resume,
+                ended = false,
+                failed = false,
+                durationMs = durationNow()
+            )
+        }
+        updateAudioSessionId()
+    }
+
+    private fun rebuildTimeline(queue: List<PlaybackItem>, index: Int, positionMs: Long, play: Boolean) {
+        if (queue.isEmpty() || index !in queue.indices) return
+        val target = exo ?: return
+        transitionToken++
+        clearDeferredSeek()
+        pendingStartFraction = 0f
+        prefetchedKeys.clear()
+        PlaybackSources.clear()
+        queue.forEach { registerSource(it, queueSource) }
+        val item = resolvedItem(queue[index])
+        val resolvedQueue = queue.map { if (it.key == item.key) item else it }
+        target.setMediaItems(resolvedQueue.map(::mediaItemFor), index, positionMs.coerceAtLeast(0L))
+        applyPlayerModes(target, music = item.isMusic && !item.systemPrivate)
+        applySpeed(target, item)
+        target.prepare()
+        if (play) {
+            target.play()
+            if (item.systemPrivate) stopPlaybackService() else startPlaybackService()
+            startProgress()
+        } else {
+            target.pause()
+            progress?.cancel()
+            progress = null
+        }
+        _state.update {
+            it.copy(
+                item = item,
+                queue = resolvedQueue,
+                queueIndex = index,
+                positionMs = positionMs.coerceAtLeast(0L),
+                playing = false,
+                intentPlaying = play,
+                speed = effectiveSpeed(item),
+                started = exo?.isPlaying == true,
+                ended = false,
+                failed = false,
+                isBuffering = target.playbackState == Player.STATE_BUFFERING,
+                bufferedFraction = target.bufferedPercentage.coerceIn(0, 100).toFloat() / 100f,
+                durationMs = durationNow()
+            )
+        }
+        updateAudioSessionId()
+        if (play) prefetchNext()
     }
 
     private fun startDeferredSeekWatcher() {
@@ -500,7 +726,7 @@ object PlaybackEngine {
                 val growing = item.growing
                 if (growing?.isComplete() == true && growing.completedPath() != null) {
                     deferredSeek = null
-                    rebuildSeekableAt(item, pending.positionMs, pending.resume)
+                    rebuildCurrentAt(item, pending.positionMs, pending.resume)
                     break
                 }
                 delay(200)
@@ -519,6 +745,7 @@ object PlaybackEngine {
         startedCallback = key to onStarted
         if (deferredSeek?.key == key) {
             deferredSeek = deferredSeek?.copy(resume = true)
+            _state.update { it.copy(intentPlaying = true) }
             return
         }
         togglePlayPause()
@@ -530,38 +757,239 @@ object PlaybackEngine {
         // A deferred Ogg seek is waiting for the completed file; starting at zero here would undo it.
         if (deferredSeek != null) {
             deferredSeek = deferredSeek?.copy(resume = true)
+            _state.update { it.copy(intentPlaying = true) }
+            return
+        }
+        // At ENDED ExoPlayer keeps playWhenReady=true; the user's Play must restart, not "pause" an already silent item.
+        if (_state.value.ended) {
+            _state.update { it.copy(failed = false, intentPlaying = true) }
+            if (_state.value.item?.systemPrivate != true) startPlaybackService()
+            target.play()
+            prefetchNext()
             return
         }
         // Решает то же состояние, что видит интерфейс: файл, который уже буферизуется, пауза отменяет, а не запускает снова.
-        if (_state.value.playing) {
+        if (_state.value.intentPlaying || _state.value.playing) {
             pause()
             return
         }
-        _state.update { it.copy(failed = false) }
-        startPlaybackService()
+        _state.update { it.copy(failed = false, ended = false, intentPlaying = true) }
+        if (_state.value.item?.systemPrivate != true) startPlaybackService()
         target.play()
+        prefetchNext()
     }
 
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
     fun pause() {
         exo?.pause()
         deferredSeek = deferredSeek?.copy(resume = false)
-        _state.update { it.copy(playing = false) }
+        progress?.cancel()
+        progress = null
+        _state.update { it.copy(playing = false, intentPlaying = false) }
     }
 
-    /** Перемотка по доле длины. [fallbackDurationMs] используется, если контейнер ещё не сообщил длину. */
-    fun seekTo(fraction: Float, fallbackDurationMs: Long = 0L) {
+    /** Explicit user stop: closes the session, clears the queue and removes the notification. */
+    fun stop() {
+        interruptedMusic = null
+        queueSource = null
+        prefetchedKeys.clear()
+        haltPlayer()
+    }
+
+    /** Alias used by UI that wants an unambiguous "clear everything" action. */
+    fun clear() = stop()
+
+    private fun haltPlayer() {
+        progress?.cancel()
+        progress = null
+        clearDeferredSeek()
+        pendingStartFraction = 0f
+        startedCallback = null
+        transitionToken++
+        prefetchedKeys.clear()
+        PlaybackSources.clear()
+        exo?.let {
+            it.stop()
+            it.clearMediaItems()
+        }
+        _audioSessionId.value = null
+        val previous = _state.value
+        _state.value = PlaybackState(
+            speed = previous.musicSpeed,
+            musicSpeed = previous.musicSpeed,
+            voiceSpeed = previous.voiceSpeed,
+            repeatMode = previous.repeatMode,
+            shuffleEnabled = previous.shuffleEnabled
+        )
+        stopPlaybackService()
+    }
+
+    /** Останавливает секретный/view-once файл или медиа из секретного чата, когда пользователь ушёл из чата или свернул приложение. Остальные файлы играют дальше. */
+    fun stopSecret() {
+        if (_state.value.item?.systemPrivate != true) return
+        val music = interruptedMusic
+        val context = appContext
+        if (music == null || context == null) {
+            stop()
+            return
+        }
+        interruptedMusic = null
+        haltPlayer()
+        restoreInterruptedMusic(music)
+    }
+
+    fun next() {
         val target = exo ?: return
-        val duration = target.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: fallbackDurationMs
-        if (duration <= 0L) return
-        val position = (fraction.coerceIn(0f, 1f) * duration.toFloat()).toLong()
-        seekToPosition(position)
+        val state = _state.value
+        val hasNext = target.hasNextMediaItem()
+        val fallback = if (state.shuffleEnabled) null else (state.queueIndex + 1).takeIf { it in state.queue.indices }
+        val wrapAll = state.repeatMode == PlaybackRepeatMode.All && target.mediaItemCount > 1
+        if (!hasNext && !wrapAll && fallback == null) return
+        val wasPlaying = state.playing || state.intentPlaying || state.ended
+        transitionToken++
+        clearDeferredSeek()
+        _state.update { it.copy(ended = false, failed = false) }
+        when {
+            hasNext -> {
+                val before = target.currentMediaItemIndex
+                target.seekToNextMediaItem()
+                // Repeat One may make ExoPlayer's "next" the same item. Manual Next is documented to advance.
+                if (target.currentMediaItemIndex == before && state.repeatMode == PlaybackRepeatMode.One && fallback != null) {
+                    target.seekTo(fallback, 0L)
+                }
+            }
+            wrapAll -> target.seekTo(0, 0L)
+            fallback != null -> target.seekTo(fallback, 0L)
+        }
+        _state.update { it.copy(intentPlaying = wasPlaying) }
+        if (wasPlaying) {
+            if (target.playbackState == Player.STATE_IDLE) target.prepare()
+            if (state.item?.systemPrivate != true) startPlaybackService()
+            target.play()
+            startProgress()
+        }
+    }
+
+    fun previous() {
+        val target = exo ?: return
+        val state = _state.value
+        // Previous restarts the current track when it is already a few seconds in; otherwise it goes to the previous item.
+        if (!state.ended && state.positionMs >= PREVIOUS_RESTART_THRESHOLD_MS) {
+            target.seekTo(0L)
+            _state.update { it.copy(positionMs = 0L, ended = false, failed = false) }
+            return
+        }
+        val wasPlaying = state.playing || state.intentPlaying || state.ended
+        transitionToken++
+        clearDeferredSeek()
+        _state.update { it.copy(ended = false, failed = false) }
+        if (!target.hasPreviousMediaItem()) {
+            if (state.repeatMode == PlaybackRepeatMode.All && target.mediaItemCount > 1) {
+                target.seekTo(target.mediaItemCount - 1, 0L)
+            } else {
+                target.seekTo(0L)
+            }
+        } else {
+            val before = target.currentMediaItemIndex
+            target.seekToPreviousMediaItem()
+            // Repeat One can suppress manual Previous as well.
+            if (target.currentMediaItemIndex == before && state.repeatMode == PlaybackRepeatMode.One && !state.shuffleEnabled) {
+                val fallback = (state.queueIndex - 1).takeIf { it in state.queue.indices }
+                if (fallback != null) target.seekTo(fallback, 0L)
+            }
+        }
+        _state.update { it.copy(intentPlaying = wasPlaying) }
+        if (wasPlaying) {
+            if (target.playbackState == Player.STATE_IDLE) target.prepare()
+            if (state.item?.systemPrivate != true) startPlaybackService()
+            target.play()
+            startProgress()
+        }
+    }
+
+    fun setShuffle(enabled: Boolean) {
+        if (_state.value.shuffleEnabled == enabled) return
+        _state.update { it.copy(shuffleEnabled = enabled) }
+        if (_state.value.item?.isMusic == true && _state.value.item?.systemPrivate != true) exo?.shuffleModeEnabled = enabled
+    }
+
+    fun cycleRepeat() {
+        setRepeatMode(_state.value.repeatMode.next())
+    }
+
+    fun setRepeatMode(mode: PlaybackRepeatMode) {
+        _state.update { it.copy(repeatMode = mode) }
+        if (_state.value.item?.isMusic == true && _state.value.item?.systemPrivate != true) exo?.repeatMode = mode.toPlayerRepeatMode()
+    }
+
+    /** Inserts [item] after the current item and keeps the current position. */
+    fun playNext(item: PlaybackItem, source: PlaybackQueueSource? = null) {
+        if (item.systemPrivate || !item.isMusic) return
+        val state = _state.value
+        val current = state.item ?: return
+        if (current.systemPrivate || !current.isMusic) return
+        if (source != null) queueSource = source
+        val shouldPlay = state.playing || state.intentPlaying
+        val base = state.queue.ifEmpty { listOf(current) }
+        val currentKey = current.key
+        val queue = base.filterNot { it.key == item.key }.toMutableList()
+        val currentIndex = queue.indexOfFirst { it.key == currentKey }.takeIf { it >= 0 } ?: 0
+        queue.add((currentIndex + 1).coerceIn(0, queue.size), item)
+        rebuildTimeline(queue, currentIndex, state.positionMs, shouldPlay)
+    }
+
+    /** Removes an item from the queue; removing the playing item advances to the next (or previous) one. */
+    fun removeFromQueue(index: Int) {
+        val state = _state.value
+        if (index !in state.queue.indices) return
+        val queue = state.queue.toMutableList().apply { removeAt(index) }
+        if (queue.isEmpty()) {
+            stop()
+            return
+        }
+        val shouldPlay = state.playing || state.intentPlaying
+        val currentIndex = when {
+            index < state.queueIndex -> state.queueIndex - 1
+            index > state.queueIndex -> state.queueIndex
+            else -> index.coerceAtMost(queue.lastIndex)
+        }
+        val position = if (index == state.queueIndex) 0L else state.positionMs
+        rebuildTimeline(queue, currentIndex.coerceIn(queue.indices), position, shouldPlay)
+    }
+
+    /** Moves an item inside the queue while keeping the current item and position. */
+    fun moveInQueue(from: Int, to: Int) {
+        val state = _state.value
+        if (from !in state.queue.indices || to !in state.queue.indices || from == to) return
+        val queue = state.queue.toMutableList()
+        val moved = queue.removeAt(from)
+        queue.add(to, moved)
+        val currentKey = state.item?.key ?: return
+        val index = queue.indexOfFirst { it.key == currentKey }.takeIf { it >= 0 } ?: state.queueIndex
+        rebuildTimeline(queue, index.coerceIn(queue.indices), state.positionMs, state.playing || state.intentPlaying)
     }
 
     fun setSpeed(speed: Float) {
         if (speed !in PLAYBACK_SPEED_OPTIONS) return
-        exo?.setPlaybackSpeed(speed)
-        _state.update { it.copy(speed = speed) }
+        val kind = _state.value.item?.kind
+        if (kind == null || kind == MediaKind.Audio) setMusicSpeed(speed) else setVoiceSpeed(speed)
+    }
+
+    fun setMusicSpeed(speed: Float) {
+        if (speed !in PLAYBACK_SPEED_OPTIONS) return
+        val current = _state.value
+        val applies = current.item?.kind == MediaKind.Audio || current.item == null
+        _state.update { it.copy(musicSpeed = speed, speed = if (applies) speed else it.speed) }
+        if (applies) exo?.setPlaybackSpeed(speed)
+    }
+
+    fun setVoiceSpeed(speed: Float) {
+        if (speed !in PLAYBACK_SPEED_OPTIONS) return
+        val current = _state.value
+        val item = current.item
+        val applies = item != null && item.kind != MediaKind.Audio
+        _state.update { it.copy(voiceSpeed = speed, speed = if (applies) speed else it.speed) }
+        if (applies) exo?.setPlaybackSpeed(speed)
     }
 
     /** Просит открыть чат с сообщением, из которого запущен файл. Экран приложения переходит к этому сообщению. */
@@ -587,61 +1015,65 @@ object PlaybackEngine {
         videoView = null
     }
 
-    /** Останавливает секретный файл, когда пользователь ушёл из чата или свернул приложение. Остальные файлы играют дальше. */
-    fun stopSecret() {
-        if (_state.value.item?.secret != true) return
-        val music = interruptedMusic
-        val context = appContext
-        if (music == null || context == null) {
-            stop()
-            return
-        }
-        // Музыка, которую секретный файл прервал, продолжается с того же места и из той же очереди, как после его конца.
-        halt()
-        play(context, music.item)
-    }
-
-    /** Останавливает звук, убирает файл из мини-плеера и снимает уведомление, которое держал сервис. Забывает музыку и очередь. */
-    fun stop() {
-        interruptedMusic = null
-        queue = emptyList()
-        queueIndex = -1
-        halt()
-    }
-
-    /** Останавливает плеер и сервис, но оставляет ждущую музыку и её очередь: их продолжает [play]. */
-    private fun halt() {
-        progress?.cancel()
-        progress = null
-        clearDeferredSeek()
-        pendingStartFraction = 0f
-        startedCallback = null
-        exo?.let {
-            it.stop()
-            it.clearMediaItems()
-        }
-        _state.value = PlaybackState(speed = _state.value.speed)
-        appContext?.let { it.stopService(Intent(it, PlaybackService::class.java)) }
-    }
-
     /** Сервис нужен для уведомления и экрана блокировки. Фоновый запуск может не пройти, тогда звук всё равно играет. */
     private fun startPlaybackService() {
         val context = appContext ?: return
         runCatching { context.startService(Intent(context, PlaybackService::class.java)) }
     }
 
+    /** Explicit stop must remove the foreground notification instead of leaving a phantom session. */
+    private fun stopPlaybackService() {
+        val context = appContext ?: return
+        runCatching { context.stopService(Intent(context, PlaybackService::class.java)) }
+    }
+
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            _state.update { it.copy(playing = isPlaying, durationMs = durationNow(), started = it.started || isPlaying) }
-            if (isPlaying) startProgress() else syncPosition()
-            if (isPlaying) fireStartedCallback()
+            _state.update {
+                it.copy(
+                    playing = isPlaying,
+                    intentPlaying = it.intentPlaying || isPlaying,
+                    durationMs = durationNow(),
+                    started = it.started || isPlaying
+                )
+            }
+            if (isPlaying) {
+                startProgress()
+                fireStartedCallback()
+            } else {
+                syncPosition()
+            }
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            _state.update {
+                it.copy(intentPlaying = intentAfterPlayWhenReadyChange(it.intentPlaying, playWhenReady, reason))
+            }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            updateAudioSessionId()
             if (playbackState == Player.STATE_READY) applyPendingStartFraction()
-            _state.update { it.copy(durationMs = durationNow(), ended = playbackState == Player.STATE_ENDED) }
+            val endedNow = playbackState == Player.STATE_ENDED
+            _state.update {
+                it.copy(
+                    durationMs = durationNow(),
+                    ended = endedNow,
+                    isBuffering = playbackState == Player.STATE_BUFFERING,
+                    bufferedFraction = exo?.bufferedPercentage?.coerceIn(0, 100)?.toFloat()?.div(100f) ?: it.bufferedFraction
+                )
+            }
+            if (playbackState == Player.STATE_BUFFERING) startProgress()
+            if (playbackState == Player.STATE_READY && exo?.isPlaying == true) {
+                _state.update { it.copy(started = true) }
+                fireStartedCallback()
+            }
             // Следующий файл ставим после того, как плеер закончит обрабатывать конец файла, а не внутри его обработчика.
-            if (playbackState == Player.STATE_ENDED) scope.launch { advanceAfterEnd() }
+            if (endedNow) {
+                val key = _state.value.item?.key
+                val token = transitionToken
+                scope.launch { handleEnded(key, token) }
+            }
         }
 
         // Перемотку с уведомления или экрана блокировки делает сам плеер, минуя PlaybackEngine: позицию обновляем и на паузе.
@@ -649,15 +1081,50 @@ object PlaybackEngine {
             syncPosition()
         }
 
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val mediaId = mediaItem?.mediaId
+            val snapshot = _state.value
+            if (mediaId != null && reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                transitionToken++
+                val index = snapshot.queue.indexOfFirst { it.key == mediaId }
+                if (index >= 0) {
+                    val item = resolvedItem(snapshot.queue[index])
+                    val speed = effectiveSpeed(item)
+                    exo?.setPlaybackSpeed(speed)
+                    val queue = snapshot.queue.map { if (it.key == item.key) item else it }
+                    _state.update {
+                        it.copy(
+                            item = item,
+                            queue = queue,
+                            queueIndex = index,
+                            positionMs = 0L,
+                            durationMs = durationNow(),
+                            speed = speed,
+                            ended = false,
+                            failed = false,
+                            started = exo?.isPlaying == true,
+                            isBuffering = exo?.playbackState == Player.STATE_BUFFERING,
+                            intentPlaying = exo?.playWhenReady ?: it.intentPlaying
+                        )
+                    }
+                    startedCallback = startedCallback?.takeIf { it.first == item.key }
+                    if (exo?.isPlaying == true) fireStartedCallback()
+                }
+            }
+            updateAudioSessionId()
+            if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) prefetchNext()
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             progress?.cancel()
             clearDeferredSeek()
-            _state.update { it.copy(playing = false, failed = true) }
+            _state.update { it.copy(playing = false, intentPlaying = false, failed = true, isBuffering = false) }
             // Голосовое или кружок, которые не открылись, не должны оставить прерванную музыку навсегда на паузе.
             val music = interruptedMusic ?: return
             val context = appContext ?: return
             if (_state.value.item?.key == music.item.key) return
-            scope.launch { play(context, music.item) }
+            interruptedMusic = null
+            scope.launch { restoreInterruptedMusic(music) }
         }
     }
 
@@ -672,30 +1139,46 @@ object PlaybackEngine {
         pendingStartFraction = 0f
     }
 
-    /** Голосовое или кружок доиграл: музыка, которую он прервал, продолжается с того же места. Если файл уже снова запущен, возврат отменяется. */
-    private fun resumeInterruptedMusic() {
-        val music = interruptedMusic ?: return
+    /** Файл доиграл: сначала возвращаем музыку, которую прервало голосовое или кружок, иначе закрываем фоновую сессию. */
+    private fun handleEnded(endedKey: String?, token: Long) {
+        if (!shouldHandleEnded(endedKey, _state.value.item?.key, token, transitionToken)) return
         if (!_state.value.ended) return
-        val context = appContext ?: return
-        play(context, music.item)
-    }
-
-    /** Файл доиграл: сначала возвращаем музыку, которую прервало голосовое или кружок, иначе запускаем следующий файл очереди. */
-    private fun advanceAfterEnd() {
-        if (interruptedMusic != null) resumeInterruptedMusic()
+        if (interruptedMusic != null) {
+            resumeInterruptedMusic()
+            return
+        }
         // Секретный файл доиграл: его нельзя перемотать и запустить снова, поэтому он уходит из плеера.
-        else if (_state.value.item?.secret == true) stop()
-        else playNextInQueue()
+        if (_state.value.item?.systemPrivate == true) {
+            stop()
+            return
+        }
+        // ExoPlayer already advanced through Repeat/Next when it could; ENDED means the session is finished.
+        stopPlaybackService()
+        _audioSessionId.value = null
     }
 
-    /** Следующий файл очереди. Если текущий файл не из очереди или отметка конца уже снята, ничего не делает. */
-    private fun playNextInQueue() {
+    private fun resumeInterruptedMusic() {
         if (!_state.value.ended) return
-        val current = _state.value.item?.key ?: return
-        val next = nextInQueue(queue, queueIndex, current) ?: return
+        val music = interruptedMusic ?: return
+        interruptedMusic = null
+        restoreInterruptedMusic(music)
+    }
+
+    private fun restoreInterruptedMusic(music: InterruptedMusic) {
         val context = appContext ?: return
-        queueIndex += 1
-        play(context, next)
+        _state.update { it.copy(shuffleEnabled = music.shuffleEnabled, repeatMode = music.repeatMode) }
+        queueSource = music.source
+        if (music.queue.isNotEmpty() && music.queueIndex in music.queue.indices) {
+            startQueue(
+                context,
+                PlaybackQueue(music.queue, music.queueIndex),
+                music.source,
+                startPositionMs = music.positionMs,
+                startFraction = 0f
+            )
+        } else {
+            startSingle(context, music.item, startPositionMs = music.positionMs, startFraction = 0f)
+        }
     }
 
     /** Отдаёт отметку текущему файлу один раз, когда он уже играет и приложение на переднем плане. Если файл сменился, отметка уже сброшена в [play]. */
@@ -707,8 +1190,25 @@ object PlaybackEngine {
     }
 
     private fun syncPosition() {
-        val position = exo?.currentPosition ?: return
-        _state.update { it.copy(positionMs = position) }
+        val target = exo ?: return
+        updateAudioSessionId()
+        _state.update {
+            it.copy(
+                positionMs = target.currentPosition.coerceAtLeast(0L),
+                durationMs = durationNow(),
+                bufferedFraction = target.bufferedPercentage.coerceIn(0, 100).toFloat() / 100f,
+                isBuffering = target.playbackState == Player.STATE_BUFFERING,
+                playing = target.isPlaying
+            )
+        }
+    }
+
+    private fun updateAudioSessionId() {
+        val current = _state.value.item
+        val id = exo?.audioSessionId
+        val isMusic = current != null && current.isMusic && !current.systemPrivate
+        val musicSession = if (id != null && id > 0 && isMusic) id else null
+        if (_audioSessionId.value != musicSession) _audioSessionId.value = musicSession
     }
 
     /** Обновляет позицию, пока файл играет. Пауза и конец файла останавливают цикл. */
@@ -718,91 +1218,39 @@ object PlaybackEngine {
             while (true) {
                 syncPosition()
                 val target = exo ?: break
-                if (!target.isPlaying) break
+                if (!target.isPlaying && target.playbackState != Player.STATE_BUFFERING) break
                 delay(PROGRESS_INTERVAL_MS)
             }
         }
     }
-}
 
-/**
- * Reads a growing TDLib file. Only [GrowingPlaybackSource.readablePrefix] is guaranteed readable
- * before completion; file.length() may include unwritten/garbage regions. A stalled transfer fails
- * after a short grace period so a paused/cancelled download cannot block the player forever.
- */
-@OptIn(UnstableApi::class)
-private class GrowingFileDataSource(
-    private val filePath: String,
-    private val source: GrowingPlaybackSource
-) : DataSource {
-    private var file: RandomAccessFile? = null
-    private var position = 0L
-    private var uri: Uri? = null
-
-    override fun addTransferListener(transferListener: TransferListener) = Unit
-
-    override fun open(dataSpec: DataSpec): Long {
-        close()
-        val opened = RandomAccessFile(filePath, "r")
-        opened.seek(dataSpec.position)
-        file = opened
-        position = dataSpec.position
-        uri = dataSpec.uri
-        if (!source.isComplete() && !source.advertiseLength) return C.LENGTH_UNSET.toLong()
-        val length = if (source.isComplete()) opened.length() else source.totalSize
-        val remaining = (length - position).coerceAtLeast(0L)
-        return if (dataSpec.length == C.LENGTH_UNSET.toLong()) remaining
-        else minOf(remaining, dataSpec.length)
-    }
-
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        val opened = file ?: return C.RESULT_END_OF_INPUT
-        val startedAt = SystemClock.elapsedRealtime()
-        var requestedAt = 0L
-        while (true) {
-            val readable = if (source.isComplete()) opened.length()
-            else minOf(source.readablePrefix(), opened.length())
-            val available = readable - position
-            if (available > 0L) {
-                val toRead = minOf(available, length.toLong()).toInt()
-                val read = opened.read(buffer, offset, toRead)
-                if (read > 0) {
-                    position += read
-                    return read
-                }
-            }
-            if (source.isComplete()) return C.RESULT_END_OF_INPUT
-            val now = SystemClock.elapsedRealtime()
-            if (!source.isDownloading() && now - startedAt >= NO_TRANSFER_TIMEOUT_MS) {
-                throw IOException("Audio download was cancelled")
-            }
-            if (now - requestedAt >= REQUEST_INTERVAL_MS) {
-                requestedAt = now
-                source.onNeedMore()
-            }
-            if (now - startedAt >= STALL_TIMEOUT_MS) {
-                throw IOException("Timed out waiting for the next audio chunk")
-            }
-            try {
-                Thread.sleep(POLL_INTERVAL_MS)
-            } catch (interrupted: InterruptedException) {
-                Thread.currentThread().interrupt()
-                throw IOException("Interrupted while waiting for audio", interrupted)
+    /**
+     * Requests at most two immediately following tracks. The auto-download policy (Data Saver/roaming/size) gates this;
+     * the current item, when actually opened, is always requested by its data source instead.
+     */
+    private fun prefetchNext() {
+        val source = queueSource ?: return
+        val context = appContext ?: return
+        prefetchCandidates(_state.value).forEach { item ->
+            val fileId = item.fileId ?: return@forEach
+            if (source.accountId != item.accountId) return@forEach
+            if (!prefetchedKeys.add(item.key)) return@forEach
+            val fileState = runCatching { source.observeFile(fileId).value }.getOrNull() ?: return@forEach
+            if (fileState.localPath != null || fileState.isDownloading) return@forEach
+            val request = AutoDownloadRequest(
+                fileId = fileId,
+                kind = item.kind,
+                sizeBytes = item.sizeBytes,
+                isSecret = item.secret || item.viewOnce,
+                isSecretChat = item.isSecretChat,
+                hasSpoiler = item.hasSpoiler
+            )
+            val allowed = runCatching {
+                AutoDownloadRuntime.decision(context, request, item.accountId) == AutoDownloadDecision.Allowed
+            }.getOrDefault(false)
+            if (allowed) {
+                runCatching { source.download(fileId) }
             }
         }
-    }
-
-    override fun getUri(): Uri? = uri
-
-    override fun close() {
-        runCatching { file?.close() }
-        file = null
-    }
-
-    private companion object {
-        const val POLL_INTERVAL_MS = 50L
-        const val REQUEST_INTERVAL_MS = 1_000L
-        const val NO_TRANSFER_TIMEOUT_MS = 10_000L
-        const val STALL_TIMEOUT_MS = 45_000L
     }
 }

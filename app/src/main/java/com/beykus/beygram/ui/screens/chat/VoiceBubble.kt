@@ -34,6 +34,7 @@ import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.GrowingPlaybackSource
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
@@ -63,9 +64,10 @@ internal fun VoiceBubble(
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
+    val accountId = LocalPlaybackAccountId.current
     val path = file.localPath ?: file.downloadPath?.takeIf { growing != null }
     val label = media.kind.label(context)
-    val key = media.playbackKey()
+    val key = media.playbackKey(accountId, origin)
     val playbackState = PlaybackEngine.state.collectAsStateWithLifecycle()
     // Общий плеер читает только пузырь, который играет: у остальных значение null, и на каждом шаге прогресса они не перерисовываются.
     val voice = remember(key) { derivedStateOf { playbackState.value.takeIf { it.item?.key == key } } }.value
@@ -94,7 +96,7 @@ internal fun VoiceBubble(
     fun startVoice(localPath: String) {
         val state = PlaybackEngine.state.value
         val starting = !(state.item?.key == key && state.playing)
-        PlaybackEngine.toggle(context, media.playbackItem(localPath, label, origin, growing = growing), onStarted = if (starting) markPlayed else null)
+        PlaybackEngine.toggle(context, media.playbackItem(localPath, label, origin, growing = growing, accountId = accountId), onStarted = if (starting) markPlayed else null)
     }
     // Перемотка по волне: в текущем файле двигает позицию, другой файл начинает с этой точки.
     fun seekVoice(localPath: String, target: Float) {
@@ -113,7 +115,7 @@ internal fun VoiceBubble(
             } else null
             PlaybackEngine.play(
                 context,
-                media.playbackItem(localPath, label, origin, growing = growing),
+                media.playbackItem(localPath, label, origin, growing = growing, accountId = accountId),
                 startFraction = 0f,
                 onStarted = markPlayed,
                 startPositionMs = startMs

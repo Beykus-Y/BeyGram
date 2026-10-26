@@ -145,7 +145,7 @@ internal fun VideoNoteBubble(
     LaunchedEffect(hostContext) { AutoDownloadNetworkStatus.ensureStarted(hostContext) }
     val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
     val label = media.kind.label(hostContext)
-    val key = media.playbackKey()
+    val key = media.playbackKey(accountId, origin)
     val playbackState = PlaybackEngine.state.collectAsStateWithLifecycle()
     // Общий плеер читает только кружок, который играет: у остальных значение null, и на каждом шаге прогресса они не перерисовываются.
     val circle = remember(key) { derivedStateOf { playbackState.value.takeIf { it.item?.key == key } } }.value
@@ -197,7 +197,7 @@ internal fun VideoNoteBubble(
     fun startCircle(localPath: String) {
         val state = PlaybackEngine.state.value
         val starting = !(state.item?.key == key && state.playing)
-        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label, origin), onStarted = if (starting) markPlayed else null)
+        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label, origin, accountId = accountId), onStarted = if (starting) markPlayed else null)
     }
     fun togglePlay() {
         if (path == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startCircle(path)

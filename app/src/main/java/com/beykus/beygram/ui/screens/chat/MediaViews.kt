@@ -380,9 +380,9 @@ internal fun MediaPreview(
             request(media.fileId, MediaKind.Audio, file.size)
         }
     }
-    LaunchedEffect(media.fileId, thumb.localPath) {
+    LaunchedEffect(media.fileId, thumb.localPath, accountId, origin) {
         if (media.kind == MediaKind.Audio && thumbId != media.fileId) {
-            thumb.localPath?.let { PlaybackEngine.updateArtwork(media.playbackKey(), it) }
+            thumb.localPath?.let { PlaybackEngine.updateArtwork(media.playbackKey(accountId, origin), it) }
         }
     }
     // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
@@ -397,7 +397,7 @@ internal fun MediaPreview(
         if (media.kind == MediaKind.Audio && thumbId != media.fileId && thumb.localPath == null && !media.isSecret) {
             // One wait per track: taps while the cover downloads must not stack observers. The process-scoped
             // observer keeps the player cover updated after this row leaves the composition.
-            val key = media.playbackKey()
+            val key = media.playbackKey(accountId, origin)
             if (artworkWaits.add(key)) {
                 (context.applicationContext as BeyGramApplication).applicationScope.launch {
                     try {
@@ -414,13 +414,13 @@ internal fun MediaPreview(
         }
         if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) }
         else startAudio(context, media.playbackItem(audioPath, audioTitle, origin,
-            artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing))
+            artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce))
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
         if (waitingForAudio && audioPath != null) {
             pendingPlaybackRow.value = null
-            startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing))
+            startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce))
         }
     }
     DisposableEffect(row) {
@@ -511,8 +511,9 @@ internal fun MediaPreview(
             )
         }
     } else if (media.kind == MediaKind.Audio) {
-        val playingFlow = remember(media.fileId) {
-            PlaybackEngine.state.map { it.item?.key == media.playbackKey() && it.playing }.distinctUntilChanged()
+        val playingFlow = remember(media.fileId, accountId, origin) {
+            val key = media.playbackKey(accountId, origin)
+            PlaybackEngine.state.map { it.item?.key == key && it.playing }.distinctUntilChanged()
         }
         val musicPlaying by playingFlow.collectAsStateWithLifecycle(initialValue = false)
         val title = media.title.ifBlank { media.fileName.ifBlank { stringResource(R.string.media_kind_audio) } }
@@ -921,7 +922,7 @@ private fun MediaViewerPage(
                 else TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
             (media.kind == MediaKind.Audio || media.kind == MediaKind.Voice) && audioPath != null ->
-                AudioInPlayer(media, audioPath, if (previewId != null) thumb.localPath else null, active, growingAudio) { currentOnViewed(item.messageId) }
+                AudioInPlayer(media, audioPath, if (previewId != null) thumb.localPath else null, active, growingAudio, accountId, item.viewOnce) { currentOnViewed(item.messageId) }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                 if (file.isDownloading) CircularProgressIndicator()
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
@@ -1335,10 +1336,12 @@ private fun AudioInPlayer(
     artworkPath: String?,
     active: Boolean,
     growing: GrowingPlaybackSource?,
+    accountId: String,
+    viewOnce: Boolean,
     onViewed: () -> Unit
 ) {
     val context = LocalContext.current
-    val item = media.playbackItem(path, media.kind.label(context), artworkPath = artworkPath, growing = growing)
+    val item = media.playbackItem(path, media.kind.label(context), artworkPath = artworkPath, growing = growing, accountId = accountId, viewOnce = viewOnce)
     val state by PlaybackEngine.state.collectAsStateWithLifecycle()
     val currentOnViewed by rememberUpdatedState(onViewed)
     // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.
