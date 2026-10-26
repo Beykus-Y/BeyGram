@@ -28,7 +28,6 @@ import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Poll
@@ -90,7 +89,6 @@ import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.ViewOncePolicy
 import com.beykus.beygram.domain.model.MediaFileState
-import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
@@ -127,8 +125,6 @@ private val CaptureRetrySaver = Saver<CaptureRetryState, String>(
  * Attachment flow state. The UI is inline (a panel above the input field), so the chat screen
  * owns this holder and renders [AttachmentButton] and [AttachmentPanel] in different places.
  */
-internal enum class AttachmentPicker { None, Stickers, Gifs }
-
 @Stable
 internal class AttachmentState(
     private val context: Context,
@@ -168,7 +164,6 @@ internal class AttachmentState(
     var viewOnce: Boolean
         get() = viewOnceState.value
         set(value) { viewOnceState.value = value }
-    var picker by mutableStateOf(AttachmentPicker.None)
     var notice by mutableStateOf<String?>(null)
         private set
     val canRetryCapture: Boolean get() = captureRetry.value.canRetry
@@ -256,16 +251,7 @@ internal class AttachmentState(
 
     fun toggleMenu() {
         if (sending || importing || locating || extra != null) return
-        if (picker != AttachmentPicker.None) {
-            picker = AttachmentPicker.None
-            menuOpen = false
-        } else menuOpen = !menuOpen
-    }
-
-    /** The sticker/GIF entry next to the input opens the existing picker without duplicating sending. */
-    fun toggleStickerPicker() {
-        if (sending || importing || active) return
-        if (picker == AttachmentPicker.Stickers) closePicker() else openPicker(AttachmentPicker.Stickers)
+        menuOpen = !menuOpen
     }
 
     fun closeMenu() {
@@ -275,10 +261,7 @@ internal class AttachmentState(
     }
 
     fun dismissTransientPanel() {
-        when {
-            picker != AttachmentPicker.None -> closePicker()
-            menuOpen -> closeMenu()
-        }
+        if (menuOpen) closeMenu()
     }
 
     /** Runs one menu choice; every old type keeps its previous callback. */
@@ -303,19 +286,6 @@ internal class AttachmentState(
         }
     }
 
-    fun openPicker(target: AttachmentPicker) {
-        if (sending || importing || active) return
-        errorState.value = null
-        picker = target
-        menuOpen = false
-    }
-
-    fun closePicker() {
-        if (sending) return
-        picker = AttachmentPicker.None
-        errorState.value = null
-    }
-
     /** A GIF becomes a normal pending attachment, so the caption limit, reply, topic and send options all apply. */
     fun addAnimation(media: OutgoingMedia) {
         if (sending || importing || locating) return
@@ -325,7 +295,6 @@ internal class AttachmentState(
         }
         errorState.value = null
         pendingState.value = ArrayList(pending + media)
-        picker = AttachmentPicker.None
         menuOpen = false
     }
 
@@ -977,7 +946,6 @@ internal class AttachmentState(
         notice = null
         errorState.value = null
         menuOpen = false
-        picker = AttachmentPicker.None
         cameraOpen = false
         scope.launch { discarded.filter { it.path.isNotBlank() }.forEach { importer.discard(it) } }
     }
@@ -1100,60 +1068,41 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val available = enabled && !state.sending && !state.importing && !state.locating
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(
-            onClick = {
-                // The action grid and the pickers replace the keyboard, not the other way round.
-                focus.clearFocus()
-                keyboard?.hide()
-                state.toggleMenu()
-            },
-            enabled = available,
-            modifier = Modifier.size(48.dp).semantics { contentDescription = context.getString(R.string.composer_attach_description) }
-        ) {
-            Icon(
-                Icons.Rounded.AttachFile,
-                contentDescription = null,
-                tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary,
-                modifier = Modifier.size(24.dp)
-            )
-        }
-        IconButton(
-            onClick = {
-                focus.clearFocus()
-                keyboard?.hide()
-                state.toggleStickerPicker()
-            },
-            enabled = available && !state.active,
-            modifier = Modifier.size(48.dp).semantics { contentDescription = context.getString(R.string.composer_open_stickers) }
-        ) {
-            Icon(
-                Icons.Rounded.EmojiEmotions,
-                contentDescription = null,
-                tint = if (state.picker != AttachmentPicker.None) palette.accent else palette.textSecondary,
-                modifier = Modifier.size(24.dp)
-            )
-        }
+    // The sticker/GIF entry is drawn next to this button by the chat screen, not here.
+    IconButton(
+        onClick = {
+            // The action grid replaces the keyboard, not the other way round.
+            focus.clearFocus()
+            keyboard?.hide()
+            state.toggleMenu()
+        },
+        enabled = available,
+        modifier = Modifier.size(48.dp).semantics { contentDescription = context.getString(R.string.composer_attach_description) }
+    ) {
+        Icon(
+            Icons.Rounded.AttachFile,
+            contentDescription = null,
+            tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary,
+            modifier = Modifier.size(24.dp)
+        )
     }
 }
 
-/** Inline panel above the input: action grid, sticker/GIF picker, then the prepared attachments. */
+/** Inline panel above the input: action grid, then the prepared attachments. */
 @Composable
 internal fun AttachmentPanel(
     state: AttachmentState,
     caption: String,
     captionLimit: Int,
-    conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
-    onStickerOptions: (OutgoingMedia) -> Unit,
     allowViewOnce: Boolean = false
 ) {
     val palette = beyGramPalette()
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val configuration = LocalConfiguration.current
-    val visible = state.menuOpen || state.active || state.picker != AttachmentPicker.None || state.error != null || state.notice != null || state.canRetryCapture
+    val visible = state.menuOpen || state.active || state.error != null || state.notice != null || state.canRetryCapture
     val viewOnceAvailable = ViewOncePolicy.canSend(state.outgoingPending, allowViewOnce, scheduled = false)
     val maxListHeight = (configuration.screenHeightDp * 0.48f)
         .dp.coerceIn(150.dp, 420.dp)
@@ -1161,29 +1110,12 @@ internal fun AttachmentPanel(
         if (!viewOnceAvailable) state.viewOnce = false
     }
     var discardConfirm by rememberSaveable { mutableStateOf(false) }
-    BackHandler(enabled = state.menuOpen || state.picker != AttachmentPicker.None) {
+    BackHandler(enabled = state.menuOpen) {
         state.dismissTransientPanel()
     }
     if (!visible) return
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         when {
-            state.picker == AttachmentPicker.Stickers -> StickerPickerPanel(
-                conversation = conversation,
-                observeFile = observeFile,
-                downloadFile = onDownloadFile,
-                onSend = { state.sendStickerNow(it.toOutgoingMedia()) },
-                onOptions = { onStickerOptions(it.toOutgoingMedia()) },
-                onClose = state::closePicker,
-                onOpenGifs = { state.openPicker(AttachmentPicker.Gifs) }
-            )
-            state.picker == AttachmentPicker.Gifs -> GifPickerPanel(
-                conversation = conversation,
-                observeFile = observeFile,
-                downloadFile = onDownloadFile,
-                onPick = { state.addAnimation(it.toOutgoingMedia()) },
-                onClose = state::closePicker,
-                onOpenStickers = { state.openPicker(AttachmentPicker.Stickers) }
-            )
             state.menuOpen -> AttachmentMenu(
                 allowsPolls = state.allowsPolls,
                 enabled = !state.sending && !state.importing && !state.locating,

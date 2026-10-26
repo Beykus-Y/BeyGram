@@ -239,7 +239,8 @@ internal class TdMediaMapper(
             fileId = register(file),
             mimeType = if (format == null) "image/webp" else stickerMimeType(format),
             width = sticker.width,
-            height = sticker.height
+            height = sticker.height,
+            thumbnailFileId = thumbnail(sticker.thumbnail?.takeIf { it.format is TdApi.ThumbnailFormatWebp || it.format is TdApi.ThumbnailFormatJpeg })
         )
     }
 

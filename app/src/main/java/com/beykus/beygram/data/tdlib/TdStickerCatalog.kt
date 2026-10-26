@@ -7,6 +7,8 @@ import com.beykus.beygram.domain.model.StickerItem
 import com.beykus.beygram.domain.model.StickerSearchPage
 import com.beykus.beygram.domain.model.StickerSetContent
 import com.beykus.beygram.domain.model.StickerSetSummary
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import org.drinkless.tdlib.TdApi
 
 /**
@@ -21,6 +23,7 @@ internal class TdStickerCatalog(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, StickerSetContent>?): Boolean = size > SET_CACHE_SIZE
     }
     private val cacheLock = Any()
+    @Volatile private var cachedAnimationBot: AnimationSearchBot? = null
 
     private fun register(file: TdApi.File): Int {
         files.register(file.toMediaFileState())
@@ -82,11 +85,68 @@ internal class TdStickerCatalog(
     }
 
     /** Recently used GIFs come from the account's message history; TDLib has no separate recent-animation list. */
-    suspend fun recentAnimations(offset: String): Result<AnimationPage> = animations(query = "", offset = offset)
+    suspend fun recentAnimations(offset: String): Result<AnimationPage> = requestResult { historyAnimations(query = "", offset = offset) }
 
-    suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = animations(query = query, offset = offset)
+    /**
+     * Global GIF search through the animation search bot, as the Telegram client does. The first page falls back to the
+     * account's message history when the bot cannot be used, so search still works offline. Later pages follow the
+     * path that produced their cursor: a bot cursor is passed to the bot, and a history cursor carries
+     * [HISTORY_CURSOR_PREFIX] so it is never sent to the bot. A failing later page is reported, not replaced.
+     */
+    suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = requestResult {
+        when {
+            offset.startsWith(HISTORY_CURSOR_PREFIX) ->
+                historyAnimationPage(query, offset.removePrefix(HISTORY_CURSOR_PREFIX))
+            offset.isNotEmpty() -> botAnimations(query, offset)
+            else -> orNullOnFailure { botAnimations(query, offset) } ?: historyAnimationPage(query, offset)
+        }
+    }
 
-    private suspend fun animations(query: String, offset: String): Result<AnimationPage> = requestResult {
+    /** One page of the inline bot's animation results. Non-animation results are skipped; an empty offset means no more pages. */
+    private suspend fun botAnimations(query: String, offset: String): AnimationPage {
+        val bot = animationSearchBot()
+        val answer = request(TdApi.GetInlineQueryResults(bot.userId, bot.chatId, null, query, offset))
+        val merged = LinkedHashMap<String, AnimationItem>()
+        answer.results.orEmpty().forEach { result ->
+            val animation = (result as? TdApi.InlineQueryResultAnimation)?.animation?.toAnimationItem(::register) ?: return@forEach
+            merged.putIfAbsent(animation.key, animation)
+        }
+        return AnimationPage(merged.values.toList(), answer.nextOffset.orEmpty())
+    }
+
+    /**
+     * The bot's user id and private chat id, resolved once and kept. The username comes from TDLib's option; when the
+     * option is missing or unreadable, the default public animation bot is used. Any failure throws and is not cached.
+     */
+    private suspend fun animationSearchBot(): AnimationSearchBot {
+        cachedAnimationBot?.let { return it }
+        val configured = orNullOnFailure { (request(TdApi.GetOption(ANIMATION_BOT_OPTION)) as? TdApi.OptionValueString)?.value }
+        val username = configured.orEmpty().trim().removePrefix("@").ifBlank { DEFAULT_ANIMATION_BOT }
+        val chat = request(TdApi.SearchPublicChat(username))
+        val userId = (chat.type as? TdApi.ChatTypePrivate)?.userId
+            ?: throw IllegalStateException("Animation search bot is not a user: $username")
+        return AnimationSearchBot(userId, chat.id).also { cachedAnimationBot = it }
+    }
+
+    /** A page from the message history. Its cursor is tagged so the next call knows to keep using this path. */
+    private suspend fun historyAnimationPage(query: String, offset: String): AnimationPage {
+        val page = historyAnimations(query, offset)
+        return page.copy(nextOffset = if (page.nextOffset.isEmpty()) "" else HISTORY_CURSOR_PREFIX + page.nextOffset)
+    }
+
+    /** Null when [block] fails for a reason other than cancellation; cancellation always propagates. */
+    private suspend fun <T> orNullOnFailure(block: suspend () -> T): T? = try {
+        block()
+    } catch (timeout: TimeoutCancellationException) {
+        null
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        null
+    }
+
+    /** Message-history search: walks a few pages of animation messages until something new appears. */
+    private suspend fun historyAnimations(query: String, offset: String): AnimationPage {
         var cursor = offset
         val merged = LinkedHashMap<String, AnimationItem>()
         var hasMore = false
@@ -115,16 +175,22 @@ internal class TdStickerCatalog(
             // A page may contain only animations already shown; keep walking until there is something new or no more pages.
             if (merged.isNotEmpty() || !hasMore) break
         }
-        AnimationPage(merged.values.toList(), if (hasMore) cursor else "")
+        return AnimationPage(merged.values.toList(), if (hasMore) cursor else "")
     }
 
     suspend fun isPremiumAccount(): Result<Boolean> = requestResult { request(TdApi.GetMe()).isPremium }
+
+    /** Resolved once per catalog; both fields are needed for GetInlineQueryResults. */
+    private class AnimationSearchBot(val userId: Long, val chatId: Long)
 
     private companion object {
         const val SET_CACHE_SIZE = 12
         const val STICKER_PAGE_SIZE = 60
         const val ANIMATION_PAGE_SIZE = 40
         const val MAX_ANIMATION_PAGES_PER_LOAD = 3
+        const val ANIMATION_BOT_OPTION = "animation_search_bot_username"
+        const val DEFAULT_ANIMATION_BOT = "gif"
+        const val HISTORY_CURSOR_PREFIX = "history:"
     }
 }
 

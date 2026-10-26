@@ -16,6 +16,20 @@ class DiceAnimationStateTest {
     private val final = MessageDiceState.Regular(DiceStickerAsset(fileId = 2, mimeType = "application/x-tgsticker"))
     private val key = DiceAnimationKey(accountId = "account", chatId = 10L, messageId = 20L)
 
+    /** Stands in for the preferences: [stored] is what a restarted process reads back. */
+    private class FakeDicePlaybackPersistence(var stored: Map<DiceAnimationKey, Long> = emptyMap()) : DicePlaybackPersistence {
+        var loads = 0
+
+        override fun load(): Map<DiceAnimationKey, Long> {
+            loads += 1
+            return stored
+        }
+
+        override fun save(entries: Map<DiceAnimationKey, Long>) {
+            stored = entries.toMap()
+        }
+    }
+
     @Test
     fun `a live throw is claimed once and continues across a recreated row`() {
         val store = DiceAnimationPlaybackStore()
@@ -65,6 +79,93 @@ class DiceAnimationStateTest {
             store.finish(key.copy(messageId = index.toLong()))
         }
         assertEquals(2, store.size())
+    }
+
+    @Test
+    fun `a finished throw stays consumed after a process restart`() {
+        var now = 1_000_000L
+        val disk = FakeDicePlaybackPersistence()
+        val beforeRestart = DiceAnimationPlaybackStore(clock = { now }, persistence = disk)
+        assertTrue(beforeRestart.begin(key, eligible = true))
+        now += 3_000L
+        beforeRestart.finish(key)
+
+        // A new process starts with empty memory and reads the same preferences.
+        val afterRestart = DiceAnimationPlaybackStore(clock = { now }, persistence = disk)
+        assertFalse(afterRestart.begin(key, eligible = true))
+        assertFalse(afterRestart.canBegin(key, eligible = true))
+        assertTrue(afterRestart.isDone(key))
+        // Only the finished throw is consumed; another recent throw still plays.
+        assertTrue(afterRestart.begin(key.copy(messageId = 21L), eligible = true))
+    }
+
+    @Test
+    fun `finished throws older than the retention window are not saved`() {
+        var now = 0L
+        val disk = FakeDicePlaybackPersistence()
+        val store = DiceAnimationPlaybackStore(clock = { now }, persistence = disk)
+        store.finish(key)
+        now += DICE_PLAYBACK_RETENTION_MILLIS + 1_000L
+        store.finish(key.copy(messageId = 21L))
+
+        assertEquals(setOf(key.copy(messageId = 21L)), disk.stored.keys)
+    }
+
+    @Test
+    fun `persisted throws older than the retention window are ignored on load`() {
+        val now = 10_000_000L
+        val oldKey = key
+        val recentKey = key.copy(messageId = 21L)
+        val disk = FakeDicePlaybackPersistence(
+            stored = mapOf(
+                oldKey to now - DICE_PLAYBACK_RETENTION_MILLIS - 1_000L,
+                recentKey to now - 1_000L
+            )
+        )
+        val store = DiceAnimationPlaybackStore(clock = { now }, persistence = disk)
+
+        assertTrue(store.begin(oldKey, eligible = true))
+        assertFalse(store.begin(recentKey, eligible = true))
+    }
+
+    @Test
+    fun `saving keeps only the newest finished throws up to the cap`() {
+        var now = 0L
+        val disk = FakeDicePlaybackPersistence()
+        val store = DiceAnimationPlaybackStore(maxEntries = 2, clock = { now }, persistence = disk)
+        repeat(3) { index ->
+            now = index * 1_000L
+            store.finish(key.copy(messageId = index.toLong()))
+        }
+
+        assertEquals(setOf(key.copy(messageId = 1L), key.copy(messageId = 2L)), disk.stored.keys)
+    }
+
+    @Test
+    fun `attach merges persisted throws once and ignores later attachments`() {
+        val now = 1_000L
+        val store = DiceAnimationPlaybackStore(clock = { now })
+        assertTrue(store.begin(key.copy(messageId = 1L), eligible = true))
+        val first = FakeDicePlaybackPersistence(stored = mapOf(key to now))
+        val second = FakeDicePlaybackPersistence(stored = mapOf(key.copy(messageId = 2L) to now))
+
+        store.attach(first)
+        store.attach(second)
+
+        assertFalse(store.begin(key, eligible = true))
+        assertTrue(store.begin(key.copy(messageId = 2L), eligible = true))
+        assertEquals(1, first.loads)
+        assertEquals(0, second.loads)
+    }
+
+    @Test
+    fun `a persisted throw keeps an account id that contains the separator`() {
+        val account = key.copy(accountId = "acc|ount|7")
+        val line = encodeDicePlaybackEntry(account, finishedAtMillis = 42L)
+
+        assertEquals(account to 42L, decodeDicePlaybackEntry(line))
+        assertNull(decodeDicePlaybackEntry("20|x|42|account"))
+        assertNull(decodeDicePlaybackEntry("20|20|42"))
     }
 
     @Test

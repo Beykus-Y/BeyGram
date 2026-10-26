@@ -38,8 +38,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
                     // Dice animations are part of the message content; keeping them avoids re-downloading every time
                     // the chat is reopened and lets storage cleanup leave a visible throw alone.
                     (message.special as? MessageSpecialContent.Dice)?.dice?.let { dice ->
-                        dice.initialState?.assets?.forEach { add(it.fileId) }
-                        dice.finalState?.assets?.forEach { add(it.fileId) }
+                        dice.initialState?.assets?.forEach { add(it.fileId); it.thumbnailFileId?.let { thumb -> add(thumb) } }
+                        dice.finalState?.assets?.forEach { add(it.fileId); it.thumbnailFileId?.let { thumb -> add(thumb) } }
                     }
                 }
             }

@@ -109,7 +109,7 @@ internal fun StickerSetBrowser(
 
 /**
  * Information about the sticker set behind a message. The user can browse it, send one of its stickers, and add or
- * remove the set. The sheet is independent from [StickerPickerPanel]: both share the grid and artwork primitives, but
+ * remove the set. The sheet is independent from [StickerPanelHost]: both share the grid and artwork primitives, but
  * this screen only fetches the one set TDLib identified for the tapped sticker.
  */
 @OptIn(ExperimentalMaterial3Api::class)
