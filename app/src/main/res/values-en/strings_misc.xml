@@ -45,6 +45,13 @@
     <string name="poll_error_correct_missing">Choose the correct answer</string>
     <string name="poll_error_correct_invalid">The correct answer is not among the options</string>
     <string name="poll_error_correct_count">A single-answer quiz needs exactly one correct option</string>
+    <string name="poll_send_failed">Could not send the poll</string>
+    <string name="poll_send_private_chat">Telegram does not allow polls in private chats with people. Share polls in groups, channels, Saved Messages or bot chats.</string>
+    <string name="poll_send_chat_unsupported">Polls cannot be created in this chat.</string>
+    <string name="poll_send_channel_anonymous">Only anonymous polls can be posted in a channel.</string>
+    <string name="poll_send_rights_missing">You do not have permission to create polls in this chat. Check the chat permissions.</string>
+    <string name="poll_send_invalid">Telegram rejected the poll settings. Check the question, answer options and correct answer.</string>
+    <string name="poll_send_retained">The poll is saved. Retry sending it or remove it.</string>
     <string name="contact_picker_title">Send a contact</string>
     <string name="contact_picker_search">Search contacts</string>
     <string name="contact_picker_empty">There are no contacts in the Telegram address book</string>

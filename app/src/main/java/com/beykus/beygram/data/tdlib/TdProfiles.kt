@@ -90,6 +90,22 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         }
         chat.canPostMessages(status)
     }
+    /**
+     * Polls are available in groups/channels with the poll right, in Saved Messages and in private bot chats. Telegram
+     * rejects polls in ordinary private chats, so the composer must not offer them there.
+     */
+    fun canSendPolls(chat: TdApi.Chat): Boolean = synchronized(lock) {
+        when (val type = chat.type) {
+            is TdApi.ChatTypeSecret -> false
+            is TdApi.ChatTypePrivate -> isSelf(type.userId) || users[type.userId]?.type is TdApi.UserTypeBot
+            is TdApi.ChatTypeBasicGroup -> chat.canSendPolls(groups[type.basicGroupId]?.status)
+            is TdApi.ChatTypeSupergroup -> {
+                val supergroup = supers[type.supergroupId]
+                supergroup?.isDirectMessagesGroup != true && chat.canSendPolls(supergroup?.status)
+            }
+            else -> false
+        }
+    }
     /** Owner/administrator membership is separate from the posting right: some admins only moderate or manage settings. */
     fun isChannelAdministrator(chat: TdApi.Chat): Boolean = synchronized(lock) {
         val supergroupId = (chat.type as? TdApi.ChatTypeSupergroup)?.supergroupId ?: return@synchronized false

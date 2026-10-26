@@ -364,6 +364,13 @@
     <string name="poll_error_correct_missing">Выберите правильный ответ</string>
     <string name="poll_error_correct_invalid">Правильный ответ не найден среди вариантов</string>
     <string name="poll_error_correct_count">У викторины с одним ответом должен быть ровно один правильный вариант</string>
+    <string name="poll_send_failed">Не удалось отправить опрос</string>
+    <string name="poll_send_private_chat">Telegram не разрешает опросы в личных чатах с людьми. Опросами можно делиться в группах, каналах, «Избранном» и чатах с ботами.</string>
+    <string name="poll_send_chat_unsupported">В этом чате нельзя создавать опросы.</string>
+    <string name="poll_send_channel_anonymous">В канале можно публиковать только анонимные опросы.</string>
+    <string name="poll_send_rights_missing">В этом чате нет права создавать опросы. Проверьте разрешения чата.</string>
+    <string name="poll_send_invalid">Telegram отклонил параметры опроса. Проверьте вопрос, варианты ответа и правильный ответ.</string>
+    <string name="poll_send_retained">Опрос сохранён. Повторите отправку или удалите его.</string>
     <string name="contact_picker_title">Отправить контакт</string>
     <string name="contact_picker_search">Поиск контакта</string>
     <string name="contact_picker_empty">В адресной книге Telegram нет контактов</string>
