@@ -1696,6 +1696,7 @@ fun ChatScreen(
                     pendingSticker = sticker
                     sendOptionsOpen = true
                 },
+                onSendError = { message -> error = message },
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )
             if (replyId != null) Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2106,6 +2107,7 @@ private fun ChatComposerPanel(
     scope: CoroutineScope,
     onReplyConsumed: () -> Unit,
     onStickerOptions: (OutgoingMedia) -> Unit,
+    onSendError: (String) -> Unit,
     onCloseStickerPanel: () -> Unit
 ) {
     if (stickerPanelOpen) {
@@ -2126,6 +2128,7 @@ private fun ChatComposerPanel(
                 onStickerOptions(sticker.toOutgoingMedia())
                 onCloseStickerPanel()
             },
+            onSendError = onSendError,
             onClose = onCloseStickerPanel
         )
     } else {

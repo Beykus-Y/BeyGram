@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -107,6 +109,8 @@ import kotlinx.coroutines.launch
 
 private val PANEL_MIN_HEIGHT = 220.dp
 private val PANEL_MAX_HEIGHT = 420.dp
+private val COMPOSER_RESERVE_HEIGHT = 80.dp
+private val MIN_PANEL_WITH_KEYBOARD = 96.dp
 private const val SEARCH_DEBOUNCE_MS = 350L
 
 /**
@@ -167,6 +171,7 @@ internal fun StickerPanelHost(
     onReplyConsumed: () -> Unit,
     onAnimationAttach: (AnimationItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
+    onSendError: (String) -> Unit,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -193,7 +198,11 @@ internal fun StickerPanelHost(
                                 forumTopicId = forumTopicId
                             )
                             if (result.isSuccess) onReplyConsumed()
-                            else error = result.exceptionOrNull().userMessage(context, R.string.sticker_panel_send_failed)
+                            else {
+                                val message = result.exceptionOrNull().userMessage(context, R.string.sticker_panel_send_failed)
+                                error = message
+                                onSendError(message)
+                            }
                         } finally {
                             sending = false
                         }
@@ -215,7 +224,11 @@ internal fun StickerPanelHost(
                                 forumTopicId = forumTopicId
                             )
                             if (result.isSuccess) onReplyConsumed()
-                            else error = result.exceptionOrNull().userMessage(context, R.string.gif_panel_send_failed)
+                            else {
+                                val message = result.exceptionOrNull().userMessage(context, R.string.gif_panel_send_failed)
+                                error = message
+                                onSendError(message)
+                            }
                         } finally {
                             sending = false
                         }
@@ -300,7 +313,12 @@ private fun StickerPanel(
     )
     val density = LocalDensity.current
     val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
-    val panelHeight = (windowHeight * 0.62f).coerceIn(PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT)
+    // The panel sits outside the composer's imePadding(), so reserve the IME and the input row explicitly.
+    val imeHeight = with(density) { WindowInsets.ime.getBottom(density).toDp() }
+    val availableHeight = (windowHeight - imeHeight - COMPOSER_RESERVE_HEIGHT).coerceAtLeast(MIN_PANEL_WITH_KEYBOARD)
+    val panelHeight = (windowHeight * 0.62f)
+        .coerceIn(PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT)
+        .coerceAtMost(availableHeight)
     val displayError = notice ?: error
 
     LaunchedEffect(conversation) {
@@ -449,7 +467,12 @@ private fun StickerPanel(
             conversation.setStickerFavorite(item, favorite)
                 .onSuccess {
                     val current = favoritesState.readyValue()
-                    if (current != null) favoritesState = PickerLoad.Ready(updateFavoriteStickers(current, item, favorite))
+                    if (current != null) {
+                        favoritesState = PickerLoad.Ready(updateFavoriteStickers(current, item, favorite))
+                    } else {
+                        // The initial list was unavailable; reconcile from TDLib so the preview can offer removal.
+                        favoritesRetry++
+                    }
                 }
                 .onFailure { notice = it.userMessage(context, R.string.sticker_panel_favorite_failed) }
             favoriteBusyKeys = favoriteBusyKeys - item.key
