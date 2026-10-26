@@ -63,6 +63,7 @@ import com.beykus.beygram.domain.model.StickerItem
 import com.beykus.beygram.domain.model.StickerSearchPage
 import com.beykus.beygram.domain.model.StickerSetContent
 import com.beykus.beygram.domain.model.StickerSetSummary
+import com.beykus.beygram.domain.model.normalizedPublicUsername
 import com.beykus.beygram.data.media.VideoNoteSendTracking
 import com.beykus.beygram.data.media.AutoDownloadDecision
 import com.beykus.beygram.data.media.AutoDownloadNetwork
@@ -1161,9 +1162,12 @@ class TdLibTelegramRepository private constructor(
     }
 
     override suspend fun resolvePublicChat(username: String): Result<Long> = requestResult {
-        val cleaned = username.trim().removePrefix("@")
-        require(cleaned.isNotEmpty()) { "Empty public username" }
+        // Bots, users, channels and public groups all resolve through the same lookup; the 5-character profile
+        // rule must not reject a legacy bot username such as @gif.
+        val cleaned = normalizedPublicUsername(username)
+            ?: throw UserMessageException(UiText.Res(R.string.err_username_invalid))
         val chat = tdRequests(TdApi.SearchPublicChat(cleaned))
+        if (chat.id == 0L) throw UserMessageException(UiText.Res(R.string.err_username_not_found))
         handleNewChat(chat)
         chat.id
     }
@@ -3216,7 +3220,10 @@ class TdLibTelegramRepository private constructor(
 
     private fun TdApi.Chat.toChatPreview(): ChatPreview? {
         val saved = type.let { it is TdApi.ChatTypePrivate && profiles.isSelf(it.userId) }
-        val chatTitle = if (saved) appContext.getString(R.string.saved_messages_title) else title.ifBlank { return null }
+        // A just-resolved bot or user may arrive before its display name; a blank title must not hide the chat.
+        val privateName = (type as? TdApi.ChatTypePrivate)?.let { profiles.senderName(TdApi.MessageSenderUser(it.userId)) }.orEmpty()
+        val chatTitle = if (saved) appContext.getString(R.string.saved_messages_title)
+        else title.ifBlank { privateName }.ifBlank { appContext.getString(R.string.chat_unknown_title) }
         val mainPosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListMain }
         val archivePosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListArchive }
         val folderPositions = positions.orEmpty().mapNotNull { position ->

@@ -45,6 +45,7 @@ import com.beykus.beygram.data.tdlib.TdSecondaryAccountController
 import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
+import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.PendingTelegramDeepLink
 import com.beykus.beygram.deeplink.TelegramDeepLinkParser
 import com.beykus.beygram.deeplink.TelegramDeepLinkRoute
@@ -387,6 +388,12 @@ private fun BeyGramAppContent(
     var memberReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.ChatInfo.name) }
     // Куда вернуться из открытого чата: из архива — в архив, из контактов — в контакты, иначе — в список чатов.
     var chatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    // A link opened from a chat keeps one level of chat history, so Back returns to the conversation that was read.
+    var linkReturnChatId by rememberSaveable { mutableStateOf(0L) }
+    var linkReturnTopicChatId by rememberSaveable { mutableStateOf(0L) }
+    var linkReturnTopicId by rememberSaveable { mutableStateOf(0L) }
+    var linkReturnChatBackRouteName by rememberSaveable { mutableStateOf<String?>(null) }
+    var linkReturnRouteName by rememberSaveable { mutableStateOf<String?>(null) }
     // Открытый из статистики пост возвращает в статистику, а сама статистика — в исходный чат.
     var statisticsChatBackRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     // Статистику можно открыть из чата или из профиля супергруппы; возврат должен вести туда же.
@@ -490,6 +497,7 @@ private fun BeyGramAppContent(
             // selected account. Discard it BEFORE rendering can be unlocked.
             if (selectedAccountId != state.activeAccountId) {
                 selectedChatId = 0L
+                linkReturnChatId = 0L
                 threadChannelChatId = 0L
                 threadPostId = 0L
                 selectedTopicChatId = 0L
@@ -517,6 +525,7 @@ private fun BeyGramAppContent(
     fun resetAccountScopedState() {
         PlaybackEngine.stop()
         selectedChatId = 0L
+        linkReturnChatId = 0L
         threadChannelChatId = 0L
         threadPostId = 0L
         selectedForumTopicId = 0L
@@ -645,6 +654,7 @@ private fun BeyGramAppContent(
                 }
             }
             selectedChatId = origin.chatId
+            linkReturnChatId = 0L
             chatFocusMessageId = origin.messageId
             routeName = AppRoute.Chat.name
         }
@@ -789,7 +799,36 @@ private fun BeyGramAppContent(
     var deepLinkProxy by remember { mutableStateOf<DeepLinkProxyPrompt?>(null) }
     var deepLinkBusy by remember { mutableStateOf(false) }
     val deepLinkScope = rememberCoroutineScope()
+    var entityLinkBusy by remember { mutableStateOf(false) }
+    var inAppInviteToken by remember { mutableStateOf(0L) }
+    fun openLinkedChat(chatId: Long, messageId: Long = 0L, topicId: Long = 0L) {
+        val fromChat = routeName == AppRoute.Chat.name || routeName == AppRoute.MessageThread.name
+        val sameChat = selectedChatId == chatId
+        if (fromChat && !sameChat) {
+            linkReturnChatId = selectedChatId
+            linkReturnTopicChatId = selectedTopicChatId
+            linkReturnTopicId = selectedForumTopicId
+            linkReturnChatBackRouteName = chatBackRouteName
+            linkReturnRouteName = routeName
+        } else if (!fromChat) {
+            linkReturnChatId = 0L
+            linkReturnTopicChatId = 0L
+            linkReturnTopicId = 0L
+            linkReturnChatBackRouteName = null
+            linkReturnRouteName = null
+        }
+        // A link to the already open chat only moves the focus; it must keep the origin saved by the link that
+        // brought the reader here. Only an actual chat switch needs the chat-list fallback.
+        if (!sameChat) chatBackRouteName = AppRoute.Chats.name
+        selectedChatId = chatId
+        selectedTopicChatId = if (topicId > 0L) chatId else 0L
+        selectedForumTopicId = topicId
+        trustedForumTopicId = topicId
+        chatFocusMessageId = messageId
+        routeName = AppRoute.Chat.name
+    }
     fun openDeepLinkChat(chatId: Long, messageId: Long = 0L, topicId: Long = 0L) {
+        linkReturnChatId = 0L
         selectedChatId = chatId
         selectedTopicChatId = if (topicId > 0L) chatId else 0L
         selectedForumTopicId = topicId
@@ -797,6 +836,108 @@ private fun BeyGramAppContent(
         chatFocusMessageId = messageId
         chatBackRouteName = AppRoute.Chats.name
         routeName = AppRoute.Chat.name
+    }
+    // A link inside a message must be resolved by the selected account, never by a stale repository or browser.
+    // The visible notice is the only failure path: a tap is never allowed to become a silent no-op.
+    val openMessageEntity: (MessageEntityLink) -> Unit = { target ->
+        if (!entityLinkBusy) {
+            entityLinkBusy = true
+            val sourceAccountId = selectedAccountId
+            val sourceRepository = repository
+            deepLinkScope.launch {
+                try {
+                    when (target) {
+                        is MessageEntityLink.PublicChat -> {
+                            val resolved = sourceRepository.resolvePublicChat(target.username)
+                            if (selectedAccountId != sourceAccountId) return@launch
+                            val chatId = resolved.getOrNull()
+                            if (chatId == null) {
+                                noticeError = (resolved.exceptionOrNull() as? UserMessageException)?.text
+                                    ?: UiText.Res(R.string.message_link_username_failed, listOf("@${target.username}"))
+                                return@launch
+                            }
+                            val opened = sourceRepository.openPublicChat(chatId)
+                            if (selectedAccountId != sourceAccountId) return@launch
+                            opened
+                                .onSuccess { outcome ->
+                                    when (outcome) {
+                                        is PublicChatOpenResult.Opened -> openLinkedChat(outcome.chatId)
+                                        PublicChatOpenResult.JoinRequestSent ->
+                                            noticeError = UiText.Res(R.string.global_search_public_join_request_sent)
+                                    }
+                                }
+                                .onFailure { failure ->
+                                    noticeError = (failure as? UserMessageException)?.text
+                                        ?: UiText.Res(R.string.message_link_username_failed, listOf("@${target.username}"))
+                                }
+                        }
+                        is MessageEntityLink.User -> {
+                            val opened = sourceRepository.openPrivateChat(target.userId)
+                            if (selectedAccountId != sourceAccountId) return@launch
+                            opened
+                                .onSuccess { chatId -> openLinkedChat(chatId) }
+                                .onFailure { failure ->
+                                    noticeError = (failure as? UserMessageException)?.text
+                                        ?: UiText.Res(R.string.err_app_open_chat_failed)
+                                }
+                        }
+                        is MessageEntityLink.TelegramMessage -> {
+                            val resolved = sourceRepository.resolveMessageLink(target.url)
+                            if (selectedAccountId != sourceAccountId) return@launch
+                            resolved
+                                .onSuccess { message -> openLinkedChat(message.chatId, message.messageId, message.forumTopicId) }
+                                .onFailure { failure ->
+                                    noticeError = (failure as? UserMessageException)?.text
+                                        ?: UiText.Res(R.string.chat_message_open_failed)
+                                }
+                        }
+                        is MessageEntityLink.TelegramInvite -> {
+                            val checked = sourceRepository.checkInviteLink(target.url)
+                            if (selectedAccountId != sourceAccountId) return@launch
+                            checked
+                                .onSuccess { preview ->
+                                    inAppInviteToken -= 1
+                                    deepLinkInvite = DeepLinkInvitePrompt(
+                                        token = inAppInviteToken,
+                                        accountId = sourceAccountId,
+                                        url = target.url,
+                                        preview = preview,
+                                        fromMessage = true
+                                    )
+                                }
+                                .onFailure { failure ->
+                                    noticeError = (failure as? UserMessageException)?.text
+                                        ?: UiText.Res(R.string.err_app_open_chat_failed)
+                                }
+                        }
+                        is MessageEntityLink.TelegramPhone -> {
+                            val resolved = sourceRepository.resolvePhoneNumber(target.phone)
+                            if (selectedAccountId != sourceAccountId) return@launch
+                            resolved
+                                .onSuccess { chatId -> openLinkedChat(chatId) }
+                                .onFailure { failure ->
+                                    noticeError = (failure as? UserMessageException)?.text
+                                        ?: UiText.Res(R.string.err_app_open_chat_failed)
+                                }
+                        }
+                        is MessageEntityLink.TelegramProxy -> {
+                            inAppInviteToken -= 1
+                            deepLinkProxy = DeepLinkProxyPrompt(
+                                token = inAppInviteToken,
+                                accountId = sourceAccountId,
+                                draft = target.draft
+                            )
+                        }
+                        // External URLs, email and phone are owned by the formatter's system-handler path.
+                        is MessageEntityLink.ExternalUrl,
+                        is MessageEntityLink.Email,
+                        is MessageEntityLink.Phone -> Unit
+                    }
+                } finally {
+                    entityLinkBusy = false
+                }
+            }
+        }
     }
     LaunchedEffect(
         pendingDeepLink?.token,
@@ -930,10 +1071,12 @@ private fun BeyGramAppContent(
         if (deepLinkInvite?.accountId != selectedAccountId) deepLinkInvite = null
         if (deepLinkProxy?.accountId != selectedAccountId) deepLinkProxy = null
     }
-    // A newer external link replaces a prompt that belonged to the previous one.
+    // A newer external link replaces a prompt that belonged to the previous one. An in-app invite has no pending
+    // token (and a negative local one), so it must not be cleared just because the external deep-link slot is empty.
     LaunchedEffect(pendingDeepLink?.token) {
-        if (deepLinkInvite?.token != pendingDeepLink?.token) deepLinkInvite = null
-        if (deepLinkProxy?.token != pendingDeepLink?.token) deepLinkProxy = null
+        val pendingToken = pendingDeepLink?.token ?: return@LaunchedEffect
+        if (deepLinkInvite?.token != pendingToken) deepLinkInvite = null
+        if (deepLinkProxy?.token != pendingToken) deepLinkProxy = null
     }
     // Signing out keeps the pending link but hides an action that belonged to the previous session.
     LaunchedEffect(authState) {
@@ -1010,6 +1153,7 @@ private fun BeyGramAppContent(
             if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) return@let
             if (result.isSuccess) {
                 selectedChatId = chatId
+                linkReturnChatId = 0L
                 selectedTopicChatId = chatId
                 selectedForumTopicId = request.topicId
                 trustedForumTopicId = request.topicId
@@ -1181,6 +1325,7 @@ private fun BeyGramAppContent(
                         selectedTopicChatId = chatId
                         selectedForumTopicId = topicId
                         selectedChatId = chatId
+                        linkReturnChatId = 0L
                         chatBackRouteName = AppRoute.Chats.name
                         routeName = AppRoute.Chat.name
                     },
@@ -1357,6 +1502,7 @@ private fun BeyGramAppContent(
             connectionState = connectionState,
             onChatClick = { chat ->
                 selectedChatId = chat.id
+                linkReturnChatId = 0L
                 chatBackRouteName = AppRoute.Chats.name
                 routeName = AppRoute.Chat.name
             },
@@ -1394,6 +1540,7 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Chats.name },
             onChatClick = { chat ->
                 selectedChatId = chat.id
+                linkReturnChatId = 0L
                 chatBackRouteName = AppRoute.Archive.name
                 routeName = AppRoute.Chat.name
             }
@@ -1415,7 +1562,14 @@ private fun BeyGramAppContent(
             onDispose { if (chatSecure) onSecureScreenChange(false) }
         }
         LaunchedEffect(authState, selectedChatId) {
-            if (authState == AuthState.Ready && chat == null && selectedChatId != 0L) repository.loadChat(selectedChatId)
+            if (authState == AuthState.Ready && chat == null && selectedChatId != 0L) {
+                val loaded = repository.loadChat(selectedChatId)
+                if (loaded.isFailure) {
+                    // A chat that cannot be loaded must not leave the user on a screen that silently shows the list.
+                    noticeError = (loaded.exceptionOrNull() as? UserMessageException)?.text
+                        ?: UiText.Res(R.string.err_app_open_chat_failed)
+                }
+            }
         }
         if (chat == null) {
             if (twoPane) ChatsDetailPlaceholder() else chatsTab()
@@ -1434,6 +1588,24 @@ private fun BeyGramAppContent(
                         selectedForumTopicId > 0L && selectedForumTopicId == trustedForumTopicId
                 )
             ) selectedForumTopicId else 0L
+            // A link can lead to a forum group, whose first screen is the topic list rather than ChatScreen. Every
+            // Back path in this route consumes the same saved origin so it does not fall through to the chat list.
+            fun restoreLinkReturnChat(): Boolean {
+                if (linkReturnChatId == 0L || linkReturnChatId == selectedChatId) return false
+                selectedChatId = linkReturnChatId
+                selectedTopicChatId = linkReturnTopicChatId
+                selectedForumTopicId = linkReturnTopicId
+                trustedForumTopicId = linkReturnTopicId
+                chatFocusMessageId = 0L
+                chatBackRouteName = linkReturnChatBackRouteName ?: AppRoute.Chats.name
+                routeName = linkReturnRouteName ?: AppRoute.Chat.name
+                linkReturnChatId = 0L
+                linkReturnTopicChatId = 0L
+                linkReturnTopicId = 0L
+                linkReturnChatBackRouteName = null
+                linkReturnRouteName = null
+                return true
+            }
             var topicsReload by remember(repository, selectedChatId) { mutableIntStateOf(0) }
             var topicsLoading by remember(repository, selectedChatId) { mutableStateOf(true) }
             var topicsLoadError by remember(repository, selectedChatId) { mutableStateOf(false) }
@@ -1500,7 +1672,7 @@ private fun BeyGramAppContent(
             }
             when {
                 topicsResult == null -> ForumTopicsLoadingScreen(
-                    chatTitle = chat.title, onBack = { routeName = chatBackRouteName }
+                    chatTitle = chat.title, onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName }
                 )
                 topicsResult?.isFailure == true && activeTopicId == 0L -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1520,7 +1692,7 @@ private fun BeyGramAppContent(
                     loadError = topicsLoadError,
                     onRetryLoad = { topicsReload++ },
                     actionError = forumActionError,
-                    onBack = { routeName = chatBackRouteName },
+                    onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName },
                     onTopic = { topic -> selectedTopicChatId = selectedChatId; selectedForumTopicId = topic.id },
                     onCreate = { name ->
                         if (!forumBusy) {
@@ -1562,14 +1734,16 @@ private fun BeyGramAppContent(
                         onDownloadFile = repository::downloadFile,
                         onAutoDownloadFile = repository::autoDownloadFile,
                         onBack = {
-                            if (chatBackRouteName == AppRoute.GlobalSearch.name) {
-                                chatFocusMessageId = 0L
-                                selectedForumTopicId = 0L
-                                routeName = AppRoute.GlobalSearch.name
-                            } else if (activeTopicId > 0L) {
-                                selectedForumTopicId = 0L
-                                topicsReload++
-                            } else routeName = chatBackRouteName
+                            if (!restoreLinkReturnChat()) {
+                                if (chatBackRouteName == AppRoute.GlobalSearch.name) {
+                                    chatFocusMessageId = 0L
+                                    selectedForumTopicId = 0L
+                                    routeName = AppRoute.GlobalSearch.name
+                                } else if (activeTopicId > 0L) {
+                                    selectedForumTopicId = 0L
+                                    topicsReload++
+                                } else routeName = chatBackRouteName
+                            }
                         },
                         onChatInfo = { routeName = AppRoute.ChatInfo.name },
                         onStatistics = if (chat.isChannel && (chat.isChannelAdmin || chat.canPost)) {
@@ -1591,6 +1765,7 @@ private fun BeyGramAppContent(
                         onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
                         isPremiumAccount = myAccount.info?.isPremium == true,
                         onPremium = { openPremium(AppRoute.Chat) },
+                        onOpenMessageEntity = openMessageEntity,
                         onOpenUserChat = { userId ->
                             val sourceAccountId = selectedAccountId
                             val sourceRepository = repository
@@ -1648,6 +1823,7 @@ private fun BeyGramAppContent(
                             },
                             onBack = { routeName = AppRoute.Chat.name },
                             onOpenProfile = { userId -> openUserProfile(userId, AppRoute.MessageThread) },
+                            onOpenMessageEntity = openMessageEntity,
                             autoDownloadFile = repository::autoDownloadFile
                         )
                     }
@@ -2210,6 +2386,7 @@ private fun BeyGramAppContent(
                     joinInviteLink = repository::joinInviteLink,
                     onChatOpened = { chatId ->
                         selectedChatId = chatId
+                        linkReturnChatId = 0L
                         chatBackRouteName = AppRoute.Chats.name
                         routeName = AppRoute.Chat.name
                     }
@@ -2230,6 +2407,7 @@ private fun BeyGramAppContent(
                         },
                         onCreated = { chatId, failedInvitations ->
                             selectedChatId = chatId
+                            linkReturnChatId = 0L
                             chatBackRouteName = AppRoute.Chats.name
                             routeName = AppRoute.Chat.name
                             if (failedInvitations > 0) {
@@ -2247,6 +2425,7 @@ private fun BeyGramAppContent(
                     create = repository::createChannel,
                     onCreated = { chatId ->
                         selectedChatId = chatId
+                        linkReturnChatId = 0L
                         chatBackRouteName = AppRoute.Chats.name
                         routeName = AppRoute.Chat.name
                     }
@@ -2272,6 +2451,7 @@ private fun BeyGramAppContent(
                             if (selectedAccountId != sourceAccountId) return@launch
                             if (loaded.isSuccess) {
                                 selectedChatId = chat.id
+                                linkReturnChatId = 0L
                                 selectedTopicChatId = chat.id
                                 selectedForumTopicId = 0L
                                 trustedForumTopicId = 0L
@@ -2295,6 +2475,7 @@ private fun BeyGramAppContent(
                                         when (result) {
                                             is PublicChatOpenResult.Opened -> {
                                                 selectedChatId = result.chatId
+                                                linkReturnChatId = 0L
                                                 selectedTopicChatId = result.chatId
                                                 selectedForumTopicId = 0L
                                                 trustedForumTopicId = 0L
@@ -2326,6 +2507,7 @@ private fun BeyGramAppContent(
                             if (selectedAccountId != sourceAccountId) return@launch
                             if (loaded.isSuccess) {
                                 selectedChatId = chatId
+                                linkReturnChatId = 0L
                                 selectedTopicChatId = chatId
                                 selectedForumTopicId = forumTopicId
                                 chatFocusMessageId = messageId
@@ -2492,7 +2674,9 @@ private fun BeyGramAppContent(
                                 result
                                     .onSuccess { outcome ->
                                         when (outcome) {
-                                            is InviteJoinOutcome.Joined -> openDeepLinkChat(outcome.chatId)
+                                            is InviteJoinOutcome.Joined ->
+                                                if (prompt.fromMessage) openLinkedChat(outcome.chatId)
+                                                else openDeepLinkChat(outcome.chatId)
                                             InviteJoinOutcome.RequestSent ->
                                                 Toast.makeText(
                                                     context,
@@ -2592,7 +2776,9 @@ private data class DeepLinkInvitePrompt(
     val token: Long,
     val accountId: String,
     val url: String,
-    val preview: ChatInvitePreview
+    val preview: ChatInvitePreview,
+    /** An invite opened from a message returns to the conversation it was copied from. */
+    val fromMessage: Boolean = false
 )
 
 private data class DeepLinkProxyPrompt(

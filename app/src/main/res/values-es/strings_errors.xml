@@ -104,6 +104,8 @@
     <string name="err_telegram_not_running">Telegram aún no se está ejecutando en este dispositivo.</string>
     <string name="err_username_format">Nombre de usuario: de 5 a 32 letras latinas, dígitos y _, empezando por una letra</string>
     <string name="err_username_invalid">Nombre de usuario no válido</string>
+    <string name="err_username_not_found">Nombre de usuario no encontrado</string>
+    <string name="chat_unknown_title">Chat</string>
     <string name="err_username_purchase">Este nombre de usuario solo está disponible mediante compra</string>
     <string name="err_username_taken">Este nombre de usuario ya está en uso</string>
     <string name="err_vpn_core_bad_response">El proxy devolvió una respuesta no válida</string>

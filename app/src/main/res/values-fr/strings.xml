@@ -370,6 +370,7 @@
     <string name="a11y_state_paused">En pause</string>
     <string name="a11y_state_loading">Chargement</string>
     <string name="a11y_message_actions">Actions du message</string>
+    <string name="a11y_open_link">Ouvrir %1$s</string>
     <string name="a11y_open_attachment">Ouvrir la pièce jointe</string>
     <string name="chat_comments_leave">Laisser un commentaire</string>
     <plurals name="chat_comments_count"><item quantity="one">%d commentaire</item><item quantity="other">%d commentaires</item></plurals>

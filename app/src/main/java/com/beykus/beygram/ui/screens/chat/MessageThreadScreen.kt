@@ -61,6 +61,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -103,7 +104,8 @@ internal fun MessageThreadScreen(
     onBack: () -> Unit,
     onOpenProfile: (Long) -> Unit,
     /** Repository-backed automatic download for the shared media viewer. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -407,7 +409,8 @@ internal fun MessageThreadScreen(
                         },
                         onAddPollOption = { chatId, messageId, text ->
                             conversation.addPollOption(chatId, messageId, text)
-                        }
+                        },
+                        onOpenMessageEntity = onOpenMessageEntity
                     )
                 }
                 if (loadingOlder) item(key = "older_loading") {
@@ -462,7 +465,8 @@ internal fun MessageThreadScreen(
                                 onAddPollOption = { messageId, text ->
                                     conversation.addPollOption(channelChatId, messageId, text)
                                 },
-                                onRetry = {}
+                                onRetry = {},
+                                onOpenMessageEntity = onOpenMessageEntity
                             )
                         }
                     }
@@ -630,7 +634,8 @@ private fun ThreadCommentRow(
     onLoadPollVoters: suspend (chatId: Long, messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>,
     onAddPollOption: suspend (chatId: Long, messageId: Long, text: String) -> Result<Unit>,
     onStickerOpen: (Long) -> Unit,
-    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp), verticalAlignment = Alignment.Top) {
@@ -673,7 +678,8 @@ private fun ThreadCommentRow(
                 onLoadPollVoters = { messageId, optionIndex, offset ->
                     onLoadPollVoters(message.chatId, messageId, optionIndex, offset)
                 },
-                onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) }
+                onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) },
+                onOpenMessageEntity = onOpenMessageEntity
             )
         }
     }

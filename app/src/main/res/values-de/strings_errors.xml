@@ -81,6 +81,8 @@
     <string name="err_telegram_not_running">Telegram läuft auf diesem Gerät noch nicht.</string>
     <string name="err_username_format">Benutzername: 5–32 lateinische Buchstaben, Ziffern und _, beginnend mit einem Buchstaben</string>
     <string name="err_username_invalid">Ungültiger Benutzername</string>
+    <string name="err_username_not_found">Benutzername nicht gefunden</string>
+    <string name="chat_unknown_title">Chat</string>
     <string name="err_username_purchase">Dieser Benutzername ist nur zum Kauf verfügbar</string>
     <string name="err_username_taken">Dieser Benutzername ist bereits vergeben</string>
     <string name="err_vpn_core_bad_response">Der Proxy hat eine ungültige Antwort zurückgegeben</string>

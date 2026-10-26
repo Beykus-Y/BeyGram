@@ -104,6 +104,7 @@
     <string name="message_action_copy_text">Copier le texte</string>
     <string name="message_action_more">Plus</string>
     <string name="message_action_copy_link">Copier le lien</string>
+    <string name="message_action_copy_entity">Copier lien/nom d’utilisateur</string>
     <string name="message_action_forward_copy">Transférer sans l’auteur</string>
     <string name="message_action_forward">Transférer</string>
     <string name="message_action_select">Sélectionner des messages</string>
@@ -131,6 +132,7 @@
     <string name="forward_topic_general">Général</string>
     <string name="message_link">Lien du message</string>
     <string name="message_link_copied">Lien copié</string>
+    <string name="message_entity_copied">Copié</string>
     <string name="err_message_link_unavailable">Ce message n’a pas de lien disponible</string>
     <string name="message_action_edit">Modifier</string>
     <string name="message_action_edit_caption">Modifier la légende</string>
