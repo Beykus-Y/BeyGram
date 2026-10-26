@@ -1354,6 +1354,7 @@ private fun BeyGramAppContent(
                 globalSearchSession.reset(typed)
                 routeName = AppRoute.GlobalSearch.name
             },
+            connectionState = connectionState,
             onChatClick = { chat ->
                 selectedChatId = chat.id
                 chatBackRouteName = AppRoute.Chats.name
@@ -2335,6 +2336,7 @@ private fun BeyGramAppContent(
                         }
                     },
                     onBack = { routeName = AppRoute.Chats.name },
+                    connectionState = connectionState,
                     session = globalSearchSession
                 )
                 AppRoute.ReportProblem -> ReportProblemScreen(

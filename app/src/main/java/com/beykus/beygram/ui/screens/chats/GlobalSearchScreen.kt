@@ -7,19 +7,25 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,6 +39,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,12 +56,21 @@ import com.beykus.beygram.domain.model.GlobalSearchPage
 import com.beykus.beygram.domain.model.GlobalSearchPeriod
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.SharedMediaKind
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.repository.ConversationRepository
+import com.beykus.beygram.domain.search.GlobalSearchChatScope
+import com.beykus.beygram.domain.search.GlobalSearchChatTarget
 import com.beykus.beygram.domain.search.GlobalSearchRequest
+import com.beykus.beygram.domain.search.GlobalSearchResultSource
+import com.beykus.beygram.domain.search.GlobalSearchSection
 import com.beykus.beygram.domain.search.appendDistinctBy
 import com.beykus.beygram.domain.search.isStaleGlobalSearchRequest
 import com.beykus.beygram.domain.search.mergeGlobalChatResults
 import com.beykus.beygram.domain.search.mergeGlobalContactResults
+import com.beykus.beygram.domain.search.openTarget
+import com.beykus.beygram.domain.search.parseGlobalSearchQuery
+import com.beykus.beygram.ui.accessibility.accessibleDescription
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
@@ -82,6 +101,7 @@ fun GlobalSearchScreen(
     onOpenPublicChat: (ChatPreview) -> Unit,
     onOpenMessage: (chatId: Long, forumTopicId: Long, messageId: Long) -> Unit,
     onBack: () -> Unit,
+    connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
     session: GlobalSearchSession = remember { GlobalSearchSession(initialQuery) }
 ) {
     val palette = beyGramPalette()
@@ -90,6 +110,10 @@ fun GlobalSearchScreen(
     val currentLocale = context.resources.configuration.locales[0]
     val dateFormat = remember(currentLocale) { DateFormat.getDateInstance(DateFormat.MEDIUM, currentLocale) }
     var query by session.query
+    // The one field accepts @name, plain names and t.me links. Only the public lookups use the
+    // normalized text; message search still matches exactly what the user typed.
+    val parsedQuery = remember(query) { parseGlobalSearchQuery(query) }
+    val offline = connectionState == TelegramConnectionState.WaitingForNetwork
     var filter by session.filter
     var hits by session.hits
     var chatContexts by session.chatContexts
@@ -171,7 +195,8 @@ fun GlobalSearchScreen(
 
     LaunchedEffect(query, generation, session.chats.retryVersion.value) {
         searchGlobalSource(
-            query = query,
+            requestQuery = query,
+            searchText = parsedQuery.publicText,
             generation = generation,
             source = session.chats,
             currentQuery = { query },
@@ -182,7 +207,8 @@ fun GlobalSearchScreen(
     }
     LaunchedEffect(query, generation, session.contacts.retryVersion.value) {
         searchGlobalSource(
-            query = query,
+            requestQuery = query,
+            searchText = parsedQuery.publicText,
             generation = generation,
             source = session.contacts,
             currentQuery = { query },
@@ -193,7 +219,8 @@ fun GlobalSearchScreen(
     }
     LaunchedEffect(query, generation, session.publicChats.retryVersion.value) {
         searchGlobalSource(
-            query = query,
+            requestQuery = query,
+            searchText = parsedQuery.publicText,
             generation = generation,
             source = session.publicChats,
             currentQuery = { query },
@@ -205,11 +232,13 @@ fun GlobalSearchScreen(
 
     fun <T> loadMore(
         source: GlobalSearchSource<T>,
+        searchText: String,
         search: suspend (String, Int) -> Result<GlobalSearchPage<T>>,
         merge: (List<T>, List<T>) -> List<T>
     ) {
         if (!source.canLoadMore()) return
         val requestedQuery = query
+        val requestedSearchText = searchText
         val requestedGeneration = session.generation.value
         val requestedLimit = source.nextLimit()
         val isCurrent = {
@@ -224,7 +253,7 @@ fun GlobalSearchScreen(
         source.moreJob?.cancel()
         source.moreJob = scope.launch {
             try {
-                search(requestedQuery, requestedLimit)
+                search(requestedSearchText, requestedLimit)
                     .onSuccess { page ->
                         if (isCurrent()) {
                             source.items.value = merge(source.items.value, page.items)
@@ -246,6 +275,24 @@ fun GlobalSearchScreen(
     ) {
         ProfileToolbar(stringResource(R.string.global_search_title), onBack)
         SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
+        if (offline) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .background(palette.warningSurface)
+                    .errorAnnouncement()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.WifiOff, contentDescription = null, tint = palette.warningText, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.global_search_offline),
+                    color = palette.warningText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
         if (query.isBlank()) {
             Text(
                 stringResource(R.string.global_search_idle),
@@ -257,7 +304,7 @@ fun GlobalSearchScreen(
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                 item("chats-header") {
                     SearchSectionHeader(
-                        title = stringResource(R.string.global_search_section_chats),
+                        title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalChat)),
                         count = chatItems.size,
                         loading = session.chats.searching.value,
                         failed = session.chats.failed.value,
@@ -269,20 +316,23 @@ fun GlobalSearchScreen(
                         SearchSourceState(
                             loading = session.chats.searching.value,
                             failed = session.chats.failed.value,
+                            offline = offline,
                             emptyText = stringResource(R.string.global_search_section_empty_chats),
                             failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_chats))
                         )
                     }
                 } else {
                     items(chatItems, key = { "chat:${it.id}" }) { chat ->
-                        GlobalChatRow(chat, observeFile, downloadFile) { onOpenChat(chat) }
+                        GlobalChatRow(chat, GlobalSearchChatScope.Local, observeFile, downloadFile) {
+                            openSearchChat(chat, GlobalSearchChatScope.Local, onOpenChat, onOpenPublicChat)
+                        }
                     }
                     if (session.chats.canLoadMore()) {
                         item("chats-more") {
                             SearchMoreRow(
                                 loading = session.chats.loadingMore.value,
                                 failed = session.chats.moreFailed.value,
-                                onClick = { loadMore(session.chats, conversation::searchGlobalChats, ::mergeGlobalChatResults) }
+                                onClick = { loadMore(session.chats, parsedQuery.publicText, conversation::searchGlobalChats, ::mergeGlobalChatResults) }
                             )
                         }
                     }
@@ -290,7 +340,7 @@ fun GlobalSearchScreen(
 
                 item("contacts-header") {
                     SearchSectionHeader(
-                        title = stringResource(R.string.global_search_section_contacts),
+                        title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalContact)),
                         count = contactItems.size,
                         loading = session.contacts.searching.value,
                         failed = session.contacts.failed.value,
@@ -302,6 +352,7 @@ fun GlobalSearchScreen(
                         SearchSourceState(
                             loading = session.contacts.searching.value,
                             failed = session.contacts.failed.value,
+                            offline = offline,
                             emptyText = stringResource(R.string.global_search_section_empty_contacts),
                             failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_contacts))
                         )
@@ -315,7 +366,7 @@ fun GlobalSearchScreen(
                             SearchMoreRow(
                                 loading = session.contacts.loadingMore.value,
                                 failed = session.contacts.moreFailed.value,
-                                onClick = { loadMore(session.contacts, conversation::searchGlobalContacts, ::mergeGlobalContactResults) }
+                                onClick = { loadMore(session.contacts, parsedQuery.publicText, conversation::searchGlobalContacts, ::mergeGlobalContactResults) }
                             )
                         }
                     }
@@ -323,7 +374,7 @@ fun GlobalSearchScreen(
 
                 item("public-header") {
                     SearchSectionHeader(
-                        title = stringResource(R.string.global_search_section_public),
+                        title = stringResource(sectionTitleRes(GlobalSearchResultSource.PublicResult)),
                         count = publicChatItems.size,
                         loading = session.publicChats.searching.value,
                         failed = session.publicChats.failed.value,
@@ -335,19 +386,22 @@ fun GlobalSearchScreen(
                         SearchSourceState(
                             loading = session.publicChats.searching.value,
                             failed = session.publicChats.failed.value,
+                            offline = offline,
                             emptyText = stringResource(R.string.global_search_section_empty_public),
                             failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_public))
                         )
                     }
                 } else {
                     items(publicChatItems, key = { "public:${it.id}" }) { chat ->
-                        GlobalChatRow(chat, observeFile, downloadFile) { onOpenPublicChat(chat) }
+                        GlobalChatRow(chat, GlobalSearchChatScope.Public, observeFile, downloadFile) {
+                            openSearchChat(chat, GlobalSearchChatScope.Public, onOpenChat, onOpenPublicChat)
+                        }
                     }
                 }
 
                 item("messages-header") {
                     SearchSectionHeader(
-                        title = stringResource(R.string.global_search_section_messages),
+                        title = stringResource(sectionTitleRes(GlobalSearchResultSource.GlobalMessage)),
                         count = visibleHits.size,
                         loading = searching,
                         failed = failed,
@@ -382,6 +436,7 @@ fun GlobalSearchScreen(
                         SearchSourceState(
                             loading = searching,
                             failed = failed,
+                            offline = offline,
                             emptyText = stringResource(R.string.global_search_empty),
                             failedText = stringResource(R.string.global_search_failed)
                         )
@@ -456,7 +511,8 @@ fun GlobalSearchScreen(
  * pair is the stale-request guard and also invalidates a late answer after an account switch.
  */
 private suspend fun <T> searchGlobalSource(
-    query: String,
+    requestQuery: String,
+    searchText: String,
     generation: Long,
     source: GlobalSearchSource<T>,
     currentQuery: () -> String,
@@ -466,18 +522,18 @@ private suspend fun <T> searchGlobalSource(
 ) {
     val isCurrent = {
         !isStaleGlobalSearchRequest(
-            GlobalSearchRequest(query, generation),
+            GlobalSearchRequest(requestQuery, generation),
             currentQuery(),
             currentGeneration()
         )
     }
-    if (source.completedQuery == query && source.completedGeneration == generation && !source.failed.value) return
-    if (source.completedQuery != query || source.completedGeneration != generation) source.clearForNewQuery()
+    if (source.completedQuery == requestQuery && source.completedGeneration == generation && !source.failed.value) return
+    if (source.completedQuery != requestQuery || source.completedGeneration != generation) source.clearForNewQuery()
     source.moreJob?.cancel()
     source.moreJob = null
     source.loadingMore.value = false
     source.failed.value = false
-    if (query.isBlank()) {
+    if (requestQuery.isBlank()) {
         source.searching.value = false
         return
     }
@@ -485,7 +541,7 @@ private suspend fun <T> searchGlobalSource(
     try {
         delay(SEARCH_DEBOUNCE_MILLIS)
         if (!isCurrent()) return
-        search(query, source.limit.value)
+        search(searchText, source.limit.value)
             .onSuccess { page ->
                 if (isCurrent()) {
                     source.items.value = merge(source.items.value, page.items)
@@ -495,7 +551,7 @@ private suspend fun <T> searchGlobalSource(
             }
             .onFailure { if (isCurrent()) source.failed.value = true }
         if (isCurrent()) {
-            source.completedQuery = query
+            source.completedQuery = requestQuery
             source.completedGeneration = generation
         }
     } finally {
@@ -521,7 +577,7 @@ private fun SearchSectionHeader(
             color = palette.textPrimary,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f).semantics { heading() }
         )
         if (loading) {
             CircularProgressIndicator(
@@ -542,6 +598,7 @@ private fun SearchSectionHeader(
 private fun SearchSourceState(
     loading: Boolean,
     failed: Boolean,
+    offline: Boolean,
     emptyText: String,
     failedText: String
 ) {
@@ -549,12 +606,17 @@ private fun SearchSourceState(
     Text(
         when {
             loading -> stringResource(R.string.global_search_loading)
+            failed && offline -> stringResource(R.string.global_search_source_offline)
             failed -> failedText
             else -> emptyText
         },
         color = palette.textSecondary,
         fontSize = 13.sp,
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+        modifier = if (failed) {
+            Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement()
+        } else {
+            Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+        }
     )
 }
 
@@ -578,16 +640,48 @@ private fun SearchMoreRow(loading: Boolean, failed: Boolean, onClick: () -> Unit
     }
 }
 
+/**
+ * Keeps the tap target tied to the row's source: a public row always goes through the explicit
+ * open/join path, while a locally known chat opens directly.
+ */
+private fun openSearchChat(
+    chat: ChatPreview,
+    scope: GlobalSearchChatScope,
+    onOpenChat: (ChatPreview) -> Unit,
+    onOpenPublicChat: (ChatPreview) -> Unit
+) {
+    when (scope.openTarget(chat.id)) {
+        is GlobalSearchChatTarget.Local -> onOpenChat(chat)
+        is GlobalSearchChatTarget.Public -> onOpenPublicChat(chat)
+    }
+}
+
 @Composable
 private fun GlobalChatRow(
     chat: ChatPreview,
+    scope: GlobalSearchChatScope,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onClick: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val scopeLabel = stringResource(
+        if (scope == GlobalSearchChatScope.Local) R.string.global_search_scope_local else R.string.global_search_scope_public
+    )
+    val typeLabel = if (scope == GlobalSearchChatScope.Public && !chat.isGroup && !chat.isChannel) {
+        stringResource(R.string.global_search_chat_person_or_bot)
+    } else {
+        stringResource(chatTypeLabel(chat))
+    }
+    val subtitle = "$scopeLabel · $typeLabel"
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = accessibleDescription(chat.title, scopeLabel, typeLabel)
+            }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         ChatAvatar(chat, 42.dp, observeFile, downloadFile)
@@ -601,8 +695,8 @@ private fun GlobalChatRow(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                stringResource(chatTypeLabel(chat)),
-                color = palette.textSecondary,
+                subtitle,
+                color = if (scope == GlobalSearchChatScope.Public) palette.accentInk else palette.textSecondary,
                 fontSize = 12.sp
             )
         }
@@ -617,8 +711,17 @@ private fun GlobalContactRow(
     onClick: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val title = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
+    val kindLabel = stringResource(if (contact.isBot) R.string.global_search_scope_bot else R.string.global_search_scope_contact)
+    val subtitle = if (contact.subtitle.isBlank()) kindLabel else "$kindLabel · ${contact.subtitle}"
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = accessibleDescription(title, kindLabel, contact.subtitle)
+            }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         TelegramAvatar(
@@ -631,16 +734,16 @@ private fun GlobalContactRow(
         )
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(
-                contact.title.ifBlank { stringResource(R.string.user_name_unknown) },
+                title,
                 color = palette.textPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (contact.subtitle.isNotBlank()) {
+            if (subtitle.isNotBlank()) {
                 Text(
-                    contact.subtitle,
+                    subtitle,
                     color = palette.textSecondary,
                     fontSize = 12.sp,
                     maxLines = 1,
@@ -661,8 +764,20 @@ private fun GlobalMessageRow(
     onClick: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val title = chat?.title ?: stringResource(R.string.global_search_chat_unknown)
+    val preview = message.text.ifBlank {
+        if (message.media != null) stringResource(R.string.global_search_attachment) else ""
+    }
+    val date = if (message.dateSeconds > 0) dateFormat.format(Date(message.dateSeconds * 1000L)) else ""
+    val timestamp = listOf(date, message.time).filter { it.isNotBlank() }.joinToString(" · ")
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = accessibleDescription(title, message.senderName, preview, timestamp)
+            }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top
     ) {
         if (chat != null) {
@@ -673,7 +788,7 @@ private fun GlobalMessageRow(
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    chat?.title ?: stringResource(R.string.global_search_chat_unknown),
+                    title,
                     color = palette.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -687,12 +802,7 @@ private fun GlobalMessageRow(
             if (message.senderName.isNotBlank()) {
                 Text(message.senderName, color = palette.accentInk, fontSize = 12.sp, maxLines = 1)
             }
-            val preview = message.text.ifBlank {
-                if (message.media != null) stringResource(R.string.global_search_attachment) else ""
-            }
             Text(preview, color = palette.textPrimary, fontSize = 14.sp, maxLines = 2)
-            val date = if (message.dateSeconds > 0) dateFormat.format(Date(message.dateSeconds * 1000L)) else ""
-            val timestamp = listOf(date, message.time).filter { it.isNotBlank() }.joinToString(" · ")
             Text(timestamp, color = palette.textSecondary, fontSize = 12.sp)
         }
     }
@@ -710,6 +820,13 @@ private fun <T> SearchChips(options: List<Pair<T, String>>, selected: T?, all: S
             FilterChip(title = label, selected = selected == option, count = null, onClick = { onSelect(option) })
         }
     }
+}
+
+private fun sectionTitleRes(source: GlobalSearchResultSource): Int = when (source.section) {
+    GlobalSearchSection.Chats -> R.string.global_search_section_chats
+    GlobalSearchSection.PeopleAndBots -> R.string.global_search_section_contacts
+    GlobalSearchSection.PublicResults -> R.string.global_search_section_public
+    GlobalSearchSection.GlobalMessages -> R.string.global_search_section_messages
 }
 
 private fun chatTypeLabel(chat: ChatPreview): Int = when {
