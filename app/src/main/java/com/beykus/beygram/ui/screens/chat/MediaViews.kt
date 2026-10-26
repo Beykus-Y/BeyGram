@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.media.MediaMetadataRetriever
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
@@ -175,24 +176,45 @@ private object DecodedImageCache {
     }
 }
 
+/**
+ * Decode still artwork normally. Telegram GIFs are often MP4 animations: their thumbnails can be
+ * missing, stale or non-image files. Only animation/video callers opt in to a bounded frame fallback.
+ */
 @Composable
-internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: Boolean = false, maxDimension: Int = 1024, contentDescriptionText: String? = null) {
-    var failed by remember(path) { mutableStateOf(false) }
+internal fun LocalMediaImage(
+    path: String,
+    modifier: Modifier = Modifier,
+    fit: Boolean = false,
+    maxDimension: Int = 1024,
+    contentDescriptionText: String? = null,
+    allowVideoFrame: Boolean = false,
+    fallbackVideoPath: String? = null,
+    fallbackMinithumbnail: ByteArray? = null
+) {
     val context = LocalContext.current
-    val cacheKey = "$path#$maxDimension"
+    val cacheKey = "$path#$maxDimension#$allowVideoFrame#$fallbackVideoPath"
+    var failed by remember(cacheKey) { mutableStateOf(false) }
     val cacheable = maxDimension <= DecodedImageCache.MAX_CACHED_DIMENSION
-    // Картинка из кэша показывается сразу, без индикатора загрузки.
     val cached = remember(cacheKey) { if (cacheable) DecodedImageCache.get(cacheKey)?.let { BitmapDrawable(context.resources, it) } else null }
     val drawable by produceState<Drawable?>(cached, cacheKey) {
-        if (cached != null) { value = cached; return@produceState }
-        val decoded = withContext(Dispatchers.IO) { runCatching {
-            ImageDecoder.decodeDrawable(ImageDecoder.createSource(File(path))) { decoder, info, _ ->
-                val longest = maxOf(info.size.width, info.size.height)
-                if (longest > maxDimension) decoder.setTargetSize((info.size.width.toLong() * maxDimension / longest).toInt().coerceAtLeast(1), (info.size.height.toLong() * maxDimension / longest).toInt().coerceAtLeast(1))
-            }
-        } }
-        failed = decoded.isFailure
-        val result = decoded.getOrNull()
+        if (cached != null) { failed = false; value = cached; return@produceState }
+        val result = withContext(Dispatchers.IO) {
+            val still = runCatching {
+                ImageDecoder.decodeDrawable(ImageDecoder.createSource(File(path))) { decoder, info, _ ->
+                    val longest = maxOf(info.size.width, info.size.height)
+                    if (longest > maxDimension) decoder.setTargetSize(
+                        (info.size.width.toLong() * maxDimension / longest).toInt().coerceAtLeast(1),
+                        (info.size.height.toLong() * maxDimension / longest).toInt().coerceAtLeast(1)
+                    )
+                }
+            }.getOrNull()
+            still ?: if (allowVideoFrame) {
+                listOfNotNull(path, fallbackVideoPath).distinct().firstNotNullOfOrNull { candidate ->
+                    decodeVideoPosterFrame(candidate, maxDimension)
+                }?.let { BitmapDrawable(context.resources, it) }
+            } else null
+        }
+        failed = result == null
         if (cacheable && result is BitmapDrawable) DecodedImageCache.put(cacheKey, result.bitmap)
         value = result
     }
@@ -210,11 +232,32 @@ internal fun LocalMediaImage(path: String, modifier: Modifier = Modifier, fit: B
                     if (view.drawable !== drawable) view.setImageDrawable(drawable)
                 }, modifier = Modifier.fillMaxSize()
             )
+            failed && allowVideoFrame && fallbackMinithumbnail != null ->
+                MinithumbnailImage(fallbackMinithumbnail, Modifier.fillMaxSize())
+            failed && allowVideoFrame ->
+                Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.media_image_read_failed),
+                    tint = Color.LightGray, modifier = Modifier.size(32.dp))
             failed -> Text(stringResource(R.string.media_image_read_failed), color = Color.LightGray, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
             else -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
         }
     }
 }
+
+/** MediaMetadataRetriever is only used after still-image decoding fails, never for each visible photo. */
+private fun decodeVideoPosterFrame(path: String, maxDimension: Int): Bitmap? = runCatching {
+    val retriever = MediaMetadataRetriever()
+    try {
+        retriever.setDataSource(path)
+        val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: maxDimension
+        val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: maxDimension
+        val (frameWidth, frameHeight) = fitVideoPosterSize(width, height, maxDimension)
+        retriever.getScaledFrameAtTime(
+            0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, frameWidth, frameHeight
+        ) ?: retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+    } finally {
+        retriever.release()
+    }
+}.getOrNull()
 
 /** Минипревью TDLib: крошечный JPEG, растянутый на весь кадр, поэтому выглядит размытым. */
 @Composable
@@ -228,7 +271,11 @@ internal fun MinithumbnailImage(data: ByteArray, modifier: Modifier = Modifier) 
 private fun BlurredMediaPreview(media: MessageMedia, thumbnailPath: String?, modifier: Modifier) {
     val minithumbnail = media.minithumbnail
     when {
-        thumbnailPath != null -> LocalMediaImage(thumbnailPath, modifier, maxDimension = BLUR_PREVIEW_DIMENSION)
+        thumbnailPath != null -> LocalMediaImage(
+            thumbnailPath, modifier, maxDimension = BLUR_PREVIEW_DIMENSION,
+            allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
+            fallbackMinithumbnail = minithumbnail
+        )
         minithumbnail != null -> MinithumbnailImage(minithumbnail, modifier)
     }
 }
@@ -358,6 +405,8 @@ internal fun MediaPreview(
     // Секретное вложение в ленте не грузим и не показываем до открытия: превью иначе видно раньше просмотрщика.
     val concealed = media.isSecret || viewOnce
     val imageFile = if (concealed) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
+    // Telegram animations with no usable static thumbnail still have a video frame to display.
+    val posterFile = imageFile ?: if (!concealed && media.kind == MediaKind.Animation) file.localPath else null
     LaunchedEffect(thumbId, revealed, thumb.size, file.size, concealed, media.isSecret, media.isSecretChat, media.hasSpoiler, policySettings, policyNetwork) {
         if (concealed || media.isSecretChat) return@LaunchedEffect
         fun request(id: Int, kind: MediaKind, size: Long) = autoDownload(
@@ -490,11 +539,16 @@ internal fun MediaPreview(
                     )
                 }
             } else if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
-            else if (revealed && imageFile != null) LocalMediaImage(imageFile, Modifier.fillMaxSize())
+            else if (revealed && posterFile != null) LocalMediaImage(
+                posterFile, Modifier.fillMaxSize(),
+                allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
+                fallbackVideoPath = if (posterFile != file.localPath) file.localPath else null,
+                fallbackMinithumbnail = media.minithumbnail
+            )
             if (!viewOnce) {
                 if (!revealed) Text(spoilerLabel, color = palette.textPrimary, modifier = Modifier.padding(16.dp))
                 else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
-                else if (imageFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
+                else if (posterFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
                     val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
                     Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
                         modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
@@ -914,7 +968,11 @@ private fun MediaViewerPage(
             path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()
             ) {
-                LocalMediaImage(thumb.localPath!!, Modifier.weight(1f).fillMaxWidth(), fit = true)
+                LocalMediaImage(
+                    thumb.localPath!!, Modifier.weight(1f).fillMaxWidth(), fit = true,
+                    allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
+                    fallbackMinithumbnail = media.minithumbnail
+                )
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)),
                     color = Color.LightGray, modifier = Modifier.padding(8.dp))
                 if (file.isDownloading) LinearProgressIndicator(Modifier.fillMaxWidth())

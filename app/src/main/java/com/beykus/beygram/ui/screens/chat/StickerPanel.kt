@@ -1411,11 +1411,18 @@ private fun GifPanelArtwork(
 ) {
     val palette = beyGramPalette()
     val thumbnail = rememberPanelFile(item.thumbnailFileId, observeFile)
+    // Use a cached full animation only if already present; never download every GIF merely to draw the grid.
+    val fullFile = rememberPanelFile(item.fileId, observeFile)
     LaunchedEffect(item.thumbnailFileId) { item.thumbnailFileId?.let(downloadFile) }
-    val path = thumbnail.localPath
+    val path = thumbnail.localPath ?: fullFile.localPath
     Box(modifier, contentAlignment = Alignment.Center) {
         when {
-            path != null -> LocalMediaImage(path, Modifier.fillMaxSize(), fit = true, maxDimension = 320)
+            path != null -> LocalMediaImage(
+                path, Modifier.fillMaxSize(), fit = true, maxDimension = 320,
+                allowVideoFrame = true,
+                fallbackVideoPath = if (path != fullFile.localPath) fullFile.localPath else null,
+                fallbackMinithumbnail = item.minithumbnail
+            )
             item.minithumbnail != null -> MinithumbnailImage(item.minithumbnail, Modifier.fillMaxSize())
             thumbnail.isDownloading -> CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
             else -> Icon(Icons.Rounded.Animation, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(28.dp))
