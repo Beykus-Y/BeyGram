@@ -1,0 +1,87 @@
+name: Android instrumented UI tests
+
+# Runs a small set of Compose UI tests on an arm64 emulator for pull requests into DEV.
+# The emulator is fresh: no account, no TDLib session, no Telegram API credentials.
+# Only packages that do not touch TDLib, files or the network are selected below.
+# Non-blocking for now (continue-on-error); make it required once it is stable on CI.
+
+on:
+  pull_request:
+    branches:
+      - DEV
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-instrumented-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator-ui:
+    name: Compose UI tests on arm64 emulator
+    # arm64 is required: the app only ships the arm64-v8a native TDLib library (see app/build.gradle.kts).
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Android platform 36.1
+        run: |
+          set -uo pipefail
+          sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$sdkmanager" ]; then
+            echo "::error::sdkmanager not found" >&2
+            exit 1
+          fi
+          yes | "$sdkmanager" --licenses > "$RUNNER_TEMP/licenses.txt" 2>&1 || true
+          "$sdkmanager" --install "platforms;android-36.1" > "$RUNNER_TEMP/install.txt" 2>&1
+
+      - name: Write placeholder Telegram API credentials
+        # Pull requests have no secrets. The emulator tests never log in, so placeholder values are enough.
+        run: |
+          {
+            echo "telegramApiId=0"
+            echo "telegramApiHash="
+          } > secrets.properties
+
+      - name: Run selected instrumented tests on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: arm64-v8a
+          profile: pixel_6
+          disable-animations: true
+          disk-size: 6G
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save
+          # Only these packages are selected: Compose component and theme tests with no TDLib, files or network.
+          script: >-
+            ./gradlew --no-daemon :app:connectedDevDebugAndroidTest
+            -Pandroid.testInstrumentationRunnerArguments.package=com.beykus.beygram.ui.components,com.beykus.beygram.ui.screens.theme
+
+      - name: Upload test reports and logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-reports-${{ github.sha }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
+          retention-days: 7
