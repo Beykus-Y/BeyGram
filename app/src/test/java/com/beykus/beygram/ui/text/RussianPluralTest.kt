@@ -25,4 +25,31 @@ class RussianPluralTest {
         assertEquals("много", form(14))
         assertEquals("много", form(111))
     }
+
+    @Test fun pluralFormEnglishUsesOneOnlyForOne() {
+        assertEquals("one", pluralForm("en", 1, "one", "few", "many"))
+        assertEquals("many", pluralForm("en", 2, "one", "few", "many"))
+        assertEquals("many", pluralForm("en", 21, "one", "few", "many"))
+    }
+
+    @Test fun pluralFormGermanUsesOneOnlyForOne() {
+        assertEquals("many", pluralForm("de", 21, "one", "few", "many"))
+    }
+
+    @Test fun pluralFormFrenchTreatsZeroAsOne() {
+        assertEquals("one", pluralForm("fr", 0, "one", "few", "many"))
+        assertEquals("one", pluralForm("fr", 1, "one", "few", "many"))
+        assertEquals("many", pluralForm("fr", 2, "one", "few", "many"))
+    }
+
+    @Test fun pluralFormRussianUsesRussianRules() {
+        assertEquals("one", pluralForm("ru", 21, "one", "few", "many"))
+        assertEquals("few", pluralForm("ru", 22, "one", "few", "many"))
+        assertEquals("many", pluralForm("ru", 25, "one", "few", "many"))
+    }
+
+    @Test fun pluralFormUnsupportedLanguageFallsBackToRussianStrings() {
+        assertEquals("few", pluralForm("ja", 2, "one", "few", "many"))
+        assertEquals("one", pluralForm("ja", 21, "one", "few", "many"))
+    }
 }
