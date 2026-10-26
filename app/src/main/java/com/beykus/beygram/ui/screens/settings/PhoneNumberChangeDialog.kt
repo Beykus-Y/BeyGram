@@ -52,7 +52,8 @@ internal fun PhoneNumberChangeDialog(
 ) {
     val palette = beyGramPalette()
     var phone by remember { mutableStateOf("") }
-    var code by remember { mutableStateOf("") }
+    // A fresh code request starts with an empty field, so an old code is never resent by mistake.
+    var code by remember(pending) { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
