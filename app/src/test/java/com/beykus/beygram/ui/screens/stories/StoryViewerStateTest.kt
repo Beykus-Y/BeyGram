@@ -47,8 +47,12 @@ class StoryViewerStateTest {
             storyViewerPinnedStory(listOf(preview(1), preview(3)), null, initialStoryId = 3, maxReadStoryId = 0)?.storyId
         )
         assertEquals(
-            1,
+            3,
             storyViewerPinnedStory(listOf(preview(1), preview(3)), null, initialStoryId = 0, maxReadStoryId = 1)?.storyId
+        )
+        assertEquals(
+            1,
+            storyViewerPinnedStory(listOf(preview(1), preview(3)), null, initialStoryId = 0, maxReadStoryId = 3)?.storyId
         )
     }
 
