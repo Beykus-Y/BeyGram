@@ -45,6 +45,7 @@ import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.PlaybackOrigin
@@ -125,10 +126,11 @@ internal fun VideoNoteBubble(
     highlighted: Boolean = false,
     origin: PlaybackOrigin? = null,
     transcriptionRequestPending: Boolean = false,
-    transcriptionRequestError: String? = null,
+    transcriptionRequestError: SpeechRecognitionFailure? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
     onRateTranscription: ((Boolean) -> Unit)? = null,
+    speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
     /** Repository-backed automatic thumbnail download; explicit playback still uses [downloadFile]. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
@@ -279,6 +281,7 @@ internal fun VideoNoteBubble(
             rated = transcriptionRated,
             onRequest = onTranscribe,
             onRate = onRateTranscription,
+            ui = speechRecognitionUi,
             // Keep the note's circle alignment: a full-width section would push an incoming note to the right.
             modifier = Modifier.width(size)
         )

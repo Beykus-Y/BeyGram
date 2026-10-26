@@ -48,6 +48,7 @@ import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.MessageLimits
+import com.beykus.beygram.domain.model.SpeechRecognitionTrial
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MessageReaction
 import com.beykus.beygram.domain.model.ReactionOption
@@ -171,6 +172,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override val myProfile: StateFlow<ProfileState> = noProfile
     override val bioLengthLimit: StateFlow<Int> = MutableStateFlow(70).asStateFlow()
     override val messageLimits: StateFlow<MessageLimits> = MutableStateFlow(MessageLimits()).asStateFlow()
+    override val speechRecognitionTrial: StateFlow<SpeechRecognitionTrial?> =
+        MutableStateFlow<SpeechRecognitionTrial?>(null).asStateFlow()
     override val notifications: StateFlow<TelegramNotifications> = MutableStateFlow(TelegramNotifications()).asStateFlow()
     override val notificationPresentation: StateFlow<NotificationPresentation> = MutableStateFlow(NotificationPresentation()).asStateFlow()
 

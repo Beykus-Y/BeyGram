@@ -24,6 +24,16 @@
     <string name="transcription_pending">Transcribiendo…</string>
     <string name="transcription_rate_good">Buena transcripción</string>
     <string name="transcription_rate_bad">Mala transcripción</string>
+    <string name="transcription_quota_left">Transcripciones gratuitas restantes: %1$d de %2$d</string>
+    <string name="transcription_quota_left_reset">Transcripciones gratuitas restantes: %1$d de %2$d · se restablecen el %3$s</string>
+    <string name="transcription_quota_empty">Se agotaron las transcripciones gratuitas</string>
+    <string name="transcription_quota_empty_reset">Se agotaron las transcripciones gratuitas · se restablecen el %1$s</string>
     <string name="err_transcription_failed">No se pudo transcribir el mensaje</string>
     <string name="err_transcription_secret_chat">La transcripción no está disponible en los chats secretos</string>
+    <string name="err_transcription_quota">Se agotaron las transcripciones gratuitas</string>
+    <string name="err_transcription_quota_reset">Se agotaron las transcripciones gratuitas. Nuevos intentos el %1$s.</string>
+    <string name="err_transcription_premium">Las transcripciones gratuitas no están disponibles. Obtén Telegram Premium para continuar.</string>
+    <string name="err_transcription_too_long">Este mensaje es demasiado largo para transcribirlo</string>
+    <string name="err_transcription_too_long_limit">Este mensaje es demasiado largo: sin Premium, la transcripción está disponible hasta %1$s</string>
+    <string name="err_transcription_network">No se pudo conectar con Telegram. Comprueba la conexión e inténtalo de nuevo.</string>
 </resources>

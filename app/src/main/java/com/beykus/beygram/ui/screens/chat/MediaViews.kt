@@ -111,6 +111,7 @@ import kotlinx.coroutines.flow.first
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.GrowingPlaybackSource
@@ -320,10 +321,11 @@ internal fun MediaPreview(
     onPlayed: () -> Unit = {},
     origin: PlaybackOrigin? = null,
     transcriptionRequestPending: Boolean = false,
-    transcriptionRequestError: String? = null,
+    transcriptionRequestError: SpeechRecognitionFailure? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
     onRateTranscription: ((Boolean) -> Unit)? = null,
+    speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
     /** A per-message view-once attachment: conceal it until the viewer is opened, even outside secret chats. */
     viewOnce: Boolean = false,
     /** Repository-backed automatic download; when absent the same local policy gates [downloadFile]. */
@@ -427,6 +429,7 @@ internal fun MediaPreview(
             transcriptionRated = transcriptionRated,
             onTranscribe = onTranscribe,
             onRateTranscription = onRateTranscription,
+            speechRecognitionUi = speechRecognitionUi,
             growing = partialGrowing)
         return
     }
@@ -437,6 +440,7 @@ internal fun MediaPreview(
             transcriptionRated = transcriptionRated,
             onTranscribe = onTranscribe,
             onRateTranscription = onRateTranscription,
+            speechRecognitionUi = speechRecognitionUi,
             autoDownloadFile = autoDownload)
         return
     }

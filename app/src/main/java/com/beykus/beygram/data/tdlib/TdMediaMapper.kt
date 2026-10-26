@@ -1,7 +1,5 @@
 package com.beykus.beygram.data.tdlib
 
-import com.beykus.beygram.R
-import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.GeoPoint
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
@@ -16,7 +14,10 @@ import com.beykus.beygram.domain.model.MessagePollOption
 import com.beykus.beygram.domain.model.MessageSpecialContent
 import com.beykus.beygram.domain.model.MessageVenueInfo
 import com.beykus.beygram.domain.model.PollVoteRestriction
+import com.beykus.beygram.domain.model.SpeechRecognitionFailure
+import com.beykus.beygram.domain.model.SpeechRecognitionTrial
 import org.drinkless.tdlib.TdApi
+import java.util.concurrent.ConcurrentHashMap
 
 internal fun TdApi.File.toMediaFileState(): MediaFileState {
     val local = local
@@ -52,28 +53,76 @@ internal fun stickerMimeType(format: TdApi.StickerFormat): String = when (format
     else -> "image/webp"
 }
 
-/** Domain bridge for TDLib's speech result. Error details are intentionally replaced by a friendly UI message. */
+/** Domain bridge for TDLib's speech result. Error details become a structured, user-explainable reason. */
 internal data class TranscriptionSnapshot(
     val text: String = "",
     val pendingText: String? = null,
-    val error: UiText? = null
+    val error: SpeechRecognitionFailure? = null
 )
 
-internal fun TdApi.SpeechRecognitionResult?.toTranscriptionSnapshot(): TranscriptionSnapshot = when (this) {
+internal fun TdApi.SpeechRecognitionResult?.toTranscriptionSnapshot(
+    trial: SpeechRecognitionTrial? = null,
+    nowSeconds: Long = System.currentTimeMillis() / 1000L,
+    isPremiumAccount: Boolean = false,
+    snapshotEligibility: Boolean = true
+): TranscriptionSnapshot = when (this) {
     is TdApi.SpeechRecognitionResultText -> TranscriptionSnapshot(text = text)
     is TdApi.SpeechRecognitionResultPending -> TranscriptionSnapshot(pendingText = partialText.orEmpty())
-    is TdApi.SpeechRecognitionResultError -> TranscriptionSnapshot(error = UiText.Res(R.string.err_transcription_failed))
+    is TdApi.SpeechRecognitionResultError -> TranscriptionSnapshot(
+        error = classifySpeechRecognitionError(error?.code, error?.message, trial, nowSeconds, isPremiumAccount,
+            snapshotEligibility)
+    )
     else -> TranscriptionSnapshot()
 }
 
-internal class TdMediaMapper(private val files: MediaFileStore) {
+internal class TdMediaMapper(
+    private val files: MediaFileStore,
+    /** Reads the current account's Telegram quota when an asynchronous recognition error is mapped. */
+    private val speechTrial: () -> SpeechRecognitionTrial? = { null },
+    /** Premium status is part of the error snapshot, so a later upgrade can invalidate an older refusal. */
+    private val isPremiumAccount: () -> Boolean = { false }
+) {
+    private data class CachedSpeechError(
+        val code: Int,
+        val message: String,
+        val failure: SpeechRecognitionFailure
+    )
+
+    /**
+     * TDLib keeps the same SpeechRecognitionResultError across history reloads. Reusing the first mapped
+     * failure preserves its eligibility snapshot, while a live update is always classified afresh.
+     */
+    private val speechErrors = ConcurrentHashMap<Int, CachedSpeechError>()
+
+    private fun transcriptionSnapshot(fileId: Int, result: TdApi.SpeechRecognitionResult?, fresh: Boolean): TranscriptionSnapshot {
+        val snapshot = result.toTranscriptionSnapshot(
+            speechTrial(),
+            isPremiumAccount = isPremiumAccount(),
+            snapshotEligibility = fresh
+        )
+        if (result !is TdApi.SpeechRecognitionResultError) {
+            speechErrors.remove(fileId)
+            return snapshot
+        }
+        val failure = snapshot.error ?: return snapshot
+        val code = result.error?.code ?: 0
+        val message = result.error?.message.orEmpty()
+        if (!fresh) {
+            speechErrors[fileId]?.takeIf { it.code == code && it.message == message }?.let {
+                return TranscriptionSnapshot(error = it.failure)
+            }
+        }
+        speechErrors[fileId] = CachedSpeechError(code, message, failure)
+        return snapshot
+    }
+
     private fun register(file: TdApi.File): Int {
         files.register(file.toMediaFileState())
         return file.id
     }
     private fun thumbnail(thumb: TdApi.Thumbnail?): Int? = thumb?.file?.let(::register)
 
-    fun media(content: TdApi.MessageContent): MessageMedia? = when (content) {
+    fun media(content: TdApi.MessageContent, freshSpeechError: Boolean = false): MessageMedia? = when (content) {
         is TdApi.MessagePhoto -> {
             val sizes = content.photo.sizes.orEmpty().filter { it.photo != null }
             val full = sizes.maxByOrNull { it.width.toLong() * it.height }
@@ -94,12 +143,12 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             MessageMedia(MediaKind.Audio, register(it.audio), thumbnail(it.albumCoverThumbnail), it.fileName.orEmpty().ifBlank { it.title.orEmpty() }, it.mimeType.orEmpty().ifBlank { "audio/mpeg" }, durationSeconds = it.duration, title = it.title.orEmpty(), performer = it.performer.orEmpty())
         }
         is TdApi.MessageVoiceNote -> content.voiceNote.let {
-            val transcription = it.speechRecognitionResult.toTranscriptionSnapshot()
+            val transcription = transcriptionSnapshot(it.voice.id, it.speechRecognitionResult, freshSpeechError)
             MessageMedia(MediaKind.Voice, register(it.voice), fileName = "", mimeType = it.mimeType.orEmpty().ifBlank { "audio/ogg" }, durationSeconds = it.duration, waveform = decodeVoiceWaveform(it.waveform ?: ByteArray(0)),
                 transcriptionText = transcription.text, transcriptionPending = transcription.pendingText, transcriptionError = transcription.error)
         }
         is TdApi.MessageVideoNote -> content.videoNote.let {
-            val transcription = it.speechRecognitionResult.toTranscriptionSnapshot()
+            val transcription = transcriptionSnapshot(it.video.id, it.speechRecognitionResult, freshSpeechError)
             MessageMedia(MediaKind.VideoNote, register(it.video), thumbnail(it.thumbnail), "", "video/mp4", it.length, it.length, it.duration, isSecret = content.isSecret, isViewed = content.isViewed, minithumbnail = it.minithumbnail?.data,
                 transcriptionText = transcription.text, transcriptionPending = transcription.pendingText, transcriptionError = transcription.error)
         }
