@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -61,6 +62,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
@@ -68,6 +70,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 private val DICE_CARD_SIZE = 136.dp
 private const val DICE_ANIMATION_TIMEOUT_MILLIS = 15_000L
+private const val DICE_FALLBACK_REVEAL_MILLIS = 8_000L
 
 /** Keeps the throw identity across the temporary-to-server message id replacement in one remember block. */
 @Composable
@@ -122,15 +125,24 @@ internal fun DiceMessageCard(
     var forcedStatic by remember(key, displayState) { mutableStateOf(false) }
     var animationDone by remember(key, displayState) { mutableStateOf(false) }
     var playback by remember(key, displayState) { mutableStateOf(false) }
+    var fallbackRevealed by remember(key, displayState) { mutableStateOf(false) }
     val animationFinished = remember(key, displayState) { CompletableDeferred<Unit>() }
     val lifecycleResumed = rememberLifecycleResumed()
+
+    // A stalled sticker download must not hide an already-known result forever: reveal it after a bounded wait.
+    LaunchedEffect(key, displayState, dice.hasFinalValue, motion, eligible) {
+        if (!motion || !dice.hasFinalValue || displayState?.canAnimateInline() != true) return@LaunchedEffect
+        if (!diceAnimationPlayback.canBegin(key, eligible)) return@LaunchedEffect
+        delay(DICE_FALLBACK_REVEAL_MILLIS)
+        fallbackRevealed = true
+    }
 
     val canPlay = motion && playable && !forcedStatic && !animationDone &&
         diceAnimationPlayback.canBegin(key, eligible)
     val useVisual = message.sendState != MessageSendState.Failed &&
         displayState != null && files.isNotEmpty() && (dice.hasFinalValue || canPlay)
 
-    LaunchedEffect(canPlay, motion, eligible, key, displayState) {
+    LaunchedEffect(canPlay, motion, eligible, key, displayState, lifecycleResumed) {
         if (!canPlay) {
             // Reduced motion consumes a live throw immediately: toggling the setting back must not replay it.
             if (!motion && (eligible || diceAnimationPlayback.canBegin(key, eligible = false))) {
@@ -138,6 +150,8 @@ internal fun DiceMessageCard(
             }
             return@LaunchedEffect
         }
+        // Backgrounding the chat pauses the animation; do not let the wall-clock timeout consume the throw.
+        if (!lifecycleResumed) return@LaunchedEffect
         if (!diceAnimationPlayback.begin(key, eligible)) {
             forcedStatic = true
             return@LaunchedEffect
@@ -162,7 +176,8 @@ internal fun DiceMessageCard(
     }
     // Do not reveal the server result in the fallback before a live throw has had a chance to play.
     val animationExpected = motion && message.sendState != MessageSendState.Failed &&
-        !animationDone && !forcedStatic && files.isNotEmpty() && files.values.none { it.error != null } &&
+        !animationDone && !forcedStatic && !fallbackRevealed &&
+        files.isNotEmpty() && files.values.none { it.error != null } &&
         dice.hasFinalValue && displayState?.canAnimateInline() == true &&
         diceAnimationPlayback.canBegin(key, eligible)
     val visualResultText = if (animationExpected) stringResource(R.string.chat_dice_rolling) else resultText
@@ -388,35 +403,39 @@ private fun SlotMachineDiceVisual(
 
     Box(modifier) {
         Box(Modifier.fillMaxSize().alpha(if (ready) 1f else 0f)) {
-            DiceTgsLayer(
-                json = jsons[0].orEmpty(),
-                mode = backgroundMode,
-                isPlaying = playing && ready && backgroundAnimating,
-                modifier = Modifier.fillMaxSize(),
-                onReady = { if (!failed) readyCount += 1 },
-                onFailed = { failed = true; onFailed() },
-                onFinished = onBackgroundFinished
-            )
-            // Reels go above the background, then the frame/handle is painted last, as in Telegram Desktop.
-            for (index in 2..4) {
+            // Recreate the layer subtree when the composition changes; a reused file keeps its last readiness
+            // report and would otherwise make the new composition wait forever for five ready layers.
+            key(compositionKey) {
                 DiceTgsLayer(
-                    json = jsons[index].orEmpty(),
-                    mode = reelMode,
-                    isPlaying = playing && ready,
+                    json = jsons[0].orEmpty(),
+                    mode = backgroundMode,
+                    isPlaying = playing && ready && backgroundAnimating,
                     modifier = Modifier.fillMaxSize(),
                     onReady = { if (!failed) readyCount += 1 },
                     onFailed = { failed = true; onFailed() },
-                    onFinished = onReelFinished
+                    onFinished = onBackgroundFinished
+                )
+                // Reels go above the background, then the frame/handle is painted last, as in Telegram Desktop.
+                for (index in 2..4) {
+                    DiceTgsLayer(
+                        json = jsons[index].orEmpty(),
+                        mode = reelMode,
+                        isPlaying = playing && ready,
+                        modifier = Modifier.fillMaxSize(),
+                        onReady = { if (!failed) readyCount += 1 },
+                        onFailed = { failed = true; onFailed() },
+                        onFinished = onReelFinished
+                    )
+                }
+                DiceTgsLayer(
+                    json = jsons[1].orEmpty(),
+                    mode = leverMode,
+                    isPlaying = playing && ready && !finalState,
+                    modifier = Modifier.fillMaxSize(),
+                    onReady = { if (!failed) readyCount += 1 },
+                    onFailed = { failed = true; onFailed() }
                 )
             }
-            DiceTgsLayer(
-                json = jsons[1].orEmpty(),
-                mode = leverMode,
-                isPlaying = playing && ready && !finalState,
-                modifier = Modifier.fillMaxSize(),
-                onReady = { if (!failed) readyCount += 1 },
-                onFailed = { failed = true; onFailed() }
-            )
         }
         if (!ready) fallback()
     }
