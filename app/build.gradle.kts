@@ -37,6 +37,18 @@ fun secretProperty(name: String, defaultValue: String): String =
 
 val telegramApiId = secretProperty("telegramApiId", "0").ifBlank { "0" }
 val telegramApiHash = secretProperty("telegramApiHash", "")
+
+// ABIs packaged into the APK, comma-separated, e.g. -PbeygramAbis=arm64-v8a,x86_64 for an emulator build.
+// Each ABI needs its own libtdjni.so in src/main/jniLibs/<abi>; see docs/tdlib.md for the support matrix.
+val nativeAbis = (providers.gradleProperty("beygramAbis").orNull ?: "arm64-v8a")
+    .split(',')
+    .map { it.trim() }
+    .filter { it.isNotEmpty() }
+nativeAbis.forEach { abi ->
+    require(file("src/main/jniLibs/$abi/libtdjni.so").isFile) {
+        "beygramAbis contains $abi, but src/main/jniLibs/$abi/libtdjni.so is missing. Build TDLib for $abi first."
+    }
+}
 // An APK without these values cannot sign in, so assembling or installing one stops with the reason.
 // Pull request builds in CI get no secrets by design (see android-release.yml) and are not checked.
 val failWithoutTelegramCredentials =
@@ -84,7 +96,7 @@ android {
         applicationId = "com.beykus.beygram"
         minSdk = 29
         targetSdk = 36
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += nativeAbis }
         versionCode = stableVersionCode
         versionName = stableVersion
 
