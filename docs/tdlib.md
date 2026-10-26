@@ -78,4 +78,23 @@ app/src/main/jniLibs/x86_64/libtdjni.so
 ```
 
 After those files are present, `BeyGramApp` automatically selects `TdLibTelegramRepository`.
+
+## ABI support
+
+The APK packages the ABIs listed in the Gradle property `beygramAbis` (comma-separated, default `arm64-v8a`). The build stops if a listed ABI has no `libtdjni.so` in `app/src/main/jniLibs/<abi>`, so an APK never ships an ABI without TDLib.
+
+| ABI | Status | Use |
+| --- | --- | --- |
+| `arm64-v8a` | Built and packaged; the only ABI in release APKs | Phones and release builds |
+| `x86_64` | Not built yet | Emulator UI tests (CI architecture is tracked in issue #394) |
+| `x86` | Not built yet | Not planned unless device share justifies it |
+| `armeabi-v7a` | Not built yet | Old 32-bit devices; add only after confirming target devices |
+
+To try an emulator build after building `libtdjni.so` for x86_64:
+
+```bash
+./gradlew :app:assembleDevDebug -PbeygramAbis=arm64-v8a,x86_64
+```
+
+Release builds keep `arm64-v8a` unless `beygramAbis` is changed for them. Other ABIs are not verified on a device yet, and the Mihomo `libclash.so` is not checked per ABI by this build.
 Without complete artifacts it uses `UnavailableTelegramRepository`, so the project remains buildable and the start screen explains what is missing.
