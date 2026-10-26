@@ -913,7 +913,10 @@ private fun QueuePanel(
         }
         if (current.shuffleEnabled) {
             Text(
-                stringResource(R.string.queue_shuffled),
+                stringResource(
+                    if (current.playbackOrderApplied) R.string.queue_playback_order_hint
+                    else R.string.queue_shuffled
+                ),
                 color = palette.textSecondary,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
@@ -930,6 +933,7 @@ private fun QueuePanel(
                 current.current?.let { row ->
                     QueueCurrentCard(
                         row = row,
+                        showSourcePosition = current.shuffleEnabled && row.index >= 0,
                         onRetry = { PlaybackEngine.togglePlayPause() },
                         onShowInChat = row.item.origin?.let { origin ->
                             {
@@ -956,6 +960,7 @@ private fun QueuePanel(
             items(current.upcoming, key = { "${it.item.occurrenceId}:${it.index}" }) { row ->
                 QueueUpcomingRow(
                     row = row,
+                    reorderEnabled = !current.shuffleEnabled,
                     dragging = dragFrom == row.index,
                     highlighted = dropTarget == row.index,
                     canMoveUp = row.index > current.currentIndex + 1,
@@ -1029,10 +1034,14 @@ private fun QueueSectionTitle(text: String) {
 @Composable
 private fun QueueCurrentCard(
     row: QueueItemUi,
+    showSourcePosition: Boolean,
     onRetry: () -> Unit,
     onShowInChat: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
+    val sourcePosition = if (showSourcePosition) {
+        " · " + stringResource(R.string.queue_source_position, row.index + 1)
+    } else ""
     Surface(
         color = palette.accentSoft,
         shape = RoundedCornerShape(16.dp),
@@ -1063,7 +1072,7 @@ private fun QueueCurrentCard(
                     )
                 }
                 Text(
-                    queueStatusText(row.status),
+                    queueStatusText(row.status) + sourcePosition,
                     color = if (row.status == QueueItemStatus.CurrentFailed) palette.danger else palette.accentInk,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(top = 2.dp)
@@ -1086,6 +1095,7 @@ private fun QueueCurrentCard(
 @Composable
 private fun QueueUpcomingRow(
     row: QueueItemUi,
+    reorderEnabled: Boolean,
     dragging: Boolean,
     highlighted: Boolean,
     dragOffset: Float,
@@ -1107,6 +1117,8 @@ private fun QueueUpcomingRow(
     val moveDownLabel = stringResource(R.string.queue_move_down)
     val dragLabel = stringResource(R.string.queue_drag)
     val actionsLabel = stringResource(R.string.queue_actions)
+    val sourcePositionLabel = stringResource(R.string.queue_source_position, row.index + 1)
+    val sourcePositionDescription = stringResource(R.string.queue_source_position_a11y, row.index + 1)
     Row(
         Modifier
             .fillMaxWidth()
@@ -1117,40 +1129,57 @@ private fun QueueUpcomingRow(
             .background(if (highlighted) palette.accentSoft.copy(alpha = 0.65f) else Color.Transparent),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier
-                .size(48.dp)
-                .semantics {
-                    contentDescription = dragLabel
-                    customActions = listOf(
-                        CustomAccessibilityAction(moveUpLabel) {
-                            if (canMoveUp) {
-                                onMoveUp()
-                                true
-                            } else false
-                        },
-                        CustomAccessibilityAction(moveDownLabel) {
-                            if (canMoveDown) {
-                                onMoveDown()
-                                true
-                            } else false
-                        }
-                    )
-                }
-                .pointerInput(row.index, canMoveUp, canMoveDown) {
-                    detectDragGestures(
-                        onDragStart = { onDragStart() },
-                        onDragCancel = { onDragCancel() },
-                        onDragEnd = { onDragEnd() },
-                        onDrag = { change, amount ->
-                            change.consume()
-                            onDrag(amount.y)
-                        }
-                    )
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Rounded.DragHandle, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+        if (reorderEnabled) {
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .semantics {
+                        contentDescription = dragLabel
+                        customActions = listOf(
+                            CustomAccessibilityAction(moveUpLabel) {
+                                if (canMoveUp) {
+                                    onMoveUp()
+                                    true
+                                } else false
+                            },
+                            CustomAccessibilityAction(moveDownLabel) {
+                                if (canMoveDown) {
+                                    onMoveDown()
+                                    true
+                                } else false
+                            }
+                        )
+                    }
+                    .pointerInput(row.index, canMoveUp, canMoveDown) {
+                        detectDragGestures(
+                            onDragStart = { onDragStart() },
+                            onDragCancel = { onDragCancel() },
+                            onDragEnd = { onDragEnd() },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                onDrag(amount.y)
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.DragHandle, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+            }
+        } else {
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .semantics { contentDescription = sourcePositionDescription },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    sourcePositionLabel,
+                    color = palette.textSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1
+                )
+            }
         }
         QueueArtwork(row.item, 40.dp, palette)
         Spacer(Modifier.width(10.dp))

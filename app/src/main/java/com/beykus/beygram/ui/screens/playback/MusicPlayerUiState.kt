@@ -188,20 +188,26 @@ internal data class MusicQueueUi(
     val rows: List<QueueItemUi>,
     val currentIndex: Int,
     val current: QueueItemUi?,
+    /**
+     * Tracks after the current one in the actual playback order. With shuffle on this is derived from the Media3
+     * timeline, not from the source tail; the source index of each row stays available for the "No. N" marker.
+     */
     val upcoming: List<QueueItemUi>,
     val shuffleEnabled: Boolean,
-    val origin: PlaybackOrigin?
+    val origin: PlaybackOrigin?,
+    val repeatAll: Boolean = false,
+    /** True only when [upcoming] came from a valid Media3 shuffle order. */
+    val playbackOrderApplied: Boolean = false
 ) {
     val size: Int get() = rows.size
     val loadingCount: Int get() = rows.count { it.status == QueueItemStatus.Loading }
 }
 
 /**
- * Original source order is always shown, including while shuffle is on. [PlaybackState.queue] keeps that order and
- * [PlaybackState.queueIndex] points at the playing occurrence, so downloading a page or changing shuffle never
- * moves the highlighted row.
+ * Builds the queue panel from the original source order. [playbackOrder] is a list of original queue indices in the
+ * exact order Media3 will play them; when supplied, "Next" follows that order instead of the source tail.
  */
-internal fun PlaybackState.musicQueueUi(): MusicQueueUi? {
+internal fun PlaybackState.musicQueueUi(playbackOrder: List<Int>? = null): MusicQueueUi? {
     val current = item?.takeIf { it.isMusic } ?: return null
     if (queue.isEmpty()) {
         val single = QueueItemUi(
@@ -235,14 +241,48 @@ internal fun PlaybackState.musicQueueUi(): MusicQueueUi? {
         )
     }
     val currentRow = rows[index]
-    return MusicQueueUi(
+    val base = MusicQueueUi(
         rows = rows,
         currentIndex = index,
         current = currentRow,
         upcoming = rows.drop(index + 1),
         shuffleEnabled = shuffleEnabled,
-        origin = current.origin
+        origin = current.origin,
+        repeatAll = repeatMode == PlaybackRepeatMode.All
     )
+    return base.withPlaybackOrder(playbackOrder)
+}
+
+/**
+ * Replaces the source-tail "Next" list with the actual playback sequence. Invalid/partial orders fall back to the
+ * source order so a broken timeline dump can never hide the queue. The current row and the original rows stay intact.
+ */
+internal fun MusicQueueUi.withPlaybackOrder(playbackOrder: List<Int>?): MusicQueueUi {
+    if (playbackOrder == null || !shuffleEnabled) return this
+    if (playbackOrder.size != rows.size || playbackOrder.distinct().size != rows.size) return this
+    if (playbackOrder.any { it !in rows.indices }) return this
+    val following = followingPlaybackIndices(playbackOrder, currentIndex, repeatAll)
+    val byIndex = rows.associateBy { it.index }
+    return copy(
+        upcoming = following.mapNotNull(byIndex::get),
+        playbackOrderApplied = true
+    )
+}
+
+/**
+ * Original queue indices that Media3 plays after [currentIndex]. With repeat-all the sequence wraps, matching the
+ * player's behaviour; repeat-one still lists the manual-Next sequence.
+ */
+internal fun followingPlaybackIndices(
+    playbackOrder: List<Int>,
+    currentIndex: Int,
+    repeatAll: Boolean
+): List<Int> {
+    if (playbackOrder.isEmpty() || currentIndex !in playbackOrder) return emptyList()
+    val position = playbackOrder.indexOf(currentIndex)
+    val after = playbackOrder.drop(position + 1)
+    if (!repeatAll || playbackOrder.size <= 1) return after
+    return after + playbackOrder.take(position)
 }
 
 private fun PlaybackState.currentQueueStatus(): QueueItemStatus = when {
