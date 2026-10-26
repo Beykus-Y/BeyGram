@@ -536,4 +536,14 @@
     <string name="secret_chat_key_copied">Empreinte copiée</string>
     <string name="secret_chat_key_hash_only">Cette version n’affiche que l’empreinte de la clé ; la vérification par emoji n’est pas disponible.</string>
     <string name="secret_chat_closed_composer">Cette discussion secrète est fermée. Impossible d’envoyer de nouveaux messages.</string>
+    <string name="sticker_set_add">Ajouter le set</string>
+    <string name="sticker_set_add_failed">Impossible d’ajouter le set de stickers</string>
+    <string name="sticker_set_empty">Ce set ne contient aucun sticker disponible</string>
+    <string name="sticker_set_installed">Set installé</string>
+    <string name="sticker_set_load_failed">Impossible d’ouvrir le set de stickers</string>
+    <string name="sticker_set_not_installed">Set non installé</string>
+    <string name="sticker_set_remove">Retirer le set</string>
+    <string name="sticker_set_remove_failed">Impossible de retirer le set de stickers</string>
+    <string name="sticker_set_title">Set de stickers</string>
+    <string name="sticker_set_unavailable">Ce sticker ne fait partie d’aucun set de stickers</string>
 </resources>
