@@ -210,10 +210,10 @@ fun StoryViewerScreen(
             StoryListConfirmation.Gone -> closeViewer(StoryViewerCloseReason.Unavailable)
             is StoryListConfirmation.Present -> {
                 if (storyId in confirmation.storyIds) return
-                val at = stories.indexOfFirst { it.storyId == storyId }
-                val next = stories.getOrNull(at + 1) ?: stories.getOrNull(at - 1)
-                if (next != null && next.storyId != storyId) {
-                    index = stories.indexOf(next)
+                val nextIndex = storySuccessorIndex(stories, storyId, index)
+                val next = nextIndex?.let(stories::getOrNull)
+                if (nextIndex != null && next != null && next.storyId != storyId) {
+                    index = nextIndex
                     visibleStory = next
                 } else {
                     repository.refreshActiveStories()
@@ -456,12 +456,14 @@ fun StoryViewerScreen(
                 visibleStory = stories[currentIndex - 1]
             }
             currentIndex == 0 -> {
+                advancePendingStoryId = 0
                 progress = 0f
                 progressRestart++
             }
             stories.isNotEmpty() -> {
                 val target = (index - 1).coerceIn(0, stories.lastIndex)
                 if (target == index) {
+                    advancePendingStoryId = 0
                     progress = 0f
                     progressRestart++
                 } else {
@@ -470,6 +472,7 @@ fun StoryViewerScreen(
                 }
             }
             else -> {
+                advancePendingStoryId = 0
                 progress = 0f
                 progressRestart++
             }

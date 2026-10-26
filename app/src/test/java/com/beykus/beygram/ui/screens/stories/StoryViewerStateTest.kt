@@ -57,6 +57,18 @@ class StoryViewerStateTest {
     }
 
     @Test
+    fun confirmedRemovalMovesForwardFromTheOldPosition() {
+        val before = listOf(preview(1), preview(2), preview(3), preview(4))
+
+        assertEquals(2, storySuccessorIndex(before, removedStoryId = 2, previousIndex = 1))
+        assertEquals(1, storySuccessorIndex(listOf(preview(1), preview(3), preview(4)), 2, previousIndex = 1))
+        assertEquals(2, storySuccessorIndex(listOf(preview(1), preview(2), preview(3)), 4, previousIndex = 3))
+        assertEquals(0, storySuccessorIndex(listOf(preview(2), preview(3)), 1, previousIndex = 0))
+        assertEquals(null, storySuccessorIndex(listOf(preview(1)), 1, previousIndex = 0))
+        assertEquals(null, storySuccessorIndex(emptyList(), 1, previousIndex = 0))
+    }
+
+    @Test
     fun removalConfirmationRequiresAnAttachedViewerWithACachedAuthor() {
         assertTrue(needsStoryRemovalConfirmation(hasSnapshot = true, authorStillListed = false, connected = true))
         assertFalse(needsStoryRemovalConfirmation(hasSnapshot = false, authorStillListed = false, connected = true))

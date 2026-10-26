@@ -64,6 +64,28 @@ fun needsStoryRemovalConfirmation(
     connected: Boolean
 ): Boolean = hasSnapshot && !authorStillListed && connected
 
+/**
+ * Index to show after [removedStoryId] is confirmed gone. If the story is still in the cached page,
+ * its neighbour is next. If it already disappeared from the refreshed page, [previousIndex] now
+ * points at its successor; falling back to the first story would send the viewer backwards.
+ */
+fun storySuccessorIndex(
+    stories: List<StoryPreview>,
+    removedStoryId: Int,
+    previousIndex: Int
+): Int? {
+    if (stories.isEmpty()) return null
+    val at = stories.indexOfFirst { it.storyId == removedStoryId }
+    return when {
+        at in 0 until stories.lastIndex -> at + 1
+        at > 0 -> at - 1
+        at == 0 -> null
+        previousIndex in stories.indices -> previousIndex
+        previousIndex > 0 -> stories.lastIndex
+        else -> 0
+    }
+}
+
 /** Result of asking TDLib whether the author still has active stories. */
 sealed interface StoryListConfirmation {
     data object Gone : StoryListConfirmation
