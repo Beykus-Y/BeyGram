@@ -430,6 +430,7 @@ object PlaybackEngine {
         val defer = shouldDeferGrowingSeek(item.growing, requestedStart)
         val mediaItems = resolvedQueue.map(::mediaItemFor)
         target.setMediaItems(mediaItems, queue.index, if (defer) 0L else requestedStart)
+        installShuffleOrder(target, resolvedQueue.size)
         applyPlayerModes(target, music = true)
         applySpeed(target, item)
         target.prepare()
@@ -545,6 +546,21 @@ object PlaybackEngine {
         timelineHasNext = target?.hasNextMediaItem(),
         timelineHasPrevious = target?.hasPreviousMediaItem()
     )
+
+    /**
+     * A new playlist must get a fresh randomized order, not the sequential order Media3 derives from a previous
+     * one-off Play Next order. An explicit order is only used by Play Next itself.
+     */
+    @OptIn(UnstableApi::class)
+    private fun installShuffleOrder(target: ExoPlayer, itemCount: Int, explicit: List<Int>? = null) {
+        if (itemCount <= 0) return
+        val order = when {
+            explicit != null && explicit.size == itemCount -> PlaybackShuffleOrder(explicit)
+            _state.value.shuffleEnabled && itemCount > 1 -> PlaybackShuffleOrder.random(itemCount)
+            else -> return
+        }
+        target.setShuffleOrder(order)
+    }
 
     private fun registerSource(item: PlaybackItem, source: PlaybackQueueSource?) {
         PlaybackSources.register(
@@ -732,9 +748,7 @@ object PlaybackEngine {
         val requestedStart = positionMs.coerceAtLeast(0L)
         val defer = shouldDeferGrowingSeek(item.growing, requestedStart)
         target.setMediaItems(resolvedQueue.map(::mediaItemFor), index, if (defer) 0L else requestedStart)
-        if (playbackOrder != null && playbackOrder.size == resolvedQueue.size) {
-            target.setShuffleOrder(PlaybackShuffleOrder(playbackOrder))
-        }
+        installShuffleOrder(target, resolvedQueue.size, playbackOrder)
         applyPlayerModes(target, music = item.isMusic && !item.systemPrivate)
         applySpeed(target, item)
         target.prepare()
@@ -1008,6 +1022,7 @@ object PlaybackEngine {
         val target = exo
         if (_state.value.item?.isMusic == true && _state.value.item?.systemPrivate != true) target?.shuffleModeEnabled = enabled
         _state.update { it.copy(shuffleEnabled = enabled).withTimelineNavigation(target) }
+        if (enabled && target != null) installShuffleOrder(target, target.mediaItemCount)
         prefetchedKeys.clear()
         prefetchNext()
     }

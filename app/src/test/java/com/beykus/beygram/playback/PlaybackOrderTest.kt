@@ -2,7 +2,9 @@ package com.beykus.beygram.playback
 
 import androidx.media3.common.util.UnstableApi
 import com.beykus.beygram.domain.model.MediaKind
+import kotlin.random.Random
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
 import org.junit.Test
 
@@ -146,5 +148,26 @@ class PlaybackOrderTest {
         assertEquals(2, order.firstIndex)
         assertEquals(1, order.lastIndex)
         assertEquals(3, order.length)
+    }
+
+    @OptIn(UnstableApi::class)
+    @Test
+    fun rebuiltTimelineDoesNotReuseForcedOrderAsSequentialShuffle() {
+        val forced = PlaybackShuffleOrder(listOf(3, 1, 0, 2))
+        val rebuilt = forced.cloneAndClear().cloneAndInsert(0, 6)
+        assertEquals(6, rebuilt.length)
+        val playbackOrder = rebuilt.toIndexOrder()
+        assertEquals((0 until 6).toSet(), playbackOrder.toSet())
+        assertNotEquals((0 until 6).toList(), playbackOrder)
+    }
+
+    @OptIn(UnstableApi::class)
+    @Test
+    fun randomShuffleOrderIsAlwaysPermutationAndNeverSequential() {
+        repeat(20) { seed ->
+            val playbackOrder = PlaybackShuffleOrder.random(6, Random(seed)).toIndexOrder()
+            assertEquals((0 until 6).toSet(), playbackOrder.toSet())
+            assertNotEquals((0 until 6).toList(), playbackOrder)
+        }
     }
 }
