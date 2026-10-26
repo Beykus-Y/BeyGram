@@ -36,7 +36,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -122,7 +121,7 @@ private const val SEARCH_DEBOUNCE_MS = 350L
  * so the conversation stays visible and insets keep working.
  */
 
-/** Draws the sticker/GIF entry next to the composer and keeps the keyboard out of the way when the panel opens. */
+/** Draws the single sticker/GIF/emoji action inside the composer TextField trailing slot. */
 @Composable
 internal fun StickerPanelEntryButton(open: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
@@ -145,7 +144,7 @@ internal fun StickerPanelEntryButton(open: Boolean, enabled: Boolean, onClick: (
             }
     ) {
         Icon(
-            Icons.Rounded.EmojiEmotions,
+            Icons.Rounded.Animation,
             contentDescription = null,
             tint = when {
                 !enabled -> palette.disabled
