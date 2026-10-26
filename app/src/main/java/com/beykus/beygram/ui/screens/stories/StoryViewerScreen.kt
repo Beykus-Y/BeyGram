@@ -344,7 +344,7 @@ fun StoryViewerScreen(
     // TDLib marks a story as read only after OpenStory succeeds. Wait until the media is actually on
     // screen; otherwise a failed or offline load must not consume the unread marker.
     var openedStoryId by remember(posterChatId) { mutableIntStateOf(0) }
-    LaunchedEffect(posterChatId, current?.storyId, detail != null, mediaReady, connected, resumed, retry) {
+    LaunchedEffect(posterChatId, current?.storyId, detail != null, mediaReady, connected, resumed, retry, openedStoryId) {
         val storyId = current?.storyId ?: return@LaunchedEffect
         if (!connected || detail == null || !mediaReady || !resumed || openedStoryId == storyId) {
             return@LaunchedEffect
@@ -362,6 +362,8 @@ fun StoryViewerScreen(
         } finally {
             if (latestOpenedStoryId == storyId) {
                 withContext(NonCancellable) { repository.closeStory(posterChatId, storyId) }
+                // Allow OpenStory for this story again if the user navigates back to it.
+                if (openedStoryId == storyId) openedStoryId = 0
             }
         }
     }
