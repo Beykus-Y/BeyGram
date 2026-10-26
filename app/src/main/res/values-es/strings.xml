@@ -647,9 +647,4 @@
     <string name="music_card_not_downloaded">Se descargará</string>
     <string name="music_card_unavailable">Archivo no disponible</string>
     <string name="music_card_play_download">Descargar y reproducir</string>
-    <string name="media_show_in_chat">Mostrar en el chat</string>
-    <string name="media_kind_audio">Audio</string>
-    <string name="player_speed">Velocidad</string>
-    <string name="player_speed_option">%1$s×</string>
-    <string name="media_audio_play_failed">No se pudo reproducir el audio</string>
 </resources>
