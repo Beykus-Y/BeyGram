@@ -212,7 +212,7 @@ internal class AttachmentState(
     var pickContact: () -> Unit = {}
     var pickDice: () -> Unit = {}
     /** False where Telegram rejects polls: secret chats and ordinary private chats with people. */
-    var allowsPolls: Boolean = true
+    var allowsPolls by mutableStateOf(true)
     /** A poll send failed and [extra] still holds the composed poll, so Retry/Cancel are shown. */
     var extraSendFailed by mutableStateOf(false)
         private set
