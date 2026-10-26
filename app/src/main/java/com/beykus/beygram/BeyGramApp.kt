@@ -162,6 +162,7 @@ import com.beykus.beygram.ui.screens.share.ShareTargetScreen
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
+import com.beykus.beygram.ui.screens.playback.LocalOpenEqualizer
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -1950,7 +1951,8 @@ private fun BeyGramAppContent(
         LocalChatAnimationPreferences provides chatAnimationPreferences,
         LocalSystemReducedMotion provides reducedMotion,
         LocalAutoDownloadFile provides repository::autoDownloadFile,
-        LocalBackgroundMediaDownload provides repository::downloadFileInBackground
+        LocalBackgroundMediaDownload provides repository::downloadFileInBackground,
+        LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name }
     ) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
