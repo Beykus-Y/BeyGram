@@ -2212,7 +2212,10 @@ private fun BeyGramAppContent(
                         profileTitle = giftsProfileTitle,
                         isSelf = giftsProfileSelf,
                         load = { repository.giftsInfo(giftsProfileId, giftsProfileSelf) },
-                        send = { giftId -> repository.sendGift(giftsProfileId, giftsProfileSelf, giftId) },
+                        loadMoreReceived = repository::receivedGifts,
+                        send = { giftId, text, isPrivate ->
+                            repository.sendGift(giftsProfileId, giftsProfileSelf, giftId, text, isPrivate)
+                        },
                         onOpenStars = { openStars(AppRoute.Gifts) },
                         onBack = { routeName = giftsReturnRouteName }
                     )

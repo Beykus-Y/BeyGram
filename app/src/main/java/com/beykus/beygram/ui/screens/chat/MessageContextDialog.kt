@@ -59,6 +59,11 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     val androidContext = LocalContext.current
     val list = rememberLazyListState()
     val reactionScope = rememberCoroutineScope()
+    // The window keeps its own copy of the messages, so the copy is reloaded after a Stars reaction, poll change or paid media payment.
+    fun reloadSnapshot() {
+        reactionScope.launch { conversation.messageContext(chatId, targetId).onSuccess { context = it } }
+    }
+    val paidReactions = rememberPaidReactions(conversation) { reloadSnapshot() }
     LaunchedEffect(chatId, targetId, attempt) {
         context = null; error = null
         val result = conversation.messageContext(chatId, targetId)
@@ -69,16 +74,14 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     }
     // The dialog keeps its own copy of the messages, so the reactions TDLib returns are written back into that copy.
     fun react(messageId: Long, reaction: ReactionOption) {
+        if (reaction.isPaid) {
+            paidReactions.open(chatId, messageId)
+            return
+        }
         reactionScope.launch {
             conversation.toggleReaction(chatId, messageId, reaction, addToRecent = false)
                 .onSuccess { reactions -> context = context?.let { current -> current.copy(messages = current.messages.map { if (it.id == messageId) it.copy(reactions = reactions) else it }) } }
                 .onFailure { failure -> Toast.makeText(androidContext, failure.userMessage(androidContext, R.string.chat_reaction_failed), Toast.LENGTH_SHORT).show() }
-        }
-    }
-    // Poll mutations refresh the shared history store; reload this separate snapshot so vote/results/options are visible.
-    fun refreshPollSnapshot() {
-        reactionScope.launch {
-            conversation.messageContext(chatId, targetId).onSuccess { context = it }
         }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -111,14 +114,14 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                             onPollVote = { messageId, choices ->
                                 reactionScope.launch {
                                     conversation.votePoll(message.chatId, messageId, choices)
-                                        .onSuccess { refreshPollSnapshot() }
+                                        .onSuccess { reloadSnapshot() }
                                         .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_vote_failed), Toast.LENGTH_SHORT).show() }
                                 }
                             },
                             onPollStop = { messageId ->
                                 reactionScope.launch {
                                     conversation.stopPoll(message.chatId, messageId)
-                                        .onSuccess { refreshPollSnapshot() }
+                                        .onSuccess { reloadSnapshot() }
                                         .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_stop_failed), Toast.LENGTH_SHORT).show() }
                                 }
                             },
@@ -127,8 +130,9 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                             },
                             onAddPollOption = { messageId, text ->
                                 conversation.addPollOption(message.chatId, messageId, text)
-                                    .onSuccess { refreshPollSnapshot() }
+                                    .onSuccess { reloadSnapshot() }
                             },
+                            paidContent = rememberPaidContentActions(conversation) { reloadSnapshot() },
                             onOpenMessageEntity = onOpenMessageEntity)
                     }
                 }

@@ -250,6 +250,8 @@ internal fun EditBanner(original: String, isCaption: Boolean, count: Int, limit:
         is MessageSpecialContent.Venue -> content.venue.title.ifBlank { stringResource(R.string.chat_preview_location) }
         is MessageSpecialContent.Contact -> content.contact.displayName
         is MessageSpecialContent.Dice -> stringResource(R.string.chat_preview_dice, content.dice.emoji)
+        is MessageSpecialContent.PaidMedia -> stringResource(R.string.paid_content_preview_media)
+        is MessageSpecialContent.Invoice -> content.invoice.title.ifBlank { stringResource(R.string.paid_content_invoice) }
         is MessageSpecialContent.Unsupported -> stringResource(R.string.chat_unsupported_message)
         null -> media?.kind?.label(LocalContext.current) ?: stringResource(R.string.message_title)
     }

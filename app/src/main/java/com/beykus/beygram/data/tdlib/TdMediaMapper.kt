@@ -9,10 +9,12 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageContactInfo
 import com.beykus.beygram.domain.model.MessageDiceInfo
 import com.beykus.beygram.domain.model.MessageDiceState
+import com.beykus.beygram.domain.model.MessageInvoiceInfo
 import com.beykus.beygram.domain.model.MessageLinkPreview
 import com.beykus.beygram.domain.model.MessageLiveLocationInfo
 import com.beykus.beygram.domain.model.MessageLocationInfo
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.MessagePaidMediaInfo
 import com.beykus.beygram.domain.model.MessagePoll
 import com.beykus.beygram.domain.model.MessagePollOption
 import com.beykus.beygram.domain.model.MessageSpecialContent
@@ -127,13 +129,7 @@ internal class TdMediaMapper(
     private fun thumbnail(thumb: TdApi.Thumbnail?): Int? = thumb?.file?.let(::register)
 
     fun media(content: TdApi.MessageContent, freshSpeechError: Boolean = false): MessageMedia? = when (content) {
-        is TdApi.MessagePhoto -> {
-            val sizes = content.photo.sizes.orEmpty().filter { it.photo != null }
-            val full = sizes.maxByOrNull { it.width.toLong() * it.height }
-            val preview = sizes.filter { maxOf(it.width, it.height) >= 240 }.minByOrNull { it.width.toLong() * it.height }
-                ?: sizes.minByOrNull { it.width.toLong() * it.height }
-            full?.let { MessageMedia(MediaKind.Photo, register(it.photo), preview?.photo?.let(::register), "", "image/jpeg", it.width, it.height, hasSpoiler = content.hasSpoiler, isSecret = content.isSecret, minithumbnail = content.photo.minithumbnail?.data) }
-        }
+        is TdApi.MessagePhoto -> photoMedia(content.photo, content.hasSpoiler, content.isSecret)
         is TdApi.MessageVideo -> content.video.let {
             MessageMedia(MediaKind.Video, register(it.video), thumbnail(it.thumbnail), it.fileName.orEmpty(), it.mimeType.orEmpty().ifBlank { "video/mp4" }, it.width, it.height, it.duration, content.hasSpoiler, content.isSecret, minithumbnail = it.minithumbnail?.data, supportsStreaming = it.supportsStreaming)
         }
@@ -190,6 +186,10 @@ internal class TdMediaMapper(
             )
         )
         is TdApi.MessageVenue -> content.venue.toSpecialVenue()
+        is TdApi.MessagePaidMedia -> MessageSpecialContent.PaidMedia(content.toPaidMediaInfo())
+        is TdApi.MessageInvoice -> MessageSpecialContent.Invoice(content.toInvoiceInfo())
+        // Payment confirmations are service text in the timeline, so they never become a card.
+        is TdApi.MessagePaymentSuccessful, is TdApi.MessagePaymentSuccessfulBot -> null
         is TdApi.MessageContact -> MessageSpecialContent.Contact(
             MessageContactInfo(
                 userId = content.contact.userId,
@@ -291,6 +291,56 @@ internal class TdMediaMapper(
             provider = provider.orEmpty(),
             type = type.orEmpty()
         )
+    )
+
+    /** The largest TDLib size is the file to show; the smallest size of at least 240 px is its preview. */
+    private fun photoMedia(photo: TdApi.Photo, hasSpoiler: Boolean, isSecret: Boolean): MessageMedia? {
+        val sizes = photo.sizes.orEmpty().filter { it.photo != null }
+        val full = sizes.maxByOrNull { it.width.toLong() * it.height }
+        val preview = sizes.filter { maxOf(it.width, it.height) >= 240 }.minByOrNull { it.width.toLong() * it.height }
+            ?: sizes.minByOrNull { it.width.toLong() * it.height }
+        return full?.let { MessageMedia(MediaKind.Photo, register(it.photo), preview?.photo?.let(::register), "", "image/jpeg", it.width, it.height, hasSpoiler = hasSpoiler, isSecret = isSecret, minithumbnail = photo.minithumbnail?.data) }
+    }
+
+    /** Locked bundles keep TDLib's preview and price; a purchased bundle is mapped from its first real item. */
+    private fun TdApi.MessagePaidMedia.toPaidMediaInfo(): MessagePaidMediaInfo {
+        val items = this.media.orEmpty()
+        // TDLib sends one kind for the whole bundle: previews until it is bought, then the purchased media.
+        val locked = items.filterIsInstance<TdApi.PaidMediaPreview>().firstOrNull()
+        val purchased = items.isNotEmpty() && locked == null
+        return MessagePaidMediaInfo(
+            starCount = this.starCount,
+            itemCount = items.size,
+            isPurchased = purchased,
+            caption = this.caption?.text.orEmpty(),
+            previewWidth = locked?.width ?: 0,
+            previewHeight = locked?.height ?: 0,
+            previewDurationSeconds = locked?.duration ?: 0,
+            blurredMinithumbnail = locked?.minithumbnail?.data,
+            firstPurchasedMedia = if (purchased) items.firstNotNullOfOrNull { it.toPurchasedMedia() } else null
+        )
+    }
+
+    private fun TdApi.PaidMedia.toPurchasedMedia(): MessageMedia? = when (this) {
+        is TdApi.PaidMediaPhoto -> this.photo?.let { photoMedia(it, hasSpoiler = false, isSecret = false) }
+            ?: this.video?.let(::paidVideoMedia)
+        is TdApi.PaidMediaVideo -> this.video?.let(::paidVideoMedia)
+        else -> null
+    }
+
+    private fun paidVideoMedia(video: TdApi.Video): MessageMedia = MessageMedia(
+        MediaKind.Video, register(video.video), thumbnail(video.thumbnail), video.fileName.orEmpty(),
+        video.mimeType.orEmpty().ifBlank { "video/mp4" }, video.width, video.height, video.duration,
+        minithumbnail = video.minithumbnail?.data, supportsStreaming = video.supportsStreaming
+    )
+
+    private fun TdApi.MessageInvoice.toInvoiceInfo(): MessageInvoiceInfo = MessageInvoiceInfo(
+        title = this.productInfo?.title.orEmpty(),
+        description = this.productInfo?.description?.text.orEmpty(),
+        currency = this.currency.orEmpty(),
+        totalAmountMinor = this.totalAmount,
+        isTest = this.isTest,
+        receiptMessageId = this.receiptMessageId
     )
 
     private fun TdApi.Location.toGeoPoint() = GeoPoint(latitude, longitude, horizontalAccuracy)

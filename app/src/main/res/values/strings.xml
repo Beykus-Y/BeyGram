@@ -2138,4 +2138,59 @@
     <string name="music_card_not_downloaded">Будет загружено</string>
     <string name="music_card_unavailable">Файл недоступен</string>
     <string name="music_card_play_download">Скачать и воспроизвести</string>
+    <!-- #377 subtask B: gift, Premium gift, Stars and giveaway service lines -->
+    <string name="service_gift_sent_stars">Подарок отправлен: %1$s Stars</string>
+    <string name="service_gift_received_stars">Подарок получен: %1$s Stars</string>
+    <string name="service_gift_stars">Подарок: %1$s Stars</string>
+    <string name="service_gift_sent">Подарок отправлен</string>
+    <string name="service_gift_received">Подарок получен</string>
+    <string name="service_gift">Подарок</string>
+    <string name="service_gift_converted_stars">Подарок конвертирован в %1$s Stars</string>
+    <string name="service_gift_converted">Подарок конвертирован в Stars</string>
+    <string name="service_gift_refunded">Подарок возвращён</string>
+    <string name="service_gift_note">«%1$s»</string>
+    <string name="service_upgraded_gift">Уникальный подарок: %1$s #%2$d</string>
+    <string name="service_upgraded_gift_refunded">Уникальный подарок возвращён</string>
+    <plurals name="service_gift_premium_months">
+        <item quantity="one">Подарок Telegram Premium на %1$d месяц</item>
+        <item quantity="few">Подарок Telegram Premium на %1$d месяца</item>
+        <item quantity="many">Подарок Telegram Premium на %1$d месяцев</item>
+        <item quantity="other">Подарок Telegram Premium на %1$d месяца</item>
+    </plurals>
+    <plurals name="service_gift_premium_days">
+        <item quantity="one">Подарок Telegram Premium на %1$d день</item>
+        <item quantity="few">Подарок Telegram Premium на %1$d дня</item>
+        <item quantity="many">Подарок Telegram Premium на %1$d дней</item>
+        <item quantity="other">Подарок Telegram Premium на %1$d дня</item>
+    </plurals>
+    <string name="service_gift_premium">Подарок Telegram Premium</string>
+    <plurals name="service_gift_premium_code_months">
+        <item quantity="one">Код подарка Premium на %1$d месяц</item>
+        <item quantity="few">Код подарка Premium на %1$d месяца</item>
+        <item quantity="many">Код подарка Premium на %1$d месяцев</item>
+        <item quantity="other">Код подарка Premium на %1$d месяца</item>
+    </plurals>
+    <plurals name="service_gift_premium_code_days">
+        <item quantity="one">Код подарка Premium на %1$d день</item>
+        <item quantity="few">Код подарка Premium на %1$d дня</item>
+        <item quantity="many">Код подарка Premium на %1$d дней</item>
+        <item quantity="other">Код подарка Premium на %1$d дня</item>
+    </plurals>
+    <string name="service_gift_premium_code">Код подарка Premium</string>
+    <string name="service_gifted_stars">Подарено %1$s Stars</string>
+    <string name="service_gifted_ton">Подарено %1$s TON</string>
+    <plurals name="service_giveaway_started">
+        <item quantity="one">Розыгрыш: %1$d победитель</item>
+        <item quantity="few">Розыгрыш: %1$d победителя</item>
+        <item quantity="many">Розыгрыш: %1$d победителей</item>
+        <item quantity="other">Розыгрыш: %1$d победителя</item>
+    </plurals>
+    <string name="service_giveaway_stars_created">Розыгрыш Stars создан: %1$s Stars</string>
+    <string name="service_giveaway_prize_stars">Приз розыгрыша: %1$s Stars</string>
+    <string name="service_giveaway_completed">Розыгрыш завершён</string>
+    <string name="service_giveaway_winners">Победители розыгрыша: %1$d</string>
+    <string name="service_giveaway_refunded">Розыгрыш возвращён</string>
+    <string name="service_paid_messages_refunded">Платные сообщения возвращены: %1$s Stars</string>
+    <string name="service_paid_message_price">Цена сообщения изменена: %1$s Stars</string>
+    <string name="service_paid_message_free">Сообщения теперь бесплатные</string>
 </resources>

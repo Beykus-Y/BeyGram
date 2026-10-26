@@ -66,7 +66,7 @@ internal fun RecordingPreviewDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (mediaList.size > 1) {
                     Text(stringResource(R.string.recorder_preview_batch, mediaList.size, duration(mediaList.sumOf { it.durationSeconds })))
-                    Text(stringResource(R.string.recorder_preview_size, formatBytes(mediaList.sumOf { it.size })))
+                    Text(stringResource(R.string.recorder_preview_size, formatMediaSize(mediaList.sumOf { it.size })))
                 }
                 Text(stringResource(R.string.recorder_preview_duration, duration(media.durationSeconds)))
                 if (media.kind == MediaKind.VideoNote) {
@@ -105,10 +105,4 @@ internal fun RecordingPreviewDialog(
         confirmButton = { Button(enabled = !sending, onClick = onSend) { Text(stringResource(if (mediaList.size > 1) R.string.recorder_send_all else R.string.recorder_send)) } },
         dismissButton = { TextButton(enabled = !sending, onClick = onDelete) { Text(stringResource(R.string.recorder_delete)) } }
     )
-}
-
-private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1024L * 1024L -> "%.1f МБ".format(bytes / (1024.0 * 1024.0))
-    bytes >= 1024L -> "%.0f КБ".format(bytes / 1024.0)
-    else -> "$bytes Б"
 }

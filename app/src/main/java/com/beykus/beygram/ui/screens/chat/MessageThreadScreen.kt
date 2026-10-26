@@ -128,6 +128,11 @@ internal fun MessageThreadScreen(
     var sendError by remember { mutableStateOf<String?>(null) }
     var reactionTarget by remember { mutableStateOf<Pair<Long, ChatMessage>?>(null) }
     var reactionOptions by remember(conversation) { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    // A Stars reaction or a paid media payment on the post leaves the post copy stale, so the post is reloaded after it.
+    fun reloadPost() {
+        scope.launch { conversation.messageContext(channelChatId, postId).onSuccess { context -> post = context.messages.firstOrNull { it.id == postId } } }
+    }
+    val paidReactions = rememberPaidReactions(conversation) { reloadPost() }
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
     var selectedMediaChatId by remember { mutableStateOf(0L) }
     var stickerSetId by remember { mutableStateOf<Long?>(null) }
@@ -216,6 +221,10 @@ internal fun MessageThreadScreen(
     }
 
     fun changeReaction(chatId: Long, message: ChatMessage, option: ReactionOption, addToRecent: Boolean) {
+        if (option.isPaid) {
+            paidReactions.open(chatId, message.id)
+            return
+        }
         scope.launch {
             conversation.toggleReaction(chatId, message.id, option, addToRecent)
                 .onSuccess { reactions ->
@@ -410,6 +419,7 @@ internal fun MessageThreadScreen(
                         onAddPollOption = { chatId, messageId, text ->
                             conversation.addPollOption(chatId, messageId, text)
                         },
+                        paidContent = rememberPaidContentActions(conversation),
                         onOpenMessageEntity = onOpenMessageEntity
                     )
                 }
@@ -466,6 +476,7 @@ internal fun MessageThreadScreen(
                                     conversation.addPollOption(channelChatId, messageId, text)
                                 },
                                 onRetry = {},
+                                paidContent = rememberPaidContentActions(conversation) { reloadPost() },
                                 onOpenMessageEntity = onOpenMessageEntity
                             )
                         }
@@ -635,7 +646,8 @@ private fun ThreadCommentRow(
     onAddPollOption: suspend (chatId: Long, messageId: Long, text: String) -> Result<Unit>,
     onStickerOpen: (Long) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    paidContent: PaidContentActions? = null
 ) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp), verticalAlignment = Alignment.Top) {
@@ -679,6 +691,7 @@ private fun ThreadCommentRow(
                     onLoadPollVoters(message.chatId, messageId, optionIndex, offset)
                 },
                 onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) },
+                paidContent = paidContent,
                 onOpenMessageEntity = onOpenMessageEntity
             )
         }

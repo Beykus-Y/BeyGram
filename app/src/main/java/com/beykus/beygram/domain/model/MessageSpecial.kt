@@ -216,6 +216,36 @@ data class MessageDiceInfo(
     }
 }
 
+/**
+ * A paid photo/video bundle. Until it is bought, TDLib sends only previews: the size and a blurred minithumbnail.
+ * After the purchase, [firstPurchasedMedia] is the first photo or video, mapped like any other media.
+ */
+data class MessagePaidMediaInfo(
+    /** Price of the whole bundle in Telegram Stars. */
+    val starCount: Long,
+    val itemCount: Int,
+    val isPurchased: Boolean,
+    val caption: String = "",
+    val previewWidth: Int = 0,
+    val previewHeight: Int = 0,
+    val previewDurationSeconds: Int = 0,
+    val blurredMinithumbnail: ByteArray? = null,
+    val firstPurchasedMedia: MessageMedia? = null
+)
+
+/** A payment request in a chat. [receiptMessageId] is non-zero once Telegram has created the receipt. */
+data class MessageInvoiceInfo(
+    val title: String,
+    val description: String,
+    val currency: String,
+    /** Amount in the smallest unit of [currency]; Telegram Stars (XTR) have no fractional unit. */
+    val totalAmountMinor: Long,
+    val isTest: Boolean = false,
+    val receiptMessageId: Long = 0L
+) {
+    val isPaid: Boolean get() = receiptMessageId != 0L
+}
+
 /** Everything that is not a photo/video/document/audio/sticker/voice note or plain text. */
 sealed interface MessageSpecialContent {
     data class Poll(val poll: MessagePoll) : MessageSpecialContent
@@ -224,9 +254,11 @@ sealed interface MessageSpecialContent {
     data class Venue(val venue: MessageVenueInfo) : MessageSpecialContent
     data class Contact(val contact: MessageContactInfo) : MessageSpecialContent
     data class Dice(val dice: MessageDiceInfo) : MessageSpecialContent
+    data class PaidMedia(val media: MessagePaidMediaInfo) : MessageSpecialContent
+    data class Invoice(val invoice: MessageInvoiceInfo) : MessageSpecialContent
 
     /**
-     * A safe placeholder for paid, future or otherwise unsupported content. It is never rendered as an empty bubble.
+     * A safe placeholder for future or otherwise unsupported content. It is never rendered as an empty bubble.
      * [contentName] is TDLib's class name and is only used for diagnostics, never shown to the user.
      */
     data class Unsupported(val contentName: String = "") : MessageSpecialContent

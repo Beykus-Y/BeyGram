@@ -306,6 +306,7 @@ fun ChatScreen(
     var pendingWebApp by remember(chat.id) { mutableStateOf<PendingBotWebApp?>(null) }
     var webAppOpening by remember(chat.id) { mutableStateOf(false) }
     var reactionOptions by remember(conversation, chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    val paidReactions = rememberPaidReactions(conversation)
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
@@ -429,6 +430,10 @@ fun ChatScreen(
         else conversation.startChatActivity(chat.id, ChatActivity.Typing)
     }
     fun setReaction(messageId: Long, reaction: ReactionOption, addToRecent: Boolean) {
+        if (reaction.isPaid) {
+            paidReactions.open(chat.id, messageId)
+            return
+        }
         scope.launch {
             conversation.toggleReaction(chat.id, messageId, reaction, addToRecent).onFailure { error = it.userMessage(context, R.string.chat_reaction_failed) }
         }
@@ -1642,6 +1647,7 @@ fun ChatScreen(
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
                                 } else null,
                                 showSenderHeader = senderHeaderByKey[listItem.key] == true,
+                                paidContent = rememberPaidContentActions(conversation),
                                 onOpenMessageEntity = onOpenMessageEntity)
                         }
                         }
@@ -1853,18 +1859,6 @@ fun ChatScreen(
                         BotCommandButton(enabled = !sending && !inlineSending && !attachments.active) { botCommandMenuOpen = true }
                     }
                     AttachmentButton(attachments, enabled = !sending && !inlineSending)
-                    StickerPanelEntryButton(
-                        open = stickerPanelOpen,
-                        enabled = !busy && !attachments.active,
-                        onClick = {
-                            if (stickerPanelOpen) {
-                                stickerPanelOpen = false
-                            } else if (!busy && !attachments.active) {
-                                attachments.menuOpen = false
-                                stickerPanelOpen = true
-                            }
-                        }
-                    )
                 } else Spacer(Modifier.width(8.dp))
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
@@ -1875,7 +1869,24 @@ fun ChatScreen(
                 placeholder = if (hidingComposerForLaunch) "" else if (attachments.active && attachments.extra == null) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
                 locked = busy || hidingComposerForLaunch, isError = false,
                 modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused && stickerPanelOpen) stickerPanelOpen = false }.onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
-                focusRequest = replyFocusRequest, cursor = composerCursor)
+                focusRequest = replyFocusRequest, cursor = composerCursor,
+                // One entry to Emoji / Stickers / GIF, inside the input and before Record/Send.
+                trailingAction = if (!editing) {
+                    {
+                        StickerPanelEntryButton(
+                            open = stickerPanelOpen,
+                            enabled = !busy && !attachments.active,
+                            onClick = {
+                                if (stickerPanelOpen) {
+                                    stickerPanelOpen = false
+                                } else if (!busy && !attachments.active) {
+                                    attachments.menuOpen = false
+                                    stickerPanelOpen = true
+                                }
+                            }
+                        )
+                    }
+                } else null)
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
@@ -2412,7 +2423,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onStickerOpen: ((MessageMedia) -> Unit)? = null,
     animateSpecial: Boolean = false,
     diceAnimationId: Long = 0L,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    paidContent: PaidContentActions? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -2547,7 +2559,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     downloadFile = onDownloadFile,
                                     autoDownloadFile = onAutoDownloadFile,
                                     animateDice = animateSpecial,
-                                    diceAnimationId = diceAnimationId
+                                    diceAnimationId = diceAnimationId,
+                                    paidContent = paidContent
                                 )
                             }
                             if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)

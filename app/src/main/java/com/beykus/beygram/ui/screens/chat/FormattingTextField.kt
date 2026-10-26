@@ -25,7 +25,8 @@ import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 @Composable
 internal fun FormattingTextField(value: String, entities: List<MessageTextEntity>, onChange: (String) -> Unit,
     onEntitiesChange: (List<MessageTextEntity>) -> Unit, placeholder: String, locked: Boolean, isError: Boolean, modifier: Modifier,
-    focusRequest: Int = 0, cursor: ComposerCursor? = null) {
+    focusRequest: Int = 0, cursor: ComposerCursor? = null,
+    trailingAction: (@Composable () -> Unit)? = null) {
     var field by remember { mutableStateOf(TextFieldValue(value)) }
     // Text set from outside keeps the cursor an outside edit chose (see [ComposerCursor]); otherwise it goes to the end.
     val current = if (field.text == value) field else TextFieldValue(value, cursor?.selectionFor(value) ?: TextRange(value.length))
@@ -64,7 +65,8 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
                     format = true
                 }
             }, isError = isError, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            placeholder = { Text(placeholder, color = palette.textSecondary) }, maxLines = 5,
+            placeholder = { Text(placeholder, color = palette.textSecondary) },
+            trailingIcon = trailingAction, maxLines = 5,
             shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), colors = beyGramFilledTextFieldColors(),
             visualTransformation = VisualTransformation { text ->
                 TransformedText(buildAnnotatedString {

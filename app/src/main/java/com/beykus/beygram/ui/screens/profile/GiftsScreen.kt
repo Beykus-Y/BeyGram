@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CardGiftcard
@@ -31,6 +32,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,25 +52,32 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftBlockReason
 import com.beykus.beygram.domain.model.GiftCatalogItem
 import com.beykus.beygram.domain.model.GiftCollectionItem
 import com.beykus.beygram.domain.model.GiftSendEvent
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftSendStep
+import com.beykus.beygram.domain.model.GiftTextValidation
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
 import com.beykus.beygram.domain.model.ReceivedGiftItem
+import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.StarBalance
 import com.beykus.beygram.domain.model.formatStarAmount
 import com.beykus.beygram.domain.model.giftBlockReason
+import com.beykus.beygram.domain.model.mergeReceivedGifts
 import com.beykus.beygram.domain.model.next
+import com.beykus.beygram.domain.model.nextReceivedGiftsOffset
+import com.beykus.beygram.domain.model.validateGiftText
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
@@ -91,7 +102,8 @@ fun GiftsScreen(
     profileTitle: String,
     isSelf: Boolean,
     load: suspend () -> Result<GiftsInfo>,
-    send: suspend (giftId: Long) -> GiftSendOutcome,
+    loadMoreReceived: suspend (offset: String) -> Result<ReceivedGiftsPage>,
+    send: suspend (giftId: Long, text: String, isPrivate: Boolean) -> GiftSendOutcome,
     onOpenStars: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -113,6 +125,15 @@ fun GiftsScreen(
     val retained = retainedByAccount[accountId]
     val retainedRelevant = retained?.let { it.profileId == profileId && it.isSelf == isSelf } == true
     val sending = step is GiftSendStep.Sending || retained?.inFlight == true
+    val scope = rememberCoroutineScope()
+    // The token drops a "load more" response that arrives after a refresh started.
+    var generation by remember { mutableIntStateOf(0) }
+    var receivedNextOffset by remember { mutableStateOf("") }
+    var loadingMore by remember { mutableStateOf(false) }
+    var moreError by remember { mutableStateOf<String?>(null) }
+    // The message and the name switch belong to the send dialog; they survive rotation with it.
+    var giftText by rememberSaveable { mutableStateOf("") }
+    var hideSenderName by rememberSaveable { mutableStateOf(false) }
 
     BackHandler { if (!sending) onBack() }
     LaunchedEffect(Unit) {
@@ -171,12 +192,20 @@ fun GiftsScreen(
         if (outcome != GiftSendOutcome.Uncertain) RetainedGiftSendStore.acknowledge(accountId)
     }
     LaunchedEffect(reload) {
+        generation++
         loading = true
         error = null
         unsupported = false
+        loadingMore = false
+        moreError = null
+        // No "load more" may start from the previous page while this refresh is running.
+        receivedNextOffset = ""
         try {
             load()
-                .onSuccess { info = it }
+                .onSuccess { loaded ->
+                    info = loaded
+                    receivedNextOffset = loaded.receivedNextOffset
+                }
                 .onFailure { failure ->
                     if (failure is MonetizationUnavailableException) unsupported = true
                     else error = failure.userMessage(context, R.string.gifts_load_error)
@@ -198,6 +227,8 @@ fun GiftsScreen(
         if (sending || pendingGiftId != 0L) return
         notice = null
         selectedGift = gift
+        giftText = ""
+        hideSenderName = false
         step = step.next(GiftSendEvent.Select(gift.id))
     }
 
@@ -214,14 +245,22 @@ fun GiftsScreen(
             balanceStars = currentInfo.balance?.starCount,
             busy = sending
         )
-        if (blockReason != null) {
-            notice = context.getString(giftBlockMessage(blockReason))
+        val textTooLong = validateGiftText(giftText, currentInfo.textMaxLength) == GiftTextValidation.TooLong
+        val blockMessage = blockReason?.let { context.getString(giftBlockMessage(it)) }
+            ?: if (textTooLong) context.getString(R.string.gifts_text_too_long) else null
+        if (blockMessage != null) {
+            notice = blockMessage
             noticeIsError = true
             step = step.next(GiftSendEvent.Dismiss)
             selectedGift = null
             return
         }
-        val started = RetainedGiftSendStore.start(accountId, profileId, isSelf, gift.id) { send(gift.id) }
+        // Captured before the purchase starts: the dialog is locked while the request runs.
+        val text = giftText.trim()
+        val isPrivate = hideSenderName
+        val started = RetainedGiftSendStore.start(accountId, profileId, isSelf, gift.id) {
+            send(gift.id, text, isPrivate)
+        }
         if (!started) {
             notice = context.getString(R.string.gifts_block_busy)
             noticeIsError = true
@@ -231,6 +270,42 @@ fun GiftsScreen(
         }
         step = nextStep
         pendingGiftId = gift.id
+    }
+
+    fun requestMoreReceived() {
+        // A refresh may still show the previous page; never page from its stale offset.
+        if (loading || loadingMore || !isSelf || receivedNextOffset.isBlank()) return
+        val requestedOffset = receivedNextOffset
+        val currentGeneration = generation
+        scope.launch {
+            loadingMore = true
+            moreError = null
+            try {
+                loadMoreReceived(requestedOffset)
+                    .onSuccess { page ->
+                        if (generation != currentGeneration) return@onSuccess
+                        info = info?.copy(received = mergeReceivedGifts(info?.received.orEmpty(), page.gifts))
+                        receivedNextOffset = nextReceivedGiftsOffset(requestedOffset, page.nextOffset)
+                    }
+                    .onFailure { failure ->
+                        if (generation == currentGeneration) {
+                            moreError = failure.userMessage(context, R.string.gifts_received_more_error)
+                        }
+                    }
+            } catch (_: TimeoutCancellationException) {
+                if (generation == currentGeneration) {
+                    moreError = context.getString(R.string.err_monetization_timeout)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (generation == currentGeneration) {
+                    moreError = context.getString(R.string.gifts_received_more_error)
+                }
+            } finally {
+                if (generation == currentGeneration) loadingMore = false
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -329,6 +404,31 @@ fun GiftsScreen(
                             }
                         } else {
                             items(gifts.received, key = { it.id }) { gift -> ReceivedGiftRow(gift) }
+                            if (receivedNextOffset.isNotBlank()) item("received_more") {
+                                TextButton(
+                                    onClick = ::requestMoreReceived,
+                                    enabled = !loadingMore && !loading,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                ) {
+                                    Text(stringResource(R.string.gifts_received_more))
+                                }
+                            }
+                            if (loadingMore) item("received_more_loading") {
+                                Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent)
+                                }
+                            }
+                            moreError?.let { message ->
+                                item("received_more_error") {
+                                    Text(
+                                        message,
+                                        color = palette.danger,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
+                                            .errorAnnouncement()
+                                    )
+                                }
+                            }
                         }
                         item("collections_header") {
                             MonetizationSectionHeader(stringResource(R.string.gifts_collections_title))
@@ -429,6 +529,8 @@ fun GiftsScreen(
 
     val dialogGift = selectedGift
     if (dialogGift != null && (step is GiftSendStep.Confirming || step is GiftSendStep.Sending)) {
+        val textMaxLength = info?.textMaxLength ?: GIFT_TEXT_MAX_LENGTH_DEFAULT
+        val textTooLong = validateGiftText(giftText, textMaxLength) == GiftTextValidation.TooLong
         AlertDialog(
             onDismissRequest = { dismissDialog() },
             title = { Text(stringResource(R.string.gifts_send_dialog_title)) },
@@ -451,6 +553,26 @@ fun GiftsScreen(
                         ),
                         color = palette.textPrimary,
                         fontSize = 14.sp
+                    )
+                    OutlinedTextField(
+                        value = giftText,
+                        onValueChange = { giftText = it },
+                        label = { Text(stringResource(R.string.gifts_send_text_label)) },
+                        supportingText = {
+                            Text(
+                                if (textTooLong) stringResource(R.string.gifts_text_too_long)
+                                else stringResource(R.string.gifts_send_text_counter, giftText.length, textMaxLength)
+                            )
+                        },
+                        isError = textTooLong,
+                        enabled = !sending,
+                        maxLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    GiftPrivacyRow(
+                        checked = hideSenderName,
+                        enabled = !sending,
+                        onCheckedChange = { hideSenderName = it }
                     )
                     info?.balance?.let { balance ->
                         Text(
@@ -476,7 +598,7 @@ fun GiftsScreen(
             confirmButton = {
                 TextButton(
                     onClick = ::confirmGift,
-                    enabled = !sending,
+                    enabled = !sending && !textTooLong,
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Text(
@@ -531,6 +653,24 @@ private fun GiftsBalanceCard(
                 Text(stringResource(R.string.gifts_open_stars))
             }
         }
+    }
+}
+
+/** The whole row toggles the switch, so the label and the control announce as one setting. */
+@Composable
+private fun GiftPrivacyRow(checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(stringResource(R.string.gifts_hide_name), color = palette.textPrimary, fontSize = 14.sp)
+            Text(stringResource(R.string.gifts_hide_name_hint), color = palette.textSecondary, fontSize = 12.sp)
+        }
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
 

@@ -36,7 +36,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -122,7 +121,7 @@ private const val SEARCH_DEBOUNCE_MS = 350L
  * so the conversation stays visible and insets keep working.
  */
 
-/** Draws the sticker/GIF entry next to the composer and keeps the keyboard out of the way when the panel opens. */
+/** Draws the single sticker/GIF/emoji action inside the composer TextField trailing slot. */
 @Composable
 internal fun StickerPanelEntryButton(open: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
@@ -145,7 +144,7 @@ internal fun StickerPanelEntryButton(open: Boolean, enabled: Boolean, onClick: (
             }
     ) {
         Icon(
-            Icons.Rounded.EmojiEmotions,
+            Icons.Rounded.Animation,
             contentDescription = null,
             tint = when {
                 !enabled -> palette.disabled
@@ -1412,11 +1411,18 @@ private fun GifPanelArtwork(
 ) {
     val palette = beyGramPalette()
     val thumbnail = rememberPanelFile(item.thumbnailFileId, observeFile)
+    // Use a cached full animation only if already present; never download every GIF merely to draw the grid.
+    val fullFile = rememberPanelFile(item.fileId, observeFile)
     LaunchedEffect(item.thumbnailFileId) { item.thumbnailFileId?.let(downloadFile) }
-    val path = thumbnail.localPath
+    val path = thumbnail.localPath ?: fullFile.localPath
     Box(modifier, contentAlignment = Alignment.Center) {
         when {
-            path != null -> LocalMediaImage(path, Modifier.fillMaxSize(), fit = true, maxDimension = 320)
+            path != null -> LocalMediaImage(
+                path, Modifier.fillMaxSize(), fit = true, maxDimension = 320,
+                allowVideoFrame = true,
+                fallbackVideoPath = if (path != fullFile.localPath) fullFile.localPath else null,
+                fallbackMinithumbnail = item.minithumbnail
+            )
             item.minithumbnail != null -> MinithumbnailImage(item.minithumbnail, Modifier.fillMaxSize())
             thumbnail.isDownloading -> CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
             else -> Icon(Icons.Rounded.Animation, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(28.dp))

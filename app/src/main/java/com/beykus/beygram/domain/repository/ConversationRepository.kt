@@ -225,7 +225,7 @@ interface ConversationRepository {
     suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean = false): Result<String>
     /**
      * Reactions the current user can add to the message, in Telegram's order. Empty where reactions are not allowed. Custom
-     * emoji are listed only for users with Telegram Premium.
+     * emoji are listed only for users with Telegram Premium. A Stars reaction is listed only where Telegram allows one here.
      */
     suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>>
     /**
@@ -233,6 +233,14 @@ interface ConversationRepository {
      * extended menu, as Telegram requires. Returns the message's reactions after the change.
      */
     suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>>
+    /**
+     * Sends one Stars reaction of [starCount] after the user confirmed the amount. Never retried. A
+     * [PaidReactionUncertainException] means Telegram may already have taken the Stars, so the user must check the message first.
+     */
+    suspend fun addPaidReaction(chatId: Long, messageId: Long, starCount: Long, isAnonymous: Boolean = false): Result<Unit> =
+        Result.failure(UnsupportedOperationException())
+    /** The Stars balance the paid reaction dialog spends from; read the same way as the Stars screen. */
+    suspend fun starBalance(): Result<StarBalance> = Result.failure(UnsupportedOperationException())
     /** The custom emoji sticker behind [customEmojiId]. TDLib is asked on first use; the value stays null until it answers. */
     fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?>
     /** The effect behind [effectId]. Only fresh-message overlays call this; the value stays null until TDLib answers. */
@@ -296,4 +304,12 @@ interface ConversationRepository {
     fun startChatActivity(chatId: Long, activity: ChatActivity)
     /** Ends [activity] if it is the one being shown. */
     fun endChatActivity(chatId: Long, activity: ChatActivity)
+    /** Reads what paying for a paid media or invoice message would cost. Reading never spends anything. */
+    suspend fun paidContentPlan(chatId: Long, messageId: Long): PaidContentPlan = PaidContentPlan.Unavailable
+    /**
+     * Pays a paid message with Telegram Stars for exactly [confirmedStarCount], the price the user confirmed.
+     * Never retried automatically: a timeout or an unknown failure is reported as Uncertain.
+     */
+    suspend fun payPaidContentWithStars(chatId: Long, messageId: Long, confirmedStarCount: Long): PaidContentPaymentOutcome =
+        PaidContentPaymentOutcome.NotPayable
 }
