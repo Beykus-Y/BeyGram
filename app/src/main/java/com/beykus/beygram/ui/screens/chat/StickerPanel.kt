@@ -494,7 +494,7 @@ private fun StickerPanel(
                 .onSuccess { next ->
                     if (generation == gifRecentGeneration) {
                         gifRecentState = PickerLoad.Ready(
-                            AnimationPage(mergeAnimationPages(page.animations, next.animations), next.nextOffset)
+                            AnimationPage(mergeAnimationPages(page.animations, next), next.nextOffset)
                         )
                     }
                 }
@@ -520,7 +520,7 @@ private fun StickerPanel(
                 .onSuccess { next ->
                     if (generation == searchGeneration) {
                         gifSearchState = PickerLoad.Ready(
-                            AnimationPage(mergeAnimationPages(page.animations, next.animations), next.nextOffset)
+                            AnimationPage(mergeAnimationPages(page.animations, next), next.nextOffset)
                         )
                     }
                 }
@@ -1355,6 +1355,7 @@ private fun <T> PickerLoadContent(
         PickerLoad.Loading -> PanelLoading()
         is PickerLoad.Failed -> PanelError(current.message, onRetry)
         is PickerLoad.Ready<*> -> content(current.value as T)
+        else -> PanelLoading()
     }
 }
 
