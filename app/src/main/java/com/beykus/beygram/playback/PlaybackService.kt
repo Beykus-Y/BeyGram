@@ -30,11 +30,14 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         session = MediaSession.Builder(this, PlaybackEngine.player(this)).setSessionActivity(openApp).build()
+        // Equalizer failures must never prevent music from playing; the runtime reports them to the UI instead.
+        runCatching { EqualizerRuntime.start(this) }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     override fun onDestroy() {
+        runCatching { EqualizerRuntime.stop() }
         session?.release()
         session = null
         super.onDestroy()

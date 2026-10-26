@@ -71,6 +71,8 @@ import com.beykus.beygram.domain.model.canOpenGroupStatistics
 import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.playback.EqualizerRuntime
+import com.beykus.beygram.playback.EqualizerStore
 import com.beykus.beygram.ui.components.MainTabRail
 import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
@@ -162,6 +164,7 @@ import com.beykus.beygram.ui.screens.share.ShareTargetScreen
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
+import com.beykus.beygram.ui.screens.playback.EqualizerScreen
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -684,6 +687,10 @@ private fun BeyGramAppContent(
     // Decorative chat animations are global and account-independent; the flow updates an open chat immediately.
     val chatAnimationStore = remember(context) { ChatAnimationSettingsStore(context.applicationContext) }
     val chatAnimationSettings by chatAnimationStore.state.collectAsStateWithLifecycle()
+    // Equalizer preferences are device-local playback state, not Telegram-account data.
+    val equalizerStore = remember(context) { EqualizerStore.get(context.applicationContext) }
+    val equalizerSettings by equalizerStore.state.collectAsStateWithLifecycle()
+    val equalizerRuntimeState by EqualizerRuntime.state.collectAsStateWithLifecycle()
     val chatAnimationPreferences = remember(chatAnimationSettings) {
         ChatAnimationPreferences(
             animatedEmoji = chatAnimationSettings.animatedEmoji,
@@ -1421,6 +1428,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.ChatAnimations) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
@@ -2220,6 +2228,16 @@ private fun BeyGramAppContent(
                     onMessageEffectsChange = chatAnimationStore::setMessageEffects,
                     onBack = { routeName = AppRoute.Settings.name }
                 )
+                AppRoute.Equalizer -> EqualizerScreen(
+                    settings = equalizerSettings,
+                    runtime = equalizerRuntimeState,
+                    onEnabledChange = equalizerStore::setEnabled,
+                    onPresetChange = equalizerStore::selectPreset,
+                    onLevelsChange = { levels, persist -> equalizerStore.setCustomLevels(levels, persist) },
+                    onReset = equalizerStore::reset,
+                    onSaveCustom = equalizerStore::saveCustom,
+                    onBack = { routeName = AppRoute.Settings.name }
+                )
                 AppRoute.EditProfile -> {
                     myProfile.info?.let { info ->
                         EditProfileScreen(info, bioLimit, onBack = { routeName = AppRoute.MyProfile.name }, save = repository::updateMyProfile)
@@ -2280,7 +2298,8 @@ private fun BeyGramAppContent(
                         onAccountSecurity = { routeName = AppRoute.AccountSecurity.name },
                         onSecondaryAccounts = { accountSwitcherVisible = true },
                         onChatAnimations = { routeName = AppRoute.ChatAnimations.name },
-                        onAppLock = { routeName = AppRoute.AppLock.name }
+                        onAppLock = { routeName = AppRoute.AppLock.name },
+                        onEqualizer = { routeName = AppRoute.Equalizer.name }
                     )
                 }
                 AppRoute.AppLock -> AppLockSettingsScreen(onBack = { routeName = AppRoute.Settings.name })

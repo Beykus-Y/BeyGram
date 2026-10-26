@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Security
@@ -62,7 +63,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit,
     onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit,
     onDiagnostics: () -> Unit, onUpdates: () -> Unit, onLanguage: () -> Unit, onSessions: () -> Unit,
-    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onChatAnimations: () -> Unit = {}, onAppLock: () -> Unit = {}) {
+    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onChatAnimations: () -> Unit = {}, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -86,6 +87,9 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsLink(Icons.Rounded.Videocam, stringResource(R.string.settings_video_recording_title), onVideoRecording)
             SettingsDivider()
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
+        }
+        SettingsGroup(stringResource(R.string.settings_group_sound_playback)) {
+            SettingsLink(Icons.Rounded.GraphicEq, stringResource(R.string.settings_equalizer_title), onEqualizer)
         }
         SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {
             SettingsLink(Icons.Rounded.Key, stringResource(R.string.account_security_title), onAccountSecurity)
