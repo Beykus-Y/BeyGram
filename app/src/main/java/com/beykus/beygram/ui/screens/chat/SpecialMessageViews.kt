@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Person
@@ -75,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.GeoPoint
+import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageContactInfo
 import com.beykus.beygram.domain.model.MessageDiceInfo
 import com.beykus.beygram.domain.model.MessageLiveLocationInfo
@@ -93,6 +95,18 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * Resolves the single card a bubble shows for content that has no regular renderer. Expired self-destructing media is
+ * already described by [ChatMessage.expiredMediaKind] and must never receive the unsupported fallback as well.
+ */
+internal fun resolvedSpecialContent(message: ChatMessage): MessageSpecialContent? {
+    if (message.expiredMediaKind != null) return null
+    message.special?.let { return it }
+    val empty = message.text.isBlank() && message.media == null && message.linkPreview == null &&
+        message.reply == null && message.inlineKeyboard.isEmpty()
+    return if (empty) MessageSpecialContent.Unsupported() else null
+}
 
 /**
  * Renders everything that is not a regular media message. Polls and locations are interactive; the unsupported
@@ -645,6 +659,29 @@ private fun DiceCard(dice: MessageDiceInfo, modifier: Modifier) {
     ) {
         Text(dice.emoji.ifBlank { "🎲" }, fontSize = 64.sp, modifier = Modifier.graphicsLayer { scaleX = scale.value; scaleY = scale.value })
         Text(result, color = palette.messageTime, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+/** TDLib replaces expired self-destructing content with an empty MessageExpired* object. */
+internal fun expiredMediaLabelRes(kind: MediaKind): Int = when (kind) {
+    MediaKind.Photo -> R.string.media_expired_photo
+    MediaKind.Video -> R.string.media_expired_video
+    MediaKind.VideoNote -> R.string.media_expired_video_note
+    MediaKind.Voice -> R.string.media_expired_voice
+    else -> R.string.media_expired_other
+}
+
+/**
+ * The only card for an expired self-destructing attachment. It never offers to open, download or share the content,
+ * and it replaces the unsupported fallback for these TDLib content states.
+ */
+@Composable
+internal fun ExpiredMediaCard(kind: MediaKind, modifier: Modifier = Modifier) {
+    val palette = beyGramPalette()
+    Row(modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.Lock, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(expiredMediaLabelRes(kind)), color = palette.textSecondary, fontSize = 14.sp)
     }
 }
 

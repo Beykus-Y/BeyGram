@@ -2155,15 +2155,7 @@ internal fun ChannelCommentsBar(count: Int, onClick: () -> Unit) {
     }
 }
 
-/** TDLib replaces expired self-destructing content with an empty MessageExpired* object. */
-private fun expiredMediaLabelRes(kind: MediaKind): Int = when (kind) {
-    MediaKind.Photo -> R.string.media_expired_photo
-    MediaKind.Video -> R.string.media_expired_video
-    MediaKind.VideoNote -> R.string.media_expired_video_note
-    MediaKind.Voice -> R.string.media_expired_voice
-    else -> R.string.media_expired_other
-}
-
+/** One chat bubble: regular text/media, special cards, and the placeholder for expired self-destructing media. */
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {},
@@ -2197,9 +2189,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val shape = bubbleShape(message.isOutgoing, metrics)
     val hasText = message.text.isNotBlank()
     val special = message.special
-    // A message whose content this build cannot render still gets an explicit card, never an empty bubble.
-    val renderedSpecial = special ?: if (!hasText && message.media == null && message.linkPreview == null &&
-        message.reply == null && message.inlineKeyboard.isEmpty()) MessageSpecialContent.Unsupported() else null
+    // Expired media owns its card; unknown content still gets the explicit fallback, never an empty bubble.
+    val renderedSpecial = resolvedSpecialContent(message)
     val showText = hasText && special !is MessageSpecialContent.Contact
     val circle = message.media?.kind == MediaKind.VideoNote
     // Стикер лежит без пузыря: ни цвета, ни ширины фото.
@@ -2281,20 +2272,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 viewOnce = message.isViewOnce,
                                 autoDownloadFile = onAutoDownloadFile)
                         }
-                        message.expiredMediaKind?.let { kind ->
-                            Row(
-                                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Rounded.Lock, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    stringResource(expiredMediaLabelRes(kind)),
-                                    color = palette.textSecondary,
-                                    fontSize = 14.sp
-                                )
-                            }
-                        }
+                        message.expiredMediaKind?.let { kind -> ExpiredMediaCard(kind) }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (showText || renderedSpecial != null || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
