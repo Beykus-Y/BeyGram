@@ -135,7 +135,7 @@ class TdAccountSecurityTest {
             ).toPhoneChangeCode()
         )
         assertEquals(
-            PhoneCodeDelivery.Sms,
+            PhoneCodeDelivery.SmsWord,
             TdApi.AuthenticationCodeInfo(
                 "+79990000000",
                 TdApi.AuthenticationCodeTypeSmsWord("a"),

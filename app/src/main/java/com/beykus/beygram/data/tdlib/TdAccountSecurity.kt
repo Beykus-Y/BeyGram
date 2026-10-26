@@ -132,8 +132,8 @@ internal fun TdApi.AuthenticationCodeInfo.toPhoneChangeCode(): PhoneChangeCode {
     val (delivery, length) = when (val route = type) {
         is TdApi.AuthenticationCodeTypeTelegramMessage -> PhoneCodeDelivery.TelegramApp to route.length
         is TdApi.AuthenticationCodeTypeSms -> PhoneCodeDelivery.Sms to route.length
-        is TdApi.AuthenticationCodeTypeSmsWord, is TdApi.AuthenticationCodeTypeSmsPhrase ->
-            PhoneCodeDelivery.Sms to 0
+        is TdApi.AuthenticationCodeTypeSmsWord -> PhoneCodeDelivery.SmsWord to 0
+        is TdApi.AuthenticationCodeTypeSmsPhrase -> PhoneCodeDelivery.SmsPhrase to 0
         is TdApi.AuthenticationCodeTypeCall -> PhoneCodeDelivery.Call to route.length
         is TdApi.AuthenticationCodeTypeFlashCall -> PhoneCodeDelivery.FlashCall to 0
         is TdApi.AuthenticationCodeTypeMissedCall -> PhoneCodeDelivery.MissedCall to route.length

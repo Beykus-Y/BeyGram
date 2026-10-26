@@ -65,6 +65,8 @@
     <string name="account_security_phone_code_sent">Code envoyé au %1$s</string>
     <string name="account_security_phone_delivery_app">Le code est arrivé dans Telegram, sur un appareil où ce numéro est déjà connecté.</string>
     <string name="account_security_phone_delivery_sms">Le code a été envoyé par SMS au nouveau numéro.</string>
+    <string name="account_security_phone_delivery_sms_word">Le code est arrivé par SMS sous forme de mot. Saisissez ce mot.</string>
+    <string name="account_security_phone_delivery_sms_phrase">Le code est arrivé par SMS sous forme de phrase. Saisissez la phrase entière.</string>
     <string name="account_security_phone_delivery_call">Vous allez recevoir un appel qui vous dictera le code.</string>
     <string name="account_security_phone_delivery_flash_call">Un bref appel va arriver. Le code figure dans le numéro qui appelle.</string>
     <string name="account_security_phone_delivery_missed_call">Un appel manqué va arriver. Le code figure dans le numéro qui appelle.</string>
@@ -73,6 +75,7 @@
     <string name="account_security_phone_code_label">Code</string>
     <string name="account_security_phone_confirm">Confirmer</string>
     <string name="account_security_phone_resend">Renvoyer le code</string>
+    <string name="account_security_phone_resend_in">Renvoyer le code dans %1$d s</string>
     <string name="account_security_phone_changed">Numéro de téléphone modifié</string>
     <string name="account_security_phone_banned">Ce numéro est bloqué dans Telegram</string>
     <string name="account_security_phone_change_refused">Telegram n’a pas autorisé le changement de numéro dans cette application. Si l’erreur persiste, changez le numéro dans l’application officielle Telegram : il sera mis à jour ici automatiquement.</string>

@@ -13,7 +13,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -26,12 +28,13 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.PhoneChangeCode
 import com.beykus.beygram.domain.model.PhoneCodeDelivery
+import com.beykus.beygram.domain.model.filterPhoneCodeInput
+import com.beykus.beygram.domain.model.isTextCode
 import com.beykus.beygram.domain.model.isPlausiblePhoneNumber
 import com.beykus.beygram.domain.model.normalizePhoneNumberInput
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
-
-private const val MAX_CODE_DIGITS = 12
+import kotlinx.coroutines.delay
 
 /**
  * Both steps of a phone-number change in one dialog. While [pending] is null the user types the new
@@ -54,6 +57,14 @@ internal fun PhoneNumberChangeDialog(
     var phone by remember { mutableStateOf("") }
     // A fresh code request starts with an empty field, so an old code is never resent by mistake.
     var code by remember(pending) { mutableStateOf("") }
+    // Telegram accepts a resend only after its timeout; each new code restarts the countdown.
+    var resendIn by remember(pending) { mutableIntStateOf(pending?.timeoutSeconds?.coerceAtLeast(0) ?: 0) }
+    LaunchedEffect(pending) {
+        while (resendIn > 0) {
+            delay(1_000)
+            resendIn--
+        }
+    }
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
@@ -103,13 +114,11 @@ internal fun PhoneNumberChangeDialog(
                     )
                     OutlinedTextField(
                         value = code,
-                        onValueChange = { typed ->
-                            code = typed.filter { digit -> digit in '0'..'9' }.take(MAX_CODE_DIGITS)
-                        },
+                        onValueChange = { typed -> code = filterPhoneCodeInput(typed, pending.delivery) },
                         label = { Text(stringResource(R.string.account_security_phone_code_label)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
+                            keyboardType = if (pending.delivery.isTextCode) KeyboardType.Text else KeyboardType.Number,
                             imeAction = ImeAction.Done
                         ),
                         modifier = Modifier.fillMaxWidth()
@@ -117,11 +126,15 @@ internal fun PhoneNumberChangeDialog(
                     if (pending.canResend) {
                         TextButton(
                             onClick = onResend,
-                            enabled = !busy,
+                            enabled = !busy && resendIn == 0,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                stringResource(R.string.account_security_phone_resend),
+                                if (resendIn > 0) {
+                                    stringResource(R.string.account_security_phone_resend_in, resendIn)
+                                } else {
+                                    stringResource(R.string.account_security_phone_resend)
+                                },
                                 color = palette.accentInk
                             )
                         }
@@ -143,7 +156,7 @@ internal fun PhoneNumberChangeDialog(
                 }
             } else {
                 TextButton(
-                    enabled = !busy && code.isNotEmpty(),
+                    enabled = !busy && code.isNotBlank(),
                     onClick = { onConfirm(code) }
                 ) {
                     Text(stringResource(R.string.account_security_phone_confirm), color = palette.accentInk)
@@ -162,6 +175,8 @@ internal fun PhoneNumberChangeDialog(
 private fun deliveryText(delivery: PhoneCodeDelivery): Int = when (delivery) {
     PhoneCodeDelivery.TelegramApp -> R.string.account_security_phone_delivery_app
     PhoneCodeDelivery.Sms -> R.string.account_security_phone_delivery_sms
+    PhoneCodeDelivery.SmsWord -> R.string.account_security_phone_delivery_sms_word
+    PhoneCodeDelivery.SmsPhrase -> R.string.account_security_phone_delivery_sms_phrase
     PhoneCodeDelivery.Call -> R.string.account_security_phone_delivery_call
     PhoneCodeDelivery.FlashCall -> R.string.account_security_phone_delivery_flash_call
     PhoneCodeDelivery.MissedCall -> R.string.account_security_phone_delivery_missed_call

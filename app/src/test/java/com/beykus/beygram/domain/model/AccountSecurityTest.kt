@@ -100,4 +100,13 @@ class AccountSecurityTest {
         assertFalse(isPlausiblePhoneNumber("+123456"))
         assertFalse(isPlausiblePhoneNumber("+1234567890123456"))
     }
+
+    @Test
+    fun `code input keeps digits for numeric routes and text for word routes`() {
+        assertEquals("12345", filterPhoneCodeInput("12-34 5a", PhoneCodeDelivery.Sms))
+        assertEquals("blue sky", filterPhoneCodeInput("blue sky!", PhoneCodeDelivery.SmsPhrase))
+        assertEquals("word", filterPhoneCodeInput("word", PhoneCodeDelivery.SmsWord))
+        assertTrue(PhoneCodeDelivery.SmsWord.isTextCode)
+        assertFalse(PhoneCodeDelivery.TelegramApp.isTextCode)
+    }
 }

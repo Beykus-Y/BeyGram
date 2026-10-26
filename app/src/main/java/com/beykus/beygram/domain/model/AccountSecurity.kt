@@ -67,6 +67,10 @@ enum class PhoneCodeDelivery {
     /** A message inside Telegram, on a device that is already signed in with the number. */
     TelegramApp,
     Sms,
+    /** An SMS with a word instead of digits; the code field must accept letters. */
+    SmsWord,
+    /** An SMS with a phrase of several words; the code field must accept letters and spaces. */
+    SmsPhrase,
     Call,
     FlashCall,
     MissedCall,
@@ -110,4 +114,15 @@ fun normalizePhoneNumberInput(raw: String): String {
 fun isPlausiblePhoneNumber(value: String): Boolean {
     val digits = normalizePhoneNumberInput(value).count { it in '0'..'9' }
     return digits in MIN_PHONE_DIGITS..MAX_PHONE_DIGITS
+}
+
+/** Word and phrase codes are text; every other route delivers digits. */
+val PhoneCodeDelivery.isTextCode: Boolean
+    get() = this == PhoneCodeDelivery.SmsWord || this == PhoneCodeDelivery.SmsPhrase
+
+/** Keeps what a code of [delivery] can contain: digits, or letters and spaces for text codes. */
+fun filterPhoneCodeInput(raw: String, delivery: PhoneCodeDelivery): String = if (delivery.isTextCode) {
+    raw.filter { it.isLetterOrDigit() || it == ' ' }.take(64)
+} else {
+    raw.filter { it in '0'..'9' }.take(12)
 }
