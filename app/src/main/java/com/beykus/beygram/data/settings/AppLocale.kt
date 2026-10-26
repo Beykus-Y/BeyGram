@@ -2,6 +2,7 @@ package com.beykus.beygram.data.settings
 
 import android.app.LocaleManager
 import android.content.Context
+import android.content.res.Resources
 import android.content.res.Configuration
 import android.os.Build
 import android.os.LocaleList
@@ -33,10 +34,15 @@ internal object AppLocale {
     }
 
     fun context(base: Context): Context {
+        if (Build.VERSION.SDK_INT >= 33) return base
         val language = selected(base)
-        if (language.isEmpty() || Build.VERSION.SDK_INT >= 33) return base
+        // До Android 13 язык приложения меняет только Resources; Locale.getDefault() держим тем же,
+        // чтобы даты и числа без явной локали шли на языке интерфейса.
+        val locale = if (language.isEmpty()) Resources.getSystem().configuration.locales[0] else Locale.forLanguageTag(language)
+        if (Locale.getDefault() != locale) Locale.setDefault(locale)
+        if (language.isEmpty()) return base
         val config = Configuration(base.resources.configuration)
-        config.setLocale(Locale.forLanguageTag(language))
+        config.setLocale(locale)
         return base.createConfigurationContext(config)
     }
 

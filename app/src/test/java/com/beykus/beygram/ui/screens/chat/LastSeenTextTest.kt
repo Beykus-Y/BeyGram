@@ -20,7 +20,7 @@ class LastSeenTextTest {
         set(year, month, day, hourOfDay, minuteOfHour)
     }.timeInMillis
 
-    private fun relativeAgo(millis: Long) = lastSeenText(now - millis, now, LastSeenStyle.Relative)
+    private fun relativeAgo(millis: Long) = lastSeenText(now - millis, now, LastSeenStyle.Relative, language = "ru")
 
     @Test fun underAMinuteIsJustNow() {
         assertEquals(UiText.Res(R.string.presence_last_seen_just_now), relativeAgo(0))
@@ -28,7 +28,7 @@ class LastSeenTextTest {
     }
 
     @Test fun wasOnlineInTheFutureCountsAsJustNow() {
-        assertEquals(UiText.Res(R.string.presence_last_seen_just_now), lastSeenText(now + 10_000, now, LastSeenStyle.Relative))
+        assertEquals(UiText.Res(R.string.presence_last_seen_just_now), lastSeenText(now + 10_000, now, LastSeenStyle.Relative, language = "ru"))
     }
 
     @Test fun minutesUseTheRussianForms() {
@@ -44,6 +44,13 @@ class LastSeenTextTest {
         assertEquals(UiText.Res(R.string.presence_last_seen_minutes_many, listOf(59)), relativeAgo(59 * minute + 59_000))
     }
 
+    @Test fun minutesAndHoursUseEnglishFormsInEnglish() {
+        assertEquals(UiText.Res(R.string.presence_last_seen_minutes_one, listOf(1)), lastSeenText(now - minute, now, LastSeenStyle.Relative, language = "en"))
+        assertEquals(UiText.Res(R.string.presence_last_seen_minutes_many, listOf(21)), lastSeenText(now - 21 * minute, now, LastSeenStyle.Relative, language = "en"))
+        assertEquals(UiText.Res(R.string.presence_last_seen_minutes_many, listOf(2)), lastSeenText(now - 2 * minute, now, LastSeenStyle.Relative, language = "en"))
+        assertEquals(UiText.Res(R.string.presence_last_seen_hours_many, listOf(21)), lastSeenText(now - 21 * hour, now, LastSeenStyle.Relative, language = "en"))
+    }
+
     @Test fun hoursUseTheRussianForms() {
         assertEquals(UiText.Res(R.string.presence_last_seen_hours_one, listOf(1)), relativeAgo(hour))
         assertEquals(UiText.Res(R.string.presence_last_seen_hours_few, listOf(2)), relativeAgo(2 * hour))
@@ -56,22 +63,22 @@ class LastSeenTextTest {
     @Test fun withinADayStaysRelativeEvenAcrossMidnight() {
         val earlyNow = at(2026, Calendar.OCTOBER, 17, 1, 0)
         val lateYesterday = at(2026, Calendar.OCTOBER, 16, 23, 0)
-        assertEquals(UiText.Res(R.string.presence_last_seen_hours_few, listOf(2)), lastSeenText(lateYesterday, earlyNow, LastSeenStyle.Relative))
+        assertEquals(UiText.Res(R.string.presence_last_seen_hours_few, listOf(2)), lastSeenText(lateYesterday, earlyNow, LastSeenStyle.Relative, language = "ru"))
     }
 
     @Test fun moreThanADayAgoOnThePreviousDayShowsYesterdayAndTime() {
         val wasOnline = at(2026, Calendar.OCTOBER, 16, 9, 0)
-        assertEquals(UiText.Res(R.string.presence_last_seen_yesterday, listOf(timeText(wasOnline))), lastSeenText(wasOnline, now, LastSeenStyle.Relative))
+        assertEquals(UiText.Res(R.string.presence_last_seen_yesterday, listOf(timeText(wasOnline))), lastSeenText(wasOnline, now, LastSeenStyle.Relative, language = "ru"))
     }
 
     @Test fun olderThanYesterdayShowsDateAndTime() {
         val wasOnline = at(2026, Calendar.OCTOBER, 14, 9, 0)
-        assertEquals(UiText.Res(R.string.presence_last_seen_at, listOf(dateTimeText(wasOnline))), lastSeenText(wasOnline, now, LastSeenStyle.Relative))
+        assertEquals(UiText.Res(R.string.presence_last_seen_at, listOf(dateTimeText(wasOnline))), lastSeenText(wasOnline, now, LastSeenStyle.Relative, language = "ru"))
     }
 
     @Test fun exactStyleAlwaysShowsDateAndTime() {
         val fiveMinutesAgo = now - 5 * minute
-        assertEquals(UiText.Res(R.string.presence_last_seen_at, listOf(dateTimeText(fiveMinutesAgo))), lastSeenText(fiveMinutesAgo, now, LastSeenStyle.Exact))
+        assertEquals(UiText.Res(R.string.presence_last_seen_at, listOf(dateTimeText(fiveMinutesAgo))), lastSeenText(fiveMinutesAgo, now, LastSeenStyle.Exact, language = "ru"))
     }
 
     private fun timeText(millis: Long) = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(millis))

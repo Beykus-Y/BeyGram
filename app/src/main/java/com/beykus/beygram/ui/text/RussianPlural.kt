@@ -13,3 +13,13 @@ internal fun <T> russianPlural(count: Int, one: T, few: T, many: T): T {
         else -> many
     }
 }
+
+/**
+ * Форма числа по языку интерфейса: русские правила для ru/uk/be, во французском 0 и 1 — «one»,
+ * в остальных языках (en, de, es) «one» только для 1, иначе «many».
+ */
+internal fun <T> pluralForm(language: String, count: Int, one: T, few: T, many: T): T = when (language) {
+    "ru", "uk", "be" -> russianPlural(count, one, few, many)
+    "fr" -> if (count == 0 || count == 1) one else many
+    else -> if (count == 1) one else many
+}
