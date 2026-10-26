@@ -136,6 +136,9 @@
     <string name="chat_contact_send_failed">Der Kontakt konnte nicht gesendet werden</string>
     <string name="chat_dice_rolling">Wird gewürfelt…</string>
     <string name="chat_dice_result">Ergebnis: %1$d</string>
+    <string name="chat_dice_jackpot">Jackpot!</string>
+    <string name="chat_dice_not_sent">Nicht gesendet</string>
+    <string name="chat_dice_a11y">%1$s, %2$s</string>
     <string name="chat_dice_send_failed">Der Würfel konnte nicht gesendet werden</string>
     <string name="chat_unsupported_message">Dieser Nachrichtentyp wird noch nicht unterstützt</string>
     <string name="chat_unsupported_hint">Aktualisieren Sie BeyGram oder öffnen Sie den Chat in Telegram, um den Inhalt zu sehen.</string>

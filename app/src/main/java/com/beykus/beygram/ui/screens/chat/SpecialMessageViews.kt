@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -58,14 +56,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -74,11 +69,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.GeoPoint
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageContactInfo
-import com.beykus.beygram.domain.model.MessageDiceInfo
 import com.beykus.beygram.domain.model.MessageLiveLocationInfo
 import com.beykus.beygram.domain.model.MessageLocationInfo
 import com.beykus.beygram.domain.model.MessagePoll
@@ -94,6 +90,7 @@ import com.beykus.beygram.domain.model.appendPollVoters
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -122,7 +119,12 @@ internal fun SpecialMessageContentView(
     onStopLiveLocation: ((ChatMessage) -> Unit)? = null,
     onWriteContact: ((Long) -> Unit)? = null,
     onLoadPollVoters: (suspend (messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>)? = null,
-    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null
+    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null,
+    observeFile: ((Int) -> StateFlow<MediaFileState>)? = null,
+    downloadFile: ((Int) -> Unit)? = null,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    animateDice: Boolean = false,
+    diceAnimationId: Long = 0L
 ) {
     when (special) {
         is MessageSpecialContent.Poll -> PollCard(special.poll, message, modifier, onPollVote, onPollStop, onLoadPollVoters, onAddPollOption)
@@ -130,7 +132,16 @@ internal fun SpecialMessageContentView(
         is MessageSpecialContent.LiveLocation -> LiveLocationCard(special.location, message, modifier, onStopLiveLocation)
         is MessageSpecialContent.Venue -> VenueCard(special.venue, modifier)
         is MessageSpecialContent.Contact -> ContactCard(special.contact, modifier, onWriteContact)
-        is MessageSpecialContent.Dice -> DiceCard(special.dice, modifier)
+        is MessageSpecialContent.Dice -> DiceMessageCard(
+            dice = special.dice,
+            message = message,
+            animate = animateDice,
+            diceAnimationId = diceAnimationId,
+            observeFile = observeFile,
+            downloadFile = downloadFile,
+            autoDownloadFile = autoDownloadFile,
+            modifier = modifier
+        )
         is MessageSpecialContent.Unsupported -> UnsupportedMessageCard(modifier)
     }
 }
@@ -633,32 +644,6 @@ private fun ContactCard(contact: MessageContactInfo, modifier: Modifier, onWrite
                 Text(stringResource(R.string.chat_contact_write), color = palette.accent)
             }
         }
-    }
-}
-
-@Composable
-private fun DiceCard(dice: MessageDiceInfo, modifier: Modifier) {
-    val palette = beyGramPalette()
-    val motion = systemMotionEnabled()
-    val scale = remember { Animatable(1f) }
-    LaunchedEffect(dice.value, dice.emoji, motion) {
-        if (motion && dice.value > 0) {
-            scale.snapTo(0.72f)
-            scale.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 380f))
-        } else {
-            scale.snapTo(1f)
-        }
-    }
-    val result = if (dice.value > 0) stringResource(R.string.chat_dice_result, dice.value) else stringResource(R.string.chat_dice_rolling)
-    Column(
-        modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp).semantics {
-            liveRegion = LiveRegionMode.Polite
-            contentDescription = result
-        },
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(dice.emoji.ifBlank { "🎲" }, fontSize = 64.sp, modifier = Modifier.graphicsLayer { scaleX = scale.value; scaleY = scale.value })
-        Text(result, color = palette.messageTime, fontSize = 12.sp, fontWeight = FontWeight.Medium)
     }
 }
 
