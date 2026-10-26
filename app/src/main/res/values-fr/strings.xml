@@ -533,13 +533,13 @@
     <string name="secret_chat_start_confirm">Démarrer</string>
     <string name="secret_chat_key_action">Vérifier la clé de chiffrement</string>
     <string name="secret_chat_key_title">Clé de chiffrement</string>
-    <string name="secret_chat_key_fingerprint_label">Empreinte de la clé</string>
-    <string name="secret_chat_key_fingerprint_hint">Comparez cette empreinte avec votre contact en personne ou par un autre canal de confiance. Si les empreintes diffèrent, la discussion peut être interceptée.</string>
+    <string name="secret_chat_key_fingerprint_label">Code de la clé</string>
+    <string name="secret_chat_key_fingerprint_hint">Comparez l’image, les emoji et le code avec ce que voit votre contact, en personne ou par un autre canal de confiance. Les applications Telegram officielles les affichent de la même façon. Si quelque chose diffère, la discussion peut être interceptée.</string>
     <string name="secret_chat_key_device_warning">La clé n’appartient qu’à cet appareil et à cette session. Un autre appareil affichera une empreinte différente.</string>
     <string name="secret_chat_key_unavailable">L’empreinte n’est pas encore disponible. Rouvrez les paramètres de la discussion une fois la connexion établie.</string>
     <string name="secret_chat_key_copy">Copier</string>
     <string name="secret_chat_key_copied">Empreinte copiée</string>
-    <string name="secret_chat_key_hash_only">Cette version n’affiche que l’empreinte de la clé ; la vérification par emoji n’est pas disponible.</string>
+    <string name="secret_chat_key_image_description">Image de la clé de chiffrement</string>
     <string name="secret_chat_closed_composer">Cette discussion secrète est fermée. Impossible d’envoyer de nouveaux messages.</string>
     <string name="sticker_set_add">Ajouter le set</string>
     <string name="sticker_set_add_failed">Impossible d’ajouter le set de stickers</string>

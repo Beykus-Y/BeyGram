@@ -440,13 +440,13 @@
     <string name="secret_chat_start_confirm">Starten</string>
     <string name="secret_chat_key_action">Verschlüsselungsschlüssel prüfen</string>
     <string name="secret_chat_key_title">Verschlüsselungsschlüssel</string>
-    <string name="secret_chat_key_fingerprint_label">Schlüsselfingerabdruck</string>
-    <string name="secret_chat_key_fingerprint_hint">Vergleiche diesen Fingerabdruck persönlich oder über einen anderen vertrauenswürdigen Kanal. Wenn die Fingerabdrücke abweichen, kann der Chat abgefangen worden sein.</string>
+    <string name="secret_chat_key_fingerprint_label">Schlüsselcode</string>
+    <string name="secret_chat_key_fingerprint_hint">Vergleiche Bild, Emoji und Code mit dem, was dein Kontakt sieht – persönlich oder über einen anderen vertrauenswürdigen Kanal. Offizielle Telegram-Apps zeigen sie genauso an. Wenn etwas abweicht, kann der Chat abgefangen worden sein.</string>
     <string name="secret_chat_key_device_warning">Der Schlüssel gilt nur für dieses Gerät und diese Sitzung. Ein anderes Gerät zeigt einen anderen Fingerabdruck.</string>
     <string name="secret_chat_key_unavailable">Der Fingerabdruck ist noch nicht verfügbar. Öffne die Chat-Einstellungen nach dem Verbindungsaufbau erneut.</string>
     <string name="secret_chat_key_copy">Kopieren</string>
     <string name="secret_chat_key_copied">Fingerabdruck kopiert</string>
-    <string name="secret_chat_key_hash_only">Diese Version zeigt nur den Schlüsselfingerabdruck; eine Emoji-Prüfung ist nicht verfügbar.</string>
+    <string name="secret_chat_key_image_description">Bild des Verschlüsselungsschlüssels</string>
     <string name="secret_chat_closed_composer">Dieser geheime Chat ist geschlossen. Neue Nachrichten können nicht gesendet werden.</string>
     <string name="composer_view_once">Einmalig</string>
     <string name="composer_view_once_hint">Der Empfänger kann dieses Foto oder Video einmal öffnen</string>

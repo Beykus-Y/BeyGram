@@ -24,19 +24,62 @@ data class SecretChatDetails(
 }
 
 /**
- * A readable fingerprint of TDLib's key hash. The official four-emoji visualization is intentionally not implemented:
- * without a verified mapping, deriving emoji from [keyHash] would show a convincing but possibly wrong comparison.
+ * The three views of TDLib's key hash that official Telegram clients show on the "Encryption key" screen. Both sides
+ * see the same picture, hex and emoji only when nobody sits in the middle, so every mapping here follows Telegram for
+ * Android byte for byte (IdenticonActivity, IdenticonDrawable) and TDLib's SecretChat.keyHash documentation.
  */
 object SecretChatKey {
     private const val HEX = "0123456789ABCDEF"
+    /** TDLib's keyHash is 16 bytes of SHA-1 followed by 20 bytes of SHA-256 for layer 46+ chats. */
+    private const val FULL_HASH_SIZE = 36
+    private const val HEX_BYTES = 32
+    private const val EMOJI_OFFSET = 16
+    const val EMOJI_COUNT = 5
 
-    fun fingerprint(keyHash: List<Byte>): String = keyHash.chunked(4).joinToString(" ") { group ->
+    /** Pixel colors of the key picture, indexed by [identicon] values. */
+    val identiconColors: List<Long> = listOf(0xFFFFFFFF, 0xFFD5E6F3, 0xFF2D5775, 0xFF2F99C9)
+
+    /** The first 32 bytes as hex, as official clients print them; shorter legacy hashes are shown whole. */
+    fun fingerprint(keyHash: List<Byte>): String = keyHash.take(HEX_BYTES).chunked(4).joinToString(" ") { group ->
         buildString(group.size * 2) {
             group.forEach { byte ->
                 val value = byte.toInt() and 0xFF
                 append(HEX[value ushr 4])
                 append(HEX[value and 0x0F])
             }
+        }
+    }
+
+    /**
+     * Five emoji from the SHA-256 part of the hash: each 4-byte big-endian group with the sign bit dropped picks an
+     * entry of the official table. Older 16-byte hashes have no SHA-256 part and therefore no emoji.
+     */
+    fun emoji(keyHash: List<Byte>): List<String> {
+        if (keyHash.size < FULL_HASH_SIZE) return emptyList()
+        val table = SecretChatKeyEmoji.table
+        return List(EMOJI_COUNT) { index ->
+            val at = EMOJI_OFFSET + index * 4
+            val num = (keyHash[at].toInt() and 0x7F shl 24) or
+                (keyHash[at + 1].toInt() and 0xFF shl 16) or
+                (keyHash[at + 2].toInt() and 0xFF shl 8) or
+                (keyHash[at + 3].toInt() and 0xFF)
+            table[num % table.size]
+        }
+    }
+
+    /** Side of the square key picture: 12 for a full hash, 8 for a legacy 16-byte one, 0 when there is nothing to draw. */
+    fun identiconSide(keyHash: List<Byte>): Int = when {
+        keyHash.size >= FULL_HASH_SIZE -> 12
+        keyHash.size >= 16 -> 8
+        else -> 0
+    }
+
+    /** Color indexes of the key picture, row by row from the top left; every pixel takes the next two low bits. */
+    fun identicon(keyHash: List<Byte>): List<Int> {
+        val side = identiconSide(keyHash)
+        return List(side * side) { pixel ->
+            val bit = pixel * 2
+            keyHash[bit / 8].toInt() shr (bit % 8) and 0x3
         }
     }
 }

@@ -26,11 +26,16 @@ internal object MediaViewerPolicy {
 
     /**
      * TDLib deletes a view-once message as soon as its content was opened. The viewer already holds that page, so keep
-     * it until the user closes the viewer; otherwise the deletion would dismiss the media mid-view.
+     * it until the user closes the viewer; otherwise the deletion would dismiss the media mid-view. The page goes back
+     * to its place by message id, in the list's own direction, so neighbours keep their order while it is open.
      */
     fun retainViewOncePage(pages: List<MediaViewerItem>, retained: MediaViewerItem?): List<MediaViewerItem> {
         if (retained == null || !retained.viewOnce) return pages
         if (pages.any { it.messageId == retained.messageId }) return pages
-        return pages + retained
+        val descending = pages.size > 1 && pages.first().messageId > pages.last().messageId
+        val index = pages.indexOfFirst {
+            if (descending) it.messageId < retained.messageId else it.messageId > retained.messageId
+        }.takeIf { it >= 0 } ?: pages.size
+        return pages.toMutableList().apply { add(index, retained) }
     }
 }
