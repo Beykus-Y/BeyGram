@@ -166,7 +166,7 @@ internal fun GroupProfileScreen(
             }
             val kind = activeTab.kind
             if (kind == null || window == null) item(key = "members") { GroupMembers(info, state.isLoading, observeFile, downloadFile, onMembers, onOpenUser) }
-            else sharedItems(kind, info.id, window, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMedia = { viewing = it }, onOpenMessage = openMessage, onRetry = { scope.launch { window.loadOlder() } })
+            else sharedItems(kind, info.id, window, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMedia = { viewing = it }, onOpenMessage = openMessage, onRetry = { scope.launch { window.loadOlder() } }, autoDownloadFile = autoDownloadFile)
         }
     }
     SharedMediaViewer(media = windows.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
@@ -265,7 +265,8 @@ private fun GroupMembers(info: ProfileInfo, isLoading: Boolean, observeFile: (In
 private fun LazyListScope.sharedItems(
     kind: SharedMediaKind, chatId: Long, window: SharedMediaWindow,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
-    onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit, onRetry: () -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit, onRetry: () -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     // «Ссылки» бывают и в тексте, поэтому им вложение не нужно; остальные вкладки показывают только сообщения с вложением.
     val shown = window.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null }
@@ -282,7 +283,7 @@ private fun LazyListScope.sharedItems(
     } else {
         items(shown, key = { it.id }) { message ->
             if (kind == SharedMediaKind.Music) {
-                message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage) }
+                message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage, autoDownloadFile) }
             } else {
                 SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
             }

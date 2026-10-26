@@ -2,7 +2,9 @@ package com.beykus.beygram.playback
 
 import com.beykus.beygram.domain.model.MediaKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InterruptedMusicTest {
@@ -60,5 +62,41 @@ class InterruptedMusicTest {
         val waiting = InterruptedMusic(music, 61_000L)
         assertEquals(0L, resumePositionMs(waiting, otherMusic.key))
         assertEquals(0L, resumePositionMs(null, music.key))
+    }
+
+    @Test
+    fun reselectingInterruptedMusicRestoresPositionQueueAndModes() {
+        val savedQueue = listOf(music, otherMusic)
+        val waiting = InterruptedMusic(
+            item = music,
+            positionMs = 61_000L,
+            queue = savedQueue,
+            queueIndex = 1,
+            shuffleEnabled = true,
+            repeatMode = PlaybackRepeatMode.All
+        )
+        val restore = interruptedMusicRestore(waiting, music.key, givenQueue = null, givenSource = null)
+        assertNotNull(restore)
+        val restored = restore!!
+        assertEquals(PlaybackQueue(savedQueue, 1), restored.queue)
+        assertEquals(61_000L, restored.positionMs)
+        assertTrue(restored.shuffleEnabled)
+        assertEquals(PlaybackRepeatMode.All, restored.repeatMode)
+    }
+
+    @Test
+    fun explicitQueueWinsButInterruptedPositionIsStillKept() {
+        val waiting = InterruptedMusic(music, 61_000L, queue = listOf(music, otherMusic), queueIndex = 1)
+        val given = PlaybackQueue(listOf(otherMusic, music), 1)
+        val restore = interruptedMusicRestore(waiting, music.key, given, givenSource = null)
+        assertEquals(given, restore?.queue)
+        assertEquals(61_000L, restore?.positionMs)
+    }
+
+    @Test
+    fun anotherTrackDoesNotRestoreInterruptedMusic() {
+        val waiting = InterruptedMusic(music, 61_000L)
+        assertNull(interruptedMusicRestore(waiting, otherMusic.key, givenQueue = null, givenSource = null))
+        assertNull(interruptedMusicRestore(null, music.key, givenQueue = null, givenSource = null))
     }
 }

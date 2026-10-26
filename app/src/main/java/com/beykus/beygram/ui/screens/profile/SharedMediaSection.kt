@@ -137,7 +137,7 @@ internal fun SharedMediaSection(
         val kind = chatSharedKinds[page]
         SharedMediaPageContent(kind, chatId, tabs.getValue(kind), onMore = { loadMore(kind) }, observeFile = observeFile, downloadFile = downloadFile,
             confirmExport = confirmExport, onContentOpened = onContentOpened,
-            onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = openMessage)
+            onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = openMessage, autoDownloadFile = autoDownloadFile)
     }
 
     SharedMediaViewer(media = tabs.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
@@ -249,14 +249,15 @@ private fun SharedMediaTabBar(titles: List<String>, counts: List<String?>, selec
 private fun SharedMediaPageContent(
     kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
-    onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     // Первую страницу грузим, как только вкладку показали; неудачную попытку повторяем при следующем показе.
     LaunchedEffect(kind) { if (!tab.loaded) onMore() }
     when {
         tab.messages.isEmpty() -> SharedMediaStatus(kind, tab, onRetry = onMore)
         kind == SharedMediaKind.Media -> SharedMediaGrid(tab, onMore, observeFile, downloadFile, onOpenMedia, onOpenMessage)
-        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
+        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage, autoDownloadFile)
     }
 }
 
@@ -315,7 +316,8 @@ private fun SharedMediaGrid(
 private fun SharedMediaList(
     kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
-    onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit
+    onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val listState = rememberLazyListState()
     val shown = remember(kind, tab.messages) { tab.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null } }
@@ -324,7 +326,7 @@ private fun SharedMediaList(
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
         items(shown, key = { it.id }) { message ->
             if (kind == SharedMediaKind.Music) {
-                message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage) }
+                message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage, autoDownloadFile) }
             } else {
                 SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
             }
@@ -417,11 +419,13 @@ private fun SharedVoiceRow(
 @Composable
 internal fun SharedMusicRow(
     chatId: Long, tracks: List<ChatMessage>, message: ChatMessage, media: MessageMedia,
-    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
     val palette = beyGramPalette()
+    val automaticDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val label = stringResource(R.string.media_kind_audio)
     val you = stringResource(R.string.search_you)
@@ -467,7 +471,7 @@ internal fun SharedMusicRow(
                             context,
                             queue,
                             index,
-                            PlaybackQueueSource(accountId, observeFile, downloadFile)
+                            PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload)
                         )
                     }
                 }

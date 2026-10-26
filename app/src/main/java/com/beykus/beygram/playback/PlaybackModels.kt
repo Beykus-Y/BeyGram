@@ -260,6 +260,40 @@ internal fun queueForPlayback(items: List<PlaybackItem>, index: Int): PlaybackQu
 /** Позиция, с которой продолжается файл [key]: прерванная музыка возвращается к своему месту, остальные файлы идут с начала. */
 internal fun resumePositionMs(waiting: InterruptedMusic?, key: String): Long = waiting?.takeIf { it.item.key == key }?.positionMs ?: 0L
 
+/** Saved playback context restored when the user reselects the track that a voice/video note interrupted. */
+internal data class InterruptedMusicRestore(
+    val queue: PlaybackQueue,
+    val positionMs: Long,
+    val source: PlaybackQueueSource?,
+    val shuffleEnabled: Boolean,
+    val repeatMode: PlaybackRepeatMode
+)
+
+/**
+ * Reselecting the interrupted track must resume it instead of starting over. The explicit queue/source from the
+ * reselect (for example the Music tab) wins, but the saved position and modes still come from [waiting].
+ */
+internal fun interruptedMusicRestore(
+    waiting: InterruptedMusic?,
+    key: String,
+    givenQueue: PlaybackQueue?,
+    givenSource: PlaybackQueueSource?
+): InterruptedMusicRestore? {
+    val restore = waiting?.takeIf { it.item.key == key } ?: return null
+    val savedQueue = if (restore.queueIndex in restore.queue.indices) {
+        PlaybackQueue(restore.queue, restore.queueIndex)
+    } else {
+        PlaybackQueue()
+    }
+    return InterruptedMusicRestore(
+        queue = givenQueue ?: savedQueue,
+        positionMs = restore.positionMs,
+        source = givenSource ?: restore.source,
+        shuffleEnabled = restore.shuffleEnabled,
+        repeatMode = restore.repeatMode
+    )
+}
+
 /**
  * Key файла в общем плеере. Включает аккаунт, сообщение-источник, вид и fileId: голый TDLib fileId не глобальный.
  * Файл без Telegram origin получает отдельное пространство имён через [localPlaybackKey].
@@ -327,6 +361,9 @@ internal fun speedLabel(speed: Float): String = if (speed % 1f == 0f) speed.toIn
 /** Music and voice/video note speeds never affect each other. */
 internal fun playbackSpeedFor(kind: MediaKind, musicSpeed: Float, voiceSpeed: Float): Float =
     if (kind == MediaKind.Audio) musicSpeed else voiceSpeed
+
+/** The inline voice/video-note menu is bound to the voice preference even when unrelated music is current. */
+internal fun PlaybackState.inlineVoiceSpeed(): Float = voiceSpeed
 
 /** Metadata for Media3/lockscreen. Secret content has no title, artist, album, artwork or duration. */
 internal fun PlaybackItem.systemMetadata(): PlaybackMetadata =

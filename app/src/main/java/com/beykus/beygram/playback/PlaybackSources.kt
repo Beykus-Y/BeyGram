@@ -9,6 +9,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.TransferListener
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import java.io.File
 import java.io.IOException
@@ -18,16 +19,27 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Lazily resolves a music queue from one Telegram account. [observeFile] is the repository's live file state;
- * [download] is the explicit download request. The engine applies the auto-download/Data Saver policy before
- * calling [download] for prefetch, while a file the user actually opens is always requested.
+ * [download] is the explicit manual request used when playback actually opens a track. [autoDownload] is the
+ * policy-aware repository path used only for prefetch, so Data Saver/network changes can cancel that traffic.
  *
  * A queue must never mix accounts: numeric TDLib file ids are scoped to the account that produced them.
  */
 class PlaybackQueueSource(
     val accountId: String,
     val observeFile: (Int) -> StateFlow<MediaFileState>,
-    val download: (Int) -> Unit
-)
+    val download: (Int) -> Unit,
+    val autoDownload: ((AutoDownloadRequest) -> Unit)? = null
+) {
+    /**
+     * Sends a prefetch through automatic-download tracking. Returns false when the caller did not supply the
+     * automatic path; a manual [download] must never be used for speculative traffic.
+     */
+    fun prefetch(request: AutoDownloadRequest): Boolean {
+        val callback = autoDownload ?: return false
+        callback(request)
+        return true
+    }
+}
 
 internal data class ResolvedPlaybackSource(val path: String, val growing: GrowingPlaybackSource?)
 

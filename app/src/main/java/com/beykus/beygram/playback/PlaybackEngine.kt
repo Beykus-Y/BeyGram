@@ -305,14 +305,22 @@ object PlaybackEngine {
         }
 
         if (item.kind == MediaKind.Audio && !item.systemPrivate) {
-            val given = if (items.isNotEmpty() && index in items.indices) queueForPlayback(items, index) else PlaybackQueue()
-            queueSource = source
-            if (given.items.isNotEmpty()) {
-                interruptedMusic = interruptedAfterStart(currentState, interruptedMusic, item, source)
-                startQueue(context, given, source, startPositionMs = null, startFraction = 0f)
+            val given = if (items.isNotEmpty() && index in items.indices) queueForPlayback(items, index) else null
+            // A voice/video note may still be playing while the user taps the interrupted track. Restore its saved
+            // position/queue/modes before interruptedAfterStart clears the waiting state.
+            val restore = interruptedMusicRestore(interruptedMusic, item.key, given, source)
+            if (restore != null) {
+                _state.update { it.copy(shuffleEnabled = restore.shuffleEnabled, repeatMode = restore.repeatMode) }
+            }
+            val resumeMs = restore?.positionMs
+            val effectiveSource = restore?.source ?: source
+            val queue = restore?.queue ?: given ?: PlaybackQueue()
+            queueSource = effectiveSource
+            interruptedMusic = interruptedAfterStart(currentState, interruptedMusic, item, effectiveSource)
+            if (queue.items.isNotEmpty()) {
+                startQueue(context, queue, effectiveSource, startPositionMs = resumeMs, startFraction = 0f)
             } else {
-                interruptedMusic = interruptedAfterStart(currentState, interruptedMusic, item, source)
-                startSingle(context, item, startPositionMs = null, startFraction = 0f)
+                startSingle(context, item, startPositionMs = resumeMs, startFraction = 0f)
             }
             return
         }
@@ -1234,6 +1242,9 @@ object PlaybackEngine {
         prefetchCandidates(_state.value).forEach { item ->
             val fileId = item.fileId ?: return@forEach
             if (source.accountId != item.accountId) return@forEach
+            // Speculative traffic must use the repository automatic path; the manual callback is reserved for
+            // the track playback actually opens, so Data Saver/network cancellation can track prefetch downloads.
+            if (source.autoDownload == null) return@forEach
             if (!prefetchedKeys.add(item.key)) return@forEach
             val fileState = runCatching { source.observeFile(fileId).value }.getOrNull() ?: return@forEach
             if (fileState.localPath != null || fileState.isDownloading) return@forEach
@@ -1249,7 +1260,7 @@ object PlaybackEngine {
                 AutoDownloadRuntime.decision(context, request, item.accountId) == AutoDownloadDecision.Allowed
             }.getOrDefault(false)
             if (allowed) {
-                runCatching { source.download(fileId) }
+                runCatching { source.prefetch(request) }
             }
         }
     }
