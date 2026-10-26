@@ -530,6 +530,10 @@ fun ChatScreen(
     val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
         scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
     }
+    // In a private chat the peer is already named in the header; groups need the author once per block, not per bubble.
+    val senderHeaderByKey = remember(messageListItems, chat.isGroup, chat.isChannel, chat.isSavedMessages) {
+        senderHeaderVisibility(chat, messageListItems)
+    }
     val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
     val currentMessageItemsByKey by rememberUpdatedState(messageItemsByKey)
     val currentMessages by rememberUpdatedState(messages)
@@ -1442,7 +1446,8 @@ fun ChatScreen(
                                     commentsBar = albumComments?.let { post ->
                                         { ChannelCommentsBar(listItem.messages.maxOfOrNull { it.replyCount } ?: 0) { onOpenComments(post) } }
                                     },
-                                    onAutoDownloadFile = onAutoDownloadFile)
+                                    onAutoDownloadFile = onAutoDownloadFile,
+                                    showSenderHeader = senderHeaderByKey[listItem.key] == true)
                             }
                         }
                     }
@@ -1528,7 +1533,8 @@ fun ChatScreen(
                                 onToggleSelection = { toggleSelection(message) },
                                 commentsBar = if (showsChannelComments(chat.isChannel, message.isChannelPost, linkedDiscussionChatId)) {
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
-                                } else null)
+                                } else null,
+                                showSenderHeader = senderHeaderByKey[listItem.key] == true)
                         }
                         }
                     }
@@ -2162,6 +2168,8 @@ private fun expiredMediaLabelRes(kind: MediaKind): Int = when (kind) {
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {},
     onSenderClick: (() -> Unit)? = null,
+    /** Callers pass the chat/grouping decision; the sender name itself stays available for replies, search and profiles. */
+    showSenderHeader: Boolean = true,
     onBubblePositioned: ((Rect) -> Unit)? = null,
     translation: TranslationUiState? = null,
     onTranslationRetry: (() -> Unit)? = null,
@@ -2240,7 +2248,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     overlayMeta = overlayMeta,
                     body = {
                     Column {
-                        if (!message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        if (showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                                 .then(if (onSenderClick != null) Modifier.clickable { onSenderClick?.invoke() } else Modifier))
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
