@@ -25,7 +25,7 @@
     <string name="chats_filter_people">Private</string>
     <string name="chats_filter_groups">Groups</string>
     <string name="chats_filter_unread">Unread</string>
-    <string name="chats_search_placeholder">Search chats and messages</string>
+    <string name="chats_search_placeholder">Search or @username</string>
     <string name="chats_section_pinned">PINNED</string>
     <string name="chats_section_all">ALL CHATS</string>
     <string name="chats_archive_title">Archive</string>

@@ -23,7 +23,7 @@
     <string name="chats_filter_people">Privados</string>
     <string name="chats_filter_groups">Grupos</string>
     <string name="chats_filter_unread">Sin leer</string>
-    <string name="chats_search_placeholder">Buscar chats y mensajes</string>
+    <string name="chats_search_placeholder">Buscar o @username</string>
     <string name="chats_section_pinned">FIJADOS</string>
     <string name="chats_section_all">TODOS LOS CHATS</string>
     <string name="chats_archive_title">Archivo</string>

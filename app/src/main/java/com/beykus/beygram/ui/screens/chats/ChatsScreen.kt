@@ -95,10 +95,14 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.TelegramChatFolders
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramFolderLoadState
 import com.beykus.beygram.domain.model.TelegramFolderTab
 import com.beykus.beygram.domain.model.orderedTelegramFolderTabs
 import com.beykus.beygram.domain.model.validTelegramFolderSelection
+import com.beykus.beygram.domain.search.GlobalSearchQuery
+import com.beykus.beygram.domain.search.networkSearchAction
+import com.beykus.beygram.domain.search.parseGlobalSearchQuery
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
@@ -166,6 +170,8 @@ fun ChatsScreen(
     onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit,
     onGlobalSearch: (String) -> Unit = {},
+    /** Network state only changes the search action hint; local filtering keeps working offline. */
+    connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
     /**
      * Чат, открытый в правой панели: его строка подсвечена и помечена для TalkBack.
      * Пока панель показывает заглушку «Выберите чат», сюда приходит null.
@@ -220,8 +226,14 @@ fun ChatsScreen(
         enabled = true, perform = onArchive
     )
     val filteredChats = remember(query, displayedChats, selectedFilter) {
+        // @username and t.me links match local titles by the bare username too.
+        val localQuery = parseGlobalSearchQuery(query).publicText
         displayedChats.filter { chat ->
-            val matchesQuery = query.isBlank() || chat.title.contains(query, true) || (chat.lastMessage as? UiText.Raw)?.text?.contains(query, true) == true
+            val preview = (chat.lastMessage as? UiText.Raw)?.text
+            val matchesQuery = query.isBlank() ||
+                chat.title.contains(localQuery, true) ||
+                preview?.contains(query, true) == true ||
+                (localQuery != query && preview?.contains(localQuery, true) == true)
             val matchesFilter = when (selectedFilter) {
                 ChatFilter.All -> true
                 ChatFilter.Unread -> showsUnreadIndicator(chat)
@@ -359,6 +371,16 @@ fun ChatsScreen(
 
             Spacer(Modifier.height(14.dp))
             SearchField(query = query, onChange = { state.query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
+            // The network action stays directly under the field, above folders and local rows,
+            // so it is discoverable before a long cached chat list scrolls it out of view.
+            networkSearchAction(query)?.let { search ->
+                Spacer(Modifier.height(8.dp))
+                TelegramSearchAction(
+                    search = search,
+                    offline = connectionState == TelegramConnectionState.WaitingForNetwork,
+                    onClick = { onGlobalSearch(query) }
+                )
+            }
             Spacer(Modifier.height(12.dp))
             // Only one source of folder navigation: server-backed Telegram lists.
             // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
@@ -446,12 +468,14 @@ fun ChatsScreen(
                 }
             }
             if (query.isNotBlank()) {
-                item(key = "global_search") {
+                item(key = "local_search_header") {
                     Text(
-                        stringResource(R.string.chats_search_all, query),
-                        color = palette.accent,
-                        fontSize = 15.sp,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { onGlobalSearch(query) }.padding(horizontal = 20.dp, vertical = 14.dp)
+                        stringResource(R.string.chats_search_local_section),
+                        color = palette.textSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp)
+                            .semantics { heading() }
                     )
                 }
             }
@@ -532,6 +556,55 @@ fun ChatsScreen(
             setUnread = { onMarkUnread(selected) },
             delete = { onDeleteChat(selected.id) }
         )
+    }
+}
+
+@Composable
+private fun TelegramSearchAction(
+    search: GlobalSearchQuery,
+    offline: Boolean,
+    onClick: () -> Unit
+) {
+    val palette = beyGramPalette()
+    val title = stringResource(R.string.chats_search_network_action)
+    val subtitle = when {
+        offline -> stringResource(R.string.chats_search_network_action_offline)
+        search.username != null -> stringResource(
+            R.string.chats_search_network_action_username,
+            search.username
+        )
+        else -> stringResource(R.string.chats_search_network_action_hint)
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(palette.accentSoft)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = accessibleDescription(title, subtitle)
+            }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(36.dp).clip(CircleShape).background(palette.surface),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = palette.accentInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                subtitle,
+                color = palette.textSecondary,
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -673,7 +746,7 @@ private fun EmptyState(filter: ChatFilter, query: String) {
         Spacer(Modifier.height(12.dp))
         Text(
             text = when {
-                query.isNotBlank() -> stringResource(R.string.chats_empty_no_results)
+                query.isNotBlank() -> stringResource(R.string.chats_search_local_empty)
                 filter == ChatFilter.Unread -> stringResource(R.string.chats_empty_all_read)
                 filter == ChatFilter.Groups -> stringResource(R.string.chats_empty_no_groups)
                 else -> stringResource(R.string.chats_empty_quiet)
@@ -681,7 +754,10 @@ private fun EmptyState(filter: ChatFilter, query: String) {
             color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold
         )
         Spacer(Modifier.height(5.dp))
-        Text(stringResource(R.string.chats_empty_hint), color = palette.textSecondary, fontSize = 14.sp)
+        Text(
+            stringResource(if (query.isNotBlank()) R.string.chats_search_local_empty_hint else R.string.chats_empty_hint),
+            color = palette.textSecondary, fontSize = 14.sp
+        )
     }
 }
 
