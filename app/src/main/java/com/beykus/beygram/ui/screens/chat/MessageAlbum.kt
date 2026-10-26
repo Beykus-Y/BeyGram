@@ -50,6 +50,7 @@ import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
@@ -58,6 +59,7 @@ import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.reactionMessage
+import com.beykus.beygram.domain.model.showSenderHeader
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
@@ -85,6 +87,27 @@ internal fun groupTelegramMediaAlbums(messages: List<ChatMessage>): List<ChatMes
     }
 }
 
+/**
+ * Sender headers for the newest-first feed. The list is walked chronologically so consecutive messages from one author
+ * share one header, even when an album groups several of them. Service rows and separators do not belong to an author,
+ * so they start a fresh block. Pending video notes are outgoing content for the same reason.
+ */
+internal fun senderHeaderVisibility(chat: ChatPreview, items: List<ChatMessageListItem>): Map<String, Boolean> {
+    val headers = HashMap<String, Boolean>(items.size)
+    var previous: ChatMessage? = null
+    for (item in items.asReversed()) {
+        val chronological = item.messages.sortedWith(compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.id })
+        if (chronological.isEmpty()) {
+            previous = null
+            continue
+        }
+        val first = chronological.first()
+        headers[item.key] = showSenderHeader(chat, first, previous)
+        previous = chronological.last()
+    }
+    return headers
+}
+
 /** Renders only messages carrying Telegram's nonzero mediaAlbumId as one album. */
 @Composable
 internal fun MessageAlbumBubble(
@@ -103,6 +126,8 @@ internal fun MessageAlbumBubble(
     commentsBar: (@Composable () -> Unit)? = null,
     /** Repository-backed automatic preview download; null falls back to the manual callback for previews. */
     onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    /** Whether this album shows its author above the media; callers decide it from the chat type and the previous row. */
+    showSenderHeader: Boolean = true,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelection: () -> Unit = {}
@@ -148,7 +173,7 @@ internal fun MessageAlbumBubble(
                     overlayMeta = false,
                     body = {
                         Column {
-                            if (!latest.isOutgoing && latest.senderName.isNotBlank()) {
+                            if (showSenderHeader && !latest.isOutgoing && latest.senderName.isNotBlank()) {
                                 Text(latest.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp))
                             }
